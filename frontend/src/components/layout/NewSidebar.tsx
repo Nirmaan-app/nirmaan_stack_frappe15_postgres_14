@@ -26,7 +26,8 @@ import {
   CreditCard,
   BanknoteIcon,
   Dices,
-  Landmark, PencilRuler
+  Landmark, PencilRuler,SquareStack,
+  Warehouse
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -50,7 +51,7 @@ import {
   ShoppingCart,
   SquareSquare,
   Store,
-  UsersRound
+  UsersRound,Waypoints
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -363,15 +364,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(role == "Nirmaan Estimates Executive Profile"
-      ? [
-        {
-          key: '/tds-repository',
-          icon: List,
-          label: 'TDS Repository',
-        },
-      ]
-      : []),
+   
 
     ...([
       "Nirmaan Procurement Executive Profile",
@@ -399,6 +392,19 @@ export function NewSidebar() {
           key: "/purchase-orders",
           icon: ShoppingCart,
           label: "Purchase Orders",
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || [
+      "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Accountant Profile"
+    ].includes(role)
+      ? [
+        {
+          key: "/po-revisions-approval",
+          icon: SquareStack,
+          label: "PO Revisions Approval",
         },
       ]
       : []),
@@ -468,7 +474,7 @@ export function NewSidebar() {
         {
           key: '/invoice-reconciliation',
           icon: ReceiptText,
-          label: 'Invoice Recon',
+          label: 'Vendor Invoice Recon',
         },
       ]
       : []),
@@ -505,6 +511,33 @@ export function NewSidebar() {
           key: '/reports',
           icon: ClipboardMinus,
           label: 'Reports',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+      ? [
+        {
+          key: '/inventory',
+          icon: Warehouse,
+          label: 'Inventory',
+        },
+      ]
+      : []),
+       ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        {
+          key: '/tds-repository',
+          icon: Waypoints,
+          label: 'TDS Repository',
+        },
+      ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
+      ? [
+        {
+          key: '/tds-approval',
+          icon: ClipboardCheck,
+          label: 'TDS Approval',
         },
       ]
       : []),
@@ -552,15 +585,6 @@ export function NewSidebar() {
           label: 'Cashflow Plan Tracker',
         },
       ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
-      ? [
-        {
-          key: '/tds-approval',
-          icon: ClipboardCheck,
-          label: 'TDS Approval',
-        },
-      ]
       : [])
 
 
@@ -589,6 +613,7 @@ export function NewSidebar() {
     // "approve-payments",
     "procurement-requests",
     "purchase-orders",
+    "po-revisions-approval",
     "sent-back-requests",
     "service-requests",
     "service-requests-list",
@@ -611,6 +636,7 @@ export function NewSidebar() {
     'material-plan-tracker',
     'cashflow-plan-tracker',
     'tds-approval',
+    'inventory',
     'help-repository'
 
   ]), [])
@@ -632,6 +658,7 @@ export function NewSidebar() {
     "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
+    "/po-revisions-approval": ["po-revisions-approval"],
     "/project-payments": ["project-payments"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
@@ -646,6 +673,7 @@ export function NewSidebar() {
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
+    '/inventory': ['inventory'],
     '/help-repository': ['help-repository']
   }), []);
 
@@ -723,8 +751,8 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "PO Revisions Approval", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Vendor Invoice Recon", "Reports",
+                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval", "Inventory"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
@@ -90,13 +90,18 @@ export const UploadDCMIRDialog = ({
   const [attachmentAction, setAttachmentAction] = useState<"keep" | "replace">("keep");
   const typeLabel = dcType === "Delivery Challan" ? "DC" : "MIR";
 
+  const filteredPoItems = useMemo(
+    () => poItems.filter(item => item.category !== "Additional Charges"),
+    [poItems]
+  );
+
   const form = useForm<UploadDCMIRFormValues>({
     resolver: zodResolver(uploadDCMIRSchema),
     defaultValues: {
       referenceNumber: "",
       dcReference: "",
       dcDate: format(new Date(), "yyyy-MM-dd"),
-      items: poItems.map((item) => ({
+      items: filteredPoItems.map((item) => ({
         item_id: item.item_id,
         item_name: item.item_name,
         unit: item.unit,
@@ -121,7 +126,7 @@ export const UploadDCMIRDialog = ({
           referenceNumber: existingDoc.reference_number || "",
           dcReference: existingDoc.dc_reference || "",
           dcDate: existingDoc.dc_date || format(new Date(), "yyyy-MM-dd"),
-          items: poItems.map((poItem) => {
+          items: filteredPoItems.map((poItem) => {
             const existingItem = existingDoc.items?.find(
               (ei) => ei.item_id === poItem.item_id
             );
@@ -149,7 +154,7 @@ export const UploadDCMIRDialog = ({
           referenceNumber: "",
           dcReference: "",
           dcDate: format(new Date(), "yyyy-MM-dd"),
-          items: poItems.map((item) => ({
+          items: filteredPoItems.map((item) => ({
             item_id: item.item_id,
             item_name: item.item_name,
             unit: item.unit,
@@ -165,7 +170,7 @@ export const UploadDCMIRDialog = ({
         setSelectedFile(null);
       }
     }
-  }, [open, mode, existingDoc, poItems]);
+  }, [open, mode, existingDoc, filteredPoItems]);
 
   const isSubmitting = uploadLoading || createAttLoading;
   const isSignedByClient = form.watch("isSignedByClient");

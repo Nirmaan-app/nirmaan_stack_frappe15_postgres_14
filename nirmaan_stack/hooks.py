@@ -150,10 +150,7 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.asset_management.on_trash"
     },
     "Projects": {
-        "after_insert": [
-            "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
-            "nirmaan_stack.nirmaan_stack.doctype.projects.projects.generateUserPermissions"
-        ],
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
         # "on_update": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.edit_pwm",  # Commented out - PWM doctype no longer in use
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
     },
@@ -182,6 +179,7 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.procurement_requests.after_delete"
     },
     "Procurement Orders": {
+        "validate": "nirmaan_stack.integrations.controllers.procurement_orders.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_orders.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
         "on_trash": [
@@ -230,6 +228,10 @@ doc_events = {
     },
     "Project Inflows": {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+    },
+    "Delivery Notes": {
+        "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.delivery_notes.on_trash",
     }
 }
 

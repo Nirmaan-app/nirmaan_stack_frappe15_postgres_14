@@ -374,7 +374,7 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { toast } from "@/components/ui/use-toast";
 import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk"; 
 import { CirclePlus, Loader2, Trash2, Plus, Pencil } from "lucide-react";
-import React, { useCallback, useState, ChangeEvent, useMemo } from "react";
+import React, { useCallback, useState, ChangeEvent, useMemo, useEffect } from "react";
 import { formatDate } from "@/utils/FormatDate";
 
 // Structured payment term type
@@ -400,7 +400,6 @@ export interface CustomerPODetail {
 
 interface AddCustomerPODialogProps {
     projectName: string; // Name of the parent Projects doc (e.g., "PROJ/0001")
-    currentCustomerPODetails: CustomerPODetail[];
     refetchProjectData: () => Promise<any>;
 }
 
@@ -409,8 +408,7 @@ type LinkAttachmentChoice = 'link' | 'attachment';
 
 // Define the custom Frappe method name
 const CUSTOM_API_METHOD = 'nirmaan_stack.api.projects.add_customer_po.add_customer_po_with_validation'; 
-
-export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projectName, currentCustomerPODetails, refetchProjectData }) => {
+export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projectName, refetchProjectData }) => {
     const [open, setOpen] = useState(false);
     
     // State for Link/Attachment choice - Default to 'link' for initial form state
@@ -434,6 +432,13 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     
     const updateLoading = callLoading || uploadLoading;
+    
+    // EFFECT: Reset form when dialog is opened
+    useEffect(() => {
+        if (open) {
+            resetForm();
+        }
+    }, [open]);
 
     const handleInputChange = useCallback((e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { id, value } = e.target;
@@ -445,15 +450,6 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         }));
     }, []);
 
-    const handleFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0] || null;
-        setFormData(prev => ({
-            ...prev,
-            file: file,
-            customer_po_attachment: file ? file.name : '', 
-        }));
-    }, []);
-    
     // Handler for radio button change
     const handleChoiceChange = useCallback((choice: LinkAttachmentChoice) => {
         setLinkOrAttachmentChoice(choice);
@@ -499,15 +495,8 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     }, []);
 
     const isLinkAttachmentValid = useMemo(() => {
-        if (linkOrAttachmentChoice === 'link') {
-            return formData.customer_po_link.trim() !== '';
-        }
-        if (linkOrAttachmentChoice === 'attachment') {
-            return formData.file !== null; // File object must exist
-        }
-        // This case should not be reachable now that 'none' is removed
-        return false; 
-    }, [linkOrAttachmentChoice, formData]);
+        return true; 
+    }, []);
     
     const isFormValid = useMemo(() => {
         // Enforce: PO Number, Incl. Tax value, AND valid Link/Attachment
@@ -525,11 +514,6 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         
         if (!isFormValid) {
             let message = "Please fill all required fields: PO Number, PO Date, Value (Incl. Tax).";
-            if (linkOrAttachmentChoice === 'link' && formData.customer_po_link.trim() === '') {
-                message += " Also, the PO Link is required.";
-            } else if (linkOrAttachmentChoice === 'attachment' && formData.file === null) {
-                 message += " Also, an Attachment file is required.";
-            }
             toast({ title: "Validation Failed", description: message, variant: "destructive" });
             return;
         }
@@ -597,9 +581,9 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             const rawException = error?.exception;
             const specificMessage = rawException 
                 ? rawException.split(': ').slice(1).join(': ').trim() 
-                : "An unknown error occurred.";
+                : null;
 
-            const errorMessage = specificMessage || error?.messages?.[0]?.message || error?.message;
+            const errorMessage = specificMessage || error?.messages?.[0]?.message || error?.message || "An unknown error occurred.";
             toast({ 
                 title: "Error", 
                 description: `Failed to create Customer PO: ${errorMessage.replace(/<[^>]*>?/gm, '')}`, 
@@ -672,7 +656,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
                     {/* Radio Button Choice for Link or Attachment */}
                     <div className="space-y-2 border p-4 rounded-md">
-                        <Label className="font-medium">PO Source <span className="text-red-500">*</span> (Link or Attachment)</Label>
+                        <Label className="font-medium">PO Source (Link or Attachment)</Label>
                         <div className="flex gap-6">
                             <div className="flex items-center space-x-2">
                                 <input
@@ -703,13 +687,12 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     {linkOrAttachmentChoice === 'link' && (
                         <div className="grid grid-cols-1 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="customer_po_link">PO Link <span className="text-red-500">*</span></Label>
+                                <Label htmlFor="customer_po_link">PO Link</Label>
                                 <Input
                                     id="customer_po_link"
                                     type="url"
                                     value={formData.customer_po_link}
                                     onChange={handleInputChange}
-                                    required
                                 />
                             </div>
                         </div>
@@ -717,7 +700,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     
                     {linkOrAttachmentChoice === 'attachment' && (
                         <div className="space-y-2">
-                            <Label>PO Attachment (PDF/Image) <span className="text-red-500">*</span></Label>
+                            <Label>PO Attachment (PDF/Image)</Label>
                             <CustomAttachment
                                 selectedFile={formData.file}
                                 onFileSelect={(file) => setFormData(prev => ({ ...prev, file }))}
@@ -830,17 +813,28 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                         </Button>
                     </div>
 
-                    <Button type="submit" disabled={!isFormValid || updateLoading}>
-                        {updateLoading ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                            <CirclePlus className="mr-2 h-4 w-4" />
-                        )}
-                        {updateLoading 
-                            ? (uploadLoading ? "Uploading File..." : "Validating & Saving...") 
-                            : "Create Customer PO"
-                        }
-                    </Button>
+                    <div className="flex gap-4">
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            onClick={() => setOpen(false)} 
+                            className="flex-1"
+                            disabled={updateLoading}
+                        >
+                            Cancel
+                        </Button>
+                        <Button type="submit" disabled={!isFormValid || updateLoading} className="flex-1">
+                            {updateLoading ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <CirclePlus className="mr-2 h-4 w-4" />
+                            )}
+                            {updateLoading 
+                                ? (uploadLoading ? "Uploading File..." : "Validating & Saving...") 
+                                : "Create Customer PO"
+                            }
+                        </Button>
+                    </div>
                 </form>
             </DialogContent>
         </Dialog>

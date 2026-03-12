@@ -19,6 +19,7 @@ export interface PurchaseOrderItem {
 	unit: string;
 	quantity: number;
 	received_quantity?: number;
+	is_dispatched?: 0 | 1;
 	category: string;
 	procurement_package?: string;
 	quote: number;
@@ -146,6 +147,7 @@ export interface ProcurementOrder {
 	delivery_data?: { data: DeliveryDataType }
 	invoice_data?: { data: InvoiceDataType }
 	dispatch_date?: string | null;
+	expected_delivery_date?: string | null;
 	latest_delivery_date?: string | null;
 	latest_payment_date?: string | null;
 }

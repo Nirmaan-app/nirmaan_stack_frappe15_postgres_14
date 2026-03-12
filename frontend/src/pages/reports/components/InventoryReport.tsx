@@ -33,6 +33,7 @@ interface POEntry {
   status: string;
   amount: number;
   quote?: number;
+  tax?: number;
 }
 
 interface InventorySummaryRow {
@@ -45,6 +46,8 @@ interface InventorySummaryRow {
   poQuantity: number;
   latestDNQuantity: number;
   remainingQty: number | null;
+  maxRate: number;
+  maxRateTax: number;
 }
 
 interface LatestRemainingResponse {
@@ -98,6 +101,13 @@ function formatRemainingQty(val: number | null | undefined): string {
   return val.toFixed(2);
 }
 
+/** Compute estimated cost: remaining qty × max rate (incl. GST) */
+function computeEstimatedCost(row: InventorySummaryRow): number | null {
+  const rem = row.remainingQty;
+  if (rem === null || rem === undefined || rem === NOT_FILLED) return null;
+  return rem * row.maxRate * (1 + row.maxRateTax / 100);
+}
+
 // ── Main Component ─────────────────────────────────────────
 
 export default function InventoryReport() {
@@ -116,7 +126,7 @@ export default function InventoryReport() {
       <Alert variant="default" className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
         <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
         <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
-          This report only includes items with a total amount exceeding &#8377;{AMOUNT_THRESHOLD.toLocaleString()}.
+          This report only includes items with a total amount exceeding &#8377;{AMOUNT_THRESHOLD.toLocaleString()} and at least one delivery update.
         </AlertDescription>
       </Alert>
 
@@ -190,19 +200,27 @@ function SummaryTable({ projectId }: { projectId: string }) {
       .filter((item) => !toolEquipmentCategories.has(item.categoryName))
       .filter((item) => item.categoryName !== "Additional Charges")
       .filter((item) => (item.totalAmount ?? 0) > AMOUNT_THRESHOLD)
+      .filter((item) => (item.deliveredQuantity ?? 0) > 0)
       .map((item) => {
         const key = `${item.categoryName}_${item.itemId}`;
         const remaining = remainingItems[key];
+        const poEntries = (item.poNumbers ?? []) as POEntry[];
+        // Find max rate and its tax % across all POs for estimated cost calc
+        const maxEntry = poEntries.reduce<POEntry | null>((best, po) => {
+          return (po.quote ?? 0) > (best?.quote ?? 0) ? po : best;
+        }, null);
         return {
           itemKey: key,
           itemId: item.itemId ?? "",
           itemName: item.itemName ?? "",
           category: item.categoryName,
           unit: item.unit ?? "",
-          poNumbers: (item.poNumbers ?? []) as POEntry[],
+          poNumbers: poEntries,
           poQuantity: item.orderedQuantity,
           latestDNQuantity: item.deliveredQuantity,
           remainingQty: remaining?.remaining_quantity ?? null,
+          maxRate: maxEntry?.quote ?? 0,
+          maxRateTax: maxEntry?.tax ?? 18,
         };
       })
       .sort((a, b) => {
@@ -356,6 +374,44 @@ function SummaryTable({ projectId }: { projectId: string }) {
         return a - b;
       },
     },
+    {
+      id: "estimatedCost",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title={<span className="whitespace-normal leading-tight">Estimated Cost of Remaining Item (incl. GST)</span>}
+          className="flex-1 justify-end"
+        />
+      ),
+      cell: ({ row }) => {
+        const { remainingQty, maxRate, maxRateTax } = row.original;
+        const cost = computeEstimatedCost(row.original);
+        if (cost === null) {
+          return <span className="text-muted-foreground text-right block">---</span>;
+        }
+        const rateWithGst = maxRate * (1 + maxRateTax / 100);
+        return (
+          <TooltipProvider delayDuration={100}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-sm text-right block font-mono tabular-nums cursor-help">
+                  &#8377;{cost.toFixed(2)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                {formatRemainingQty(remainingQty)} x &#8377;{rateWithGst.toFixed(2)} (max rate incl. {maxRateTax}% GST)
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      },
+      size: 220,
+      sortingFn: (rowA, rowB) => {
+        const a = computeEstimatedCost(rowA.original) ?? -2;
+        const b = computeEstimatedCost(rowB.original) ?? -2;
+        return a - b;
+      },
+    },
   ], [remainingHeader]);
 
   // Table state
@@ -384,16 +440,20 @@ function SummaryTable({ projectId }: { projectId: string }) {
       return;
     }
 
-    const dataToExport = filteredData.map((row) => ({
-      itemName: row.itemName,
-      itemId: row.itemId,
-      poIds: row.poNumbers.map((p) => p.po).join(", ") || "---",
-      category: row.category,
-      unit: row.unit,
-      poQuantity: row.poQuantity.toFixed(2),
-      latestDNQuantity: row.latestDNQuantity.toFixed(2),
-      remainingQty: formatRemainingQty(row.remainingQty),
-    }));
+    const dataToExport = filteredData.map((row) => {
+      const cost = computeEstimatedCost(row);
+      return {
+        itemName: row.itemName,
+        itemId: row.itemId,
+        poIds: row.poNumbers.map((p) => p.po).join(", ") || "---",
+        category: row.category,
+        unit: row.unit,
+        poQuantity: row.poQuantity.toFixed(2),
+        latestDNQuantity: row.latestDNQuantity.toFixed(2),
+        remainingQty: formatRemainingQty(row.remainingQty),
+        estimatedCost: cost !== null ? cost.toFixed(2) : "---",
+      };
+    });
 
     const exportColumns = [
       { header: "Item Name", accessorKey: "itemName" },
@@ -404,6 +464,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
       { header: "PO Quantity", accessorKey: "poQuantity" },
       { header: "DN Quantity", accessorKey: "latestDNQuantity" },
       { header: remainingHeader, accessorKey: "remainingQty" },
+      { header: "Estimated Cost of Remaining Item", accessorKey: "estimatedCost" },
     ];
 
     try {
@@ -422,7 +483,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
   if (summaryData.length === 0) {
     return (
       <p className="text-sm text-muted-foreground text-center py-8">
-        No eligible items (total amount &gt; &#8377;{AMOUNT_THRESHOLD.toLocaleString()}) found for this project.
+        No eligible items (total amount &gt; &#8377;{AMOUNT_THRESHOLD.toLocaleString()} and at least one delivery) found for this project.
       </p>
     );
   }

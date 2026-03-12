@@ -184,6 +184,8 @@ export default function CustomersPage() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<CustomersType>({
     doctype: CUSTOMER_DOCTYPE,
     columns: columns,
@@ -232,6 +234,8 @@ export default function CustomersPage() {
         dateFilterColumns={CUSTOMER_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
         exportFileName="customers_data"
         showRowSelection={false} // Set to true if row selection is needed
       />

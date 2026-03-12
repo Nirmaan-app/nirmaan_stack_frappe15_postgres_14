@@ -252,6 +252,8 @@ export const AssetMasterList: React.FC = () => {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<AssetMaster>({
         doctype: ASSET_MASTER_DOCTYPE,
         columns,
@@ -289,6 +291,8 @@ export const AssetMasterList: React.FC = () => {
             dateFilterColumns={ASSET_DATE_COLUMNS}
             showExportButton={true}
             onExport="default"
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
             exportFileName="asset_master_data"
             showRowSelection={false}
         />

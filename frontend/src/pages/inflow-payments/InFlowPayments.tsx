@@ -504,6 +504,8 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     aggregates, // NEW
     isAggregatesLoading, // NEW
     columnFilters, // NEW
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProjectInflows>({
     doctype: DOCTYPE,
     columns: columns, // Pass display columns only
@@ -617,6 +619,8 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"} // Use default CSV export
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Inflow_Payments_${(
             customerId ||
             projectId ||

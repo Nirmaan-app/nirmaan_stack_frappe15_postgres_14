@@ -77,6 +77,14 @@ def after_insert(doc, method):
             )
 
 
+def validate(doc, method):
+    """Prevent reverting PO status if Delivery Notes exist."""
+    old_doc = doc.get_doc_before_save()
+    if old_doc and old_doc.status in ("Partially Dispatched", "Dispatched") and doc.status == "PO Approved":
+        if frappe.db.exists("Delivery Notes", {"procurement_order": doc.name}):
+            frappe.throw("Cannot revert PO with existing Delivery Notes")
+
+
 def on_update(doc, method):
     """
     Manage Approved Quotations and Deletion of PO
@@ -91,38 +99,20 @@ def on_update(doc, method):
         except frappe.DoesNotExistError:
             print("PO NOT AVAILABLE IN DB")
 
-    if old_doc and old_doc.status == 'PO Approved' and doc.status=="Dispatched":
-        try:
-            vendor = frappe.get_doc("Vendors", doc.vendor)
-            orders = doc.get("items")
+    # Revert from Partially Dispatched → PO Approved: clear all is_dispatched flags
+    if old_doc and old_doc.status == "Partially Dispatched" and doc.status == "PO Approved":
+        frappe.db.sql("""
+            UPDATE "tabPurchase Order Item"
+            SET is_dispatched = 0
+            WHERE parent = %s
+        """, (doc.name,))
+        frappe.db.commit()
 
-            delete_existing_aq_docs(doc)
+    # AQ creation on full dispatch
+    if old_doc and old_doc.status in ("PO Approved", "Partially Dispatched") and doc.status in ("Dispatched", "Partially Delivered", "Delivered"):
+        if _all_items_dispatched(doc):
+            _create_approved_quotations(doc, custom)
 
-            for order in orders:
-                aq = frappe.new_doc('Approved Quotations')
-                print(f"order: {order}")
-                try:
-                    if not custom:
-                        aq.item_id=order.item_id
-                    aq.vendor=doc.vendor
-                    aq.procurement_order=doc.name
-                    aq.item_name=order.item_name
-                    aq.unit=order.unit
-                    aq.quantity=order.quantity
-                    aq.quote=order.quote
-                    aq.tax=order.tax
-                    aq.category=order.category if order.category else ""
-                    aq.procurement_package=order.procurement_package if order.procurement_package else ""
-                    
-                 
-                    aq.make = order.make
-                    aq.city=vendor.vendor_city
-                    aq.state=vendor.vendor_state
-                    aq.insert()
-                except frappe.DoesNotExistError:
-                    continue
-        except frappe.DoesNotExistError:
-            print("VENDOR NOT AVAILABLE IN DB")
     if(doc.status=="Cancelled"):
         frappe.delete_doc("Procurement Orders", doc.name)
 
@@ -220,3 +210,41 @@ def delete_existing_aq_docs(doc):
     frappe.db.delete("Approved Quotations", {
         "procurement_order" : ("=", doc.name)
     })
+
+
+def _all_items_dispatched(doc):
+    """Check if all non-Additional-Charges items are dispatched."""
+    for item in doc.items:
+        if item.category != "Additional Charges" and not item.is_dispatched:
+            return False
+    return True
+
+
+def _create_approved_quotations(doc, custom):
+    """Create AQ records for all PO items."""
+    try:
+        vendor = frappe.get_doc("Vendors", doc.vendor)
+        orders = doc.get("items")
+        delete_existing_aq_docs(doc)
+        for order in orders:
+            aq = frappe.new_doc('Approved Quotations')
+            try:
+                if not custom:
+                    aq.item_id = order.item_id
+                aq.vendor = doc.vendor
+                aq.procurement_order = doc.name
+                aq.item_name = order.item_name
+                aq.unit = order.unit
+                aq.quantity = order.quantity
+                aq.quote = order.quote
+                aq.tax = order.tax
+                aq.category = order.category if order.category else ""
+                aq.procurement_package = order.procurement_package if order.procurement_package else ""
+                aq.make = order.make
+                aq.city = vendor.vendor_city
+                aq.state = vendor.vendor_state
+                aq.insert()
+            except frappe.DoesNotExistError:
+                continue
+    except frappe.DoesNotExistError:
+        print("VENDOR NOT AVAILABLE IN DB")

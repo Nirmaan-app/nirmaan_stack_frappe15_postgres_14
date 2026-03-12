@@ -449,7 +449,7 @@
 
 import React, { useMemo, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { LinkIcon, FileTextIcon, CirclePlus, Info, FilePenLine, Trash2, Loader2,ListCheck } from "lucide-react";
+import { LinkIcon, FileTextIcon, Info, FilePenLine, Trash2, Loader2,ListCheck } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DataTable, SearchFieldOption, } from "@/components/data-table/new-data-table"; 
@@ -475,6 +475,7 @@ import {
 } from "@/components/ui/dialog"; // Import dialog components
 
 import { useUserData } from "@/hooks/useUserData";
+import { ProjectQueryKeys } from "../queries";
 
 
 // --- CONSTANTS ---
@@ -865,7 +866,6 @@ const getCustomerPOColumns = (
 export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ projectId }) => {
     
       const {role} = useUserData();
-      const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" 
     //   console.log("CustomerPODetailsCard: Current User Data =", role);
     
     // --- Edit Dialog State & Handlers ---
@@ -884,7 +884,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
     } = useFrappeGetDoc<any>(
         "Projects", 
         projectId,
-        { enabled: !!projectId } 
+        projectId ? ProjectQueryKeys.project(projectId) : null
     );
     
     // Ensure we have an array, even if undefined
@@ -897,9 +897,9 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
     // --- Aggregate Calculation ---
     const calculatedAggregates = useMemo(() => {
         const totalIncl = poListForDialog.reduce((sum, po) => 
-            sum + parseNumber(po.customer_po_value_inctax, 0), 0);
+            sum + parseNumber(po.customer_po_value_inctax), 0);
         const totalExcl = poListForDialog.reduce((sum, po) => 
-            sum + parseNumber(po.customer_po_value_exctax, 0), 0);
+            sum + parseNumber(po.customer_po_value_exctax), 0);
         return { total_incl_tax: totalIncl, total_excl_tax: totalExcl };
     }, [poListForDialog]);
 
@@ -937,14 +937,16 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         totalCount,
         isLoading: listIsLoading,
         error: listError,
-        refetch, 
+        exportAllRows,
+        isExporting,
+        refetch,
         searchTerm,
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
     } = useServerDataTable<CustomerPOTableRow>({
         doctype: CUSTOMER_PO_CHILD_TABLE_DOCTYPE, // Kept as 'Projects' but not used for fetch
-        columns: useMemo(() => getCustomerPOColumns(projectId, handleEditClick, handleDeleteClick,isAdmin), [projectId, isAdmin]), 
+        columns: useMemo(() => getCustomerPOColumns(projectId, handleEditClick, handleDeleteClick,role), [projectId, role]), 
         fetchFields: CUSTOMER_PO_LIST_FIELDS_TO_FETCH as string[],
         searchableFields: CUSTOMER_PO_SEARCHABLE_FIELDS,
         defaultSort: 'customer_po_creation_date desc', // Client-side sort field
@@ -993,7 +995,6 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                     {projectId && projectNameForDialog && (
                         <AddCustomerPODialog 
                             projectName={projectNameForDialog}
-                            currentCustomerPODetails={poListForDialog as CustomerPODetail[]}
                             refetchProjectData={handlePoAdded} 
                         />
                     )}
@@ -1070,6 +1071,8 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                         dateFilterColumns={CUSTOMER_PO_DATE_COLUMNS}
                         showExportButton={true}
                         onExport={"default"}
+                        onExportAll={exportAllRows}
+                        isExporting={isExporting}
                         exportFileName={`Customer_PO_Details_${projectDataForDialog?.project_name || projectId || "all"}`}
                         showRowSelection={false}
                     />

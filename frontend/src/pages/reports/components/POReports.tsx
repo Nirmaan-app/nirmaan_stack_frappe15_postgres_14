@@ -87,7 +87,7 @@ export default function POReports() {
       case "PO with Excess Payments":
         return `POs with status "Partially Delivered" or "Delivered" where Amount Paid > Total PO Amount + ₹${payment_delta.toLocaleString("en-IN")}`;
       case "Dispatched for 1 days":
-        return 'POs with status "Dispatched" where dispatch date is 1 or more days ago';
+        return 'POs with status "Dispatched" or "Partially Dispatched" where dispatch date is 1 or more days ago';
       default:
         return null;
     }
@@ -157,7 +157,7 @@ export default function POReports() {
           ) {
             return (
               parseNumber(row.amountPaid) >
-              parseNumber(row.totalAmount) + payment_delta
+              parseNumber((row as any).totalAmount) + payment_delta
             );
           }
           return false;
@@ -168,7 +168,7 @@ export default function POReports() {
           const poDoc = row.originalDoc;
 
           // 1. Guard against missing or invalid data
-          if (poDoc.status !== "Dispatched" || !poDoc.dispatch_date) {
+          if ((poDoc.status !== "Dispatched" && poDoc.status !== "Partially Dispatched") || !poDoc.dispatch_date) {
             return false;
           }
 
@@ -212,6 +212,8 @@ export default function POReports() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<POReportRowData>({
     doctype: `POReportsClientFilteredVirtual_${selectedReportType || "none"}`, // Unique virtual doctype per report
     columns: tableColumnsToDisplay,
@@ -230,10 +232,7 @@ export default function POReports() {
     // No `meta` needed here as POReportRowData contains all display fields,
     // and poColumns directly accesses them.
   });
-  const fullyFilteredData = table
-    .getFilteredRowModel()
-    .rows.map((row) => row.original);
-
+  // Removed fullyFilteredData as it's unused
   const filteredRowCount = table.getFilteredRowModel().rows.length;
   // This effect synchronizes the table's pageCount with the client-side filtered data.
   useEffect(() => {
@@ -251,39 +250,28 @@ export default function POReports() {
   }, [filteredRowCount]); // Rerun when the table instance or filtered data count changes
   // =================================================================================
   // Supporting data for faceted filters (Projects & Vendors)
-  const projectsFetchOptions = getProjectListOptions();
-  const {
-    data: projects,
-    isLoading: projectsUiLoading,
-    error: projectsUiError,
-  } = useFrappeGetDocList<Projects>(
-    "Projects",
-    projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>,
-    queryKeys.projects.list(projectsFetchOptions)
-  );
-  const {
-    data: vendors,
-    isLoading: vendorsUiLoading,
-    error: vendorsUiError,
-  } = useVendorsList({
-    vendorTypes: ["Service", "Material", "Material & Service"],
-  });
 
-  // Ensure `value` in facet options matches the data in POReportRowData's `projectName` and `vendorName`
-  const projectFacetOptions = useMemo<SelectOption[]>(
-    () =>
-      projects?.map((p) => ({
-        label: p.project_name,
-        value: p.project_name,
-      })) || [],
-    [projects]
-  );
-  const vendorFacetOptions = useMemo<SelectOption[]>(
-    () =>
-      vendors?.map((v) => ({ label: v.vendor_name, value: v.vendor_name })) ||
-      [],
-    [vendors]
-  );
+  const projectFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = (row as any).projectName || row.project;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
+
+  const vendorFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = (row as any).vendorName || row.vendor;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
 
   const facetOptionsConfig = useMemo(
     () => ({
@@ -301,10 +289,8 @@ export default function POReports() {
     return `${prefix}_${reportTypeSuffix}_${formatDate(new Date())}`;
   }, [selectedReportType]);
 
-  const handleCustomExport = useCallback(() => {
-    // We use table.getFilteredRowModel().rows here to respect current filters
-    // Update: Use getSortedRowModel to respect sort order as well
-    const rowsToExport = table.getSortedRowModel().rows.map(r => r.original);
+  const handleCustomExport = useCallback(async () => {
+    const rowsToExport = await exportAllRows();
 
     if (!rowsToExport || rowsToExport.length === 0) {
       toast({
@@ -343,16 +329,19 @@ export default function POReports() {
       return {
         po_id: row.name,
         creation: formatDate(row.creation),
-        project_name: row.projectName || row.project,
+        project_name: (row as any).projectName || row.project,
         assignees: formattedAssignees || "--", // New Field
-        vendor_name: row.vendorName || row.vendor,
-        total_po_amt: formatForReport(row.totalAmount),
+        vendor_name: (row as any).vendorName || row.vendor,
+        total_po_amt: formatForReport((row as any).totalAmount),
         total_invoice_amt: formatForReport(row.invoiceAmount),
         amt_paid: formatForReport(row.amountPaid),
         pending_invoice_amt: formatForReport(pendingInvoiceAmt), // New Field
         remarks: (row.originalDoc as any).notes || "-",
         dispatch_date: row.originalDoc.dispatch_date
           ? formatDate(row.originalDoc.dispatch_date)
+          : "N/A",
+        expected_delivery_date: row.originalDoc.expected_delivery_date
+          ? formatDate(row.originalDoc.expected_delivery_date)
           : "N/A",
         latest_delivery_date: row.originalDoc.latest_delivery_date
           ? formatDate(row.originalDoc.latest_delivery_date)
@@ -366,6 +355,7 @@ export default function POReports() {
 
     const exportColumnsConfig: ColumnDef<any, any>[] = [
       { header: "#PO", accessorKey: "po_id" },
+      { header: "Expected Delivery Date", accessorKey: "expected_delivery_date" },
       { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
       { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
       { header: "Date Created", accessorKey: "creation" },
@@ -402,15 +392,13 @@ export default function POReports() {
         variant: "destructive",
       });
     }
-  }, [table, exportFileName, selectedReportType, assignmentsLookup]);
+  }, [exportAllRows, exportFileName, selectedReportType, assignmentsLookup]);
 
   const isLoadingOverall =
     isLoadingInitialData ||
-    projectsUiLoading ||
-    vendorsUiLoading ||
     isTableHookLoading;
   const overallError =
-    initialDataError || projectsUiError || vendorsUiError || tableHookError;
+    initialDataError || tableHookError;
 
   if (selectedReportType === 'DN > DC Quantity Report') {
     return <DNDCQuantityReport />;
@@ -448,6 +436,7 @@ export default function POReports() {
           table={table}
           columns={tableColumnsToDisplay}
           isLoading={isLoadingOverall}
+          isExporting={isExporting}
           error={overallError as Error | null}
           summaryCard={summaryCardNode}
           // totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length

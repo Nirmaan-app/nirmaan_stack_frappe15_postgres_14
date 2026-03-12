@@ -41,7 +41,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
-import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
+import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
@@ -85,7 +85,7 @@ const PODataTableWrapper: React.FC<{
             additionalFilters: staticFiltersForTab,
         });
 
-        const { columnFilters, searchTerm, selectedSearchField } = serverDataTable;
+        const { columnFilters, searchTerm, selectedSearchField, exportAllRows, isExporting } = serverDataTable;
 
         // --- Dynamic Facet Values ---
         const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
@@ -144,6 +144,8 @@ const PODataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName={exportFileName}
                 getRowClassName={getRowClassName}
             />
@@ -206,7 +208,7 @@ export const ReleasePOSelect: React.FC = () => {
                 ["document_type", "=", "Procurement Orders"],
                 ["status", "=", "Approved"],
             ],
-            fields: ["name", "document_name", "invoice_amount"],
+            fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
             limit: 0,
         },
         "VendorInvoices-PO-ReleasePOSelect"
@@ -294,6 +296,10 @@ export const ReleasePOSelect: React.FC = () => {
         // "loading_charges",
         // "freight_charges",
         "invoice_data",
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)
+            ? ["expected_delivery_date"] : []),
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)
+            ? ["latest_delivery_date"] : []),
         ...(tab === PO_TABS.MERGED_POS ? ["merged", "modified_by"] : [])
     ], [tab]);
 
@@ -307,7 +313,16 @@ export const ReleasePOSelect: React.FC = () => {
 
     ]), [tab]);
 
-    const dateColumns = PO_DATE_COLUMNS;
+    const dateColumns = useMemo(() => {
+        const base = ["creation", "modified"];
+        if ([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)) {
+            base.push("expected_delivery_date");
+        }
+        if ([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)) {
+            base.push("latest_delivery_date");
+        }
+        return base;
+    }, [tab]);
 
     // --- Filter tabs based on role ---
     const adminTabsFiltered = useMemo(() => isAdmin ? PO_ADMIN_TAB_OPTIONS : [], [isAdmin]);
@@ -484,7 +499,7 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...([PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
             {
                 id: "invoice_amount",
                 header: ({ column }) => {
@@ -517,6 +532,38 @@ export const ReleasePOSelect: React.FC = () => {
                         const invoiceAmount = invoiceTotalsMap.get(row.name) ?? 0;
                         return formatForReport(invoiceAmount);
                     }
+                }
+            } as ColumnDef<ProcurementOrdersType>,
+        ] : []),
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+            {
+                accessorKey: "expected_delivery_date",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Expected Delivery" />,
+                cell: ({ row }) => (
+                    <div className="font-medium whitespace-nowrap">
+                        {row.original.expected_delivery_date ? formatDate(row.original.expected_delivery_date) : "--"}
+                    </div>
+                ),
+                size: 180,
+                meta: {
+                    exportHeaderName: "Expected Delivery Date",
+                    exportValue: (row: ProcurementOrdersType) => row.expected_delivery_date ? formatDate(row.expected_delivery_date) : "--",
+                }
+            } as ColumnDef<ProcurementOrdersType>,
+        ] : []),
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+            {
+                accessorKey: "latest_delivery_date",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Latest Delivery" />,
+                cell: ({ row }) => (
+                    <div className="font-medium whitespace-nowrap">
+                        {row.original.latest_delivery_date ? formatDate(row.original.latest_delivery_date) : "--"}
+                    </div>
+                ),
+                size: 150,
+                meta: {
+                    exportHeaderName: "Latest Delivery Date",
+                    exportValue: (row: ProcurementOrdersType) => row.latest_delivery_date ? formatDate(row.latest_delivery_date) : "--",
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
@@ -587,7 +634,7 @@ export const ReleasePOSelect: React.FC = () => {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => {
                     const status = row.getValue<string>("status");
-                    const variant = status === "PO Approved" ? "gray" : status === "Dispatched" ? "blue" : ["Partially Delivered", "Delivered"].includes(status) ? "green" : "destructive";
+                    const variant = status === "PO Approved" ? "gray" : status === "Partially Dispatched" ? "orange" : status === "Dispatched" ? "blue" : ["Partially Delivered", "Delivered"].includes(status) ? "green" : "destructive";
                     return (
                         <Badge variant={variant} className="text-xs">{status}</Badge>
                     );
@@ -610,7 +657,7 @@ export const ReleasePOSelect: React.FC = () => {
     // --- useServerDataTable Hook Instantiation ---
     // Only instantiate if the current tab is supposed to show a data table
     const shouldShowTable = useMemo(() =>
-        [PO_TABS.APPROVED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS, PO_TABS.MERGED_POS].includes(tab as any),
+        [PO_TABS.APPROVED_PO, PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS, PO_TABS.MERGED_POS].includes(tab as any),
         [tab]);
 
     // --- Tab Change Handler ---
@@ -725,7 +772,7 @@ export const ReleasePOSelect: React.FC = () => {
             <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
-                invoiceData={selectedInvoicePO?.invoice_data}
+                vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
                 project={selectedInvoicePO?.project_name}
                 poNumber={selectedInvoicePO?.name}
                 vendor={selectedInvoicePO?.vendor_name}

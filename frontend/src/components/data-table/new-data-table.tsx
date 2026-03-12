@@ -10,7 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileUp } from "lucide-react";
+import { FileUp, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -54,6 +54,8 @@ export interface DataTableProps<T> {
   showExportButton?: boolean;
   onExport?: (() => void) | "default";
   exportFileName?: string;
+  onExportAll?: () => Promise<T[]>;  // Async fetch-all for server-side tables
+  isExporting?: boolean;              // Loading state for export
 
   toolbarActions?: React.ReactNode;
   className?: string;
@@ -87,7 +89,7 @@ export function DataTable<T>({
   searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
   searchTerm, onSearchTermChange,
   facetFilterOptions = {}, dateFilterColumns = [],
-  showExportButton = false, onExport, exportFileName = "data",
+  showExportButton = false, onExport, exportFileName = "data", onExportAll, isExporting = false,
   toolbarActions, className,
   summaryCard, // NEW
   showRowSelection = false,
@@ -138,27 +140,36 @@ export function DataTable<T>({
   const renderPaddingBottom = enableVirtualization ? paddingBottom : 0;
 
   // --- Default Export Handler ---
-  const handleDefaultExport = React.useCallback(() => {
-    if (isLoading || rows.length === 0) {
-      toast({ title: "Export", description: "No data available or still loading.", variant: "default" });
-      return;
-    }
-
-    let dataToExport: T[];
-    const selectedRows = table.getSelectedRowModel().rows;
-
-    if (showRowSelection) {
-      dataToExport = selectedRows.map(row => row.original);
-    } else {
-      dataToExport = rows.map(row => row.original);
-    }
-
-    if (!dataToExport || dataToExport.length === 0) {
-      toast({ title: "Export", description: `No data to export.`, variant: "default" });
+  const handleDefaultExport = React.useCallback(async () => {
+    if (isLoading || isExporting) {
+      toast({ title: "Export", description: "Please wait for loading to complete.", variant: "default" });
       return;
     }
 
     try {
+      let dataToExport: T[];
+
+      if (showRowSelection) {
+        const selectedRows = table.getSelectedRowModel().rows;
+        dataToExport = selectedRows.map(row => row.original);
+      } else if (onExportAll) {
+        // Show confirmation for large datasets
+        if (totalCount > 5000) {
+          const confirmed = window.confirm(
+            `This will export ${totalCount.toLocaleString()} rows. This may take a moment. Continue?`
+          );
+          if (!confirmed) return;
+        }
+        dataToExport = await onExportAll();
+      } else {
+        dataToExport = rows.map(row => row.original);
+      }
+
+      if (!dataToExport || dataToExport.length === 0) {
+        toast({ title: "Export", description: "No data to export.", variant: "default" });
+        return;
+      }
+
       const exportableColumns = columns.filter(col =>
         (col.header || (col as any).accessorKey) && !(col.meta as any)?.excludeFromExport
       );
@@ -171,7 +182,7 @@ export function DataTable<T>({
       console.error("Default export failed:", error);
       toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
     }
-  }, [isLoading, rows, columns, exportFileName, showRowSelection, table]);
+  }, [isLoading, isExporting, rows, columns, exportFileName, showRowSelection, table, onExportAll, totalCount]);
 
   // --- Determine actual onExport handler ---
   const effectiveExport = React.useMemo(() => {
@@ -205,7 +216,7 @@ export function DataTable<T>({
           {...{
             searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
             searchTerm, onSearchTermChange,
-            showExportButton, effectiveExport, toolbarActions, isLoading, table,
+            showExportButton, effectiveExport, toolbarActions, isLoading, isExporting, table,
             showSearchBar,
             showRowSelection
           }}
@@ -407,6 +418,7 @@ function Toolbar(props: {
   effectiveExport?: () => void;
   toolbarActions?: React.ReactNode;
   isLoading: boolean;
+  isExporting?: boolean;
   table: TanTable<any>;
   showRowSelection: boolean;
   showSearchBar?: boolean;
@@ -445,11 +457,15 @@ function Toolbar(props: {
         {props.toolbarActions}
         {props.showExportButton && props.effectiveExport && (
           <Button size="sm" variant="outline"
-            disabled={props.isLoading ||
+            disabled={props.isLoading || props.isExporting ||
               (props.showRowSelection &&
                 props.table.getSelectedRowModel().rows.length === 0)}
             onClick={props.effectiveExport}>
-            <FileUp className="h-4 w-4 mr-1" /> Export
+            {props.isExporting ? (
+              <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Exporting...</>
+            ) : (
+              <><FileUp className="h-4 w-4 mr-1" /> Export</>
+            )}
           </Button>
         )}
         <DataTableViewOptions table={props.table} />

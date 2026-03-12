@@ -210,6 +210,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
             status: getIndividualPOStatus(poItem.po_number),
             amount: amountWithGst,
             quote: safeParseFloat(poItem.quote),
+            tax: taxRate > 0 ? safeParseFloat(poItem.tax) : 18,
             poCalculatedAmount:`(${poItem.quantity} x ${formatToIndianRupee(poItem.quote)}) + ${formatToIndianRupee(gstAmount)}(Gst)`,
           });
         }

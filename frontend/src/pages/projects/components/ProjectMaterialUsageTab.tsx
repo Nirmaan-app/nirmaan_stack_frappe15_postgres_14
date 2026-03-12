@@ -76,7 +76,7 @@ export interface MaterialUsageDisplayItem {
   totalAmount?: number;
   deliveryStatus: DeliveryStatus;
   overallPOPaymentStatus: OverallItemPOStatus;
-  poNumbers?: { po: string, status: POStatus, amount: number, quote?: number, poCalculatedAmount?: string }[];
+  poNumbers?: { po: string, status: POStatus, amount: number, quote?: number, tax?: number, poCalculatedAmount?: string }[];
   vendorNames?: string[];  // Vendor names from all POs for this item
   billingCategory?: string;
   deliveryChallans?: DeliveryDocumentInfo[];
@@ -421,7 +421,6 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
           items={processedItemsWithRemaining}
           remainingReportDate={remainingReportDate}
           remainingSubmittedBy={remainingSubmittedBy}
-          estimatedRowHeight={48}
           categoryOptions={categoryOptions}
           categoryFilter={categoryFilter}
           onSetCategoryFilter={setCategoryFilter}

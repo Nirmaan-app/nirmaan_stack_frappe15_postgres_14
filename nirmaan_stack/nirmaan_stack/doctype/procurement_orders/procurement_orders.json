@@ -42,6 +42,7 @@
   "delivery_data",
   "invoice_data",
   "dispatch_date",
+  "expected_delivery_date",
   "latest_delivery_date",
   "latest_payment_date"
  ],
@@ -216,6 +217,11 @@
    "label": "Dispatch Date"
   },
   {
+   "fieldname": "expected_delivery_date",
+   "fieldtype": "Date",
+   "label": "Expected Delivery Date"
+  },
+  {
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
@@ -282,7 +288,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.745839",
+ "modified": "2026-03-11 22:52:33.550809",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
@@ -385,22 +391,28 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
+   "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
+   "role": "Nirmaan HR Executive",
+   "share": 1,
+   "write": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
+   "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
+   "role": "Nirmaan PMO Executive",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

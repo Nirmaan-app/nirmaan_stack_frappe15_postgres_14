@@ -130,6 +130,8 @@ export const PendingTasksTable: React.FC = () => {
         selectedSearchField,
         setSelectedSearchField,
         refetch,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<VendorInvoice>({
         doctype: VENDOR_INVOICES_DOCTYPE,
         columns: columns,
@@ -202,6 +204,8 @@ export const PendingTasksTable: React.FC = () => {
                     dateFilterColumns={VENDOR_INVOICE_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={"default"}
+                    onExportAll={exportAllRows}
+                    isExporting={isExporting}
                     exportFileName="Pending_Vendor_Invoices"
                     getRowClassName={getRowClassName}
                 />

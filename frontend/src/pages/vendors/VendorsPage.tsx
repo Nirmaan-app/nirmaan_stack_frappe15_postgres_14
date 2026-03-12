@@ -197,6 +197,8 @@ export default function VendorsPage() {
     totalCount,
     isLoading: tableIsLoading,
     error: tableError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -265,6 +267,8 @@ export default function VendorsPage() {
         dateFilterColumns={VENDOR_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
         exportFileName={`vendors_list`}
         showRowSelection={false}
       />

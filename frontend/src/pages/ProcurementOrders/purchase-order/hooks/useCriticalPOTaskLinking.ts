@@ -62,7 +62,10 @@ export interface UseCriticalPOTaskLinkingReturn {
   taskOptions: TaskOption[];
   filteredTaskOptions: TaskOption[];
 
-  // Selection state - NOW SUPPORTS MULTI-SELECT
+  // Already-linked tasks (read-only display, separate from multi-select)
+  initiallyLinkedTasks: TaskOption[];
+
+  // Selection state for NEW tasks only (multi-select)
   selectedCategory: CategoryOption | null;
   selectedTasks: TaskOption[];
 
@@ -81,9 +84,12 @@ export interface UseCriticalPOTaskLinkingReturn {
   // Validation
   selectionValid: boolean; // True if selection meets minimum requirement
 
-  // Actions - NOW LINKS TO ALL SELECTED TASKS
+  // Actions — add-only linking for new tasks
   linkPOToTasks: () => Promise<LinkResult>;
   isLinking: boolean;
+
+  // Explicit unlink for a single already-linked task
+  unlinkTask: (taskName: string) => Promise<boolean>;
 
   // Reset
   resetSelection: () => void;
@@ -159,15 +165,28 @@ export const useCriticalPOTaskLinking = ({
     }));
   }, [tasks]);
 
-  // Filter task options by selected category
+  // Tasks already linked to this PO (read-only display)
+  const initiallyLinkedTasks = useMemo<TaskOption[]>(() => {
+    return taskOptions.filter((option) => {
+      const pos = parseAssociatedPOs(option.data.associated_pos);
+      return pos.includes(poName);
+    });
+  }, [taskOptions, poName]);
+
+  const initiallyLinkedTaskNames = useMemo<Set<string>>(() => {
+    return new Set(initiallyLinkedTasks.map((t) => t.value));
+  }, [initiallyLinkedTasks]);
+
+  // Filter task options by selected category, excluding already-linked tasks
   const filteredTaskOptions = useMemo<TaskOption[]>(() => {
-    if (!selectedCategory) {
-      return taskOptions;
+    let options = taskOptions.filter((o) => !initiallyLinkedTaskNames.has(o.value));
+    if (selectedCategory) {
+      options = options.filter(
+        (option) => option.data.critical_po_category === selectedCategory.value
+      );
     }
-    return taskOptions.filter(
-      (option) => option.data.critical_po_category === selectedCategory.value
-    );
-  }, [taskOptions, selectedCategory]);
+    return options;
+  }, [taskOptions, selectedCategory, initiallyLinkedTaskNames]);
 
   // Get selected tasks details (array of CriticalPOTask)
   const selectedTasksDetails = useMemo<CriticalPOTask[]>(() => {
@@ -210,11 +229,9 @@ export const useCriticalPOTaskLinking = ({
 
   // Validation: is selection valid (meets minimum requirement)?
   const selectionValid = useMemo<boolean>(() => {
-    // No Critical PO setup = no requirement
     if (!hasCriticalPOSetup) return true;
-    // PO already linked to at least one task = valid
+    // Already linked to at least one task = valid even with 0 new selections
     if (isPoAlreadyLinked) return true;
-    // Otherwise, need at least 1 task selected
     return selectedTasks.length >= 1;
   }, [hasCriticalPOSetup, isPoAlreadyLinked, selectedTasks]);
 
@@ -240,15 +257,10 @@ export const useCriticalPOTaskLinking = ({
     setSelectedTasksState([]);
   }, []);
 
-  // Link PO to ALL selected tasks using Promise.allSettled for parallel execution
+  // Link PO to ALL newly selected tasks (add-only, never removes existing links)
   const linkPOToTasks = useCallback(async (): Promise<LinkResult> => {
     if (selectedTasks.length === 0) {
-      toast({
-        title: "No Tasks Selected",
-        description: "Please select at least one task before linking.",
-        variant: "destructive",
-      });
-      return { success: false, linked: [], failed: [] };
+      return { success: true, linked: [], failed: [] };
     }
 
     setIsLinking(true);
@@ -259,30 +271,18 @@ export const useCriticalPOTaskLinking = ({
           const task = taskOption.data;
           const currentPOs = parseAssociatedPOs(task.associated_pos);
 
-          // Skip if PO is already linked to this task
           if (currentPOs.includes(poName)) {
-            return {
-              task: task.name,
-              itemName: task.item_name,
-              status: 'already_linked' as const,
-            };
+            return { task: task.name, itemName: task.item_name, status: 'already_linked' as const };
           }
 
-          // Add PO to the task's associated_pos
           const updatedPOs = [...currentPOs, poName];
           await updateDoc("Critical PO Tasks", task.name, {
             associated_pos: JSON.stringify({ pos: updatedPOs }),
           });
-
-          return {
-            task: task.name,
-            itemName: task.item_name,
-            status: 'linked' as const,
-          };
+          return { task: task.name, itemName: task.item_name, status: 'linked' as const };
         })
       );
 
-      // Separate successful and failed results
       const linked: LinkResult['linked'] = [];
       const failed: LinkResult['failed'] = [];
 
@@ -298,27 +298,16 @@ export const useCriticalPOTaskLinking = ({
         }
       });
 
-      // Refresh data
       await mutate();
 
-      // Show appropriate toast
       const newlyLinked = linked.filter((l) => l.status === 'linked').length;
-      const alreadyLinked = linked.filter((l) => l.status === 'already_linked').length;
 
       if (failed.length === 0) {
         if (newlyLinked > 0) {
           toast({
             title: "Success",
-            description: `PO linked to ${newlyLinked} task${newlyLinked > 1 ? 's' : ''}.${
-              alreadyLinked > 0 ? ` (${alreadyLinked} already linked)` : ''
-            }`,
+            description: `PO linked to ${newlyLinked} task${newlyLinked > 1 ? 's' : ''}.`,
             variant: "success",
-          });
-        } else if (alreadyLinked > 0) {
-          toast({
-            title: "Already Linked",
-            description: `PO was already linked to all ${alreadyLinked} selected task${alreadyLinked > 1 ? 's' : ''}.`,
-            variant: "default",
           });
         }
         return { success: true, linked, failed };
@@ -343,6 +332,40 @@ export const useCriticalPOTaskLinking = ({
     }
   }, [selectedTasks, poName, updateDoc, mutate]);
 
+  // Explicit unlink: remove PO from a single already-linked task
+  const unlinkTask = useCallback(async (taskName: string): Promise<boolean> => {
+    const task = tasks.find((t) => t.name === taskName);
+    if (!task) return false;
+
+    setIsLinking(true);
+    try {
+      const currentPOs = parseAssociatedPOs(task.associated_pos);
+      const updatedPOs = currentPOs.filter((po) => po !== poName);
+
+      await updateDoc("Critical PO Tasks", taskName, {
+        associated_pos: JSON.stringify({ pos: updatedPOs }),
+      });
+
+      await mutate();
+
+      toast({
+        title: "Unlinked",
+        description: `PO unlinked from "${task.item_name}".`,
+        variant: "success",
+      });
+      return true;
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to unlink PO from task.",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setIsLinking(false);
+    }
+  }, [tasks, poName, updateDoc, mutate]);
+
   return {
     // Data states
     tasks,
@@ -356,7 +379,10 @@ export const useCriticalPOTaskLinking = ({
     taskOptions,
     filteredTaskOptions,
 
-    // Selection state
+    // Already-linked tasks (read-only display)
+    initiallyLinkedTasks,
+
+    // Selection state (new tasks only)
     selectedCategory,
     selectedTasks,
 
@@ -378,6 +404,7 @@ export const useCriticalPOTaskLinking = ({
     // Actions
     linkPOToTasks,
     isLinking,
+    unlinkTask,
 
     // Reset
     resetSelection,

@@ -7,6 +7,7 @@ import { Download, Loader2 } from 'lucide-react';
 import { useFrappeGetDocList, useFrappeGetDoc, FrappeContext, FrappeConfig } from 'frappe-react-sdk';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
 import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog } from './components';
 
 interface TDSRepositoryViewProps {
@@ -16,10 +17,13 @@ interface TDSRepositoryViewProps {
 }
 
 export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
+    const { role } = useUserData();
+    const canEditTDS = role !== "Nirmaan Procurement Executive Profile";
+
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState("new");
+    const [activeTab, setActiveTab] = useState(canEditTDS ? "new" : "history");
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
@@ -303,13 +307,15 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 )}
                                 {isExporting ? 'Exporting...' : 'Export PDF'}
                             </Button>
-                            <Button 
-                                onClick={() => setIsSetupDialogOpen(true)} 
-                                variant="outline"
-                                className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
-                            >
-                                Edit Details
-                            </Button>
+                            {canEditTDS && (
+                                <Button 
+                                    onClick={() => setIsSetupDialogOpen(true)} 
+                                    variant="outline"
+                                    className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
+                                >
+                                    Edit Details
+                                </Button>
+                            )}
                          </div>
                     </div>
 
@@ -328,12 +334,11 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             {/* TDS Item Management Tabs */}
             <div className="mt-12">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">
-                        <TabsTrigger 
-                            value="new"
-                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                        >
-                            New Request
+                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">                             <TabsTrigger
+                                value="new"
+                                className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
+                            >
+                                New Request
                         </TabsTrigger>
                         <TabsTrigger 
                             value="history"

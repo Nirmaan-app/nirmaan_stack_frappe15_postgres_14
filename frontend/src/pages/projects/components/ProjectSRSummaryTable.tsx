@@ -387,6 +387,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -558,6 +560,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
           dateFilterColumns={SR_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`SR_Summary_${getProjectName(projectId) || "all"}`}
         />
       )}

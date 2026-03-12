@@ -387,6 +387,8 @@ export const ApproveSelectAmendSR: React.FC = () => {
     isRowSelectionActive,
     refetch,
     columnFilters, // NEW
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns,
@@ -509,6 +511,8 @@ export const ApproveSelectAmendSR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_Amended_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve Amended...</Button>} // Placeholder

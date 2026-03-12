@@ -436,6 +436,8 @@ export const ApprovePR: React.FC = () => {
     columnFilters,
     isRowSelectionActive,
     refetch,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProcurementRequest>({
     doctype: DOCTYPE,
     columns: columns,
@@ -545,6 +547,8 @@ export const ApprovePR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_PR_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder

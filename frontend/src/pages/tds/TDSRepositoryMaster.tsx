@@ -45,6 +45,8 @@ const TDSDataTableWrapper: React.FC<{
         setSelectedSearchField,
         columnFilters,
         refetch,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<TDSItem>({
         doctype,
         columns,
@@ -117,6 +119,8 @@ const TDSDataTableWrapper: React.FC<{
             onSelectedSearchFieldChange={setSelectedSearchField}
             showExportButton={true}
             onExport="default"
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
             exportFileName="TDS_Repository_Data"
         />
     );
@@ -130,14 +134,15 @@ export const TDSRepositoryMaster: React.FC = () => {
     const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
     const { role } = useUserData();
 
-    // isPermission = true for roles NOT in this list (e.g., Nirmaan Admin Profile has edit rights)
-    const isPermission = !["Nirmaan HR Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Manager Profile"].includes(role);
+    // isPermission = true only for Admin and Estimates Executive
+    const isPermission = ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile",
+    "Nirmaan PMO Executive Profile",].includes(role);
 
     //  console.log("role",isPermission,role)
 
 
 
-    // Ref to hold the refetch function from the datatable wrapper
+    // Ref to hold the refetch function from the datatable wrapper 
     const tableRefetchRef = React.useRef<(() => void) | null>(null);
 
     const handleRefetch = () => {
@@ -164,38 +169,38 @@ export const TDSRepositoryMaster: React.FC = () => {
     const columns = useMemo<ColumnDef<TDSItem>[]>(() => [
         {
             accessorKey: "tds_item_id",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Item ID" />,
-            cell: ({ row }) => <div className="font-medium">{row.getValue("tds_item_id")}</div>,
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Item ID" />,
+            cell: ({ row }: { row: any }) => <div className="font-medium">{row.getValue("tds_item_id")}</div>,
             enableColumnFilter: true, 
         },
         {
             accessorKey: "work_package",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Work Package" />,
-            cell: ({ row }) => <div className="font-medium mx-auto">{row.getValue("work_package")}</div>,
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Work Package" />,
+            cell: ({ row }: { row: any }) => <div className="font-medium mx-auto">{row.getValue("work_package")}</div>,
             enableColumnFilter: true,
-            filterFn: "arrIncludesSome", 
+            filterFn: "arrIncludesSome" as any, 
             meta: { enableFacet: true, facetTitle: "Work Package" }
         },
         {
             accessorKey: "category",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
-            cell: ({ row }) => <div>{row.getValue("category")}</div>,
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Category" />,
+            cell: ({ row }: { row: any }) => <div>{row.getValue("category")}</div>,
             enableColumnFilter: true,
-            filterFn: "arrIncludesSome",
+            filterFn: "arrIncludesSome" as any,
             meta: { enableFacet: true, facetTitle: "Category" }
         },
         {
              accessorKey: "tds_item_name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
-            cell: ({ row }) => <div className="font-medium">{row.getValue("tds_item_name")}</div>,
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Item Name" />,
+            cell: ({ row }: { row: any }) => <div className="font-medium">{row.getValue("tds_item_name")}</div>,
             enableColumnFilter: true,
-            filterFn: "arrIncludesSome",
+            filterFn: "arrIncludesSome" as any,
             meta: { enableFacet: true, facetTitle: "Item Name" }
         },
         {
             accessorKey: "description",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
-            cell: ({ row }) => (
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Description" />,
+            cell: ({ row }: { row: any }) => (
                 <div className="truncate max-w-[300px]" title={row.getValue("description")}>
                     {row.getValue("description") || "--"}
                 </div>
@@ -203,16 +208,16 @@ export const TDSRepositoryMaster: React.FC = () => {
         },
         {
             accessorKey: "make",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Make" />,
-            cell: ({ row }) => <div className="font-medium">{row.getValue("make")}</div>,
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Make" />,
+            cell: ({ row }: { row: any }) => <div className="font-medium">{row.getValue("make")}</div>,
             enableColumnFilter: true,
-            filterFn: "arrIncludesSome",
+            filterFn: "arrIncludesSome" as any,
             meta: { enableFacet: true, facetTitle: "Make" }
         },
         {
             accessorKey: "tds_attachment",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Doc" />,
-            cell: ({ row }) => {
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Doc" />,
+            cell: ({ row }: { row: any }) => {
                 const docUrl = row.getValue("tds_attachment") as string;
                 const fileName = docUrl ? docUrl.split("/").pop() : "";
                 
@@ -232,44 +237,40 @@ export const TDSRepositoryMaster: React.FC = () => {
                 );
             },
         },
-        {
-            id: "actions",
-            meta: { excludeFromExport: true }, // Exclude from export
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Actions" />,
-            cell: ({ row }) => (
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`h-8 w-8 text-gray-600 ${isPermission ? "hover:text-blue-600" : "opacity-50 cursor-not-allowed"}`}
-                        onClick={() => {
-                            if (isPermission) {
+        ...(isPermission ? [
+            {
+                id: "actions",
+                meta: { excludeFromExport: true }, // Exclude from export
+                header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Actions" />,
+                cell: ({ row }: { row: any }) => (
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-gray-600 hover:text-blue-600"
+                            onClick={() => {
                                 setEditItem(row.original);
                                 setIsEditOpen(true);
-                            }
-                        }}
-                        // disabled={!isPermission}
-                        title={ "Edit Item"}
-                    >
-                        <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`h-8 w-8 text-gray-600 ${isPermission ? "hover:text-red-600" : "opacity-50 cursor-not-allowed"}`}
-                        onClick={() => {
-                            if (isPermission) {
+                            }}
+                            title="Edit Item"
+                        >
+                            <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-gray-600 hover:text-red-600"
+                            onClick={() => {
                                 setDeleteItem(row.original);
-                            }
-                        }}
-                        disabled={!isPermission}
-                        title={!isPermission ? "Only Admin can delete" : "Delete Item"}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                </div>
-            )
-        }
+                            }}
+                            title="Delete Item"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )
+            }
+        ] : [])
     ], [isPermission]);
 
     const searchableFields = [
@@ -290,7 +291,7 @@ export const TDSRepositoryMaster: React.FC = () => {
                     <h2 className="text-2xl font-bold tracking-tight text-gray-800">TDS Repository</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                    <AddTDSItemDialog onSuccess={() => handleRefetch()} />
+                    {isPermission && <AddTDSItemDialog onSuccess={() => handleRefetch()} />}
                 </div>
             </div>
 

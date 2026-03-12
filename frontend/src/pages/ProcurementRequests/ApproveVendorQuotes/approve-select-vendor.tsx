@@ -396,6 +396,8 @@ export const ApproveSelectVendor: React.FC = () => {
     setSearchTerm,
     isRowSelectionActive,
     columnFilters, // Extract columnFilters
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProcurementRequest>({
     doctype: DOCTYPE,
     columns: columns,
@@ -424,6 +426,7 @@ export const ApproveSelectVendor: React.FC = () => {
     selectedSearchField,
     additionalFilters: staticFilters,
     enabled: true,
+    requirePendingItems: true,
   });
 
   // --- Faceted Filter Options ---
@@ -481,6 +484,8 @@ export const ApproveSelectVendor: React.FC = () => {
           dateFilterColumns={PR_DATE_COLUMNS} // Enable date filters for creation/modified
           showExportButton={true} // Disable export if not needed
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_PO_${new Date().toISOString().split('T')[0]}`}
           showRowSelection={isRowSelectionActive}
           getRowClassName={getRowClassName}

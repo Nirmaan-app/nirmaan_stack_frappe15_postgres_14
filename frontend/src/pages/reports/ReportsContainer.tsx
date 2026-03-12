@@ -137,7 +137,7 @@ export default function ReportsContainer() {
     // Define available tabs based on role
     const tabs = useMemo(() => {
         const availableTabs: { label: string; value: string }[] = [];
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)) {
             availableTabs.push({ label: "Projects", value: REPORTS_TABS.PROJECTS });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
@@ -174,7 +174,7 @@ export default function ReportsContainer() {
 
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
-            if (role === "Nirmaan Project Manager Profile") {
+            if (role === "Nirmaan Project Manager Profile" || role === "Nirmaan Procurement Executive Profile") {
                 return projectReportOptions.filter(option => option.value === 'Inventory Report');
             }
             return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)

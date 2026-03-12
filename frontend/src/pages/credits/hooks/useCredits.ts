@@ -35,7 +35,6 @@ import {
   PAYMENT_TERM_STATUS_OPTIONS,
   CREDIT_FACET_FILTER_OPTIONS,
 } from "../credits.constant";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
@@ -90,6 +89,83 @@ interface CreditsApiResponse {
     };
   };
 }
+
+interface CreditsFacetResponse {
+  message: {
+    values: { value: string; label: string; count: number }[];
+  };
+}
+
+const useCreditsFacet = ({
+  facetField,
+  statusFilter,
+  columnFilters,
+  searchTerm,
+  selectedSearchField,
+  enabled
+}: {
+  facetField: string;
+  statusFilter: string;
+  columnFilters: ColumnFiltersState;
+  searchTerm: string;
+  selectedSearchField: string;
+  enabled: boolean;
+}) => {
+  const [facetValues, setFacetValues] = useState<{ value: string; label: string; count: number }[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const { call: fetchFacetValues, reset } = useFrappePostCall<CreditsFacetResponse>(
+    "nirmaan_stack.api.credits.get_credits_list.get_credits_facets"
+  );
+
+  const debouncedFetch = useMemo(() => debounce(async (
+    fField: string,
+    status: string,
+    filters: ColumnFiltersState,
+    search: string,
+    sField: string
+  ) => {
+    if (!enabled) return;
+    setIsLoading(true);
+    reset();
+
+    try {
+      const payload = {
+        facet_field: fField,
+        status_filter: status,
+        filters: filters.length > 0 ? JSON.stringify(filters) : null,
+        search_term: search || null,
+        search_field: sField,
+        limit: 100
+      };
+      const response = await fetchFacetValues(payload);
+      if (response?.message?.values) {
+        setFacetValues(response.message.values);
+      } else {
+        setFacetValues([]);
+      }
+    } catch (e) {
+      console.error("Error fetching credits facets", e);
+      setFacetValues([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, DEBOUNCE_DELAY), [enabled, fetchFacetValues, reset]);
+
+  useEffect(() => {
+    debouncedFetch(facetField, statusFilter, columnFilters, searchTerm, selectedSearchField);
+    return () => debouncedFetch.cancel();
+  }, [facetField, statusFilter, columnFilters, searchTerm, selectedSearchField, debouncedFetch]);
+
+  const facetOptions = useMemo(() => {
+    return facetValues.map(fv => ({
+      label: `${fv.label} (${fv.count})`,
+      value: fv.value
+    }));
+  }, [facetValues]);
+
+  return { facetOptions, isLoading };
+};
 
 export const useCredits = () => {
   const creditsCounts = useDocCountStore((state) => state.counts.credits);
@@ -353,40 +429,21 @@ export const useCredits = () => {
   });
 
   // --- Dynamic Facet Values ---
-  // Note: For the custom API, we compute "additionalFilters" matching the old pattern
-  // but this is only used for the facet value API calls (separate endpoint)
-  const additionalFiltersForFacets = useMemo(() => {
-    const filters: any[] = [
-      ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
-      ["PO Payment Terms", "payment_type", "=", "Credit"],
-    ];
-    if (currentStatus === "Due") {
-      const today = new Date().toISOString().split("T")[0];
-      filters.push(["PO Payment Terms", "term_status", "=", "Created"]);
-      filters.push(["PO Payment Terms", "due_date", "<=", today]);
-    } else if (currentStatus !== "All") {
-      filters.push(["PO Payment Terms", "term_status", "=", currentStatus]);
-    }
-    return filters;
-  }, [currentStatus]);
-
-  const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
-    doctype: "Procurement Orders",
-    field: "project_name",
-    currentFilters: columnFilters,
+  const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useCreditsFacet({
+    facetField: "project_name",
+    statusFilter: currentStatus,
+    columnFilters,
     searchTerm: debouncedSearchTerm,
-    selectedSearchField: selectedSearchField,
-    additionalFilters: additionalFiltersForFacets,
+    selectedSearchField,
     enabled: true,
   });
 
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-    doctype: "Procurement Orders",
-    field: "vendor_name",
-    currentFilters: columnFilters,
+  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useCreditsFacet({
+    facetField: "vendor_name",
+    statusFilter: currentStatus,
+    columnFilters,
     searchTerm: debouncedSearchTerm,
-    selectedSearchField: selectedSearchField,
-    additionalFilters: additionalFiltersForFacets,
+    selectedSearchField,
     enabled: true,
   });
 

@@ -53,6 +53,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; activeBg: string
     "Approved": { bg: "bg-green-50", text: "text-green-700", activeBg: "bg-green-100", activeBorder: "border-green-400" },
     "Partially Delivered": { bg: "bg-amber-50", text: "text-amber-700", activeBg: "bg-amber-100", activeBorder: "border-amber-400" },
     "Dispatched": { bg: "bg-blue-50", text: "text-blue-700", activeBg: "bg-blue-100", activeBorder: "border-blue-400" },
+    "Partially Dispatched": { bg: "bg-amber-50", text: "text-amber-700", activeBg: "bg-amber-100", activeBorder: "border-amber-400" },
     "Delivered": { bg: "bg-emerald-50", text: "text-emerald-700", activeBg: "bg-emerald-100", activeBorder: "border-emerald-400" },
 };
 const DEFAULT_STATUS_COLOR = { bg: "bg-muted", text: "text-muted-foreground", activeBg: "bg-muted", activeBorder: "border-primary" };

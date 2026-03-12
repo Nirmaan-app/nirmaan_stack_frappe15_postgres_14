@@ -70,7 +70,7 @@
 
 //         dateHeaders.push({ date, id, title, isoDate });
 //     }
-    
+
 //     return dateHeaders;
 // };
 
@@ -93,13 +93,13 @@
 // }
 
 // export function ProjectProgressReports() {
-    
+
 //     // --- Context and Hooks ---
 //     const navigate = useNavigate(); 
 
 //     // --- 1. Dynamic Date Configuration (useMemo) ---
 //     const dynamicDateColumns = useMemo(() => getDynamicDateColumns(), []);
-    
+
 //     const relevantISODates = useMemo(() => dynamicDateColumns.map(c => c.isoDate), [dynamicDateColumns]);
 //     // The date range for fetching all progress reports
 //     const relevantFromDate = useMemo(() => relevantISODates[relevantISODates.length - 1], [relevantISODates]); // Oldest date
@@ -109,7 +109,7 @@
 //     const swrProgressReportsKey = useMemo(() => ["progress_reports_for_range", relevantFromDate, relevantToDate], [relevantFromDate, relevantToDate]);
 
 //     // --- 2. Data Fetching (useFrappeGetDocList) ---
-    
+
 //     // Fetch all active projects (for table rows)
 //     // ✨ ADDED lead fields to the fields array
 //     const PROJECT_FIELDS = [
@@ -148,7 +148,7 @@
 //         },
 //         swrProgressReportsKey // Use memoized key
 //     );
-    
+
 //     // --- 3. Data Merging and Transformation (useMemo) ---
 //     const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
 //         if (!projects || !progressReports) return [];
@@ -183,7 +183,7 @@
 //             value: p.project_name || p.name, // Use project_name for the filter value
 //         }));
 //     }, [projects]);
-    
+
 //     // 2. Define the Facet Options Config
 //     const facetOptionsConfig = useMemo(() => ({
 //         project_name: { title: "Project Name", options: projectFacetOptions }
@@ -191,7 +191,7 @@
 
 //     // --- 4. Column Definitions (useMemo) ---
 //     const allColumns = useMemo<ColumnDef<ProjectProgressReportRow>[]>(() => {
-        
+
 //         // Base Project Name column
 //         const baseColumns: ColumnDef<ProjectProgressReportRow>[] = [
 //             {
@@ -270,7 +270,7 @@
 //                 if (reportName) {
 //                     // Extract the ISO date from the column ID: 'report_YYYY-MM-DD'
 //                     const reportDateIso = dateCol.id.replace('report_', '');
-                    
+
 //                    const handleReportClick = (projectId: string, reportId: string) => {
 //                         // Navigate to the new report detail page with the date and project ID parameters
 //                         const detailPath = `/prs&milestones/milestone-report/daily-summary`; // NEW PATH
@@ -343,7 +343,7 @@
 //                 "Estimates Executive": original.estimates_exec || "--",
 //                 "Accountant": original.accountant || "--",
 //             };
-            
+
 //             dynamicDateColumns.forEach(col => {
 //                 exportRow[col.title.replace('\n', ' ')] = original[col.id] || "--";
 //             });
@@ -388,13 +388,13 @@
 //         return <LoadingFallback />;
 //     }
 
-  
+
 
 //     return (
 //         <div className="space-y-4">
 //             {/* <h2 className="text-xl font-bold tracking-tight">Project Progress Report</h2> */}
 //             {/* <p className="text-sm text-muted-foreground">Report IDs for progress recorded over the last 7 days (including today).</p> */}
-            
+
 //             <DataTable<ProjectProgressReportRow>
 //                 table={table}
 //                 columns={allColumns}
@@ -423,9 +423,9 @@
 
 import React, { useMemo, useCallback, useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Link, useNavigate } from "react-router-dom"; 
-import { useFrappeGetDocList, FrappeDoc,useFrappeGetCall } from "frappe-react-sdk";
-import { Info, ExternalLink, Users, User, Briefcase, Calculator,XIcon } from "lucide-react"; 
+import { Link, useNavigate } from "react-router-dom";
+import { useFrappeGetDocList, FrappeDoc, useFrappeGetCall } from "frappe-react-sdk";
+import { Info, ExternalLink, Users, User, Briefcase, Calculator, XIcon } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -434,12 +434,12 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
-import { Button } from "@/components/ui/button"; 
+import { Button } from "@/components/ui/button";
 import {
     HoverCard,
     HoverCardContent,
     HoverCardTrigger,
-} from "@/components/ui/hover-card"; 
+} from "@/components/ui/hover-card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { facetedFilterFn } from "@/utils/tableFilters";
 
@@ -456,7 +456,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
-import { UserContext } from "@/utils/auth/UserProvider"; 
+import { UserContext } from "@/utils/auth/UserProvider";
 
 
 // --- NEW TYPES FOR NEW DATA SOURCES ---
@@ -473,7 +473,7 @@ interface ProjectProgressReportDoc extends FrappeDoc {
 
 // Merged Row Data: Project fields + dynamic date fields
 interface ProjectProgressReportRow extends Projects {
-    [key: string]: any; 
+    [key: string]: any;
 }
 
 interface ZoneReportStatus {
@@ -498,17 +498,17 @@ const getDynamicDateColumns = () => {
     const today = startOfToday();
     const dateHeaders: { date: Date, id: string, title: string, isoDate: string }[] = [];
 
-    for (let i = 0; i <= 6; i++) { 
+    for (let i = 0; i <= 6; i++) {
         const date = subDays(today, i);
         const dayOfWeek = format(date, 'EEE');
-        const dayMonthYear = format(date, 'dd-MM-yyyy'); 
+        const dayMonthYear = format(date, 'dd-MM-yyyy');
         const isoDate = format(date, 'yyyy-MM-dd');
-        const title = `${dayMonthYear} \n ${dayOfWeek}`; 
-        const id = `report_${isoDate}`; 
+        const title = `${dayMonthYear} \n ${dayOfWeek}`;
+        const id = `report_${isoDate}`;
 
         dateHeaders.push({ date, id, title, isoDate });
     }
-    
+
     return dateHeaders;
 };
 
@@ -530,34 +530,34 @@ const getRoleIcon = (role: string) => {
 
 
 export function ProjectProgressReports() {
-    
+
     // --- Context and Hooks ---
     const navigate = useNavigate();
 
     const { ceoHoldProjectIds } = useCEOHoldProjects();
 
     const getRowClassName = useCallback(
-      (row: any) => {
-        const projectId = row.original.name;
-        if (projectId && ceoHoldProjectIds.has(projectId)) {
-          return CEO_HOLD_ROW_CLASSES;
-        }
-        return undefined;
-      },
-      [ceoHoldProjectIds]
+        (row: any) => {
+            const projectId = row.original.name;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
     );
 
     // --- 1. Dynamic Date Configuration (useMemo) ---
     const dynamicDateColumns = useMemo(() => getDynamicDateColumns(), []);
-    
+
     const relevantISODates = useMemo(() => dynamicDateColumns.map(c => c.isoDate), [dynamicDateColumns]);
-    const relevantFromDate = useMemo(() => relevantISODates[relevantISODates.length - 1], [relevantISODates]); 
-    const relevantToDate = useMemo(() => relevantISODates[0], [relevantISODates]); 
+    const relevantFromDate = useMemo(() => relevantISODates[relevantISODates.length - 1], [relevantISODates]);
+    const relevantToDate = useMemo(() => relevantISODates[0], [relevantISODates]);
 
     const swrProgressReportsKey = useMemo(() => ["progress_reports_for_range", relevantFromDate, relevantToDate], [relevantFromDate, relevantToDate]);
 
     // --- 2. Data Fetching (useFrappeGetDocList) ---
-    
+
     // // // // 2a. Fetch all active projects (for table rows)
     // const PROJECT_FIELDS = ["name", "project_name", "status","enable_project_milestone_tracking","project_zones"];
 
@@ -571,19 +571,19 @@ export function ProjectProgressReports() {
     //     "projects_for_progress_report"
     // );
 
-const {
-  data: reportsData,
-  isLoading:isProjectsLoading,
-  error:projectsError,
-  mutate: refetch,
-} = useFrappeGetCall(
-  "nirmaan_stack.api.projects.get_full_project_list.get_active_projects_for_progress_report"
-);
+    const {
+        data: reportsData,
+        isLoading: isProjectsLoading,
+        error: projectsError,
+        mutate: refetch,
+    } = useFrappeGetCall(
+        "nirmaan_stack.api.projects.get_full_project_list.get_active_projects_for_progress_report"
+    );
 
-const projects = reportsData?.message?.data
+    const projects = reportsData?.message?.data
 
-console.log("Fetched Projects:", projects);
- 
+    console.log("Fetched Projects:", projects);
+
     const { assignmentsLookup } = useProjectAssignees();
 
 
@@ -591,7 +591,7 @@ console.log("Fetched Projects:", projects);
     const { data: progressReports, isLoading: isReportsLoading, error: reportsError } = useFrappeGetDocList<ProjectProgressReportDoc>(
         DOCTYPE_PROGRESS_REPORTS,
         {
-            fields: ["project", "report_date", "name","report_zone"], 
+            fields: ["project", "report_date", "name", "report_zone"],
             filters: [
                 ["report_date", ">=", relevantFromDate],
                 ["report_date", "<=", relevantToDate],
@@ -601,79 +601,79 @@ console.log("Fetched Projects:", projects);
         },
         swrProgressReportsKey
     );
-    
-const ALLOWED_ROLE_PROFILES = [
-    "Nirmaan Project Manager Profile",
-    "Nirmaan Project Lead Profile"
-];
 
-const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
-    if (!projects || !progressReports) return [];
+    const ALLOWED_ROLE_PROFILES = [
+        "Nirmaan Project Manager Profile",
+        "Nirmaan Project Lead Profile"
+    ];
 
-     const progressLookup = progressReports.reduce((acc, report) => {
-        const project = report.project;
-        const isoDate = report.report_date;
-        const colId = `report_${isoDate}`;
-        const zone = report.report_zone; 
+    const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
+        if (!projects || !progressReports) return [];
 
-        if (!acc[project]) acc[project] = {};
-        if (!acc[project][colId]) {
-            acc[project][colId] = {
-                totalReported: 0,
-                reportNames: {}, 
-            };
-        }
+        const progressLookup = progressReports.reduce((acc, report) => {
+            const project = report.project;
+            const isoDate = report.report_date;
+            const colId = `report_${isoDate}`;
+            const zone = report.report_zone;
 
-        acc[project][colId].totalReported += 1;
-        acc[project][colId].reportNames[zone] = report.name;
-
-        return acc;
-    }, {} as Record<string, Record<string, { totalReported: number; reportNames: Record<string, string> }>>);
-
-    // STEP 4: Build final rows
-   return projects.map(project => {
-        const totalZones = project.project_zones?.length || 0; // Get the total zone count for this project
-
-        const row: ProjectProgressReportRow = {
-            ...project,
-            // assigned_leads removed, handled by column
-        } as ProjectProgressReportRow; // Cast to include dynamic columns
-
-        // Inject the ZoneReportStatus object into the dynamic columns
-        dynamicDateColumns.forEach(dateCol => {
-            const reportStatus = progressLookup[project.name]?.[dateCol.id];
-            
-            if (reportStatus) {
-                const reportedCount = reportStatus.totalReported;
-                const progress = totalZones > 0 ? (reportedCount / totalZones) * 100 : 0;
-                
-                row[dateCol.id] = { 
-                    totalZones: totalZones,
-                    reportedCount: reportedCount,
-                    reportNames: reportStatus.reportNames,
-                    progress: progress
-                } as ZoneReportStatus;
-            } else {
-                 // If no reports found, initialize with zero reported, but the correct total zones
-                row[dateCol.id] = { totalZones: totalZones, reportedCount: 0, reportNames: {}, progress: 0 } as ZoneReportStatus;
+            if (!acc[project]) acc[project] = {};
+            if (!acc[project][colId]) {
+                acc[project][colId] = {
+                    totalReported: 0,
+                    reportNames: {},
+                };
             }
+
+            acc[project][colId].totalReported += 1;
+            acc[project][colId].reportNames[zone] = report.name;
+
+            return acc;
+        }, {} as Record<string, Record<string, { totalReported: number; reportNames: Record<string, string> }>>);
+
+        // STEP 4: Build final rows
+        return projects.map(project => {
+            const totalZones = project.project_zones?.length || 0; // Get the total zone count for this project
+
+            const row: ProjectProgressReportRow = {
+                ...project,
+                // assigned_leads removed, handled by column
+            } as ProjectProgressReportRow; // Cast to include dynamic columns
+
+            // Inject the ZoneReportStatus object into the dynamic columns
+            dynamicDateColumns.forEach(dateCol => {
+                const reportStatus = progressLookup[project.name]?.[dateCol.id];
+
+                if (reportStatus) {
+                    const reportedCount = reportStatus.totalReported;
+                    const progress = totalZones > 0 ? (reportedCount / totalZones) * 100 : 0;
+
+                    row[dateCol.id] = {
+                        totalZones: totalZones,
+                        reportedCount: reportedCount,
+                        reportNames: reportStatus.reportNames,
+                        progress: progress
+                    } as ZoneReportStatus;
+                } else {
+                    // If no reports found, initialize with zero reported, but the correct total zones
+                    row[dateCol.id] = { totalZones: totalZones, reportedCount: 0, reportNames: {}, progress: 0 } as ZoneReportStatus;
+                }
+            });
+
+            return row;
         });
+    }, [projects, progressReports, dynamicDateColumns]);
 
-        return row;
-    });
-}, [projects, progressReports, dynamicDateColumns]);
-
-console.log("mergedData",mergedData);
+    console.log("mergedData", mergedData);
 
     // --- Facet Filters Configuration ---
     const projectFacetOptions = useMemo(() => {
         if (!projects) return [];
         return projects.map(p => ({
             label: p.project_name || p.name,
-            value: p.project_name || p.name, 
+            value: p.project_name || p.name,
         }));
     }, [projects]);
-    
+
     const facetOptionsConfig = useMemo(() => ({
         project_name: { title: "Project Name", options: projectFacetOptions }
     }), [projectFacetOptions]);
@@ -681,7 +681,7 @@ console.log("mergedData",mergedData);
 
     // --- 4. Column Definitions (useMemo) ---
     const allColumns = useMemo<ColumnDef<ProjectProgressReportRow>[]>(() => {
-        
+
         // Base Project Name column
         const baseColumns: ColumnDef<ProjectProgressReportRow>[] = [
             {
@@ -697,7 +697,7 @@ console.log("mergedData",mergedData);
                 filterFn: facetedFilterFn,
             },
             // MODIFIED COLUMN: Consolidated Assigned Users/Leads
-            getAssigneesColumn<ProjectProgressReportRow>("name", assignmentsLookup, ["Nirmaan Project Manager Profile"]),
+            getAssigneesColumn<ProjectProgressReportRow>("name", assignmentsLookup, ["Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"]),
         ];
 
         // Dynamic Date columns
@@ -706,67 +706,67 @@ console.log("mergedData",mergedData);
             header: ({ column }) => (
                 <DataTableColumnHeader column={column} title={
                     <div className="text-center">
-                        {dateCol.title.split('\n')[0]} 
+                        {dateCol.title.split('\n')[0]}
                         <div className="text-xs text-muted-foreground font-normal">{dateCol.title.split('\n')[1]}</div>
                     </div>
                 } />
             ),
             // Hoverable cell with clickable report names in tooltip
 
-cell: ({ row }) => {
-    const status = row.original[dateCol.id] as ZoneReportStatus;
-    const projectId = row.original.name;
-    const reportDateIso = dateCol.isoDate;
+            cell: ({ row }) => {
+                const status = row.original[dateCol.id] as ZoneReportStatus;
+                const projectId = row.original.name;
+                const reportDateIso = dateCol.isoDate;
 
-    const { totalZones, reportedCount, reportNames } = status || { 
-        totalZones: 0, 
-        reportedCount: 0, 
-        reportNames: {} 
-    };
-    
-    // Determine badge color based on completion status
-    let badgeClass = "bg-red-100 text-red-700";
-    if (reportedCount === totalZones && totalZones > 0) {
-        badgeClass = "bg-green-100 text-green-700";
-    } else if (reportedCount > 0) {
-        badgeClass = "bg-yellow-100 text-yellow-700";
-    } else {
-        badgeClass = "bg-gray-100 text-gray-700";
-    }
-    
-    const handleReportClick = (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const detailPath = `/prs&milestones/milestone-report/daily-summary`; 
-        const url = `${detailPath}?report_date=${reportDateIso}&project_id=${projectId}`;
-        navigate(url);
-    };
+                const { totalZones, reportedCount, reportNames } = status || {
+                    totalZones: 0,
+                    reportedCount: 0,
+                    reportNames: {}
+                };
 
-    const handleZoneReportClick = (e: React.MouseEvent, reportId: string,zoneName:string) => {
-        e.preventDefault();
-        e.stopPropagation();
-         const detailPath = `/prs&milestones/milestone-report/daily-summary`; 
-        // Navigate to specific report detail page
-       const url = `${detailPath}?report_date=${reportDateIso}&project_id=${projectId}&zone=${zoneName}`;
-        navigate(url);
-    };
+                // Determine badge color based on completion status
+                let badgeClass = "bg-red-100 text-red-700";
+                if (reportedCount === totalZones && totalZones > 0) {
+                    badgeClass = "bg-green-100 text-green-700";
+                } else if (reportedCount > 0) {
+                    badgeClass = "bg-yellow-100 text-yellow-700";
+                } else {
+                    badgeClass = "bg-gray-100 text-gray-700";
+                }
 
-    const reportedZonesArray = Object.entries(reportNames);
-      
-    // --- NEW LOGIC: Determine if we should skip the Tooltip ---
-    const skipTooltip = totalZones === 1 && reportedCount === 1;
-    let singleZoneName: string | undefined;
-    let singleReportId: string | undefined;
+                const handleReportClick = (e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
 
-    if (skipTooltip) {
-        // Since it's a single zone, get the name and ID from the first (and only) entry
-        [singleZoneName, singleReportId] = reportedZonesArray[0];
-    }
-    // --- END NEW LOGIC ---
+                    const detailPath = `/prs&milestones/milestone-report/daily-summary`;
+                    const url = `${detailPath}?report_date=${reportDateIso}&project_id=${projectId}`;
+                    navigate(url);
+                };
+
+                const handleZoneReportClick = (e: React.MouseEvent, reportId: string, zoneName: string) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const detailPath = `/prs&milestones/milestone-report/daily-summary`;
+                    // Navigate to specific report detail page
+                    const url = `${detailPath}?report_date=${reportDateIso}&project_id=${projectId}&zone=${zoneName}`;
+                    navigate(url);
+                };
+
+                const reportedZonesArray = Object.entries(reportNames);
+
+                // --- NEW LOGIC: Determine if we should skip the Tooltip ---
+                const skipTooltip = totalZones === 1 && reportedCount === 1;
+                let singleZoneName: string | undefined;
+                let singleReportId: string | undefined;
+
+                if (skipTooltip) {
+                    // Since it's a single zone, get the name and ID from the first (and only) entry
+                    [singleZoneName, singleReportId] = reportedZonesArray[0];
+                }
+                // --- END NEW LOGIC ---
 
 
-   if (reportedZonesArray.length === 0) {
+                if (reportedZonesArray.length === 0) {
                     // MODIFIED SECTION
                     return (
                         <span className="text-red-500 text-center block" title="No Reports Found">
@@ -776,73 +776,73 @@ cell: ({ row }) => {
                     // END MODIFIED SECTION
                 }
 
-     if (skipTooltip && singleZoneName && singleReportId) {
-        return (
-            <div 
-                className={`h-auto w-full p-2 text-xs flex items-center justify-center font-medium transition-colors cursor-pointer rounded ${badgeClass} hover:bg-opacity-80`}
-                title={`View Report for ${singleZoneName}`}
-                // Direct navigation without Tooltip
-                onClick={(e) => handleZoneReportClick(e, singleReportId, singleZoneName)}
-            >
-                {reportedCount}/{totalZones}
-                <ExternalLink className="h-3 w-3 ml-1" />
-            </div>
-        );
-    }
-    return (
-        <TooltipProvider delayDuration={200}>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <div 
-                        className={`h-auto w-full p-2 text-xs flex items-center justify-center font-medium transition-colors cursor-pointer rounded ${badgeClass} hover:bg-opacity-80`}
-                        title={`Reported ${reportedCount}/${totalZones} Zones`}
-                    >
-                        {reportedCount}/{totalZones}
-                        {reportedCount > 0 && <ExternalLink className="h-3 w-3 ml-1" />}
-                    </div>
-                </TooltipTrigger>
-                <TooltipContent 
-                    side="top" 
-                    align="center"
-                     className="p-0 z-50 bg-white border shadow-lg w-[180px]"
-                    sideOffset={8}
-                >
-                    <div className="p-3 pt-2 pb-2">
+                if (skipTooltip && singleZoneName && singleReportId) {
+                    return (
+                        <div
+                            className={`h-auto w-full p-2 text-xs flex items-center justify-center font-medium transition-colors cursor-pointer rounded ${badgeClass} hover:bg-opacity-80`}
+                            title={`View Report for ${singleZoneName}`}
+                            // Direct navigation without Tooltip
+                            onClick={(e) => handleZoneReportClick(e, singleReportId, singleZoneName)}
+                        >
+                            {reportedCount}/{totalZones}
+                            <ExternalLink className="h-3 w-3 ml-1" />
+                        </div>
+                    );
+                }
+                return (
+                    <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div
+                                    className={`h-auto w-full p-2 text-xs flex items-center justify-center font-medium transition-colors cursor-pointer rounded ${badgeClass} hover:bg-opacity-80`}
+                                    title={`Reported ${reportedCount}/${totalZones} Zones`}
+                                >
+                                    {reportedCount}/{totalZones}
+                                    {reportedCount > 0 && <ExternalLink className="h-3 w-3 ml-1" />}
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent
+                                side="top"
+                                align="center"
+                                className="p-0 z-50 bg-white border shadow-lg w-[180px]"
+                                sideOffset={8}
+                            >
+                                <div className="p-3 pt-2 pb-2">
 
-                        {reportedZonesArray.length > 0 ? (
-                            <div className="space-y-1 text-gray-500">
-                                {reportedZonesArray.map(([zoneName, reportId], index) => (
-                                    <div 
-                                        key={index} 
-                                        className="flex justify-between items-center text-base py-1.5 px-0.5 rounded transition-colors hover:bg-gray-50 -mx-1"
-                                        style={{ height: '36px' }} // Explicit height based on image 
-                                        onClick={(e) => handleZoneReportClick(e, reportId,zoneName)}
-                                    >
-                                        <span className="font-medium text-xs text-left flex-1">
-                                            {zoneName}
-                                        </span>
-                                        <button
-                                            onClick={(e) => handleZoneReportClick(e, reportId,zoneName)}
-                                            className="text-blue-600 hover:text-blue-800 hover:underline text-xs font-medium flex items-center gap-1 transition-colors"
-                                            title={`View Report: ${reportId}`}
-                                        >
-                                          
-                                            <ExternalLink className="h-3 w-3" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-sm text-gray-500 py-3 text-center">
-                                No reports submitted.
-                            </p>
-                        )}
-                    </div>
-                </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
-    );
-},
+                                    {reportedZonesArray.length > 0 ? (
+                                        <div className="space-y-1 text-gray-500">
+                                            {reportedZonesArray.map(([zoneName, reportId], index) => (
+                                                <div
+                                                    key={index}
+                                                    className="flex justify-between items-center text-base py-1.5 px-0.5 rounded transition-colors hover:bg-gray-50 -mx-1"
+                                                    style={{ height: '36px' }} // Explicit height based on image 
+                                                    onClick={(e) => handleZoneReportClick(e, reportId, zoneName)}
+                                                >
+                                                    <span className="font-medium text-xs text-left flex-1">
+                                                        {zoneName}
+                                                    </span>
+                                                    <button
+                                                        onClick={(e) => handleZoneReportClick(e, reportId, zoneName)}
+                                                        className="text-blue-600 hover:text-blue-800 hover:underline text-xs font-medium flex items-center gap-1 transition-colors"
+                                                        title={`View Report: ${reportId}`}
+                                                    >
+
+                                                        <ExternalLink className="h-3 w-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-500 py-3 text-center">
+                                            No reports submitted.
+                                        </p>
+                                    )}
+                                </div>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                );
+            },
             size: 100,
             enableSorting: false,
             enableColumnFilter: false,
@@ -852,7 +852,7 @@ cell: ({ row }) => {
 
         // UPDATED Dependency Array for useMemo
         return [...baseColumns, ...dynamicColumns];
-    }, [dynamicDateColumns, navigate]); 
+    }, [dynamicDateColumns, navigate, assignmentsLookup]);
 
     // --- 5. Use Server Data Table (Client Mode) ---
     const {
@@ -862,6 +862,8 @@ cell: ({ row }) => {
         totalCount: totalRowCount,
         searchTerm, setSearchTerm,
         selectedSearchField, setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<ProjectProgressReportRow>({
         doctype: DOCTYPE_PROJECTS,
         columns: allColumns,
@@ -872,14 +874,14 @@ cell: ({ row }) => {
         urlSyncKey: URL_SYNC_KEY,
         defaultSort: 'project_name asc',
         enableRowSelection: false,
-         additionalFilters: [["status", "not in", ["Completed", "Cancelled"]],["enable_project_milestone_tracking", "=", 1]],
+        additionalFilters: [["status", "not in", ["Completed", "Cancelled"]], ["enable_project_milestone_tracking", "=", 1]],
     });
 
-    console.log("table data",table.getRowModel().rows);
+    console.log("table data", table.getRowModel().rows);
     // --- 6. Custom Export Handler (useCallback) ---
-    const handleCustomExport = useCallback(() => {
-        const rowsToExport = table.getSortedRowModel().rows.map(row => row.original);
-         
+    const handleCustomExport = useCallback(async () => {
+        const rowsToExport = await exportAllRows();
+
         if (!rowsToExport || rowsToExport.length === 0) {
             toast({ title: "Export", description: "No data available to export.", variant: "default" });
             return;
@@ -888,9 +890,9 @@ cell: ({ row }) => {
         const dataToExport = rowsToExport.map(original => {
             const projectId = original.name;
             let assignees = assignmentsLookup[projectId] || [];
-            
+
             // Allow all roles or filter
-             const allowedRoles = [
+            const allowedRoles = [
                 "Nirmaan Project Manager Profile",
                 "Nirmaan Project Lead Profile"
             ];
@@ -901,7 +903,7 @@ cell: ({ row }) => {
             };
 
             const formattedAssignees = assignees
-                .filter((a) => allowedRoles.includes(a.role)) 
+                .filter((a) => allowedRoles.includes(a.role))
                 .map((a) => `• ${a.name} (${roleMap[a.role] || a.role})`)
                 .join("\n");
 
@@ -909,10 +911,10 @@ cell: ({ row }) => {
                 "Project Name": original.project_name || original.name,
                 "Assignees": formattedAssignees || "--",
             };
-            
+
             dynamicDateColumns.forEach(col => {
                 const status = original[col.id] as ZoneReportStatus | undefined;
-                 if (status) {
+                if (status) {
                     exportRow[col.title.replace('\n', ' ')] = `${status.reportedCount}/${status.totalZones}`;
                 } else {
                     exportRow[col.title.replace('\n', ' ')] = "--";
@@ -923,10 +925,10 @@ cell: ({ row }) => {
 
         // Define export columns based on the flattened data
         const exportColumns: ColumnDef<any, any>[] = [
-           { header: "Project Name", accessorKey: "Project Name" },
-           { header: "Assignees", accessorKey: "Assignees" },
+            { header: "Project Name", accessorKey: "Project Name" },
+            { header: "Assignees", accessorKey: "Assignees" },
             ...dynamicDateColumns.map(col => ({
-                header: col.title.replace('\n', ' '), 
+                header: col.title.replace('\n', ' '),
                 accessorKey: col.title.replace('\n', ' ')
             }))
         ];
@@ -938,11 +940,11 @@ cell: ({ row }) => {
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [dynamicDateColumns]);
+    }, [dynamicDateColumns, table, assignmentsLookup]);
 
 
-    const isLoadingOverall = isProjectsLoading || isReportsLoading   || isTableHookLoading;
-    const overallError = projectsError || reportsError  || tableHookError;
+    const isLoadingOverall = isProjectsLoading || isReportsLoading || isTableHookLoading;
+    const overallError = projectsError || reportsError || tableHookError;
 
     if (overallError) {
         return <AlertDestructive error={overallError as Error} />;
@@ -956,11 +958,12 @@ cell: ({ row }) => {
         <div className="space-y-4">
             {/* <h2 className="text-xl font-bold tracking-tight">Project Progress Report</h2>
             <p className="text-sm text-muted-foreground">Report IDs for progress recorded over the last 7 days (including today), showing assigned Project Leads/Managers.</p> */}
-            
+
             <DataTable<ProjectProgressReportRow>
                 table={table}
                 columns={allColumns}
                 isLoading={isLoadingOverall}
+                isExporting={isExporting}
                 error={overallError as Error | null}
                 totalCount={totalRowCount}
                 searchFieldOptions={[{ value: "project_name", label: "Project Name", placeholder: "Search by Name..." }]}
@@ -968,7 +971,7 @@ cell: ({ row }) => {
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetOptionsConfig} 
+                facetFilterOptions={facetOptionsConfig}
                 showExportButton={true}
                 onExport={handleCustomExport}
                 exportFileName={'Project_Progress_Report_IDs'}

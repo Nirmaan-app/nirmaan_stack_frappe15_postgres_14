@@ -21,6 +21,14 @@ export const formatValueToLakhsString = (value: string | number | undefined | nu
   return `${valueInLakhs} L`;
 };
 
+/** Returns just the numeric lakhs value as a string (e.g., "2.50") for CSV exports */
+export const formatValueToLakhsNumber = (value: string | number | undefined | null): string => {
+  const num = parseNumber(value);
+  if (isNaN(num)) return "";
+  if (num === 0) return "0.00";
+  return (num / 100000).toFixed(2);
+};
+
 const formatDisplayValueToLakhs = (value: string | number | undefined | null): string => {
   const num = parseNumber(value);
   if (isNaN(num)) return "-";
@@ -144,7 +152,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
     header: ({ column }) => <DataTableColumnHeader column={column} title="Value (incl. GST)" className="[&_button]:whitespace-normal text-left" />,
     cell: ({ row }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(row.original.project_value_gst)}</div>,
     size:120,
-    meta: { exportHeaderName: "Value (incl. GST)", exportValue: (row: any) => formatValueToLakhsString(row.project_value_gst), isNumeric: true }
+    meta: { exportHeaderName: "Value incl. GST (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.project_value_gst), isNumeric: true }
   },
   {
     accessorKey: "totalProjectInvoiced",
@@ -152,7 +160,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
     cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
     size: 150,
     
-    meta: { exportHeaderName: "Client Invoiced (incl. GST)", exportValue: (row: any) => formatValueToLakhsString(row.totalProjectInvoiced), isNumeric: true }
+    meta: { exportHeaderName: "Client Invoiced incl. GST (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalProjectInvoiced), isNumeric: true }
   },
   {
     accessorKey: "totalInflow",
@@ -184,7 +192,7 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
         return <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
     },
     size: 100,
-    meta: { exportHeaderName: "Inflow", exportValue: (row: any) => formatValueToLakhsString(row.totalInflow), isNumeric: true }
+    meta: { exportHeaderName: "Inflow (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalInflow), isNumeric: true }
   },
   {
     accessorKey: "totalOutflow",
@@ -216,14 +224,14 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
         return <div className="tabular-nums ">{formatDisplayValueToLakhs(value)}</div>
     },
     size: 100,
-    meta: { exportHeaderName: "Outflow", exportValue: (row: any) => formatValueToLakhsString(row.totalOutflow), isNumeric: true }
+    meta: { exportHeaderName: "Outflow (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalOutflow), isNumeric: true }
   },
   {
     accessorKey: "totalLiabilities",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Current Liability" />,
     cell: ({ getValue }) => <div className="tabular-nums">{formatDisplayValueToLakhs(getValue() as number)}</div>,
     size: 150,
-    meta: { exportHeaderName: "Current Liability", exportValue: (row: any) => formatValueToLakhsString(row.totalLiabilities), isNumeric: true }
+    meta: { exportHeaderName: "Current Liability (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalLiabilities), isNumeric: true }
   },
   {
     accessorKey: "cashflowGap",
@@ -237,21 +245,21 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
           );
     },
      size: 120,
-    meta: { exportHeaderName: "Cashflow Gap", exportValue: (row: any) => formatValueToLakhsString(row.cashflowGap), isNumeric: true }
+    meta: { exportHeaderName: "Cashflow Gap (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.cashflowGap), isNumeric: true }
   },
   {
     accessorKey: "totalInvoiced",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Value (incl. GST)" className="[&_button]:whitespace-normal text-left" />,
     cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
     size: 140,
-    meta: { exportHeaderName: "Total PO+SR Value(incl. GST)", exportValue: (row: any) => formatValueToLakhsString(row.totalInvoiced), isNumeric: true }
+    meta: { exportHeaderName: "Total PO+SR Value incl. GST (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalInvoiced), isNumeric: true }
   },
   {
     accessorKey: "totalPoSrInvoiced",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoice Received" className="[&_button]:whitespace-normal text-left" />,
     cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
     size: 140,
-    meta: { exportHeaderName: "Total PO+SR Invoice Received", exportValue: (row: any) => formatValueToLakhsString(row.totalPoSrInvoiced), isNumeric: true }
+    meta: { exportHeaderName: "Total PO+SR Invoice Received (in Lakhs)", exportValue: (row: any) => formatValueToLakhsNumber(row.totalPoSrInvoiced), isNumeric: true }
   },
   
   {
@@ -260,8 +268,8 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
     cell: ({ getValue }) => <div className="tabular-nums text-center">{formatValueToLakhsString(getValue() as number)}</div>,
     size: 140,
     meta: {
-      exportHeaderName: "Total Purchase Over Credit",
-      exportValue: (row: any) => formatValueToLakhsString(row.TotalPurchaseOverCredit),
+      exportHeaderName: "Total Purchase Over Credit (in Lakhs)",
+      exportValue: (row: any) => formatValueToLakhsNumber(row.TotalPurchaseOverCredit),
       isNumeric: true
     }
   },

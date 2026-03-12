@@ -159,6 +159,19 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
             });
         }
 
+        // 3. Remove newly added items (they exist in current items but shouldn't be in original)
+        if (parsedVersionData.added && Array.isArray(parsedVersionData.added)) {
+            const addedItemNames = new Set(
+                parsedVersionData.added
+                    .filter(([tableName]: any) => tableName === 'items')
+                    .map(([, itemData]: any) => itemData?.name)
+                    .filter(Boolean)
+            );
+            if (addedItemNames.size > 0) {
+                reconstructedItems = reconstructedItems.filter((item: any) => !addedItemNames.has(item.name));
+            }
+        }
+
         const originalMap = new Map(reconstructedItems.map((item: any) => [item.name, item]));
         const currentNames = po_data.items.map((item:any) => item.name);
         const originalNames = reconstructedItems.map((item:any) => item.name);
@@ -206,11 +219,11 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                 if (result.status !== 200) {
                     toast({
                         title: "Revert Failed",
-                        description: result.message.message || "An error occurred while reverting.",
+                        description: result.message?.message || "An error occurred while reverting.",
                         variant: "destructive",
                     });
-                }else{
-                    toast({ title: "Error Revert", description: `An error occurred while processing the action ${result.message}.`, variant: "destructive" });
+                } else {
+                    toast({ title: "Success", description: `Amended PO has been successfully reverted.`, variant: "success" });
                 }
 
 

@@ -27,6 +27,7 @@ export interface UseFacetValuesConfig {
     additionalFilters?: any[];
     enabled?: boolean;
     limit?: number;
+    requirePendingItems?: boolean;
 }
 
 export interface UseFacetValuesReturn {
@@ -48,7 +49,8 @@ export function useFacetValues({
     selectedSearchField,
     additionalFilters = [],
     enabled = true,
-    limit = 0  // 0 means no limit - return all facet values
+    limit = 0,  // 0 means no limit - return all facet values
+    requirePendingItems = false
 }: UseFacetValuesConfig): UseFacetValuesReturn {
 
     const [facetValues, setFacetValues] = useState<FacetValue[]>([]);
@@ -109,7 +111,8 @@ export function useFacetValues({
                     current_search_fields: searchTermParam && searchFieldParam
                         ? JSON.stringify([searchFieldParam])
                         : undefined,
-                    limit: limit
+                    limit: limit,
+                    require_pending_items: requirePendingItems
                 };
 
                 const response = await fetchFacetValues(payload);
@@ -128,7 +131,7 @@ export function useFacetValues({
                 setIsLoading(false);
             }
         }, DEBOUNCE_DELAY),
-        [enabled, fetchFacetValues, resetApiState, limit]
+        [enabled, fetchFacetValues, resetApiState, limit, requirePendingItems]
     );
 
     // Effect to trigger fetch when dependencies change

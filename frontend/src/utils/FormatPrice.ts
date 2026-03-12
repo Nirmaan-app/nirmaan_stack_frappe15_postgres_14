@@ -69,4 +69,20 @@ export const formatToApproxLakhs = (amount: number | string | undefined): string
   })} L`;
 }
 
+/**
+ * Converts a value to lakhs and returns just the numeric string (e.g., "2.50")
+ * Intended for CSV/spreadsheet exports where raw numbers are needed
+ */
+export const formatToLakhsNumber = (amount: number | string | undefined): string => {
+  const value = parseNumber(amount);
+
+  if (isNaN(value)) return "";
+  if (value === 0) return "0.00";
+
+  const lakhs = value / 100000;
+  const roundedLakhs = Math.round(lakhs * 100) / 100;
+
+  return roundedLakhs.toFixed(2);
+}
+
 export default formatToIndianRupee;

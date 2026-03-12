@@ -127,7 +127,7 @@ export default function SRReports() {
           if (srDoc.status === "Approved") {
             // Using pre-calculated fields from SRReportRowData
             return (
-              parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + delta
+              parseNumber(row.amountPaid) > parseNumber((row as any).totalAmount) + delta
             );
           }
           return false;
@@ -149,6 +149,8 @@ export default function SRReports() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<SRReportRowData>({
     // Generic is SRReportRowData
     doctype: `SRReportsClientFilteredVirtual_${selectedReportType || "none"}`, // Virtual name
@@ -186,38 +188,27 @@ export default function SRReports() {
   //
 
   // Supporting data for faceted filters
-  const projectsFetchOptions = getProjectListOptions();
-  const {
-    data: projects,
-    isLoading: projectsUiLoading,
-    error: projectsUiError,
-  } = useFrappeGetDocList<Projects>(
-    "Projects",
-    projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>,
-    queryKeys.projects.list(projectsFetchOptions)
-  );
-  const {
-    data: vendors,
-    isLoading: vendorsUiLoading,
-    error: vendorsUiError,
-  } = useVendorsList({
-    vendorTypes: ["Service", "Material", "Material & Service"],
-  });
+  const projectFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = (row as any).projectName || row.project;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
 
-  const projectFacetOptions = useMemo<SelectOption[]>(
-    () =>
-      projects?.map((p) => ({
-        label: p.project_name,
-        value: p.project_name,
-      })) || [],
-    [projects]
-  );
-  const vendorFacetOptions = useMemo<SelectOption[]>(
-    () =>
-      vendors?.map((v) => ({ label: v.vendor_name, value: v.vendor_name })) ||
-      [],
-    [vendors]
-  );
+  const vendorFacetOptions = useMemo<SelectOption[]>(() => {
+    const counts: Record<string, number> = {};
+    currentDisplayData.forEach(row => {
+      const val = (row as any).vendorName || row.vendor;
+      if (val) counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [currentDisplayData]);
 
   const facetOptionsConfig = useMemo(
     () => ({
@@ -238,8 +229,9 @@ export default function SRReports() {
     }`;
   }, [selectedReportType]);
 
-  const handleCustomExport = useCallback(() => {
-    if (!fullyFilteredData || fullyFilteredData.length === 0) {
+  const handleCustomExport = useCallback(async () => {
+    const allRows = await exportAllRows();
+    if (!allRows || allRows.length === 0) {
       toast({
         title: "Export",
         description:
@@ -248,12 +240,12 @@ export default function SRReports() {
       });
       return;
     }
-    const dataToExport = fullyFilteredData.map((row) => ({
+    const dataToExport = allRows.map((row) => ({
       sr_id: row.name,
       creation: formatDate(row.creation),
-      project_name: row.projectName || row.project,
-      vendor_name: row.vendorName || row.vendor,
-      total_sr_amt: formatForReport(row.totalAmount),
+      project_name: (row as any).projectName || row.project,
+      vendor_name: (row as any).vendorName || row.vendor,
+      total_sr_amt: formatForReport((row as any).totalAmount),
       total_invoice_amt: formatForReport(row.invoiceAmount),
       amt_paid: formatForReport(row.amountPaid),
       pending_invoice_amt: formatForReport(row.amountPaid - row.invoiceAmount),
@@ -287,15 +279,10 @@ export default function SRReports() {
         variant: "destructive",
       });
     }
-  }, [fullyFilteredData, exportFileName]);
+  }, [exportAllRows, exportFileName]);
 
-  const isLoadingOverall =
-    isLoadingInitialData ||
-    projectsUiLoading ||
-    vendorsUiLoading ||
-    isTableHookLoading;
-  const overallError =
-    initialDataError || projectsUiError || vendorsUiError || tableHookError;
+  const isLoadingOverall = isLoadingInitialData || isTableHookLoading;
+  const overallError = initialDataError || tableHookError;
 
   // If 2B Reconcile Report is selected, render the dedicated component
   if (selectedReportType === '2B Reconcile Report') {
@@ -324,6 +311,7 @@ export default function SRReports() {
           table={table}
           columns={tableColumnsToDisplay}
           isLoading={isLoadingOverall}
+          isExporting={isExporting}
           error={overallError as Error | null}
           // totalCount={totalCount} // From useServerDataTable, reflects currentDisplayData.length
           totalCount={filteredRowCount}

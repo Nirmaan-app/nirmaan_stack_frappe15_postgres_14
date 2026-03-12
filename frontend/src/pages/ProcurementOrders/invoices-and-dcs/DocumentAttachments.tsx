@@ -9,6 +9,7 @@ import {
 import { useDialogStore } from "@/zustand/useDialogStore"; // Adjust import path
 import { useToast } from "@/components/ui/use-toast"; // Adjust import path
 import { TailSpin } from "react-loader-spinner";
+import { useUserData } from "@/hooks/useUserData";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 // UI Components
@@ -90,7 +91,9 @@ export const DocumentAttachments = <T extends DocumentType>({
 }: DocumentAttachmentsProps<T>) => {
   //   console.log("DocumentAttachments", project, documentData);
 
-  const { toggleNewInvoiceDialog } = useDialogStore();
+  const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice } = useDialogStore();
+  const { role } = useUserData();
+  const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Admin Profile";
   const { toast } = useToast();
 
   // Fetch users list for displaying "Uploaded By" names
@@ -329,6 +332,11 @@ export const DocumentAttachments = <T extends DocumentType>({
     },
     [docName, docType, deleteInvoiceEntryApi, toast, mutateInvoices, mutateAttachments, docMutate]
   );
+
+  const handleEditInvoice = useCallback((invoice: VendorInvoice) => {
+    setSelectedInvoice(invoice);
+    toggleEditInvoiceDialog();
+  }, [setSelectedInvoice, toggleEditInvoiceDialog]);
 
   const canDeleteInvoice = useCallback((item: VendorInvoice): boolean => {
     // Only allow deletion if status is Pending or Rejected (or other statuses you define)
@@ -588,6 +596,7 @@ export const DocumentAttachments = <T extends DocumentType>({
               <InvoiceTable
                 items={vendorInvoices} // Use Vendor Invoices instead of JSON data
                 onViewAttachment={handleViewInvoiceAttachment}
+                onEditEntry={isAccountant ? handleEditInvoice : undefined}
                 onDeleteEntry={handleDeleteInvoiceEntry}
                 isLoading={deleteInvoiceEntryLoading}
                 canDeleteEntry={canDeleteInvoice}

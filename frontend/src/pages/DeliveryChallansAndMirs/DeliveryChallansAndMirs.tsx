@@ -34,6 +34,7 @@ interface POItem {
   amount: number;
   procurement_package: string;
   comment: string;
+  is_dispatched?: number;
 }
 
 interface EnrichedProcurementOrder extends Omit<ProcurementOrder, 'items'> {
@@ -177,6 +178,11 @@ export const DeliveryChallansAndMirs = () => {
     const po = selectedProjectPOs.find((p) => p.name === poName);
     if (!po) return;
 
+    // When PO is Partially Dispatched, only include dispatched items
+    const poItems = po.status === "Partially Dispatched"
+      ? po.items.filter(item => item.is_dispatched === 1)
+      : po.items;
+
     setUploadDialog({
       open: true,
       mode: "create",
@@ -185,7 +191,7 @@ export const DeliveryChallansAndMirs = () => {
       poDisplayName: `PO-${poName.split("/")[1]}`,
       poProject: po.project,
       poVendor: po.vendor,
-      poItems: po.items.map((item) => ({
+      poItems: poItems.map((item) => ({
         item_id: item.item_id,
         item_name: item.item_name,
         unit: item.unit,
@@ -204,6 +210,11 @@ export const DeliveryChallansAndMirs = () => {
     const po = selectedProjectPOs.find((p) => p.name === doc.procurement_order);
     if (!po) return;
 
+    // When PO is Partially Dispatched, only include dispatched items
+    const poItems = po.status === "Partially Dispatched"
+      ? po.items.filter(item => item.is_dispatched === 1)
+      : po.items;
+
     // Close view dialog and open upload in edit mode
     setViewPoId(null);
     setUploadDialog({
@@ -214,7 +225,7 @@ export const DeliveryChallansAndMirs = () => {
       poDisplayName: `PO-${doc.procurement_order.split("/")[1]}`,
       poProject: doc.project,
       poVendor: doc.vendor || po.vendor,
-      poItems: po.items.map((item) => ({
+      poItems: poItems.map((item) => ({
         item_id: item.item_id,
         item_name: item.item_name,
         unit: item.unit,

@@ -33,7 +33,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToApproxLakhs } from "@/utils/FormatPrice";
+import { formatToApproxLakhs, formatToLakhsNumber } from "@/utils/FormatPrice";
 import {
   getTotalInflowAmount,
   // getPOSTotals,
@@ -517,7 +517,9 @@ export const Projects: React.FC<ProjectsProps> = ({
         ),
         size: 100,
         meta: {
-          exportHeaderName: "Value (incl. GST)",
+          exportHeaderName: "Value incl. GST (in Lakhs)",
+          exportValue: (row) => formatToLakhsNumber(row.project_value_gst),
+          isNumeric: true,
         },
       },
       {
@@ -535,11 +537,12 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "PO Amount (Lakhs)",
+          exportHeaderName: "PO Amount (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
-            return formatToApproxLakhs(financials.calculatedTotalInvoiced);
+            return formatToLakhsNumber(financials.calculatedTotalInvoiced);
           },
+          isNumeric: true,
         },
       },
       {
@@ -557,11 +560,12 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "Inflow (Lakhs)",
+          exportHeaderName: "Inflow (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
-            return formatToApproxLakhs(financials.calculatedTotalInflow);
+            return formatToLakhsNumber(financials.calculatedTotalInflow);
           },
+          isNumeric: true,
         },
       },
       {
@@ -579,11 +583,12 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "Outflow (Lakhs)",
+          exportHeaderName: "Outflow (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
-            return formatToApproxLakhs(financials.calculatedTotalOutflow);
+            return formatToLakhsNumber(financials.calculatedTotalOutflow);
           },
+          isNumeric: true,
         },
       },
       {
@@ -601,11 +606,12 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "Current Liabilities",
+          exportHeaderName: "Current Liabilities (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
-            return formatToApproxLakhs(financials.totalLiabilities);
+            return formatToLakhsNumber(financials.totalLiabilities);
           },
+          isNumeric: true,
         },
       },
       {
@@ -631,15 +637,16 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "Cashflow Gap (Lakhs)",
+          exportHeaderName: "Cashflow Gap (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
             const cashflowGap =
               financials.calculatedTotalOutflow +
               financials.totalLiabilities -
               financials.calculatedTotalInflow;
-            return formatToApproxLakhs(cashflowGap);
+            return formatToLakhsNumber(cashflowGap);
           },
+          isNumeric: true,
         },
       },
       {
@@ -660,13 +667,14 @@ export const Projects: React.FC<ProjectsProps> = ({
         },
         size: 100,
         meta: {
-          exportHeaderName: "Total Purchase Over Credit",
+          exportHeaderName: "Total Purchase Over Credit (in Lakhs)",
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
-            return formatToApproxLakhs(
+            return formatToLakhsNumber(
               parseNumber(financials.totalCreditPurchase)
             );
           },
+          isNumeric: true,
         },
       },
     ],
@@ -692,6 +700,8 @@ export const Projects: React.FC<ProjectsProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -878,6 +888,8 @@ export const Projects: React.FC<ProjectsProps> = ({
             dateFilterColumns={PROJECT_DATE_COLUMNS}
             showExportButton={true}
             onExport={"default"}
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
             exportFileName="Projects_Report"
             getRowClassName={getRowClassName}
           />

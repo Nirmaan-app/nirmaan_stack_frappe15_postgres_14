@@ -8,6 +8,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | File | Domain | When to Load |
 |------|--------|--------------|
+| [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
 | [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
 | [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
@@ -18,6 +19,8 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
 | [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
+| [domain/delivery-notes.md](./domain/delivery-notes.md) | Delivery Notes | DN doctype, DN Item child table, APIs, received_quantity, 51-point linkage map |
+| [domain/po-status-map.md](./domain/po-status-map.md) | PO Status | Full PO status lifecycle, all codebase usage (28 frontend + 19 backend files), cross-module linkages, DataTable/API call map |
 
 ### Module References (in-code)
 
@@ -34,6 +37,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
+| Delivery Notes (DN) | `src/pages/DeliveryNotes/` | `deliverynotes.tsx` (hub: dashboard/create/view), `deliverynote.tsx` (detail, `?mode=` support), `components/pivot-table/` (pivot subsystem), `components/DNDetailDialog.tsx`, `hooks/useProjectDeliveryNotes.ts`, `hooks/useReturnSubmit.ts` (return notes) |
 | Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons |
 | Team Performance | `src/pages/ProjectDesignTracker/` | `components/TeamPerformanceSummary.tsx`, inline edit with TaskEditModal, InlineTaskList drill-down |
 | Vendor Attachment for PR | `src/pages/ProcurementRequests/` | `components/VendorAttachmentForPR.tsx` for vendor quote attachments |
@@ -79,17 +83,20 @@ const { role, user_id } = useUserData();
 ├── settings.local.json   # Local Claude settings
 └── context/
     ├── _index.md           # This file
+    ├── data-tables.md      # DataTable system: hook, component, export, backend API
     ├── coding-standards.md # Date formats, react-select, Radix dialog patterns
     ├── react-patterns.md   # useEffect anti-patterns, Vercel best practices
     ├── role-access.md      # Role-based access control reference
     ├── testing.md          # Playwright browser testing guide
     ├── websocket.md        # Socket.IO real-time events & notifications
     └── domain/
-        ├── customers.md  # Customer management & financials
-        ├── invoices.md   # Invoice management & 2B reconciliation
-        ├── milestones.md # Daily progress reports & zone tracking
-        ├── projects.md   # Project status lifecycle & frontend behavior
-        └── ceo-hold.md   # CEO Hold status & blocked operations
+        ├── customers.md       # Customer management & financials
+        ├── delivery-notes.md  # DN doctype + child table, APIs, linkage map
+        ├── invoices.md        # Invoice management & 2B reconciliation
+        ├── milestones.md      # Daily progress reports & zone tracking
+        ├── projects.md        # Project status lifecycle & frontend behavior
+        ├── ceo-hold.md        # CEO Hold status & blocked operations
+        └── po-status-map.md   # PO status lifecycle & full codebase usage map
 ```
 
 ---

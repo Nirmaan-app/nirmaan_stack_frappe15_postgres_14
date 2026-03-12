@@ -43,8 +43,6 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -74,6 +72,7 @@ import {
   ProcurementOrder,
   PurchaseOrderItem,
 } from "@/types/NirmaanStack/ProcurementOrders";
+import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -114,8 +113,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
-import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
+import { DeliveryPivotTable, DELIVERY_EDIT_ROLES, RETURN_NOTE_ROLES } from "@/pages/DeliveryNotes/components/pivot-table";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
@@ -125,11 +123,14 @@ import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/Reques
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
-import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
+import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
+import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
+import { AmendAddChargeDialog } from "./components/AmendAddChargeDialog";
+import { Items } from "@/types/NirmaanStack/Items";
+import { Category } from "@/types/NirmaanStack/Category";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -166,6 +167,11 @@ export const PurchaseOrder = ({
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
+  const { data: lockData } = usePOLockCheck(poId);
+  const isLocked = lockData?.is_locked || false;
+
+  const { data: allLockedPOs } = useAllLockedPOs();
+
   const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
 
@@ -196,8 +202,6 @@ export const PurchaseOrder = ({
 
 
 
-  const { triggerHistoryPrint, PrintableHistoryComponent } =
-    usePrintHistory(PO);
 
   useFrappeDocumentEventListener(
     "Procurement Orders",
@@ -279,7 +283,7 @@ export const PurchaseOrder = ({
   }
 
   interface Operation {
-    operation: "delete" | "quantity_change" | "make_change" | "tax_change";
+    operation: "delete" | "quantity_change" | "make_change" | "tax_change" | "add";
     item: PurchaseOrderItem;
     previousQuantity?: number;
     previousMakeList?: string;
@@ -326,12 +330,6 @@ export const PurchaseOrder = ({
     setAmendPOSheet((prevState) => !prevState);
   }, []);
 
-  // Delivery Note Sheet state for Delivery History accordion
-  const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false);
-  const toggleDeliveryNoteSheet = useCallback(() => {
-    setDeliveryNoteSheet((prevState) => !prevState);
-  }, []);
-
   const [cancelPODialog, setCancelPODialog] = useState(false);
 
   const toggleCancelPODialog = useCallback(() => {
@@ -355,6 +353,12 @@ export const PurchaseOrder = ({
   const toggleAddNewMake = useCallback(() => {
     setShowAddNewMake((prevState) => !prevState);
   }, [showAddNewMake]);
+
+  const [isAddChargeDialogOpen, setIsAddChargeDialogOpen] = useState(false);
+
+  const toggleAddChargeDialog = useCallback(() => {
+    setIsAddChargeDialogOpen((prev) => !prev);
+  }, []);
 
   const { toggleRequestPaymentDialog } = useDialogStore();
 
@@ -401,6 +405,36 @@ export const PurchaseOrder = ({
     useFrappePostCall(
       "nirmaan_stack.api.po_merge_and_unmerge.get_full_po_details" // This path looks correct based on your Python file
     );
+
+  const { data: chargeCategories } = useFrappeGetDocList<Category>("Category", {
+    fields: ["name", "tax", "work_package"],
+    filters: [["work_package", "=", "Additional Charges"]],
+    limit: 0,
+  });
+
+  const chargeCategoryNames = useMemo(() => chargeCategories?.map(c => c.name) || [], [chargeCategories]);
+
+  const { data: chargeItemsList } = useFrappeGetDocList<Items>("Items", {
+    fields: ["name", "item_name", "category", "unit_name"],
+    filters: chargeCategoryNames.length > 0 ? [["category", "in", chargeCategoryNames]] : [["name", "=", "INVALID"]],
+    limit: 0,
+  }, chargeCategoryNames.length > 0 ? "AdditionalChargeItems" : null);
+
+  const chargeItemOptions = useMemo(() => {
+    if (!chargeItemsList || !chargeCategories) return [];
+    return chargeItemsList.map(item => {
+      const cat = chargeCategories.find(c => c.name === item.category);
+      return {
+        label: item.item_name,
+        value: item.name,
+        item_id: item.name,
+        item_name: item.item_name,
+        unit: item.unit_name || "Nos",
+        category: item.category,
+        tax: parseFloat(cat?.tax || "0")
+      };
+    });
+  }, [chargeItemsList, chargeCategories]);
 
   const {
     data: usersList,
@@ -467,7 +501,8 @@ export const PurchaseOrder = ({
       .filter(
         (item) =>
           item.custom !== "true" &&
-          !AllPoPaymentsList.some((j) => j.document_name === item.name)
+          !AllPoPaymentsList.some((j) => j.document_name === item.name) &&
+          !allLockedPOs?.includes(item.name)
       )
       .map((item) => item.name); // We only need the names for the next step.
 
@@ -519,9 +554,23 @@ export const PurchaseOrder = ({
 
 
 
-  const deliveryHistory = useMemo(() =>
-    safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
-    [PO?.delivery_data]
+  // Fetch DN records from API
+  const {
+    call: fetchDNs,
+    result: dnResult,
+  } = useFrappePostCall(
+    'nirmaan_stack.api.delivery_notes.get_delivery_notes.get_delivery_notes'
+  );
+
+  useEffect(() => {
+    if (poId) {
+      fetchDNs({ procurement_order: poId });
+    }
+  }, [poId, PO?.modified]);
+
+  const dnRecords: DeliveryNote[] = useMemo(
+    () => (dnResult?.message as DeliveryNote[]) || [],
+    [dnResult]
   );
 
   useEffect(() => {
@@ -722,7 +771,7 @@ export const PurchaseOrder = ({
     }
   };
 
-  console.log("PO?.payment_terms",PO?.payment_terms)
+  // console.log("PO?.payment_terms",PO?.payment_terms)
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
 
@@ -802,9 +851,17 @@ export const PurchaseOrder = ({
 
     try {
       // This part only runs if the validation above passes
+      const itemsToSubmit = orderData.map((item) => {
+        if (item.name.startsWith("NEW-CHARGE-")) {
+          const { name, ...rest } = item;
+          return rest;
+        }
+        return item;
+      });
+
       await updateDoc("Procurement Orders", poId, {
         status: "PO Amendment",
-        items: orderData,
+        items: itemsToSubmit,
       });
       if (comment) {
         await createDoc("Nirmaan Comments", {
@@ -871,49 +928,17 @@ export const PurchaseOrder = ({
     }
   };
 
-  const handleDownloadDeliveryNote = async (poId: string) => {
-    try {
-      const formatname = "PO Delivery Histroy";
-      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0`;
-
-      const response = await fetch(printUrl);
-      if (!response.ok) throw new Error("Failed to generate PDF");
-
-      const blob = await response.blob();
-
-      // Generate filename - you can customize this based on your needs
-      const fileName = `PO_Delivery_${poId}_.pdf`;
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-
-      // Cleanup
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      toast({
-        title: "Success",
-        description: "Delivery note downloaded successfully.",
-        variant: "success"
-      });
-    } catch (error) {
-      console.error("Download error:", error);
-      toast({
-        title: "Error",
-        description: "Failed to download delivery note.",
-        variant: "destructive"
-      });
-    }
-  };
-
   const handleUnAmendAll = () => {
     setOrderData(PO?.items || []);
     setStack([]);
+  };
+
+  const handleAddCharge = (newCharge: PurchaseOrderItem) => {
+    setOrderData(prev => [...prev, newCharge]);
+    setStack(prev => [...prev, {
+      operation: "add" as const,
+      item: newCharge,
+    }]);
   };
 
   useEffect(() => {
@@ -1059,6 +1084,9 @@ export const PurchaseOrder = ({
         }
         return item;
       });
+    } else if (lastOperation.operation === "add") {
+      // Remove the added charge
+      updatedOrderData = updatedOrderData.filter(item => item.name !== lastOperation.item.name);
     }
 
     setOrderData(updatedOrderData); // Set the restored array
@@ -1141,7 +1169,25 @@ export const PurchaseOrder = ({
   );
 
   const totalInvoiceAmount = useMemo(
-    () => getTotalVendorInvoiceAmount(vendorInvoices),
+    () =>
+      vendorInvoices
+        ?.reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
+    [vendorInvoices]
+  );
+
+  const totalPendingInvoiceAmount = useMemo(
+    () =>
+      vendorInvoices
+        ?.filter((inv) => inv.status === "Pending")
+        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
+    [vendorInvoices]
+  );
+
+  const totalApprovedInvoiceAmount = useMemo(
+    () =>
+      vendorInvoices
+        ?.filter((inv) => inv.status === "Approved")
+        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
     [vendorInvoices]
   );
 
@@ -1260,7 +1306,9 @@ export const PurchaseOrder = ({
 
   return (
     <div className="flex-1 space-y-4">
-      {MERGEPOVALIDATIONS && (
+      <PORevisionWarning poId={poId} />
+
+      {MERGEPOVALIDATIONS && !isLocked && (
         <>
           <Alert variant="warning" className="">
             <AlertTitle className="text-sm flex items-center gap-2">
@@ -1553,6 +1601,9 @@ export const PurchaseOrder = ({
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
         totalInvoice={totalInvoiceAmount}
+        totalUploadedInvoiceAmount={totalInvoiceAmount}
+        totalPendingInvoiceAmount={totalPendingInvoiceAmount}
+        totalApprovedInvoiceAmount={totalApprovedInvoiceAmount}
         amountPaid={PO?.amount_paid}
         poMutate={poMutate}
       />
@@ -1595,17 +1646,7 @@ export const PurchaseOrder = ({
                     getTotal={PO?.total_amount}
                     poMutate={poMutate}
                     projectPaymentsMutate={poPaymentsMutate}
-
-                  // advance={advance}
-                  // materialReadiness={materialReadiness}
-                  // afterDelivery={afterDelivery}
-                  // xDaysAfterDelivery={xDaysAfterDelivery}
-                  // xDays={xDays}
-                  // setAdvance={setAdvance}
-                  // setMaterialReadiness={setMaterialReadiness}
-                  // setAfterDelivery={setAfterDelivery}
-                  // setXDaysAfterDelivery={setXDaysAfterDelivery}
-                  // setXDays={setXDays}
+                    isLocked={isLocked}
                   />
                 </div>
               </AccordionContent>
@@ -1614,93 +1655,42 @@ export const PurchaseOrder = ({
         </Card>
       )}
 
-      {/* Delivery History Accordion - Only for dispatched/delivered statuses */}
+      {/* Delivery Notes Accordion - Only for dispatched/delivered statuses */}
       {PO?.status &&
-        ["Dispatched", "Partially Delivered", "Delivered"].includes(
+        ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(
           PO?.status
         ) && (
           <Card className="rounded-sm md:col-span-3 p-2">
             <Accordion type="multiple" className="w-full">
-              <AccordionItem key="delivery-history" value="delivery-history">
+              <AccordionItem value="delivery-notes">
                 <AccordionTrigger>
                   <div className="flex items-center gap-3 pl-6">
-                    <p className="font-semibold text-lg text-red-600">
-                      Delivery History
+                    <p className="font-semibold text-lg text-primary">
+                      Delivery Notes
                     </p>
                     <Badge variant="secondary">
-                      {Object.keys(deliveryHistory.data || {}).length} updates
+                      {dnRecords.length} updates
                     </Badge>
                   </div>
                 </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-4 p-4">
-                    {/* Update Delivery button inside accordion */}
-                    {[
-                      "Nirmaan Admin Profile",
-                      "Nirmaan PMO Executive Profile",
-                      "Nirmaan Project Manager Profile",
-                      "Nirmaan Project Lead Profile",
-                      "Nirmaan Procurement Executive Profile",
-                    ].includes(userData?.role) && (
-                        <div className="flex justify-end">
-                          <Button
-                            onClick={toggleDeliveryNoteSheet}
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-3 border-primary text-primary"
-                          >
-                            <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                            Update Delivery
-                          </Button>
-                        </div>
-                      )}
-                    <DeliveryHistoryTable
-                      poId={PO?.name}
-                      deliveryData={deliveryHistory.data}
-                      onPrintHistory={triggerHistoryPrint}
-                      showHeader={false}
-                    />
-                  </div>
+                <AccordionContent className="px-2">
+                  <DeliveryPivotTable
+                    po={PO}
+                    dnRecords={dnRecords}
+                    onPoMutate={poMutate}
+                    onDnRefetch={() => fetchDNs({ procurement_order: poId })}
+                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
+                    isEmbedded
+                    isProjectManager={isProjectManager}
+                    isLocked={isLocked}
+                  />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
           </Card>
         )}
-
-      {/* Delivery Note Sheet for Delivery History accordion */}
-      <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
-        <SheetContent className="overflow-auto">
-          <SheetHeader className="text-start mb-4 mx-4">
-            <SheetTitle className="text-primary flex flex-row items-center justify-between">
-              <p>Update/View Delivery Note</p>
-              <div className="flex flex-col gap-2 w-full sm:flex-row sm:justify-end sm:items-center">
-                <Button
-                  onClick={()=>handleDownloadDeliveryNote(PO?.name)}
-                  variant="default"
-                  className="px-2"
-                  size="sm"
-                >
-                  <Eye className="h-4 w-4 mr-2" />
-                  <span className="text-xs">Download</span>
-                </Button>
-                <Button variant="default" className="px-2" size="sm">
-                  <Eye className="h-4 w-4 mr-2" />
-                  <span className="text-xs">Preview</span>
-                </Button>
-              </div>
-            </SheetTitle>
-          </SheetHeader>
-          <div className="space-y-4">
-            <DeliveryNoteItemsDisplay data={PO} poMutate={poMutate} />
-            <DeliveryHistoryTable
-              poId={PO?.name}
-              deliveryData={deliveryHistory.data}
-              onPrintHistory={triggerHistoryPrint}
-              showHeader={false}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
 
       {/* PO Attachments Accordion */}
 
@@ -1813,8 +1803,7 @@ export const PurchaseOrder = ({
                       <td className="text-center py-3 align-top">{item.unit}</td>
                       <td className="text-center py-3 align-top">{item.quantity}</td>
                       {["Partially Delivered", "Delivered"].includes(PO?.status) && (
-                        <td className={`text-center py-3 align-top ${
-                          item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
+                        <td className={`text-center py-3 align-top ${item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
                           }`}>
                           {item?.received_quantity || 0}
                         </td>
@@ -1871,8 +1860,7 @@ export const PurchaseOrder = ({
                   {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                     <div className="flex justify-between col-span-2">
                       <span className="text-gray-500">Delivered:</span>
-                      <span className={`font-medium ${
-                        item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
+                      <span className={`font-medium ${item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
                         }`}>
                         {item?.received_quantity || 0} / {item.quantity}
                       </span>
@@ -2045,25 +2033,35 @@ export const PurchaseOrder = ({
                     <div className="text-red-700 text-sm font-light">
                       Order List
                     </div>
-                    {stack.length !== 0 && (
-                      <div className="flex items-center space-x-2">
-                        <HoverCard>
-                          <HoverCardTrigger asChild>
-                            <Button
-                              onClick={() => UndoDeleteOperation()}
-                              className="flex items-center gap-1"
-                            >
-                              <Undo className="mr-2 max-md:w-4 max-md:h-4" />{" "}
-                              {/* Undo Icon */}
-                              Undo
-                            </Button>
-                          </HoverCardTrigger>
-                          <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
-                            Click to undo the last operation
-                          </HoverCardContent>
-                        </HoverCard>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={toggleAddChargeDialog}
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50 text-[11px] h-8 font-bold px-4"
+                      >
+                        Add Charges
+                      </Button>
+                      {stack.length !== 0 && (
+                        <div className="flex items-center space-x-2">
+                          <HoverCard>
+                            <HoverCardTrigger asChild>
+                              <Button
+                                onClick={() => UndoDeleteOperation()}
+                                className="flex items-center gap-1"
+                              >
+                                <Undo className="mr-2 max-md:w-4 max-md:h-4" />{" "}
+                                {/* Undo Icon */}
+                                Undo
+                              </Button>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                              Click to undo the last operation
+                            </HoverCardContent>
+                          </HoverCard>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <table className="table-auto w-full">
@@ -2109,7 +2107,7 @@ export const PurchaseOrder = ({
                               {item.quantity}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              <div className="flex items-center justify-center">
+                              <div className="flex items-center justify-center gap-1">
                                 {item.category != "Additional Charges" && (
                                   <Pencil
                                     onClick={() => {
@@ -2141,6 +2139,12 @@ export const PurchaseOrder = ({
                                       toggleAmendEditItemDialog();
                                     }}
                                     className="w-4 h-4 cursor-pointer"
+                                  />
+                                )}
+                                {item.name.startsWith("NEW-CHARGE-") && (
+                                  <Trash2
+                                    onClick={() => handleDelete(item.name)}
+                                    className="w-4 h-4 cursor-pointer text-red-500"
                                   />
                                 )}
                               </div>
@@ -2465,12 +2469,6 @@ export const PurchaseOrder = ({
         </Card>
       )}
 
-      {/* {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (
-        <DeliveryHistoryTable
-          deliveryData={deliveryHistory.data}
-            onPrintHistory={triggerHistoryPrint}
-        />
-      )} */}
       {/* PO Pdf  */}
       <POPdf
         poPdfSheet={poPdfSheet}
@@ -2492,7 +2490,7 @@ export const PurchaseOrder = ({
         totalIncGST={PO?.total_amount || 0}
         totalExGST={PO?.amount || 0}
         paid={PO?.amount_paid}
-        pending={PO?.total_amount -PO?.amount_paid}
+        pending={PO?.total_amount - PO?.amount_paid}
         gst={true}
         docType="Procurement Orders"
         docName={PO?.name || "Unknown"}
@@ -2500,7 +2498,13 @@ export const PurchaseOrder = ({
         vendor={PO?.vendor || "Unknown"}
         onSuccess={poPaymentsMutate}
       />
-      {PrintableHistoryComponent}
+      <AmendAddChargeDialog
+        open={isAddChargeDialogOpen}
+        onOpenChange={setIsAddChargeDialogOpen}
+        onAdd={handleAddCharge}
+        itemOptions={chargeItemOptions}
+        orderData={orderData}
+      />
     </div>
   );
 };

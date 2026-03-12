@@ -70,6 +70,8 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<DCMIRReportRowData>({
         doctype: `DCMIRReportsVirtual_${selectedReportType || "none"}`,
         columns: tableColumnsToDisplay,
@@ -110,10 +112,16 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         queryKeys.projects.list(projectsFetchOptions)
     );
 
-    const projectFacetOptions = useMemo<SelectOption[]>(
-        () => projects?.map((p) => ({ label: p.project_name, value: p.project_name })) || [],
-        [projects]
-    );
+    const projectFacetOptions = useMemo<SelectOption[]>(() => {
+        const counts: Record<string, number> = {};
+        currentDisplayData.forEach(row => {
+            const val = row.projectName || row.project;
+            if (val) counts[val] = (counts[val] || 0) + 1;
+        });
+        return Object.entries(counts)
+            .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+            .sort((a, b) => a.value.localeCompare(b.value));
+    }, [currentDisplayData]);
 
     const signedFacetOptions = useMemo<SelectOption[]>(() => [
         { label: "Yes", value: "Yes" },
@@ -126,13 +134,20 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
     ], []);
 
     const criticalPOFacetOptions = useMemo<SelectOption[]>(() => {
-        const labels = new Set<string>();
+        const counts = new Map<string, number>();
         for (const row of currentDisplayData) {
+            // Use a Set to avoid double-counting the same label within one row
+            const rowLabels = new Set<string>();
             for (const task of row.criticalPOTasks) {
-                labels.add(criticalPOLabel(task));
+                rowLabels.add(criticalPOLabel(task));
+            }
+            for (const label of rowLabels) {
+                counts.set(label, (counts.get(label) || 0) + 1);
             }
         }
-        return Array.from(labels).sort().map((l) => ({ label: l, value: l }));
+        return Array.from(counts.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([label, count]) => ({ label: `${label} (${count})`, value: label }));
     }, [currentDisplayData]);
 
     const facetOptionsConfig = useMemo(
@@ -159,13 +174,14 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         return projectId ? `${projectId}_${prefix}` : prefix;
     }, [selectedReportType, projectId]);
 
-    const handleCustomExport = useCallback(() => {
-        if (!fullyFilteredData || fullyFilteredData.length === 0) {
+    const handleCustomExport = useCallback(async () => {
+        const allRows = await exportAllRows();
+        if (!allRows || allRows.length === 0) {
             toast({ title: "Export", description: "No data available to export.", variant: "default" });
             return;
         }
 
-        const dataToExport = fullyFilteredData.map((row) => ({
+        const dataToExport = allRows.map((row) => ({
             document_id: row.name,
             project: row.projectName || row.project,
             reference_number: row.reference_number || "",
@@ -206,7 +222,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [fullyFilteredData, exportFileName, selectedReportType, projectId]);
+    }, [exportAllRows, exportFileName, selectedReportType, projectId]);
 
     const isLoadingOverall = isLoadingInitialData || projectsUiLoading || isTableHookLoading;
     const overallError = initialDataError || projectsUiError || tableHookError;
@@ -229,6 +245,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
                     table={table}
                     columns={tableColumnsToDisplay}
                     isLoading={isLoadingOverall}
+                    isExporting={isExporting}
                     error={overallError as Error | null}
                     totalCount={filteredRowCount}
                     searchFieldOptions={DCMIR_REPORTS_SEARCHABLE_FIELDS}

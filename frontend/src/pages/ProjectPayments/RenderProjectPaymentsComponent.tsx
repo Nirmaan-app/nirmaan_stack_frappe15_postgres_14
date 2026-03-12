@@ -6,13 +6,12 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
-// --- Tab Configuration ---
-import {
-    PP_TABS,PP_ADMIN_TAB_OPTIONS,PP_NEW_PAYMENTS_TAB_OPTIONS,PP_REM_TAB_OPTIONS,PP_ALL_TAB_OPTIONS,PP_ADMIN_ROLES,PP_ACCOUNTANT_ROLES,PP_PROJECT_ROLES,PPTabOption,
-} from "./config/ppTabs.constants";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
-
+// --- Tab Configuration ---
+import {
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_REM_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
+} from "./config/ppTabs.constants";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -163,30 +162,32 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             <Suspense fallback={
                 <LoadingFallback />
             }>
-                {tab === PP_TABS.APPROVE_PAYMENTS ? (
-                    <>
-                        {!canApprovePayments && (
-                            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
-                                <Info className="h-4 w-4 text-blue-600" />
-                                <AlertDescription className="text-sm text-blue-800">
-                                    These payments are pending approval from an admin. Contact an admin for urgent cases.
-                                </AlertDescription>
-                            </Alert>
-                        )}
-                        <ApprovePayments readOnly={!canApprovePayments} />
-                    </>
-                ) :
-
-                    [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
-                        (
-                            <AccountantTabs />
-                        ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS].includes(tab as any) ? (
-                            <AllPayments tab={tab} />
-                        )
-                            : (
-                                <ProjectPaymentsList />
+                {
+                    tab === PP_TABS.APPROVE_PAYMENTS ? (
+                        <>
+                            {!canApprovePayments && (
+                                <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+                                    <Info className="h-4 w-4 text-blue-600" />
+                                    <AlertDescription className="text-sm text-blue-800">
+                                        These payments are pending approval from an admin. Contact an admin for urgent cases.
+                                    </AlertDescription>
+                                </Alert>
                             )}
-            </Suspense>
-        </div>
+                            <ApprovePayments readOnly={!canApprovePayments} />
+                        </>
+                    ) :
+
+                        [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
+                            (
+                                <AccountantTabs />
+                            ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS].includes(tab as any) ? (
+                                <AllPayments tab={tab} />
+                            )
+                                : (
+                                    <ProjectPaymentsList />
+                                )
+                }
+            </Suspense >
+        </div >
     );
 };

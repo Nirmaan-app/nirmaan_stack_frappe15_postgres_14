@@ -189,7 +189,9 @@ export function OutflowReportTable() {
     const {
         table, totalisLoading: isTableHookLoading, error: tableHookError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        columnFilters, setColumnFilters
+        columnFilters, setColumnFilters,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<OutflowRowData>({
         doctype: 'OutflowReportVirtual', // A virtual name for this client-side table
         columns: columns,
@@ -338,6 +340,7 @@ export function OutflowReportTable() {
                 table={table}
                 columns={columns}
                 isLoading={isLoadingOverall}
+                isExporting={isExporting}
                 error={tableHookError}
                 totalCount={filteredRowCount}
                 getRowClassName={getRowClassName}
@@ -349,8 +352,9 @@ export function OutflowReportTable() {
                 facetFilterOptions={facetFilterOptions}
                 dateFilterColumns={OUTFLOW_DATE_COLUMNS}
                 showExportButton={true}
-                // onExport={handleCustomExport} 
+                // onExport={handleCustomExport}
                 onExport={'default'}
+                onExportAll={exportAllRows}
                 exportFileName={'Project_Outflow_Report'}
                 summaryCard={
                     <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">

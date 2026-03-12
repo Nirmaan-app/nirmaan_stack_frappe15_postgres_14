@@ -7,6 +7,7 @@ export const PO_TABS = {
     APPROVE_AMENDED_PO: 'Approve Amended PO',
     APPROVE_SENT_BACK_PO: 'Approve Sent Back PO',
     APPROVED_PO: 'Approved PO',
+    PARTIALLY_DISPATCHED_PO: 'Partially Dispatched PO',
     DISPATCHED_PO: 'Dispatched PO',
     PARTIALLY_DELIVERED_PO: 'Partially Delivered PO',
     DELIVERED_PO: 'Delivered PO',
@@ -30,6 +31,7 @@ export const PO_ADMIN_TAB_OPTIONS: POTabOption[] = [
 
 export const PO_COMMON_TAB_OPTIONS: POTabOption[] = [
     { label: "Approved PO", value: PO_TABS.APPROVED_PO, countKey: "po.PO Approved" },
+    { label: "Partially Dispatched PO", value: PO_TABS.PARTIALLY_DISPATCHED_PO, countKey: "po.Partially Dispatched" },
     { label: "Dispatched PO", value: PO_TABS.DISPATCHED_PO, countKey: "po.Dispatched" },
     { label: "Partially Delivered PO", value: PO_TABS.PARTIALLY_DELIVERED_PO, countKey: "po.Partially Delivered" },
     { label: "Delivered PO", value: PO_TABS.DELIVERED_PO, countKey: "po.Delivered" },

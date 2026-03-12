@@ -330,6 +330,8 @@ export const ApproveSelectSentBack: React.FC = () => {
     searchTerm,
     setSearchTerm,
     columnFilters, // Extract columnFilters
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<SentBackCategory>({
     doctype: DOCTYPE,
     columns: columns,
@@ -357,6 +359,7 @@ export const ApproveSelectSentBack: React.FC = () => {
     selectedSearchField,
     additionalFilters: staticFilters,
     enabled: true,
+    requirePendingItems: true,
   });
 
   // --- Faceted Filter Options ---
@@ -422,6 +425,8 @@ export const ApproveSelectSentBack: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_Sent_Back_PO_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Actions...</Button>}

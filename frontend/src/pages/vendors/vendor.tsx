@@ -18,6 +18,7 @@ import { useUserData } from "@/hooks/useUserData";
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
 const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
+const VendorDeliveryNotesTable = React.lazy(() => import("./components/VendorDeliveryNotesTable"));
 const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
@@ -85,8 +86,10 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "Vendor Ledger", key: "poVendorLedger" },
         (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
         { label: "Material Orders", key: "materialOrders" },
+        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        { label: "Vendor Delivery Notes", key: "vendorDeliveryNotes" },
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
-        { label: "Service Orders", key: "serviceOrders" },
+        { label: "Work Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
         (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
@@ -130,6 +133,11 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     vendorName={vendor?.vendor_name || vendorId}
                     projectOptions={projectOptions}
                     procurementRequests={procurementRequests}
+                />;
+            case "vendorDeliveryNotes":
+                return <VendorDeliveryNotesTable
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
                 />;
             case "serviceOrders":
                 return (

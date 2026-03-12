@@ -12,6 +12,7 @@
   "unit",
   "quantity",
   "received_quantity",
+  "is_dispatched",
   "category",
   "po",
   "procurement_package",
@@ -62,6 +63,12 @@
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Quantity Received"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_dispatched",
+   "fieldtype": "Check",
+   "label": "Is Dispatched"
   },
   {
    "fieldname": "category",

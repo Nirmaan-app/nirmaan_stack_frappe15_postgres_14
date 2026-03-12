@@ -15,11 +15,12 @@ export const DOCUMENT_PREFIX = {
 
 // Badge variants mapping - makes the template cleaner
 export const STATUS_BADGE_VARIANT: { [key: string]: 'default' | 'secondary' | 'destructive' | 'outline' | 'green' | 'orange' } = {
+  'Partially Dispatched': 'orange',
   'Dispatched': 'orange',
-  'Delivered': 'green', // Example, add others as needed
+  'Partially Delivered': 'orange',
+  'Delivered': 'green',
   'Received': 'green',
   'Pending': 'secondary',
-  // Default or fallback
   'default': 'outline',
 };
 

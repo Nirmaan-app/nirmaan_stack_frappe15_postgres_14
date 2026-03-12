@@ -437,10 +437,10 @@ export default function ItemsTesting() {
 
     // Example: Handle Export
     const handleExport = () => {
-        const selectedRowsData = table.getSelectedRowModel().rows.map(row => row.original);
-        console.log("Exporting selected data:", selectedRowsData);
-        // Implement your CSV export logic here using selectedRowsData
-        alert(`Exporting ${selectedRowsData.length} selected items... (Check console)`);
+        const allRows = table.getRowModel().rows.map(row => row.original);
+        console.log("Exporting selected data:", allRows);
+        // Implement your CSV export logic here using allRows
+        alert(`Exporting ${allRows.length} selected items... (Check console)`);
         // Maybe clear selection after export?
         table.resetRowSelection();
     };

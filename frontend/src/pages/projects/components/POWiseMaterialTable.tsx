@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, ChevronRight, ChevronDown, ChevronsUpDown, ListX } from 'lucide-react';
 
@@ -79,7 +78,6 @@ export interface POWiseMaterialTableHandle {
 }
 
 export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, POWiseMaterialTableProps>(({ items, searchTerm, projectId }, ref) => {
-  const parentRef = React.useRef<HTMLDivElement>(null);
   const [expandedPOs, setExpandedPOs] = React.useState<Set<string>>(new Set());
 
   // --- Sort & Filter State (self-contained) ---
@@ -187,16 +185,6 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
     return rows;
   }, [processedItems, expandedPOs]);
 
-  const rowVirtualizer = useVirtualizer({
-    count: flatRows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 48,
-    overscan: 10,
-  });
-
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const paddingBottom = virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
   // --- CSV Export Handler (flat: one row per item) ---
   const handleExportCsv = React.useCallback(() => {
@@ -246,7 +234,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
   }), [handleExportCsv, processedItems.length]);
 
   return (
-    <div ref={parentRef} className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto">
+    <div className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto">
       <Table>
         <TableHeader className="bg-background sticky top-0 z-[40]">
           <TableRow>
@@ -281,14 +269,11 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
           </TableRow>
         </TableHeader>
         <TableBody>
-          {paddingTop > 0 && (<TableRow><td colSpan={13} style={{ height: `${paddingTop}px` }} /></TableRow>)}
-
-          {virtualRows.length === 0 && (
+          {flatRows.length === 0 && (
             <TableRow><TableCell colSpan={13} className="h-24 text-center">No POs found.</TableCell></TableRow>
           )}
 
-          {virtualRows.map(virtualRow => {
-            const row = flatRows[virtualRow.index] as any;
+          {flatRows.map((row: any) => {
 
             if (row.type === 'po') {
               const po: POWiseDisplayItem = row.data;
@@ -403,7 +388,6 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
             );
           })}
 
-          {paddingBottom > 0 && (<TableRow><td colSpan={13} style={{ height: `${paddingBottom}px` }} /></TableRow>)}
         </TableBody>
       </Table>
     </div>

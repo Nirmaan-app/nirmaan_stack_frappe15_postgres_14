@@ -80,7 +80,8 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
                 "reconciled_date",
                 "reconciled_by",
                 "reconciled_amount",
-                "reconciliation_proof"
+                "reconciliation_proof",
+                "modified_by"
             ],
             order_by="invoice_date desc"
         )
@@ -138,7 +139,8 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
                 "reconciliation_status": reconciliation_status,
                 "reconciled_date": str(inv.get("reconciled_date")) if inv.get("reconciled_date") else None,
                 "reconciled_by": inv.get("reconciled_by"),
-                "reconciliation_proof_attachment_id": inv.get("reconciliation_proof")
+                "reconciliation_proof_attachment_id": inv.get("reconciliation_proof"),
+                "modified_by": inv.get("modified_by")
             }
             invoice_entries.append(entry)
 

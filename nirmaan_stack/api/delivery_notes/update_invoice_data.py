@@ -16,19 +16,20 @@ import json
 
 
 @frappe.whitelist()
-def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str = None, isSR: bool = False):
+def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str = None, isSR: bool = False, invoice_id: str = None):
     """
-    Creates a new invoice entry for a document (PO or SR).
+    Creates or updates an invoice entry for a document (PO or SR).
 
     This function:
-    1. Creates a Nirmaan Attachments record for the invoice file
-    2. Creates a Vendor Invoices record with status "Pending"
+    1. Creates a Nirmaan Attachments record for the invoice file (if a new one is provided)
+    2. Creates or updates a Vendor Invoices record
 
     Args:
         docname (str): The name of the Procurement Order or Service Request document.
-        invoice_data (str): JSON string containing the new invoice details (invoice_no, amount, date).
+        invoice_data (str): JSON string containing the invoice details (invoice_no, amount, date).
         invoice_attachment (str, optional): URL of the uploaded invoice attachment. Defaults to None.
         isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
+        invoice_id (str, optional): The name of the existing Vendor Invoice to update.
 
     Returns:
         dict: Success response with invoice details or error message.
@@ -55,37 +56,63 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
         doc = frappe.get_doc(doctype, docname)
         attachment_id = None
 
-        # 1. Handle invoice attachment (if provided)
+        # 1. Handle invoice attachment
         if invoice_attachment:
-            try:
-                attachment = create_attachment_doc(
-                    doc,
-                    invoice_attachment,
-                    "po invoice" if doctype == "Procurement Orders" else "sr invoice"
-                )
-                attachment_id = attachment.name
-            except Exception as attach_err:
-                frappe.log_error(
-                    f"Failed to create attachment for {doctype} {docname}",
-                    str(attach_err)
-                )
-                frappe.throw(f"Failed to process invoice attachment: {str(attach_err)}")
+            if invoice_id:
+                # If updating an existing invoice, find its current attachment
+                old_attachment_id = frappe.db.get_value("Vendor Invoices", invoice_id, "invoice_attachment")
+                if old_attachment_id:
+                    # Update existing record to preserve name (e.g. ATT-00093-012)
+                    frappe.db.set_value("Nirmaan Attachments", old_attachment_id, "attachment", invoice_attachment)
+                    attachment_id = old_attachment_id
+            
+            # If no existing attachment was updated, create a new one
+            if not attachment_id:
+                try:
+                    attachment = create_attachment_doc(
+                        doc,
+                        invoice_attachment,
+                        "po invoice" if doctype == "Procurement Orders" else "sr invoice"
+                    )
+                    attachment_id = attachment.name
+                except Exception as attach_err:
+                    frappe.log_error(
+                        f"Failed to create attachment for {doctype} {docname}",
+                        str(attach_err)
+                    )
+                    frappe.throw(f"Failed to process invoice attachment: {str(attach_err)}")
 
-        # 2. Create the Vendor Invoice record
+        # 2. Create or Update the Vendor Invoice record
         try:
-            vendor_invoice = create_vendor_invoice(
-                parent_doc=doc,
-                invoice_data=new_invoice_entry_data,
-                attachment_id=attachment_id
-            )
+            if invoice_id:
+                # Update existing record
+                vendor_invoice = frappe.get_doc("Vendor Invoices", invoice_id)
+                vendor_invoice.update({
+                    "invoice_no": new_invoice_entry_data.get("invoice_no"),
+                    "invoice_date": new_invoice_entry_data.get("date"),
+                    "invoice_amount": new_invoice_entry_data.get("amount"),
+                })
+                
+                # If a new attachment was provided, update it
+                if attachment_id and attachment_id != vendor_invoice.invoice_attachment:
+                    vendor_invoice.invoice_attachment = attachment_id
+
+                vendor_invoice.save(ignore_permissions=True)
+            else:
+                # Create new record
+                vendor_invoice = create_vendor_invoice(
+                    parent_doc=doc,
+                    invoice_data=new_invoice_entry_data,
+                    attachment_id=attachment_id
+                )
         except Exception as invoice_err:
             frappe.log_error(
-                f"Failed to create Vendor Invoice for {doctype} {docname}",
+                f"Failed to {'update' if invoice_id else 'create'} Vendor Invoice for {doctype} {docname}",
                 str(invoice_err)
             )
-            frappe.throw(f"Failed to create invoice record: {str(invoice_err)}")
+            frappe.throw(f"Failed to process invoice record: {str(invoice_err)}")
 
-        # 3. Update attachment to reference the new Vendor Invoice (instead of PO/SR)
+        # 3. Update attachment to reference the Vendor Invoice
         if attachment_id:
             frappe.db.set_value(
                 "Nirmaan Attachments",
@@ -100,15 +127,16 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
         # --- Commit Transaction ---
         frappe.db.commit()
 
+        action_label = "updated" if invoice_id else "created"
         return {
             "status": 200,
-            "message": f"Successfully created invoice {vendor_invoice.name} for {docname}",
+            "message": f"Successfully {action_label} invoice {vendor_invoice.name} for {docname}",
             "data": {
                 "vendor_invoice_id": vendor_invoice.name,
                 "invoice_no": new_invoice_entry_data.get("invoice_no"),
                 "invoice_date": new_invoice_entry_data.get("date"),
                 "invoice_amount": new_invoice_entry_data.get("amount"),
-                "attachment_id": attachment_id
+                "attachment_id": vendor_invoice.invoice_attachment
             }
         }
 

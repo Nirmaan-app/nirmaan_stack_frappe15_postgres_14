@@ -37,7 +37,7 @@ interface ReportState {
 // Helper to get default report type based on tab and role
 const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): ReportType => {
     if (tab === REPORTS_TABS.PROJECTS) {
-        if (userRole === "Nirmaan Project Manager Profile") {
+        if (userRole === "Nirmaan Project Manager Profile" || userRole === "Nirmaan Procurement Executive Profile") {
             return 'Inventory Report';
         }
         // Only Admin and Accountant see Project reports

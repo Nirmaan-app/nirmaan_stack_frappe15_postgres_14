@@ -1,9 +1,8 @@
 import frappe
-import json
 from datetime import datetime
 from frappe.model.document import Document
 
-# --- (1) NEW: Helper function for safe float conversion ---
+
 def safe_float(value, default=0.0):
     """Safely converts a value to a float, returning a default on failure."""
     if value is None:
@@ -13,97 +12,109 @@ def safe_float(value, default=0.0):
     except (ValueError, TypeError):
         return default
 
-# --- (2) NEW: The core calculation function ---
+
 def calculate_delivered_amount(order_items: list) -> float:
     """
     Calculates the total value of an order based on the received_quantity of its items.
-    
+
     Args:
         order_items (list): A list of child table item documents (as dicts or Document objects).
-    
+
     Returns:
         float: The total calculated value including tax.
     """
     total_delivered_value = 0.0
     for item in order_items:
-        # Use .get() for safe access on both dicts and Document objects
         quote = safe_float(item.get("quote"))
-        received_qty = safe_float(item.get("received_quantity"))
         tax_percent = safe_float(item.get("tax"))
-        
-        # Calculate the value for this item based on its delivered quantity
-        item_base_value = quote * received_qty
+
+        if item.get("category") == "Additional Charges":
+            qty = safe_float(item.get("quantity"))  # ordered qty, always full
+        else:
+            qty = safe_float(item.get("received_quantity"))
+
+        item_base_value = quote * qty
         item_tax_amount = item_base_value * (tax_percent / 100)
-        
-        # Add the total value (base + tax) for this item to the running total
+
         total_delivered_value += item_base_value + item_tax_amount
-        
+
     return total_delivered_value
 
+
 @frappe.whitelist()
-def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict = None, 
-                        delivery_challan_attachment: str = None):
+def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict = None,
+                        delivery_challan_attachment: str = None, is_return: bool = False):
     """
-    Updates a Procurement Order with delivery information following enterprise patterns
-    
+    Updates a Procurement Order with delivery information and creates a Delivery Notes record.
+
     Args:
         po_id (str): Procurement Order ID
-        modified_items (dict): Dictionary of {item_id: new_received_quantity}
-        delivery_data (dict): Delivery data structure to append
+        modified_items (dict): Dictionary of {item_name: new_received_quantity}
+        delivery_data (dict): Delivery metadata with date key containing updated_by, etc.
         delivery_challan_attachment (str): URL of uploaded delivery challan
+        is_return (bool): Whether this is a return note (items returned to vendor)
     """
+    # Handle string-to-bool conversion from frontend
+    is_return = is_return in (True, "true", "True", 1, "1")
+
     try:
         frappe.db.begin()
 
-        # Get original procurement order
         po = frappe.get_doc("Procurement Orders", po_id)
-        original_order = po.get("items")
 
-        # # Update received quantities in original order
-        # print("DEBUGUPDATEDNITEMS: --- Function Start ---")
-        # print(f"DEBUGUPDATEDNITEMS: Original Order: {original_order}")
-        # print(f"DEBUGUPDATEDNITEMS: Modified Items: {modified_items}")
-        updated_order = update_order_items(original_order, modified_items)
+        # Lock PO row to prevent concurrent note_no races
+        frappe.db.sql(
+            'SELECT name FROM "tabProcurement Orders" WHERE name = %s FOR UPDATE',
+            po_id,
+        )
 
-        # --- (3) INTEGRATION: Calculate and set the new field ---
-        # Calculate the total delivered amount using the *updated* item list
-        delivered_amount = calculate_delivered_amount(updated_order)
+        # Return-specific role validation
+        RETURN_ROLES = [
+            "Nirmaan Admin Profile",
+            "Nirmaan PMO Executive Profile",
+            "Nirmaan Project Lead Profile",
+            "Nirmaan Procurement Executive Profile",
+        ]
+        if is_return:
+            role = frappe.db.get_value("Nirmaan Users", frappe.session.user, "role_profile")
+            if frappe.session.user != "Administrator" and role not in RETURN_ROLES:
+                frappe.throw("Insufficient permissions to create return notes", frappe.PermissionError)
 
-        # Set the calculated value on the parent PO document
-        po.po_amount_delivered = delivered_amount
-        
-        
-        # Update order list and status
-        po.items =  updated_order
-        po.status = calculate_order_status(updated_order)
-        po.latest_delivery_date = datetime.now()
-        
+        # Capture old received quantities BEFORE mutation
+        old_received = {}
+        for item in po.get("items"):
+            if item.category == "Additional Charges":
+                continue
+            old_received[item.name] = safe_float(item.get("received_quantity"))
+
+        # Validate return quantities won't result in negative received_quantity
+        if is_return:
+            for item in po.get("items"):
+                if item.category == "Additional Charges":
+                    continue
+                if item.name in modified_items:
+                    new_qty = safe_float(modified_items[item.name])
+                    if new_qty < 0:
+                        frappe.throw(f"Return quantity exceeds received quantity for {item.item_name}")
 
         # Handle delivery challan attachment
+        attachment_doc = None
         if delivery_challan_attachment:
-            attachment = create_attachment_doc(
-                po, 
-                delivery_challan_attachment, 
-                "po delivery challan"
+            attachment_doc = create_attachment_doc(
+                po, delivery_challan_attachment, "po delivery challan"
             )
 
-            if attachment and delivery_data:
-                for date_key in delivery_data:
-                    delivery_data[date_key]["attachment_id"] = attachment.name
-        
-        # Add delivery data history
-        if delivery_data:
-            add_delivery_history(po, delivery_data)
-
-        # Save procurement order updates
-        po.save()
+        # Create Delivery Notes record
+        _create_delivery_note_record(
+            po, modified_items, old_received,
+            delivery_data, attachment_doc, is_return
+        )
 
         frappe.db.commit()
 
         return {
             "status": 200,
             "message": f"Updated {len(modified_items)} items in {po_id}",
-            "updated_order": updated_order
         }
 
     except Exception as e:
@@ -115,121 +126,122 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
             "error": frappe.get_traceback()
         }
 
-# in apps/nirmaan_stack/nirmaan_stack/api/delivery_notes/update_delivery_note.py
 
-# --- BEFORE (Your current code that causes the error) ---
-# def update_order_items(original: list, modified: dict) -> list:
-#     """Safely merge modified items into original order"""
-#     return [
-#         {**item.as_dict(), "received_quantity": modified.get(item.name, item.received_quantity or 0)}
-#         for item in original
-#     ]
+def _create_delivery_note_record(po, modified_items, old_received,
+                                  delivery_data, attachment_doc, is_return=False):
+    """Create a Delivery Notes record from the delivery update."""
+    # Calculate note_no = max existing note_no for this PO + 1
+    result = frappe.db.sql(
+        'SELECT COALESCE(MAX(note_no), 0) AS max_no FROM "tabDelivery Notes" WHERE procurement_order = %s',
+        po.name, as_dict=True,
+    )
+    note_no = result[0].max_no + 1
+
+    # Extract delivery_date from delivery_data keys
+    delivery_date = None
+    updated_by = None
+    if delivery_data:
+        date_key = list(delivery_data.keys())[0]
+        delivery_date = date_key.split(" ")[0] if date_key else None
+        first_entry = list(delivery_data.values())[0]
+        updated_by = first_entry.get("updated_by")
+
+    if not delivery_date:
+        delivery_date = datetime.now().strftime("%Y-%m-%d")
+    if not updated_by:
+        updated_by = frappe.session.user
+
+    # Create the Delivery Notes document
+    dn = frappe.new_doc("Delivery Notes")
+    dn.update({
+        "procurement_order": po.name,
+        "project": po.project,
+        "vendor": po.vendor,
+        "note_no": note_no,
+        "delivery_date": delivery_date,
+        "updated_by_user": updated_by,
+        "nirmaan_attachment": attachment_doc.name if attachment_doc else None,
+        "is_stub": 0,
+        "is_return": 1 if is_return else 0,
+    })
+
+    # Add child items — only items that were actually modified with a positive delta
+    for item_obj in po.get("items"):
+        if item_obj.category == "Additional Charges":
+            continue
+        item_key = item_obj.name
+        if item_key not in modified_items:
+            continue
+
+        prev_qty = old_received.get(item_key, 0)
+        new_total = safe_float(modified_items[item_key])
+        delta = new_total - prev_qty
+
+        # For returns, keep only negative deltas (stored as negative); for deliveries, keep only positive
+        if is_return:
+            if delta >= 0:
+                continue
+            # delta is already negative — store as-is so recalculate_po_delivery_fields sums correctly
+        else:
+            if delta <= 0:
+                continue
+
+        dn.append("items", {
+            "item_id": item_obj.item_id,
+            "item_name": item_obj.item_name,
+            "make": item_obj.make,
+            "unit": item_obj.unit,
+            "category": item_obj.category,
+            "procurement_package": item_obj.procurement_package,
+            "delivered_quantity": delta,
+        })
+
+    dn.flags.ignore_permissions = True
+    dn.insert()
 
 
-# --- AFTER (The Corrected Code) ---
-def update_order_items(original: list, modified: dict) -> list:
-    """
-    Safely updates the 'received_quantity' on the original Document objects in-place.
-    'original' is a list of Frappe Document objects for the child table.
-    """
-    # Iterate through the actual Document objects
-    for item_object in original:
-        # Get the new value from the 'modified' dictionary, using the object's name as the key.
-        # If the item wasn't modified, it will default to its existing value.
-        new_value = modified.get(item_object.name, item_object.received_quantity or 0)
-        
-        # Directly set the attribute on the Document object.
-        # This is the key change. We are not creating a new dictionary.
-        item_object.received_quantity = new_value
-        
-    # Return the original list, which now contains the modified objects.
-    return original
-
-# def calculate_order_status(order: list) -> str:
-#     """Determine order status based on received quantities"""
-#     total_items = len(order)
-#     delivered_items = sum(
-#         1 for item in order 
-#         if item.get("quantity", 0) <= item.get("received_quantity", 0)
-#     )
-    
-#     if delivered_items == total_items:
-#         return "Delivered"
-#     return "Partially Delivered"
 def calculate_order_status(order: list) -> str:
     """
     Determine order status based on received quantities.
-    - If a quantity is a float, a tolerance (delta) is applied.
-    - Otherwise, a direct comparison is used.
+    Float quantities get a 2.5% tolerance; integers use exact comparison.
     """
     if not order:
-        return "Empty" # It's good practice to handle empty lists
+        return "Empty"
 
-    total_items = len(order)
+    total_items = 0
     delivered_items = 0
     delta = 2.5
-    
-    print(f"\n--- Processing New Order ---")
-    print(f"DEBUGCOS: Total items: {total_items}, Delta tolerance: {delta}")
-    
-    for i, item in enumerate(order):
-        print(f"\nItem {i+1}: {item}")
-        
+
+    for item in order:
+        if item.get("category") == "Additional Charges":
+            continue
+        total_items += 1
+
         quantity = item.get("quantity", 0)
         received = item.get("received_quantity", 0)
-        
-        # Check if either value is a float to decide which logic to use
-        is_float_quantity = quantity%1 != 0 or received%1 != 0
-        
+
+        is_float_quantity = quantity % 1 != 0 or received % 1 != 0
         item_is_delivered = False
-        
+
         if is_float_quantity:
-            # --- Logic for FLOAT quantities ---
-            # Correctly grouped condition: (A or B) and C
-            print("  -> Detected float quantity. Applying delta logic.")
-            # The comparison must be inside the if block
-            if (quantity - ((quantity * delta)/100)) <= received:
+            if (quantity - ((quantity * delta) / 100)) <= received:
                 item_is_delivered = True
-            print(f"  DEBUG (float): Check: ({quantity} - {((quantity * delta)/100)}) <= {received} ? -> {item_is_delivered}")
-            
         else:
-            # --- Logic for INTEGER quantities ---
-            print("  -> Using standard integer logic.")
             if quantity <= received:
                 item_is_delivered = True
-            print(f"  DEBUG (int): Check: {quantity} <= {received} ? -> {item_is_delivered}")
 
         if item_is_delivered:
             delivered_items += 1
-            
-    print("\n--- Final Calculation ---")
-    print(f"DEBUG: Total delivered items: {delivered_items}")
 
+    if total_items == 0:
+        return "Delivered"
     if delivered_items == total_items:
         return "Delivered"
-    else:
-        return "Partially Delivered"
+    return "Partially Delivered"
 
-
-def add_delivery_history(po, new_data: dict) -> None:
-    """Append delivery data with unique timestamps for duplicate dates."""
-    existing_data = po.get("delivery_data") or {"data": {}}
-
-    if "data" not in existing_data:
-        existing_data["data"] = {}
-
-    for date, update_info in new_data.items():
-        if date not in existing_data["data"]:
-            existing_data["data"][date] = update_info # directly assign the update info if the date is new
-        else:
-            time_stamp = datetime.now().strftime("%H:%M:%S.%f") # use microseconds to prevent collision.
-            unique_date = f"{date} {time_stamp}" #combine date and timestamp
-            existing_data["data"][unique_date] = update_info # assign update info with unique date.
-
-    po.delivery_data = existing_data
 
 def create_attachment_doc(po, file_url: str, attachment_type: str) -> Document:
-    """Create standardized attachment document"""
+    """Create standardized attachment document."""
     attachment = frappe.new_doc("Nirmaan Attachments")
     attachment.update({
         "project": po.project,

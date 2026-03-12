@@ -157,7 +157,7 @@ export const useVendorInvoices = (vendorId: string) => {
         ["document_type", "=", "Procurement Orders"],
         ["status", "=", "Approved"],
       ],
-      fields: ["name", "document_name", "invoice_amount"],
+      fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
       limit: 0,
     } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
     vendorKeys.invoices(vendorId)

@@ -10,12 +10,19 @@ export interface SidebarCountsData {
     po: {
         "all": number;
         "PO Approved": number;
+        "Partially Dispatched": number;
         "Dispatched": number;
         "Partially Delivered": number;
         "Delivered": number;
         "Merged": number;
         "PO Amendment": number;
 
+    }
+    po_revisions: {
+        all: number;
+        pending_approval: number;
+        approved: number;
+        rejected: number;
     }
     pr: {
         all: number;
@@ -76,11 +83,18 @@ export const useDocCountStore = create<Store>()(
         po: {
             "all": 0,
             "PO Approved": 0,
+            "Partially Dispatched": 0,
             "Dispatched": 0,
             "Partially Delivered": 0,
             "Delivered": 0,
             "Merged": 0,
             "PO Amendment": 0,
+        },
+        po_revisions: {
+            all: 0,
+            pending_approval: 0,
+            approved: 0,
+            rejected: 0,
         },
         pr: {
             all: 0,

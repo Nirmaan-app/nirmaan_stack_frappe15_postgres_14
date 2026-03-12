@@ -74,7 +74,7 @@ import {
 } from "../../components/ui/select";
 import { Separator } from "../../components/ui/separator";
 import NewCustomer from "../customers/add-new-customer";
-import { ProjectQueryKeys } from "./project";
+import { ProjectQueryKeys } from "./queries";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";

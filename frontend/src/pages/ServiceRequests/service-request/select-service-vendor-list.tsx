@@ -377,6 +377,8 @@ export const SelectServiceVendorList: React.FC = () => {
     isRowSelectionActive,
     refetch,
     columnFilters, // NEW
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns,
@@ -527,6 +529,8 @@ export const SelectServiceVendorList: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Choose_Vendor_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions

@@ -26,6 +26,7 @@ export const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 export const PO_STATUS_OPTIONS = [
     { label: "PO Approved", value: "PO Approved" },
+    { label: "Partially Dispatched", value: "Partially Dispatched" },
     { label: "Dispatched", value: "Dispatched" },
     { label: "Partially Delivered", value: "Partially Delivered" },
     { label: "Delivered", value: "Delivered" },
@@ -36,7 +37,7 @@ export const PO_STATUS_OPTIONS = [
 ]
 
 // Date columns commonly used for filtering PO tables
-export const PO_DATE_COLUMNS: string[] = ["creation", "modified"];
+export const PO_DATE_COLUMNS: string[] = ["creation", "modified", "expected_delivery_date", "latest_delivery_date"];
 
 // Function to get static filters based on tab and role for ReleasePOSelect context
 export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Array<[string, string, string | string[]]> => {
@@ -46,7 +47,7 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
 
     if (tab === "All POs") {
         if (role === "Nirmaan Estimates Executive Profile") {
-            return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
+            return [["status", "in", ["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]];
         }
         else return [];
     } else if (tab === "Merged POs") {
@@ -58,6 +59,7 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
     // }
     switch (tab) {
         case "Approved PO": return [...base, ["status", "=", "PO Approved"]];
+        case "Partially Dispatched PO": return [...base, ["status", "=", "Partially Dispatched"]];
         case "Dispatched PO": return [...base, ["status", "=", "Dispatched"]];
         case "Partially Delivered PO": return [...base, ["status", "=", "Partially Delivered"]];
         case "Delivered PO": return [...base, ["status", "=", "Delivered"]];

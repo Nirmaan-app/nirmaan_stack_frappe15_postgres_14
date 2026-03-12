@@ -1,522 +1,672 @@
-import { useContext, useMemo } from "react" // Removed useState
-import { Link, useNavigate, useSearchParams } from "react-router-dom" // Added useSearchParams
-import { useFrappeGetDocList } from "frappe-react-sdk"
-import { UserContext } from "@/utils/auth/UserProvider"
-import { formatDate } from "@/utils/FormatDate"
+import { useState, useContext, useMemo, useCallback, useEffect } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
+import { UserContext } from "@/utils/auth/UserProvider";
+import { formatDate } from "@/utils/FormatDate";
+import { useProjectDeliveryNotes } from "./hooks/useProjectDeliveryNotes";
+import { DNDetailDialog } from "./components/DNDetailDialog";
+import { useDownloadDN } from "./hooks/useDownloadDN";
+import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 
 // UI Components
-import ProjectSelect from "@/components/custom-select/project-select"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, FilePlus2, ListVideo, ClipboardList } from "lucide-react"
-import { deriveDnIdFromPoId } from "./constants"
+import ProjectSelect from "@/components/custom-select/project-select";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  FilePlus2,
+  ListVideo,
+  ClipboardList,
+  Search,
+  ChevronRight,
+  Download,
+} from "lucide-react";
+import { encodeFrappeId } from "./constants";
 
-interface ProcurementOrder {
-    name: string;
-    project: string;
-    vendor_name: string;
-    dispatch_date: string;
-    status: string;
-    delivery_data?: unknown;
+// --- Types ---
+
+interface POWithItems {
+  name: string;
+  project: string;
+  vendor_name: string;
+  dispatch_date: string;
+  status: string;
+  items?: { item_name: string; item_id: string; parent: string; is_dispatched?: number }[];
 }
 
-function DashboardCard({ title, icon, onClick, className }: { title: string, icon: React.ReactNode, onClick: () => void, className?: string }) {
-    return (
-        <Button
-            variant="ghost"
-            className={`h-[150px] w-full min-w-[250px] p-0 rounded-lg shadow-md hover:shadow-lg transition-shadow ${className}`}
-            onClick={onClick}
-        >
-            <div className="flex h-full w-full flex-col justify-between p-6 text-white">
-                <p className="text-xl font-semibold text-left">{title}</p>
-                <div className="self-end">{icon}</div>
-            </div>
-        </Button>
-    );
+interface POBasic {
+  name: string;
+  project: string;
+  vendor_name: string;
+  dispatch_date: string;
+  status: string;
 }
 
-function processDeliveryData(deliveryData: unknown): { latestUpdateDate: string | null; totalNoteCount: number } {
-    const defaults = { latestUpdateDate: null, totalNoteCount: 0 };
-    if (!deliveryData) return defaults;
-    let parsedData: any;
-    if (typeof deliveryData === 'string') {
-        try { parsedData = JSON.parse(deliveryData); } catch (error) { return defaults; }
-    } else if (typeof deliveryData === 'object' && deliveryData !== null) {
-        parsedData = deliveryData;
-    } else { return defaults; }
-    const deliveryDataObject = parsedData?.data;
-    if (!deliveryDataObject || Object.keys(deliveryDataObject).length === 0) return defaults;
-    const timestamps = Object.keys(deliveryDataObject);
-    timestamps.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-    return { latestUpdateDate: timestamps[0] || null, totalNoteCount: timestamps.length };
+// --- Helper Components ---
+
+function DashboardCard({
+  title,
+  icon,
+  onClick,
+  className,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      className={`h-[150px] w-full min-w-[250px] p-0 rounded-lg shadow-md hover:shadow-lg transition-shadow ${className}`}
+      onClick={onClick}
+    >
+      <div className="flex h-full w-full flex-col justify-between p-6 text-white">
+        <p className="text-xl font-semibold text-left">{title}</p>
+        <div className="self-end">{icon}</div>
+      </div>
+    </Button>
+  );
 }
 
-// --- Main DeliveryNotes Component ---
+function DNDownloadButton({
+  poId,
+  deliveryDate,
+  noteNo,
+}: {
+  poId: string;
+  deliveryDate: string;
+  noteNo: string | number;
+}) {
+  const { downloadDN } = useDownloadDN(poId);
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7"
+      onClick={() => downloadDN(deliveryDate, noteNo)}
+    >
+      <Download className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
+function SearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  return (
+    <div className="relative mb-4">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <Input
+        placeholder="Search PO, vendor, or item..."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="pl-9"
+      />
+    </div>
+  );
+}
+
+// --- Main Component ---
+
 const DeliveryNotes: React.FC = () => {
-    const navigate = useNavigate();
-    const { setSelectedProject, selectedProject } = useContext(UserContext);
+  const navigate = useNavigate();
+  const { setSelectedProject, selectedProject } = useContext(UserContext);
 
-    // --- NEW: USE URL SEARCH PARAMS FOR STATE MANAGEMENT ---
-    const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDN, setSelectedDN] = useState<DeliveryNote | null>(null);
+  const [dnDialogOpen, setDnDialogOpen] = useState(false);
 
-    // Derive activeView from the 'view' query parameter in the URL.
-    // This makes the URL the single source of truth.
-    const activeView = useMemo(() => {
-        const view = searchParams.get('view');
-        if (view === 'create') return 'CREATE';
-        if (view === 'view_existing') return 'VIEW_EXISTING';
-        return 'DASHBOARD'; // Default view
-    }, [searchParams]);
+  const activeView = useMemo(() => {
+    const view = searchParams.get("view");
+    if (view === "create") return "CREATE";
+    if (view === "view_existing") return "VIEW_EXISTING";
+    return "DASHBOARD";
+  }, [searchParams]);
 
-    // --- DYNAMIC FILTERS BASED ON VIEW (No change here) ---
-    const filters = useMemo(() => {
-        if (activeView === 'CREATE') {
-            return [["status", "in", ["Dispatched", "Partially Delivered"]]];
+  // Reset search when view changes
+  useEffect(() => {
+    setSearchQuery("");
+  }, [activeView]);
+
+  // --- CREATE view data ---
+  const shouldFetchCreate = activeView === "CREATE" && !!selectedProject;
+  const { data: createPOsResult, isLoading: createLoading } = useFrappeGetCall<{
+    message: POWithItems[];
+  }>(
+    "nirmaan_stack.api.delivery_notes.get_project_pos.get_project_pos_with_items",
+    shouldFetchCreate
+      ? {
+          project_id: selectedProject,
+          statuses: JSON.stringify(["Partially Dispatched", "Dispatched", "Partially Delivered"]),
         }
-        if (activeView === 'VIEW_EXISTING') {
-            return [["status", "in", ["Delivered", "Partially Delivered"]]];
-        }
-        return [["status", "in", [""]]];
-    }, [activeView]);
+      : undefined,
+    shouldFetchCreate ? undefined : null
+  );
 
-    // --- DATA FETCHING HOOK (No change here) ---
-    const { data: procurementOrdersList, isLoading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-        fields: ["name", "project", "vendor_name", "dispatch_date", "status", "delivery_data"],
-        filters: filters,
-        orderBy: { field: "creation", order: "desc" },
-        limit: 1000,
-        enabled: activeView !== 'DASHBOARD'
+  const createPOs: POWithItems[] = useMemo(
+    () => createPOsResult?.message || [],
+    [createPOsResult]
+  );
+
+  const filteredCreatePOs = useMemo(() => {
+    if (!searchQuery.trim()) return createPOs;
+    const q = searchQuery.toLowerCase();
+    return createPOs.filter((po) => {
+      if (po.name.toLowerCase().includes(q)) return true;
+      if (po.vendor_name?.toLowerCase().includes(q)) return true;
+      if (
+        po.items?.some((item) => item.item_name.toLowerCase().includes(q))
+      )
+        return true;
+      return false;
     });
+  }, [createPOs, searchQuery]);
 
-    const handleProjectChange = (selectedItem: any) => {
-        const projectValue = selectedItem ? selectedItem.value : null;
-        setSelectedProject(projectValue);
-        if (projectValue) {
-            sessionStorage.setItem("selectedProject", JSON.stringify(projectValue));
-        } else {
-            sessionStorage.removeItem("selectedProject");
-        }
-    };
+  // --- VIEW_EXISTING data ---
+  const { data: viewExistingPOs, isLoading: viewExistingLoading } =
+    useFrappeGetDocList<POBasic>("Procurement Orders", {
+      fields: ["name", "project", "vendor_name", "dispatch_date", "status"],
+      filters: [
+        ["project", "=", selectedProject || ""],
+        ["status", "in", ["Delivered", "Partially Delivered"]],
+      ],
+      orderBy: { field: "creation", order: "desc" },
+      limit: 1000,
+    }, activeView === "VIEW_EXISTING" && !!selectedProject ? undefined : null);
 
-    const selectedProjectPOs = useMemo(() => {
-        if (!selectedProject || !procurementOrdersList) return [];
-        return procurementOrdersList.filter(po => po.project === selectedProject);
-    }, [procurementOrdersList, selectedProject]);
+  const {
+    dnsByPO,
+    isLoading: dnsLoading,
+  } = useProjectDeliveryNotes(
+    activeView === "VIEW_EXISTING" ? selectedProject : null
+  );
 
-    // --- UPDATED: The reset handler now clears URL params ---
-    const handleReset = () => {
-        setSearchParams({}); // This clears all query params, resetting the view to DASHBOARD
-        setSelectedProject(null);
+  const enrichedViewPOs = useMemo(() => {
+    if (!viewExistingPOs) return [];
+    return viewExistingPOs.map((po) => ({
+      ...po,
+      dns: dnsByPO[po.name] || [],
+    }));
+  }, [viewExistingPOs, dnsByPO]);
+
+  const filteredViewPOs = useMemo(() => {
+    if (!searchQuery.trim()) return enrichedViewPOs;
+    const q = searchQuery.toLowerCase();
+    return enrichedViewPOs.filter((po) => {
+      if (po.name.toLowerCase().includes(q)) return true;
+      if (po.vendor_name?.toLowerCase().includes(q)) return true;
+      if (
+        po.dns.some((dn) =>
+          dn.items?.some((item) => item.item_name.toLowerCase().includes(q))
+        )
+      )
+        return true;
+      return false;
+    });
+  }, [enrichedViewPOs, searchQuery]);
+
+  // --- Handlers ---
+
+  const handleProjectChange = useCallback(
+    (selectedItem: any) => {
+      const projectValue = selectedItem ? selectedItem.value : null;
+      setSelectedProject(projectValue);
+      setSearchQuery("");
+      if (projectValue) {
+        sessionStorage.setItem(
+          "selectedProject",
+          JSON.stringify(projectValue)
+        );
+      } else {
         sessionStorage.removeItem("selectedProject");
-    };
+      }
+    },
+    [setSelectedProject]
+  );
 
-    // --- HELPER FUNCTION FOR NAVIGATION ---
-    const navigateToView = (view: 'create' | 'view_existing') => {
-        setSearchParams({ view });
-        setSelectedProject(null);
-        sessionStorage.removeItem("selectedProject");
+  const navigateToView = useCallback(
+    (view: "create" | "view_existing") => {
+      setSearchParams({ view });
+      setSelectedProject(null);
+      setSearchQuery("");
+      sessionStorage.removeItem("selectedProject");
+    },
+    [setSearchParams, setSelectedProject]
+  );
 
+  // --- Render ---
 
-    };
-
-    // console.log("selectedProjectPOs",selectedProjectPOs)
-    return (
-        <div className="flex-1 space-y-4">
-            {activeView === 'DASHBOARD' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* --- UPDATED: onClick handlers now modify the URL --- */}
-                    <DashboardCard title="Create New DN" icon={<FilePlus2 className="h-10 w-10" />} onClick={() => navigateToView('create')} className="bg-blue-500 hover:bg-blue-600" />
-                    <DashboardCard title="View Existing DN" icon={<ListVideo className="h-10 w-10" />} onClick={() => navigateToView('view_existing')} className="bg-green-500 hover:bg-green-600" />
-                    <DashboardCard title="Pending DN" icon={<ClipboardList className="h-10 w-10" />} onClick={() => navigate('/reports')} className="bg-orange-500 hover:bg-orange-600" />
-                </div>
-            )}
-
-            {activeView === 'CREATE' && (
-                <Card>
-                    <CardHeader className="flex flex-row items-start justify-between">
-                        <div>
-                            <CardTitle>Create New Delivery Note</CardTitle>
-                            <p className="text-sm text-muted-foreground pt-1">Select a project to see POs ready for new delivery update.</p>
-                        </div>
-                        {/* --- UPDATED: The back button uses the new reset handler --- */}
-                        {/* <Button variant="outline" onClick={handleReset}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button> */}
-                    </CardHeader>
-                    <CardContent>
-                        <div className="mb-4"><ProjectSelect onChange={handleProjectChange} /></div>
-                        {selectedProject && (
-                            <>
-                                {/* Desktop Table View */}
-                                <Table className="hidden md:table">
-                                    <TableHeader><TableRow><TableHead>PO No.</TableHead><TableHead>Vendor</TableHead><TableHead>Dispatch Date</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-                                    <TableBody>
-                                        {isLoading && <TableRow><TableCell colSpan={4} className="text-center">Loading...</TableCell></TableRow>}
-                                        {selectedProjectPOs.length > 0 ? (
-                                            selectedProjectPOs.map(po => (
-                                                <TableRow key={po.name}>
-                                                    <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`}>{`PO-${po.name.split("/")[1]}`}</Link></TableCell>
-                                                    <TableCell>{po.vendor_name || 'N/A'}</TableCell>
-                                                    <TableCell>{formatDate(po.dispatch_date)}</TableCell>
-                                                    <TableCell><Badge variant={po.status === "Dispatched" ? "orange" : "green"}>{po.status}</Badge></TableCell>
-                                                </TableRow>
-                                            ))
-                                        ) : (<TableRow><TableCell colSpan={4} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
-                                    </TableBody>
-                                </Table>
-
-                                {/* Mobile Card View */}
-                                <div className="md:hidden space-y-3">
-                                    {isLoading && <p className="text-center py-4">Loading...</p>}
-                                    {selectedProjectPOs.length > 0 ? (
-                                        selectedProjectPOs.map(po => (
-                                            <Link key={po.name} to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`} className="block">
-                                                <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                                                    <div className="flex items-start justify-between mb-2">
-                                                        <span className="font-semibold text-blue-600 text-lg">{`PO-${po.name.split("/")[1]}`}</span>
-                                                        <Badge variant={po.status === "Dispatched" ? "orange" : "green"}>{po.status}</Badge>
-                                                    </div>
-                                                    <div className="space-y-1.5 text-sm">
-                                                        <div className="flex items-start">
-                                                            <span className="text-gray-500 min-w-[80px]">Vendor:</span>
-                                                            <span className="font-medium text-gray-900 flex-1">{po.vendor_name || 'N/A'}</span>
-                                                        </div>
-                                                        <div className="flex items-center">
-                                                            <span className="text-gray-500 min-w-[80px]">Dispatch:</span>
-                                                            <span className="text-gray-900">{formatDate(po.dispatch_date)}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </Link>
-                                        ))
-                                    ) : (
-                                        <p className="text-center text-red-500 py-4">No eligible Purchase Orders found for this project.</p>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-            )}
-
-            {activeView === 'VIEW_EXISTING' && (
-                <Card>
-                    <CardHeader className="flex flex-row items-start justify-between">
-                        <div>
-                            <CardTitle>View Existing Delivery Notes</CardTitle>
-                            <p className="text-sm text-muted-foreground pt-1">Select a project to see its delivery history.</p>
-                        </div>
-                        {/* --- UPDATED: The back button uses the new reset handler --- */}
-                        {/* <Button variant="outline" onClick={handleReset}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button> */}
-                    </CardHeader>
-                    <CardContent>
-                        <div className="mb-4"><ProjectSelect onChange={handleProjectChange} /></div>
-                        {selectedProject && (
-                            <>
-                                {/* Desktop Table View */}
-                                <Table className="hidden md:table">
-                                    <TableHeader><TableRow><TableHead>DN NO.</TableHead><TableHead>Vendor</TableHead><TableHead>Latest Delivery Update</TableHead><TableHead>Status</TableHead><TableHead>DN Count</TableHead></TableRow></TableHeader>
-                                    <TableBody>
-                                        {isLoading && <TableRow><TableCell colSpan={5} className="text-center">Loading...</TableCell></TableRow>}
-                                        {selectedProjectPOs.length > 0 ? (
-                                            selectedProjectPOs.map(item => {
-                                                const deliveryInfo = processDeliveryData(item.delivery_data);
-                                                // Note: deriveDnIdFromPoId was not provided, but assuming it works as intended
-                                                // const DN_ID = deriveDnIdFromPoId(item.name)
-                                                return (
-                                                    <TableRow key={item.name}>
-                                                        <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`}>{`DN/${item.name.split("/")[1]}/M`}</Link></TableCell>
-                                                        <TableCell>{item.vendor_name || 'N/A'}</TableCell>
-                                                        <TableCell>{deliveryInfo.latestUpdateDate ? formatDate(deliveryInfo.latestUpdateDate) : 'N/A'}</TableCell>
-                                                        <TableCell><Badge variant={item.status === "Delivered" ? "green" : "orange"}>{item.status}</Badge></TableCell>
-                                                        <TableCell>{`${deliveryInfo.totalNoteCount}`}</TableCell>
-                                                    </TableRow>
-                                                );
-                                            })
-                                        ) : (<TableRow><TableCell colSpan={5} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
-                                    </TableBody>
-                                </Table>
-
-                                {/* Mobile Card View */}
-                                <div className="md:hidden space-y-3">
-                                    {isLoading && <p className="text-center py-4">Loading...</p>}
-                                    {selectedProjectPOs.length > 0 ? (
-                                        selectedProjectPOs.map(item => {
-                                            const deliveryInfo = processDeliveryData(item.delivery_data);
-                                            return (
-                                                <Link key={item.name} to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`} className="block">
-                                                    <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                                                        <div className="flex items-start justify-between mb-2">
-                                                            <span className="font-semibold text-blue-600 text-lg">{`DN/${item.name.split("/")[1]}/M`}</span>
-                                                            <Badge variant={item.status === "Delivered" ? "green" : "orange"}>{item.status}</Badge>
-                                                        </div>
-                                                        <div className="space-y-1.5 text-sm">
-                                                            <div className="flex items-start">
-                                                                <span className="text-gray-500 min-w-[100px]">Vendor:</span>
-                                                                <span className="font-medium text-gray-900 flex-1">{item.vendor_name || 'N/A'}</span>
-                                                            </div>
-                                                            <div className="flex items-center">
-                                                                <span className="text-gray-500 min-w-[100px]">Last Update:</span>
-                                                                <span className="text-gray-900">{deliveryInfo.latestUpdateDate ? formatDate(deliveryInfo.latestUpdateDate) : 'N/A'}</span>
-                                                            </div>
-                                                            <div className="flex items-center">
-                                                                <span className="text-gray-500 min-w-[100px]">DN Count:</span>
-                                                                <span className="font-medium text-gray-900">{deliveryInfo.totalNoteCount}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </Link>
-                                            );
-                                        })
-                                    ) : (
-                                        <p className="text-center text-red-500 py-4">No eligible Purchase Orders found for this project.</p>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-            )}
+  return (
+    <div className="flex-1 space-y-4">
+      {/* Dashboard */}
+      {activeView === "DASHBOARD" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <DashboardCard
+            title="Create New DN"
+            icon={<FilePlus2 className="h-10 w-10" />}
+            onClick={() => navigateToView("create")}
+            className="bg-blue-500 hover:bg-blue-600"
+          />
+          <DashboardCard
+            title="View Existing DN"
+            icon={<ListVideo className="h-10 w-10" />}
+            onClick={() => navigateToView("view_existing")}
+            className="bg-green-500 hover:bg-green-600"
+          />
+          <DashboardCard
+            title="Pending DN"
+            icon={<ClipboardList className="h-10 w-10" />}
+            onClick={() => navigate("/reports")}
+            className="bg-orange-500 hover:bg-orange-600"
+          />
         </div>
-    )
-}
+      )}
+
+      {/* CREATE View */}
+      {activeView === "CREATE" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Create New Delivery Note</CardTitle>
+            <p className="text-sm text-muted-foreground pt-1">
+              Select a project to see POs ready for new delivery update.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4">
+              <ProjectSelect onChange={handleProjectChange} />
+            </div>
+            {selectedProject && (
+              <>
+                <SearchInput value={searchQuery} onChange={setSearchQuery} />
+
+                {createLoading && (
+                  <p className="text-center py-4 text-muted-foreground">
+                    Loading...
+                  </p>
+                )}
+
+                {!createLoading && filteredCreatePOs.length === 0 && (
+                  <p className="text-center text-red-500 py-4">
+                    No eligible Purchase Orders found for this project.
+                  </p>
+                )}
+
+                {!createLoading && filteredCreatePOs.length > 0 && (
+                  <>
+                    {/* Desktop Table */}
+                    <Table className="hidden md:table">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>PO No.</TableHead>
+                          <TableHead>Vendor</TableHead>
+                          <TableHead>Dispatch Date</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="w-[40px]"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredCreatePOs.map((po) => (
+                          <TableRow key={po.name}>
+                            <TableCell>
+                              <Link
+                                className="underline text-blue-600 hover:text-blue-800"
+                                to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
+                              >
+                                {`PO-${po.name.split("/")[1]}`}
+                              </Link>
+                            </TableCell>
+                            <TableCell>{po.vendor_name || "N/A"}</TableCell>
+                            <TableCell>{formatDate(po.dispatch_date)}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
+                                }
+                              >
+                                {po.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Link
+                                to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
+                              >
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              </Link>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+
+                    {/* Mobile Cards */}
+                    <div className="md:hidden space-y-3">
+                      {filteredCreatePOs.map((po) => (
+                        <Link
+                          key={po.name}
+                          to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
+                          className="block"
+                        >
+                          <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                            <div className="flex items-start justify-between mb-2">
+                              <span className="font-semibold text-blue-600 text-lg">
+                                {`PO-${po.name.split("/")[1]}`}
+                              </span>
+                              <Badge
+                                variant={
+                                  ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
+                                }
+                              >
+                                {po.status}
+                              </Badge>
+                            </div>
+                            <div className="space-y-1.5 text-sm">
+                              <div className="flex items-start">
+                                <span className="text-gray-500 min-w-[80px]">
+                                  Vendor:
+                                </span>
+                                <span className="font-medium text-gray-900 flex-1">
+                                  {po.vendor_name || "N/A"}
+                                </span>
+                              </div>
+                              <div className="flex items-center">
+                                <span className="text-gray-500 min-w-[80px]">
+                                  Dispatch:
+                                </span>
+                                <span className="text-gray-900">
+                                  {formatDate(po.dispatch_date)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* VIEW_EXISTING View */}
+      {activeView === "VIEW_EXISTING" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>View Existing Delivery Notes</CardTitle>
+            <p className="text-sm text-muted-foreground pt-1">
+              Select a project to see its delivery history.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4">
+              <ProjectSelect onChange={handleProjectChange} />
+            </div>
+            {selectedProject && (
+              <>
+                <SearchInput value={searchQuery} onChange={setSearchQuery} />
+
+                {(viewExistingLoading || dnsLoading) && (
+                  <p className="text-center py-4 text-muted-foreground">
+                    Loading...
+                  </p>
+                )}
+
+                {!viewExistingLoading &&
+                  !dnsLoading &&
+                  filteredViewPOs.length === 0 && (
+                    <p className="text-center text-red-500 py-4">
+                      No eligible Purchase Orders found for this project.
+                    </p>
+                  )}
+
+                {!viewExistingLoading &&
+                  !dnsLoading &&
+                  filteredViewPOs.length > 0 && (
+                    <>
+                      {/* Desktop Accordion */}
+                      <div className="hidden md:block">
+                        <Accordion
+                          type="single"
+                          collapsible
+                          className="space-y-2"
+                        >
+                          {filteredViewPOs.map((po) => {
+                            const dns = po.dns;
+                            const latestDate =
+                              dns.length > 0
+                                ? dns.reduce(
+                                    (latest, dn) =>
+                                      dn.delivery_date > latest
+                                        ? dn.delivery_date
+                                        : latest,
+                                    dns[0].delivery_date
+                                  )
+                                : null;
+
+                            return (
+                              <AccordionItem
+                                key={po.name}
+                                value={po.name}
+                                className="border rounded-lg"
+                              >
+                                <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                                  <div className="flex items-center gap-4 w-full text-left text-sm">
+                                    <Link
+                                      to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=view`}
+                                      className="font-medium text-primary hover:underline"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      PO-{po.name.split("/")[1]}
+                                    </Link>
+                                    <span className="text-muted-foreground truncate max-w-[150px]">
+                                      {po.vendor_name}
+                                    </span>
+                                    <span className="text-muted-foreground text-xs hidden sm:inline">
+                                      {latestDate
+                                        ? formatDate(latestDate)
+                                        : "\u2014"}
+                                    </span>
+                                    <Badge
+                                      variant={
+                                        po.status === "Delivered"
+                                          ? "green"
+                                          : "orange"
+                                      }
+                                      className="ml-auto mr-2"
+                                    >
+                                      {po.status}
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                      {dns.length} DN
+                                      {dns.length !== 1 ? "s" : ""}
+                                    </span>
+                                  </div>
+                                </AccordionTrigger>
+                                <AccordionContent className="px-4 pb-3">
+                                  {dns.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground py-2">
+                                      No delivery notes found.
+                                    </p>
+                                  ) : (
+                                    <div className="border rounded-md overflow-hidden">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow className="bg-muted/30">
+                                            <TableHead className="text-xs">
+                                              DN Number
+                                            </TableHead>
+                                            <TableHead className="text-xs text-center">
+                                              Items
+                                            </TableHead>
+                                            <TableHead className="text-xs">
+                                              Date
+                                            </TableHead>
+                                            <TableHead className="text-xs hidden sm:table-cell">
+                                              Created By
+                                            </TableHead>
+                                            <TableHead className="text-xs w-[40px]"></TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {dns.map((dn) => (
+                                            <TableRow key={dn.name} className={dn.is_return === 1 ? "bg-red-100/80" : ""}>
+                                              <TableCell>
+                                                <button
+                                                  className={`text-sm font-medium hover:underline ${dn.is_return === 1 ? "text-red-600" : "text-primary"}`}
+                                                  onClick={() => {
+                                                    setSelectedDN(dn);
+                                                    setDnDialogOpen(true);
+                                                  }}
+                                                >
+                                                  {dn.is_return === 1 ? dn.name.replace(/^DN-/, "RN-") : dn.name}
+                                                </button>
+                                              </TableCell>
+                                              <TableCell className="text-center text-sm">
+                                                {dn.items?.length || 0}
+                                              </TableCell>
+                                              <TableCell className="text-sm">
+                                                {formatDate(dn.delivery_date)}
+                                              </TableCell>
+                                              <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                                                {dn.updated_by_user || "\u2014"}
+                                              </TableCell>
+                                              <TableCell>
+                                                <DNDownloadButton
+                                                  poId={po.name}
+                                                  deliveryDate={dn.delivery_date}
+                                                  noteNo={dn.note_no}
+                                                />
+                                              </TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
+                                  )}
+                                </AccordionContent>
+                              </AccordionItem>
+                            );
+                          })}
+                        </Accordion>
+                      </div>
+
+                      {/* Mobile Cards */}
+                      <div className="md:hidden space-y-3">
+                        {filteredViewPOs.map((po) => {
+                          const dns = po.dns;
+                          return (
+                            <div
+                              key={po.name}
+                              className="border rounded-lg p-4"
+                            >
+                              <div className="flex items-start justify-between mb-2">
+                                <Link
+                                  to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=view`}
+                                  className="font-semibold text-blue-600 text-lg hover:underline"
+                                >
+                                  PO-{po.name.split("/")[1]}
+                                </Link>
+                                <Badge
+                                  variant={
+                                    po.status === "Delivered"
+                                      ? "green"
+                                      : "orange"
+                                  }
+                                >
+                                  {po.status}
+                                </Badge>
+                              </div>
+                              <div className="space-y-1.5 text-sm mb-3">
+                                <div className="flex items-start">
+                                  <span className="text-gray-500 min-w-[80px]">
+                                    Vendor:
+                                  </span>
+                                  <span className="font-medium text-gray-900 flex-1">
+                                    {po.vendor_name || "N/A"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center">
+                                  <span className="text-gray-500 min-w-[80px]">
+                                    DNs:
+                                  </span>
+                                  <span className="text-gray-900">
+                                    {dns.length} delivery note
+                                    {dns.length !== 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                              </div>
+                              {dns.length > 0 && (
+                                <div className="space-y-2 border-t pt-2">
+                                  {dns.map((dn) => (
+                                    <div
+                                      key={dn.name}
+                                      className={`flex items-center justify-between text-sm ${dn.is_return === 1 ? "bg-red-100/80 -mx-2 px-2 py-1 rounded" : ""}`}
+                                    >
+                                      <button
+                                        className={`hover:underline font-medium ${dn.is_return === 1 ? "text-red-600" : "text-primary"}`}
+                                        onClick={() => {
+                                          setSelectedDN(dn);
+                                          setDnDialogOpen(true);
+                                        }}
+                                      >
+                                        {dn.is_return === 1 ? dn.name.replace(/^DN-/, "RN-") : dn.name}
+                                      </button>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground text-xs">
+                                          {formatDate(dn.delivery_date)}
+                                        </span>
+                                        <DNDownloadButton
+                                          poId={po.name}
+                                          deliveryDate={dn.delivery_date}
+                                          noteNo={dn.note_no}
+                                        />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* DN Detail Dialog */}
+      <DNDetailDialog
+        dn={selectedDN}
+        open={dnDialogOpen}
+        onOpenChange={setDnDialogOpen}
+      />
+    </div>
+  );
+};
 
 export default DeliveryNotes;
-
-
-// AUG-BEFORE
-// import ProjectSelect from "@/components/custom-select/project-select"
-// import { Badge } from "@/components/ui/badge"
-// import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-// import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders"
-// import { UserContext } from "@/utils/auth/UserProvider"
-// import { formatDate } from "@/utils/FormatDate"
-// import { useFrappeGetDocList } from "frappe-react-sdk"
-// import { useContext, useMemo } from "react"
-// import { Link } from "react-router-dom"
-
-// const DeliveryNotes: React.FC = () => {
-
-//     const { data: procurementOrdersList } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-//         fields: ["*"],
-//         filters: [["status", "not in", ["PO Sent", "PO Approved", "PO Amendment", "Cancelled", "Merged"]]],
-//         orderBy: { field: "dispatch_date", order: "desc" },
-//         limit: 100000,
-//     })
-
-//     const { setSelectedProject, selectedProject } = useContext(UserContext)
-
-//     // const columns = useMemo(
-//     //     () => [
-//     //         {
-//     //             accessorKey: "name",
-//     //             header: ({ column }) => {
-//     //                 return (
-//     //                     <DataTableColumnHeader column={column} title="PR No" />
-//     //                 )
-//     //             },
-//     //             cell: ({ row }) => {
-//     //                 return (
-//     //                     <div className="font-medium">
-//     //                         {row.getValue("name")}
-//     //                     </div>
-//     //                 )
-//     //             }
-//     //         },
-//     //         {
-//     //             id: "pos",
-//     //             header: ({ column }) => {
-//     //                 return (
-//     //                     <DataTableColumnHeader column={column} title="Associated PO's" />
-//     //                 )
-//     //             },
-//     //             cell: ({ row }) => {
-//     //                 const id = row.getValue("name");
-//     //                 const associatedPOs = getPOsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
-
-//     //                 return (
-//     //                     <div className="font-medium">
-//     //                         {associatedPOs.length === 0 ? (
-//     //                             <p className="text-red-300 text-center">No PO's found</p>
-//     //                         ) : (
-//     //                             <table className="w-full text-left">
-//     //                                 <tbody>
-//     //                                     {associatedPOs.map((po) => (
-//     //                                         <tr key={po.name}>
-//     //                                             <Link to={`${row.getValue("name").replaceAll("/", "&=")}`}>
-//     //                                                 <td className="border-b p-2 underline hover:text-blue-500">{po.name}</td>
-//     //                                             </Link>
-//     //                                         </tr>
-//     //                                     ))}
-//     //                                 </tbody>
-//     //                             </table>
-//     //                         )}
-//     //                     </div>
-//     //                 );
-//     //             }
-//     //         },
-//     //         {
-//     //             id: "creation",
-//     //             header: ({ column }) => {
-//     //                 return (
-//     //                     <DataTableColumnHeader column={column} title="Creation" />
-//     //                 )
-//     //             },
-//     //             cell: ({ row }) => {
-//     //                 const id = row.getValue("name");
-//     //                 const associatedPOs = getPOsAssociated(id); // Assuming this returns an array of PO objects with a 'name' property.
-
-//     //                 return (
-//     //                     <div className="font-medium">
-//     //                         {associatedPOs.length === 0 ? (
-//     //                             <span></span>
-//     //                         ) : (
-//     //                             <table className=" text-left">
-//     //                                 <tbody>
-//     //                                     {associatedPOs.map((po) => (
-//     //                                         <tr key={po.creation}>
-//     //                                             <td className="border-b p-2">{formatDate(po.creation)}</td>
-//     //                                         </tr>
-//     //                                     ))}
-//     //                                 </tbody>
-//     //                             </table>
-//     //                         )}
-//     //                     </div>
-//     //                 );
-//     //             }
-//     //         },
-//     //     ],
-//     //     []
-//     // )
-
-//     const handleChange = (selectedItem: any) => {
-//         setSelectedProject(selectedItem ? selectedItem.value : null);
-//         if (selectedItem) {
-//             sessionStorage.setItem(
-//                 "selectedProject",
-//                 JSON.stringify(selectedItem.value)
-//             );
-//         } else {
-//             sessionStorage.removeItem("selectedProject");
-//         }
-//     };
-
-//     const selectedProjectPOs = useMemo(() => procurementOrdersList?.filter(i => i?.project === selectedProject) || [], [procurementOrdersList, selectedProject])
-
-//     return (
-//         <div className="flex-1 space-y-4 min-h-[50vh]">
-//             <div className="border border-gray-200 rounded-lg p-0.5 min-w-[400px]">
-//                 <ProjectSelect onChange={handleChange} />
-//                 {selectedProject && <div className="pt-4">
-//                     <Table className="min-h-[30vh] overflow-auto">
-//                         <TableHeader className="bg-red-100">
-//                             <TableRow>
-//                                 <TableHead className=" font-extrabold">Delivery Note</TableHead>
-//                                 <TableHead className="w-[30%] font-extrabold">PR No.</TableHead>
-//                                 <TableHead className="w-[20%] font-extrabold">Dispatch Date</TableHead>
-//                                 <TableHead className="w-[20%] font-extrabold">Status</TableHead>
-//                             </TableRow>
-//                         </TableHeader>
-//                         <TableBody>
-//                             {selectedProjectPOs.length > 0 ? (
-//                                 selectedProjectPOs?.map(item => (
-//                                     <TableRow key={item.name}>
-//                                         <TableCell>
-//                                             <Link className="underline text-blue-300 hover:text-blue-500" to={`${item.name.replaceAll("/", "&=")}`}>DN-{item.name.split('/')[1]}</Link>
-//                                         </TableCell>
-//                                         <TableCell>{item?.procurement_request}</TableCell>
-//                                         <TableCell>{formatDate(item?.dispatch_date)}</TableCell>
-//                                         <TableCell>
-//                                             <Badge variant={`${item?.status === "Dispatched" ? "orange" : "green"}`}>
-//                                                 {item?.status}
-//                                             </Badge>
-//                                         </TableCell>
-//                                         {/* <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
-//                                                         <TableRow>
-//                                                             <TableCell>
-//                                                                 <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=")}`}>DN-{po.name.split('/')[1]}</Link>
-//                                                             </TableCell>
-//                                                         </TableRow>
-//                                                     ))}</TableCell>
-//                                                     <TableCell className="text-sm">
-//                                                         {getPOsAssociated(item.name)?.map((po) => (
-//                                                             <TableRow>
-//                                                                 <TableCell>
-//                                                                     {formatDate(po.creation)}
-//                                                                 </TableCell>
-//                                                             </TableRow>
-//                                                         ))}
-//                                                     </TableCell>
-//                                                     <TableCell className="text-sm">
-//                                                         {getPOsAssociated(item.name)?.map((po) => (
-//                                                             <TableRow>
-//                                                                 <TableCell>
-//                                                                     <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
-//                                                                         {po?.status}
-//                                                                     </Badge>
-//                                                                 </TableCell>
-//                                                             </TableRow>
-//                                                         ))}
-//                                                     </TableCell> */}
-//                                     </TableRow>
-//                                 ))
-//                             ) : (
-//                                 <>
-//                                     <TableCell></TableCell>
-//                                     <TableCell className="text-red-300 text-end">**Not Found**</TableCell>
-//                                 </>
-//                             )}
-//                             {/* {procurementRequestsList?.map((item) => {
-//                                 if (item.project === project) {
-//                                     return (
-//                                         <TableRow key={item.name}>
-//                                             <TableCell className="text-sm">{item.name.split("-")[2]}</TableCell>
-//                                             {getPOsAssociated(item.name).length > 0 ? (
-//                                                 <>
-//                                                     <TableCell className="text-sm">{getPOsAssociated(item.name)?.map((po) => (
-//                                                         <TableRow>
-//                                                             <TableCell>
-//                                                                 <Link className="underline text-blue-300 hover:text-blue-500" to={`${po.name.replaceAll("/", "&=")}`}>DN-{po.name.split('/')[1]}</Link>
-//                                                             </TableCell>
-//                                                         </TableRow>
-//                                                     ))}</TableCell>
-//                                                     <TableCell className="text-sm">
-//                                                         {getPOsAssociated(item.name)?.map((po) => (
-//                                                             <TableRow>
-//                                                                 <TableCell>
-//                                                                     {formatDate(po.creation)}
-//                                                                 </TableCell>
-//                                                             </TableRow>
-//                                                         ))}
-//                                                     </TableCell>
-//                                                     <TableCell className="text-sm">
-//                                                         {getPOsAssociated(item.name)?.map((po) => (
-//                                                             <TableRow>
-//                                                                 <TableCell>
-//                                                                     <Badge variant={`${po?.status === "Dispatched" ? "orange" : "green"}`} className="">
-//                                                                         {po?.status}
-//                                                                     </Badge>
-//                                                                 </TableCell>
-//                                                             </TableRow>
-//                                                         ))}
-//                                                     </TableCell>
-//                                                 </>
-//                                             ) : (
-//                                                 <>
-//                                                     <TableCell></TableCell>
-//                                                     <TableCell className="text-red-300">**Not Found**</TableCell>
-//                                                 </>
-//                                             )}
-//                                         </TableRow>
-//                                     )
-//                                 }
-//                             })} */}
-//                         </TableBody>
-//                     </Table>
-//                 </div>}
-//             </div>
-//         </div>
-//     )
-// }
-
-// export default DeliveryNotes
