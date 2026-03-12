@@ -208,7 +208,7 @@ export const ReleasePOSelect: React.FC = () => {
                 ["document_type", "=", "Procurement Orders"],
                 ["status", "=", "Approved"],
             ],
-            fields: ["name", "document_name", "invoice_amount"],
+            fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
             limit: 0,
         },
         "VendorInvoices-PO-ReleasePOSelect"
@@ -772,7 +772,7 @@ export const ReleasePOSelect: React.FC = () => {
             <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
-                invoiceData={selectedInvoicePO?.invoice_data}
+                vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
                 project={selectedInvoicePO?.project_name}
                 poNumber={selectedInvoicePO?.name}
                 vendor={selectedInvoicePO?.vendor_name}

@@ -129,7 +129,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
             filters: [
                 ["status", "=", "Approved"],
             ],
-            fields: ["name", "document_name", "invoice_amount"],
+            fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
             limit: 0,
         },
         "VendorInvoices-ProjectPayments-All"
@@ -695,7 +695,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
             <InvoiceDataDialog
                 open={!!selectedInvoice}
                 onOpenChange={(open) => !open && setSelectedInvoice(undefined)}
-                invoiceData={selectedInvoice?.invoice_data}
+                vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoice?.name)}
                 project={getProjectName(selectedInvoice?.project)}
                 poNumber={selectedInvoice?.name}
                 vendor={getVendorName(selectedInvoice?.vendor)}
