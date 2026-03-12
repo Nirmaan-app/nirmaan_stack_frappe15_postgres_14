@@ -72,6 +72,7 @@ import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
+import { PRHeaderTagMaster } from "@/components/PRHeaderTagMaster";
 // --- End component imports ---
 
 // NEW COMMISSION REPORT PAGES
@@ -639,6 +640,7 @@ export const appRoutes: RouteObject[] = [
           { path: "product-packages", element: <ProcurementPackages /> },
           // {path:"milestones-packages",element:}
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
+          { path: "pr-header-packages", element: <PRHeaderTagMaster /> },
           { path: "design-packages", element: <DesignPackages /> },
           { path: "commission-packages", element: <CommissionPackages /> },
           { path: "work-order-rate-card", element: <WOServicePackages /> },

@@ -203,6 +203,7 @@ export function NewSidebar() {
             { key: "/vendors", label: "Vendors" },
             { key: "/customers", label: "Customers" },
             { key: "/product-packages", label: "Product Packages" },
+            { key: "/pr-header-packages", label: "PR Header Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
             { key: "/commission-packages", label: "Commission Packages" },
@@ -594,6 +595,7 @@ export function NewSidebar() {
     "vendors",
     "customers",
     "product-packages",
+    "pr-header-packages",
     "milestone-packages",
     "design-packages",
     "tds-repository",
@@ -646,7 +648,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
