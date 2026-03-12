@@ -8,11 +8,9 @@ import {
   useFrappeGetDocList,
   FrappeContext,
   FrappeConfig,
-  useFrappeDocTypeEventListener,
   FrappeDoc,
   GetDocListArgs,
 } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 
 // --- UI Components ---
@@ -20,25 +18,21 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
   NotificationType,
   useNotificationStore,
 } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import {
-  ServiceItemType,
-  ServiceRequests,
-} from "@/types/NirmaanStack/ServiceRequests";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
@@ -50,14 +44,12 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
-import { useOrderTotals } from "@/hooks/useOrderTotals";
 import {
   DEFAULT_SR_FIELDS_TO_FETCH,
   SR_DATE_COLUMNS,
   SR_SEARCHABLE_FIELDS,
 } from "../config/srTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { ExceptionMap } from "antd/es/result";
 import { useUserData } from "@/hooks/useUserData";
 
 // --- Constants ---
@@ -83,9 +75,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   urlSyncKeySuffix = "approved", // Default suffix
 }) => {
   const { role } = useUserData();
-  const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
-  const { getTotalAmount } = useOrderTotals();
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // Unique URL key for this instance of the table
@@ -427,7 +417,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       {
         accessorKey: "total_amount",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total SR Value" />
+          <DataTableColumnHeader column={column} title="Total WO Value" />
         ),
         cell: ({ row }) => (
           <div className="font-medium pr-2">
@@ -436,6 +426,10 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         ), // Example badge
         enableColumnFilter: true,
         size: 120,
+        meta: {
+          exportHeaderName: "Total WO Value",
+          exportValue: (row: ServiceRequests) => parseNumber(row.total_amount) || 0,
+        },
       },
       {
         accessorKey: "gst",
@@ -473,6 +467,34 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         ), // Example badge
         enableColumnFilter: true,
         size: 120,
+        meta: {
+          exportHeaderName: "Amt. Paid",
+          exportValue: (row: ServiceRequests) => parseNumber(row.amount_paid) || 0,
+        },
+      },
+      {
+        id: "amount_due",
+        header: "Amount Due",
+        cell: ({ row }) => {
+          const total = parseNumber(row.original.total_amount) || 0;
+          const paid = parseNumber(row.original.amount_paid) || 0;
+          const value = total - paid;
+          return (
+            <div className={cn("font-medium pr-2", value < 0 ? "text-red-600" : "text-amber-600")}>
+              {formatToRoundedIndianRupee(value)}
+            </div>
+          );
+        },
+        enableSorting: false,
+        size: 150,
+        meta: {
+          exportHeaderName: "Amount Due",
+          exportValue: (row: ServiceRequests) => {
+            const total = parseNumber(row.total_amount) || 0;
+            const paid = parseNumber(row.amount_paid) || 0;
+            return total - paid;
+          },
+        },
       },
       {
         id: "total_invoiced",
@@ -539,19 +561,14 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   // --- (MOVED UP) Use the Server Data Table Hook ---
   const {
     table,
-    data,
     totalCount,
     isLoading: listIsLoading,
     error: listError,
-    // globalFilter, setGlobalFilter,
-    // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
     selectedSearchField,
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    isRowSelectionActive,
-    refetch,
-    columnFilters, // NEW
+    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<ServiceRequests>({
@@ -663,37 +680,45 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       {isLoading ? (
         <TableSkeleton />
       ) : (
-        <DataTable<ServiceRequests>
-          table={table}
-          columns={columns}
-          isLoading={listIsLoading} // Pass specific loading state for table data
-          error={listError} // Pass specific error state for table data
-          totalCount={totalCount}
-          searchFieldOptions={srSearchableFields}
-          selectedSearchField={selectedSearchField}
-          onSelectedSearchFieldChange={setSelectedSearchField}
-          searchTerm={searchTerm}
-          onSearchTermChange={setSearchTerm}
-          // globalFilterValue={globalFilter}
-          // onGlobalFilterChange={setGlobalFilter}
-          // searchPlaceholder="Search Approved SRs..."
-          // showItemSearchToggle={showItemSearchToggle}
-          // itemSearchConfig={{
-          //     isEnabled: isItemSearchEnabled,
-          //     toggle: toggleItemSearch,
-          //     label: "Service Item Search"
-          // }}
-          facetFilterOptions={facetFilterOptions}
-          dateFilterColumns={dateColumns}
-          showExportButton={true}
-          onExport={"default"}
-          onExportAll={exportAllRows}
-          isExporting={isExporting}
-          exportFileName={
-            vendorName ? `${vendorName}_Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
-          }
-          getRowClassName={getRowClassName}
-        />
+        <>
+          <Alert className="bg-blue-50 border-blue-200 mb-2">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800 text-sm">
+              <strong>Note:</strong> Amount Due = Total WO Value − Amt Paid
+            </AlertDescription>
+          </Alert>
+          <DataTable<ServiceRequests>
+            table={table}
+            columns={columns}
+            isLoading={listIsLoading} // Pass specific loading state for table data
+            error={listError} // Pass specific error state for table data
+            totalCount={totalCount}
+            searchFieldOptions={srSearchableFields}
+            selectedSearchField={selectedSearchField}
+            onSelectedSearchFieldChange={setSelectedSearchField}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            // globalFilterValue={globalFilter}
+            // onGlobalFilterChange={setGlobalFilter}
+            // searchPlaceholder="Search Approved SRs..."
+            // showItemSearchToggle={showItemSearchToggle}
+            // itemSearchConfig={{
+            //     isEnabled: isItemSearchEnabled,
+            //     toggle: toggleItemSearch,
+            //     label: "Service Item Search"
+            // }}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={dateColumns}
+            showExportButton={true}
+            onExport={"default"}
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
+            exportFileName={
+              vendorName ? `${vendorName}_Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
+            }
+            getRowClassName={getRowClassName}
+          />
+        </>
       )}
     </div>
   );

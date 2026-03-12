@@ -18,6 +18,8 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -373,7 +375,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
       {
         accessorKey: "total_amount",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total SR Value" />
+          <DataTableColumnHeader column={column} title="Total WO Value" />
         ),
         cell: ({ row }) => (
           <div className="font-medium pr-2">
@@ -382,6 +384,10 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         ),
         enableColumnFilter: true,
         size: 120,
+        meta: {
+          exportHeaderName: "Total WO Value",
+          exportValue: (row: ServiceRequests) => parseNumber(row.total_amount) || 0,
+        },
       },
       {
         accessorKey: "gst",
@@ -408,6 +414,34 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         ),
         enableColumnFilter: true,
         size: 120,
+        meta: {
+          exportHeaderName: "Amt. Paid",
+          exportValue: (row: ServiceRequests) => parseNumber(row.amount_paid) || 0,
+        },
+      },
+      {
+        id: "amount_due",
+        header: "Amount Due",
+        cell: ({ row }) => {
+          const total = parseNumber(row.original.total_amount) || 0;
+          const paid = parseNumber(row.original.amount_paid) || 0;
+          const value = total - paid;
+          return (
+            <div className={cn("font-medium pr-2", value < 0 ? "text-red-600" : "text-amber-600")}>
+              {formatToRoundedIndianRupee(value)}
+            </div>
+          );
+        },
+        enableSorting: false,
+        size: 150,
+        meta: {
+          exportHeaderName: "Amount Due",
+          exportValue: (row: ServiceRequests) => {
+            const total = parseNumber(row.total_amount) || 0;
+            const paid = parseNumber(row.amount_paid) || 0;
+            return total - paid;
+          },
+        },
       },
       {
         id: "total_invoiced",
@@ -569,28 +603,36 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
       {isLoading ? (
         <TableSkeleton />
       ) : (
-        <DataTable<ServiceRequests>
-          table={table}
-          columns={columns}
-          isLoading={listIsLoading}
-          error={listError}
-          totalCount={totalCount}
-          searchFieldOptions={srSearchableFields}
-          selectedSearchField={selectedSearchField}
-          onSelectedSearchFieldChange={setSelectedSearchField}
-          searchTerm={searchTerm}
-          onSearchTermChange={setSearchTerm}
-          facetFilterOptions={facetFilterOptions}
-          dateFilterColumns={dateColumns}
-          showExportButton={true}
-          onExport={"default"}
-          onExportAll={exportAllRows}
-          isExporting={isExporting}
-          exportFileName={
-            vendorName ? `${vendorName}_Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
-          }
-          getRowClassName={getRowClassName}
-        />
+        <>
+          <Alert className="bg-blue-50 border-blue-200 mb-2">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800 text-sm">
+              <strong>Note:</strong> Amount Due = Total WO Value − Amt Paid
+            </AlertDescription>
+          </Alert>
+          <DataTable<ServiceRequests>
+            table={table}
+            columns={columns}
+            isLoading={listIsLoading}
+            error={listError}
+            totalCount={totalCount}
+            searchFieldOptions={srSearchableFields}
+            selectedSearchField={selectedSearchField}
+            onSelectedSearchFieldChange={setSelectedSearchField}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={dateColumns}
+            showExportButton={true}
+            onExport={"default"}
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
+            exportFileName={
+              vendorName ? `${vendorName}_Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
+            }
+            getRowClassName={getRowClassName}
+          />
+        </>
       )}
     </div>
   );

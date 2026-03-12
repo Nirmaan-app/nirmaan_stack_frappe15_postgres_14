@@ -89,7 +89,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
         { label: "Vendor Delivery Notes", key: "vendorDeliveryNotes" },
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
-        { label: "Service Orders", key: "serviceOrders" },
+        { label: "Work Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
         (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
