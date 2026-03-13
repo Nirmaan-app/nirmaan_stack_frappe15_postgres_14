@@ -15,6 +15,7 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
         frappe.db.begin()
         pr_doc = frappe.new_doc("Procurement Requests")
         pr_doc.project = project_id
+        pr_doc.work_package = "Custom"
         
         # Populate the 'order_list' child table
         for fe_item in order:
@@ -97,6 +98,7 @@ def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list
 
         frappe.db.begin()
         pr_doc = frappe.get_doc("Procurement Requests", pr_id, for_update=True)
+        pr_doc.work_package = "Custom"
 
         pr_doc.set("order_list", [])
 
