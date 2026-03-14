@@ -13,8 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useFrappeGetDocList } from "frappe-react-sdk";
-import { CriticalPOCategory } from "@/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster";
+import { useCriticalPOCategories } from "../data/critical-po/useCriticalPOQueries";
 import { useBulkCreateTasks } from "./hooks/useBulkCreateTasks";
 import { isValidProjectStartDate } from "./utils/calculatePODate";
 
@@ -42,11 +41,7 @@ export const NoCriticalPOTasksView: React.FC<NoCriticalPOTasksViewProps> = ({
     data: categories,
     isLoading: categoriesLoading,
     error: categoriesError,
-  } = useFrappeGetDocList<CriticalPOCategory>("Critical PO Category", {
-    fields: ["name", "category_name"],
-    limit: 0,
-    orderBy: { field: "category_name", order: "asc" },
-  });
+  } = useCriticalPOCategories();
 
   const hasValidStartDate = isValidProjectStartDate(projectStartDate);
 

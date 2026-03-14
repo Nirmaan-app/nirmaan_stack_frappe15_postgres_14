@@ -1,9 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { Trash2, Edit2, CirclePlus } from "lucide-react";
 import { AddEditInflowCashflowForm } from "./components/AddEditInflowCashflowForm";
 import {
@@ -16,8 +14,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
+import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 
 // ... imports
 
@@ -31,35 +30,15 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
     const [showAddForm, setShowAddForm] = useState(false);
     const [editingPlan, setEditingPlan] = useState<any>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
-    const { deleteDoc } = useFrappeDeleteDoc();
 
-    const docListFilters = useMemo(() => {
-        const filters: any[] = [
-            ["project", "=", projectId],
-            ["type", "=", "Inflow"]
-        ];
+    const { deleteCashflow } = useDeleteCashflowPlan();
 
-        if (dateRange?.from && dateRange?.to) {
-            filters.push([
-                "planned_date", 
-                "Between", 
-                [format(dateRange.from, "yyyy-MM-dd"), format(dateRange.to, "yyyy-MM-dd")]
-            ]);
-        }
-        return filters;
-    }, [projectId, dateRange]);
-
-    const { data: plans, isLoading, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "remarks", "planned_date", "planned_amount", "creation"],
-        filters: docListFilters,
-        orderBy: { field: "creation", order: "desc" },
-        limit: 0
-    });
+    const { data: plans, isLoading, mutate: refreshPlans } = useCashflowPlans(projectId, "Inflow", dateRange);
 
     const confirmDelete = async () => {
         if (!deleteId) return;
         try {
-            await deleteDoc("Cashflow Plan", deleteId);
+            await deleteCashflow(deleteId);
             refreshPlans();
             setDeleteId(null);
         } catch (e) {

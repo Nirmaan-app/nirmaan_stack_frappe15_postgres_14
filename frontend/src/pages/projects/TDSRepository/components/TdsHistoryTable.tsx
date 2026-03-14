@@ -13,8 +13,9 @@ import {
     TooltipProvider, 
     TooltipTrigger 
 } from "@/components/ui/tooltip";
-import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import { useNirmaanUsers } from '../../data/tds/useTdsQueries';
+import { useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import {
     AlertDialog,
@@ -56,16 +57,13 @@ const DOCTYPE = "Project TDS Item List";
 
 export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, refreshTrigger = 0, onDataChange }) => {
     const { role } = useUserData();
-    const { deleteDoc } = useFrappeDeleteDoc();
+    const { deleteDoc } = useDeleteTdsItem();
     const [itemToDelete, setItemToDelete] = useState<string | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     // --- 1. Fetch Nirmaan Users for Mapping ---
     // Moved to top so it can be used in columns
-    const { data: nirmaanUsers } = useFrappeGetDocList("Nirmaan Users", {
-        fields: ["name", "full_name"],
-        limit: 0
-    });
+    const { data: nirmaanUsers } = useNirmaanUsers();
 
     // Create User Map: email -> full_name
     const userMap = useMemo(() => {
@@ -404,7 +402,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
     const confirmDelete = async () => {
         if (!itemToDelete) return;
         try {
-            await deleteDoc(DOCTYPE, itemToDelete);
+            await deleteDoc(itemToDelete, projectId);
             toast({
                 title: "Deleted",
                 description: "Item removed from history.",

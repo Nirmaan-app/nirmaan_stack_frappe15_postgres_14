@@ -10,13 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useFrappePostCall, useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "../../components/planning/CategoryTaskSelector";
 import { AllPOsModal } from "../../components/planning/AllPOsModal";
 import { ReviewPOCashflowPage } from "./ReviewPOCashflowPage";
 import { CashflowDatePicker } from "./CashflowDatePicker";
 import { format } from "date-fns";
+import { useCashflowCategoriesAndTasks, useCashflowDataV2, useCashflowAllPOs, useCashflowVendors } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCreateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 
 // Types
 interface Task {
@@ -116,29 +117,19 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
     // ==========================================================================
 
     // Fetch Categories and Tasks
-    const { call: fetchCategoriesAndTasks, result: catTaskResult, loading: isLoadingCatTasks } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_categories_and_tasks"
-    );
+    const { call: fetchCategoriesAndTasks, result: catTaskResult, loading: isLoadingCatTasks } = useCashflowCategoriesAndTasks();
 
     // Fetch POs/Items for Task (V2 API)
-    const { call: fetchDataV2, result: dataV2Result, loading: isLoadingDataV2 } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_material_plan_data_v2"
-    );
+    const { call: fetchDataV2, result: dataV2Result, loading: isLoadingDataV2 } = useCashflowDataV2();
 
     // Fetch All Project POs (for "See All POs" modal)
-    const { call: fetchAllPOs, result: allPOsResult, loading: isLoadingAllPOs } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_all_project_pos"
-    );
+    const { call: fetchAllPOs, result: allPOsResult, loading: isLoadingAllPOs } = useCashflowAllPOs();
 
     // Create Material Delivery Plan
-    const { createDoc, loading: isCreating } = useFrappeCreateDoc();
+    const { createCashflow, loading: isCreating } = useCreateCashflowPlan();
 
     // Fetch Vendors for New PO selection
-    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name"],
-
-        limit: 0
-    });
+    const { data: vendors, isLoading: isLoadingVendors } = useCashflowVendors();
 
     // ==========================================================================
     // DERIVED DATA
@@ -151,7 +142,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
     // POs from Task's associated_pos
     const taskPOs = dataV2Result?.message?.pos || [];
     const taskItems = dataV2Result?.message?.items || [];
-    const hasTaskPOs = dataV2Result?.message?.has_pos || false;
+
 
     // All project POs
     const allProjectPOs = allPOsResult?.message?.pos || [];
@@ -400,7 +391,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
             });
 
             const plans: POPlan[] = Object.entries(poGroups).map(([poId, items]) => {
-                const poDoc = allProjectPOs.find(p => p.name === poId);
+                const poDoc = allProjectPOs.find((p: any) => p.name === poId);
                 const assocTasks = poDoc?.associated_tasks || [];
                 const isLocal = associatedPOs.includes(poId);
 
@@ -443,7 +434,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
             }));
 
             try {
-                await createDoc("Cashflow Plan", {
+                await createCashflow({
                     project: projectId,
 
                     id_link: plan.poName,
@@ -547,7 +538,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
         }
 
         const today = new Date().toISOString().split('T')[0];
-        if (plannedDate < today) {
+        const plannedDateStr = format(plannedDate, "yyyy-MM-dd");
+        if (plannedDateStr < today) {
             toast({
                 title: "Invalid Date",
                 description: "Planned Date cannot be in the past.",
@@ -557,14 +549,14 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
         }
 
         try {
-            await createDoc("Cashflow Plan", {
+            await createCashflow({
                 project: projectId,
                 id_link: "",
                 package_name: "",
                 critical_po_category: selectedCategory || null,
                 critical_po_task: selectedTaskDoc?.item_name || null,
                 critical_po_sub_category: selectedTaskDoc?.sub_category || null,
-                planned_date: plannedDate,
+                planned_date: plannedDateStr,
                 planned_amount: parseFloat(newPOAmount),
                 estimated_price: parseFloat(estimatedPrice),
                 vendor: isCustomVendor ? "" : newPOVendor.value,
@@ -748,7 +740,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                                             <div className="flex-1 min-w-0">
                                                 {searchMode === "po" ? (
                                                     <ReactSelect
-                                                        options={taskPOs.map(po => ({
+                                                        options={taskPOs.map((po: any) => ({
                                                             label: po.name,
                                                             value: po.name,
                                                             original: po
@@ -801,7 +793,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                                                     />
                                                 ) : (
                                                     <ReactSelect
-                                                        options={taskItems.map(item => ({
+                                                        options={taskItems.map((item: any) => ({
                                                             label: item.item_name,
                                                             value: item.name,
                                                             original: item

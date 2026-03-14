@@ -1,4 +1,4 @@
-import { useFrappeCreateDoc } from "frappe-react-sdk";
+import { useCreateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { calculatePOReleaseDate } from "../utils/calculatePODate";
 import { CriticalPOItem } from "@/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster";
 
@@ -16,7 +16,7 @@ interface CreateTasksResult {
 }
 
 export const useBulkCreateTasks = () => {
-  const { createDoc } = useFrappeCreateDoc();
+  const { createDoc } = useCreateCriticalPOTask();
 
   const createTasksForCategories = async ({
     selectedCategoryIds,
@@ -59,7 +59,7 @@ export const useBulkCreateTasks = () => {
           item.release_timeline_offset || 0
         );
 
-        const taskDoc = await createDoc("Critical PO Tasks", {
+        const taskDoc = await createDoc({
           project: projectId,
           project_name: projectName,
           critical_po_category: item.critical_po_category,

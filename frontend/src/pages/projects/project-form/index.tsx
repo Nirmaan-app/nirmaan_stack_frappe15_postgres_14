@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFrappePostCall, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useCreateProjectWithAddress, useCreateProjectChildDoc, useUpdateProjectDoc } from "@/pages/projects/data/project-form/useProjectFormMutations";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { X } from "lucide-react";
@@ -66,10 +66,9 @@ export const ProjectForm = () => {
     const [creationError, setCreationError] = useState<string>();
 
     // API calls
-    const { call: createProjectAndAddress, loading: createProjectAndAddressLoading } =
-        useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address");
-    const { createDoc } = useFrappeCreateDoc();
-    const { updateDoc } = useFrappeUpdateDoc();
+    const { createProject: createProjectAndAddress, loading: createProjectAndAddressLoading } = useCreateProjectWithAddress();
+    const { createChildDoc: createDoc } = useCreateProjectChildDoc();
+    const { updateProject: updateDoc } = useUpdateProjectDoc();
 
     // Draft management
     const {
@@ -289,7 +288,7 @@ export const ProjectForm = () => {
                     };
                     console.log("[Progress Setup] Full payload:", updatePayload);
 
-                    await updateDoc("Projects", projectName, updatePayload);
+                    await updateDoc(projectName, updatePayload);
                     console.log("[Progress Setup] Update successful");
                 } catch (progressError) {
                     // Log error details

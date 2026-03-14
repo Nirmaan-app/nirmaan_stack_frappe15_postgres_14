@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { NoTDSRepositoryView } from './NoTDSRepositoryView';
 import { TDSRepositoryView } from './TDSRepositoryView';
 import { TDSRepositoryData } from './components';
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeFileUpload } from "frappe-react-sdk";
-import { ProjectTDSSetting } from "@/types/NirmaanStack/ProjectTDSSetting";
+import { useTdsSettings } from '../data/tds/useTdsQueries';
+import { useCreateTdsSetting, useUpdateTdsSetting, useUploadTdsFile } from '../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 
@@ -12,15 +12,11 @@ interface TDSRepositoryTabProps {
 }
 
 export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId }) => {
-    const { data: tdsSettings, isLoading, mutate } = useFrappeGetDocList<ProjectTDSSetting>("Project TDS Setting", {
-        fields: ["*"],
-        filters: [["tds_project_id", "=", projectId || ""]],
-        limit: 1
-    }, projectId ? `Project TDS Setting ${projectId}` : null);
+    const { data: tdsSettings, isLoading, mutate } = useTdsSettings(projectId);
 
-    const { createDoc } = useFrappeCreateDoc();
-    const { updateDoc } = useFrappeUpdateDoc();
-    const { upload } = useFrappeFileUpload();
+    const { createDoc } = useCreateTdsSetting();
+    const { updateDoc } = useUpdateTdsSetting();
+    const { upload } = useUploadTdsFile();
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -53,7 +49,7 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
 
             // 2. Create Doc if needed (to get ID for uploads)
             if (!docName) {
-                const newDoc = await createDoc("Project TDS Setting", textData);
+                const newDoc = await createDoc(textData);
                 docName = newDoc.name;
                 console.log("Created Doc:", docName);
                 // Text data is already saved, so we only need to update files later
@@ -110,7 +106,7 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
             // 4. Final Update (Text + Files for existing; Files only for new)
             if (Object.keys(finalUpdates).length > 0) {
                  console.log("Updating doc with combined data:", finalUpdates);
-                 await updateDoc("Project TDS Setting", docName, finalUpdates);
+                await updateDoc(docName, finalUpdates, projectId);
             }
 
             toast({ title: "Success", description: "Repository configuration saved", variant: "success" });

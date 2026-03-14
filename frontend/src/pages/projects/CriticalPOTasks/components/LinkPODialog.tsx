@@ -24,11 +24,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeGetDoc } from "frappe-react-sdk";
+import {
+  useProjectDocForCriticalPO,
+  useCriticalPOProcurementOrders,
+  useCriticalPOProcurementRequests,
+  useAllCriticalPOTasks
+} from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
-import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Projects } from "@/types/NirmaanStack/Projects";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +78,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   const [conflictingPOs, setConflictingPOs] = useState<POConflictInfo[]>([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
-  const { updateDoc } = useFrappeUpdateDoc();
+  const { updateDoc } = useUpdateCriticalPOTask();
 
   // Custom styles for react-select
   const selectStyles = {
@@ -94,14 +97,14 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   };
 
   // Fetch project data to get work packages
-  const { data: projectData } = useFrappeGetDoc<Projects>("Projects", projectId);
+  const { data: projectData } = useProjectDocForCriticalPO(projectId);
 
   // Extract unique work packages from project_wp_category_makes child table
   const workPackages = useMemo(() => {
     if (!projectData?.project_wp_category_makes) return [];
 
     const uniqueWPDocNames = new Set<string>();
-    projectData.project_wp_category_makes.forEach((item) => {
+    projectData.project_wp_category_makes.forEach((item: any) => {
       if (item.procurement_package) {
         uniqueWPDocNames.add(item.procurement_package);
       }
@@ -125,51 +128,16 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   const {
     data: procurementOrders,
     isLoading: posLoading,
-  } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
-    {
-      fields: [
-        "name",
-        "status",
-        "total_amount",
-        "procurement_request",
-      ],
-      filters: selectedPackage
-        ? [
-            ["project", "=", projectId],
-            ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
-          ]
-        : undefined,
-      limit: 0,
-      orderBy: { field: "creation", order: "desc" },
-    },
-    selectedPackage ? `POs-${projectId}` : null
-  );
+  } = useCriticalPOProcurementOrders(projectId, selectedPackage, !!selectedPackage);
 
   // Fetch PRs to get work_package information
   const {
     data: procurementRequests,
     isLoading: prsLoading,
-  } = useFrappeGetDocList<ProcurementRequest>(
-    "Procurement Requests",
-    {
-      fields: ["name", "work_package"],
-      filters: [["project", "=", projectId]],
-      limit: 0,
-    },
-    selectedPackage ? `PRs-${projectId}` : null
-  );
+  } = useCriticalPOProcurementRequests(projectId, selectedPackage, !!selectedPackage);
 
   // Fetch ALL Critical PO Tasks for the project (for cross-task conflict detection)
-  const { data: allProjectTasks } = useFrappeGetDocList<CriticalPOTask>(
-    "Critical PO Tasks",
-    {
-      fields: ["name", "item_name", "critical_po_category", "associated_pos"],
-      filters: [["project", "=", projectId]],
-      limit: 0,
-    },
-    open ? `all-tasks-${projectId}-link` : null
-  );
+  const { data: allProjectTasks } = useAllCriticalPOTasks(projectId, open);
 
   // Build a map of PO → other tasks it's linked to (excluding current task)
   const poToOtherTasksMap = useMemo(() => {
@@ -255,9 +223,9 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
       // Merge with existing linked POs
       const updatedPOs = Array.from(new Set([...currentlyLinkedPOs, ...selectedPOs]));
 
-      await updateDoc("Critical PO Tasks", task.name, {
+      await updateDoc(task.name, {
         associated_pos: JSON.stringify({ pos: updatedPOs }),
-      });
+      }, projectId);
 
       toast({
         title: "Success",
@@ -344,7 +312,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
                 onChange={(option) => setSelectedPackage(option?.value || "")}
                 placeholder="Choose a package..."
                 isClearable
-                menuPosition="auto"
+                menuPlacement="auto"
                 styles={selectStyles}
               />
             </div>

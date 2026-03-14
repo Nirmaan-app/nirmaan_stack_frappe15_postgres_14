@@ -13,6 +13,7 @@ import {
   CirclePlus,
   HardHat,
   OctagonMinus,
+  ChevronDown,
 } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -23,7 +24,7 @@ import {
 } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
@@ -91,6 +92,73 @@ interface ProjectStatusCount {
   isLoading: boolean;
 }
 
+// --- Helper: StatusCountPill ---
+interface StatusCountPillProps {
+  statusValue: string;
+  statusLabel: string;
+  count: number;
+  compact?: boolean;
+}
+
+const StatusCountPill: React.FC<StatusCountPillProps> = ({
+  statusValue,
+  statusLabel,
+  count,
+  compact = false,
+}) => {
+  const getPillColors = (status: string) => {
+    switch (status) {
+      case "Created":
+        return { bg: "bg-blue-100/50", border: "border-blue-200", text: "text-blue-700", dot: "bg-blue-500" };
+      case "WIP":
+        return { bg: "bg-yellow-100/50", border: "border-yellow-200", text: "text-yellow-700", dot: "bg-yellow-500" };
+      case "Completed":
+        return { bg: "bg-green-100/50", border: "border-green-200", text: "text-green-700", dot: "bg-green-500" };
+      case "Halted":
+        return { bg: "bg-red-100/50", border: "border-red-200", text: "text-red-700", dot: "bg-red-500" };
+      default:
+        return { bg: "bg-slate-100/50", border: "border-slate-200", text: "text-slate-700", dot: "bg-slate-500" };
+    }
+  };
+  const colors = getPillColors(statusValue);
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border transition-all hover:shadow-sm flex-shrink-0",
+        compact ? "px-2 py-1" : "px-3 py-1.5",
+        colors.bg,
+        colors.border
+      )}
+    >
+      <span
+        className={cn(
+          "rounded-full flex-shrink-0",
+          compact ? "w-1.5 h-1.5" : "w-2 h-2",
+          colors.dot
+        )}
+      />
+      <span
+        className={cn(
+          "font-medium whitespace-nowrap",
+          compact ? "text-[10px]" : "text-xs",
+          colors.text
+        )}
+      >
+        {statusLabel}
+      </span>
+      <span
+        className={cn(
+          "font-bold tabular-nums",
+          compact ? "text-[10px]" : "text-xs",
+          colors.text
+        )}
+      >
+        {count}
+      </span>
+    </div>
+  );
+};
+
 // --- Component ---
 // Roles that can see financial columns
 const FINANCIAL_COLUMNS_ROLES = [
@@ -113,6 +181,8 @@ export const Projects: React.FC<ProjectsProps> = ({
   const { role, user_id } = useUserData();
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
   const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
+
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
@@ -146,30 +216,12 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   const statusOptions = useMemo(
     () =>
-      ["Created", "WIP", "Completed", "Halted"].map((s) => ({
+      ["WIP", "Completed", "Halted"].map((s) => ({
         label: s,
         value: s,
       })),
     []
   ); // Example static status options
-
-  const getColor = useMemo(
-    () => (status: string) => {
-      switch (status) {
-        case "Created":
-          return "bg-blue-100";
-        case "WIP":
-          return "bg-yellow-100";
-        case "Completed":
-          return "bg-green-100";
-        case "Halted":
-          return "bg-red-100";
-        default:
-          return "bg-blue-100";
-      }
-    },
-    []
-  );
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -820,42 +872,116 @@ export const Projects: React.FC<ProjectsProps> = ({
       )}
     >
       {!customersView && canViewSummaryCard && (
-        <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-medium">
-              Total Projects
-            </CardTitle>
-            <HardHat className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="flex justify-between items-center">
-            <div className="text-2xl font-bold">
-              {listIsLoading ? (
-                <TailSpin
-                  visible={true}
-                  height="30"
-                  width="30"
-                  color="#D03B45"
-                  ariaLabel="tail-spin-loading"
-                  radius="1"
-                  wrapperStyle={{}}
-                  wrapperClass=""
-                />
-              ) : (
-                all_projects_count
-              )}
-            </div>
-            <div className="flex flex-col gap-1 text-xs font-semibold">
-              {statusCounts.map((item, index) => (
-                <div
-                  key={`${item.value}_${index}`}
-                  className={`min-w-[100px] flex items-center justify-between px-2 py-0.5 ${getColor(
-                    item.value
-                  )} rounded-md`}
-                >
-                  <span className="">{item.label}</span>
-                  <i>{item.count ?? 0}</i>
+        <Card className="my-2 shadow-sm overflow-hidden">
+          <CardContent className="p-0">
+            {/* Header - Always visible */}
+            <div
+              className="flex items-center justify-between p-3 md:p-4 cursor-pointer md:cursor-default"
+              onClick={() => setIsExpanded(!isExpanded)}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0">
+                  <HardHat className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                 </div>
-              ))}
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-1.5">
+                    {listIsLoading ? (
+                      <TailSpin
+                        visible={true}
+                        height="18"
+                        width="18"
+                        color="#D03B45"
+                        radius="1"
+                      />
+                    ) : (
+                      <span className="text-lg md:text-2xl font-semibold tabular-nums">
+                        {all_projects_count ?? 0}
+                      </span>
+                    )}
+                    <span className="text-sm text-muted-foreground font-normal">
+                      Total Projects
+                    </span>
+                  </div>
+                  {/* Mobile: Show compact summary when collapsed */}
+                  <div className="md:hidden">
+                    {!isExpanded && (
+                      <div className="flex items-center gap-2">
+                        {statusCounts.map((status) => {
+                          const getDotColor = (s: string) => {
+                            switch (s) {
+                              case "WIP": return "bg-yellow-500";
+                              case "Completed": return "bg-green-500";
+                              case "Halted": return "bg-red-500";
+                              default: return "bg-slate-500";
+                            }
+                          };
+                          return (
+                            <div key={status.value} className="flex items-center gap-1">
+                              <span className={cn("w-2 h-2 rounded-full", getDotColor(status.value))} />
+                              <span className="text-xs text-muted-foreground tabular-nums">
+                                {status.count ?? 0}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile expand/collapse button */}
+              <button
+                className="md:hidden p-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                aria-label={
+                  isExpanded ? "Collapse details" : "Expand details"
+                }
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                    isExpanded && "rotate-180"
+                  )}
+                />
+              </button>
+            </div>
+
+            {/* Pills Section */}
+            {/* Desktop & Tablet: Always visible */}
+            <div className="hidden md:block px-4 pb-9">
+              {/* Tablet: Horizontal scroll | Desktop: Wrap */}
+              <div className="lg:flex lg:flex-wrap lg:gap-2 md:flex md:gap-2 md:overflow-x-auto md:pb-1 md:-mb-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                {statusCounts.map((status) => (
+                  <StatusCountPill
+                    key={status.value}
+                    statusValue={status.value}
+                    statusLabel={status.label}
+                    count={status.count ?? 0}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Mobile: Collapsible section */}
+            <div
+              className={cn(
+                "md:hidden overflow-hidden transition-all duration-200 ease-in-out",
+                isExpanded ? "max-h-48 opacity-100" : "max-h-0 opacity-0"
+              )}
+            >
+              <div className="px-3 pb-6 pt-1">
+                <div className="flex flex-wrap gap-1.5">
+                  {statusCounts.map((status) => (
+                    <StatusCountPill
+                      key={status.value}
+                      statusValue={status.value}
+                      statusLabel={status.label}
+                      count={status.count ?? 0}
+                      compact
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

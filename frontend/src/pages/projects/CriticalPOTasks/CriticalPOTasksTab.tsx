@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { useFrappeGetDocList, useFrappeDeleteDoc, useFrappeDocumentEventListener } from "frappe-react-sdk";
+import { useFrappeDocumentEventListener } from "frappe-react-sdk";
+import { useCriticalPOTasks } from "../data/critical-po/useCriticalPOQueries";
 import { TailSpin } from "react-loader-spinner";
-import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { NoCriticalPOTasksView } from "./NoCriticalPOTasksView";
 import { CriticalPOTasksList } from "./CriticalPOTasksList";
@@ -49,24 +49,7 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
     isLoading,
     error,
     mutate,
-  } = useFrappeGetDocList<CriticalPOTask>("Critical PO Tasks", {
-    fields: [
-      "name",
-      "project",
-      "critical_po_category",
-      "project_name",
-      "item_name",
-      "sub_category",
-      "po_release_date",
-      "status",
-      "associated_pos",
-      "revised_date",
-      "remarks",
-    ],
-    filters: [["project", "=", projectId]],
-    limit: 0,
-    orderBy: { field: "po_release_date", order: "asc" },
-  });
+  } = useCriticalPOTasks(projectId);
 
   const hasTasks = tasks && tasks.length > 0;
 

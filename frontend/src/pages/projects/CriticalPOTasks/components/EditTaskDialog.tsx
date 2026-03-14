@@ -42,11 +42,14 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeUpdateDoc, useFrappeGetDocList, useFrappeGetDoc } from "frappe-react-sdk";
+import {
+  useProjectDocForCriticalPO,
+  useCriticalPOProcurementOrders,
+  useCriticalPOProcurementRequests,
+  useAllCriticalPOTasks
+} from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
-import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Projects } from "@/types/NirmaanStack/Projects";
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
 import ReactSelect from "react-select";
@@ -55,7 +58,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 
 // Zod Schema
 const editTaskFormSchema = z.object({
-  status: z.enum(["PR Not Released", "Not Released", "Released", "Not Applicable"]),
+  status: z.enum(["PR Not Released", "Not Released", "Released", "Not Applicable","Partially Released"]),
   revised_date: z.string().optional(),
   remarks: z.string().optional(),
 });
@@ -119,7 +122,7 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
   const [conflictingPOs, setConflictingPOs] = useState<POConflictInfo[]>([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
-  const { updateDoc, loading } = useFrappeUpdateDoc();
+  const { updateDoc, loading } = useUpdateCriticalPOTask();
 
   const form = useForm<EditTaskFormValues>({
     resolver: zodResolver(editTaskFormSchema),
@@ -150,11 +153,9 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     }),
   };
 
-  // Fetch project data to get work packages
-  const { data: projectData } = useFrappeGetDoc<Projects>(
-    "Projects",
+  const { data: projectData } = useProjectDocForCriticalPO(
     projectId,
-    open ? undefined : null
+    open
   );
 
   // Extract unique work packages from project_wp_category_makes child table
@@ -182,43 +183,23 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     return [...options, { label: "Custom", value: "Custom" }];
   }, [workPackages]);
 
-  // Fetch all POs for the project
-  const { data: procurementOrders, isLoading: posLoading } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
-    {
-      fields: ["name", "status", "total_amount", "procurement_request"],
-      filters: selectedPackage
-        ? [
-            ["project", "=", projectId],
-            ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
-          ]
-        : undefined,
-      limit: 0,
-      orderBy: { field: "creation", order: "desc" },
-    },
-    selectedPackage && open ? `POs-${projectId}-edit` : null
+  const { data: procurementOrders, isLoading: posLoading } = useCriticalPOProcurementOrders(
+    projectId,
+    selectedPackage,
+    open
   );
 
   // Fetch PRs to get work_package information
-  const { data: procurementRequests, isLoading: prsLoading } = useFrappeGetDocList<ProcurementRequest>(
-    "Procurement Requests",
-    {
-      fields: ["name", "work_package"],
-      filters: [["project", "=", projectId]],
-      limit: 0,
-    },
-    selectedPackage && open ? `PRs-${projectId}-edit` : null
+  const { data: procurementRequests, isLoading: prsLoading } = useCriticalPOProcurementRequests(
+    projectId,
+    selectedPackage,
+    open
   );
 
   // Fetch ALL Critical PO Tasks for the project (for cross-task conflict detection)
-  const { data: allProjectTasks } = useFrappeGetDocList<CriticalPOTask>(
-    "Critical PO Tasks",
-    {
-      fields: ["name", "item_name", "critical_po_category", "associated_pos"],
-      filters: [["project", "=", projectId]],
-      limit: 0,
-    },
-    open ? `all-tasks-${projectId}-edit` : null
+  const { data: allProjectTasks } = useAllCriticalPOTasks(
+    projectId,
+    open
   );
 
   // Build a map of PO → other tasks it's linked to (excluding current task)
@@ -312,9 +293,9 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
       // Merge with existing linked POs
       const updatedPOs = Array.from(new Set([...currentlyLinkedPOs, ...selectedPOs]));
 
-      await updateDoc("Critical PO Tasks", task.name, {
+      await updateDoc(task.name, {
         associated_pos: JSON.stringify({ pos: updatedPOs }),
-      });
+      }, projectId);
 
       toast({
         title: "Success",
@@ -374,9 +355,9 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     try {
       const updatedPOs = currentlyLinkedPOs.filter((po: string) => po !== poName);
 
-      await updateDoc("Critical PO Tasks", task.name, {
+      await updateDoc(task.name, {
         associated_pos: JSON.stringify({ pos: updatedPOs }),
-      });
+      }, projectId);
 
       toast({
         title: "Success",
@@ -399,11 +380,11 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
 
   const onSubmit = async (values: EditTaskFormValues) => {
     try {
-      await updateDoc("Critical PO Tasks", task.name, {
+      await updateDoc(task.name, {
         status: values.status,
         revised_date: values.revised_date || null,
         remarks: values.remarks || "",
-      });
+      }, projectId);
       toast({ title: "Success", description: "Task updated successfully.", variant: "success" });
       await mutate();
       setOpen(false);

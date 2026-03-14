@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useUpdateMilestone } from "@/pages/projects/data/work-plan/useWorkPlanMutations";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,7 +43,7 @@ export const EditMilestoneDialog = ({
         }
     }, [item, isOpen]);
 
-    const { call, loading: updating } = useFrappePostCall("nirmaan_stack.api.seven_days_planning.work_plan_api.update_milestone");
+    const { updateMilestone, loading: updating } = useUpdateMilestone();
 
     const handleChange = (field: string, value: any) => {
         setFormData((prev) => {
@@ -77,7 +77,7 @@ export const EditMilestoneDialog = ({
         }
 
         try {
-            await call({
+            await updateMilestone({
                 dpr_name: item.dpr_name,
                 work_milestone_name: item.work_milestone_name,
                 work_header: item.work_header,
@@ -183,8 +183,8 @@ export const EditMilestoneDialog = ({
                             value={formData.progress}
                             onChange={(e) => handleChange("progress", e.target.value === "" ? "" : Number(e.target.value))}
                             placeholder="0"
-                            disabled={formData.status === "Not Started" || formData.status === "Completed" |formData.status === "Not Applicable"}
-                            className={formData.status === "Not Started"||formData.status === "Not Applicable"  || formData.status === "Completed" ? "bg-gray-50 cursor-not-allowed" : ""}
+                            disabled={formData.status === "Not Started" || formData.status === "Completed" || formData.status === "Not Applicable"}
+                            className={formData.status === "Not Started"|| formData.status === "Not Applicable" || formData.status === "Completed" ? "bg-gray-50 cursor-not-allowed" : ""}
                         />
                     </div>
                 </div>
