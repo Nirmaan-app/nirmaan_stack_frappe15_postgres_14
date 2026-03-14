@@ -218,7 +218,10 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(val) => {
+      setOpen(val);
+      if (!val) form.reset();
+    }}>
       <DialogTrigger asChild>
         <Button size="sm" className="bg-slate-900 hover:bg-slate-800 text-white">
           <PlusCircle className="w-4 h-4 mr-1.5" />
@@ -291,7 +294,7 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => { setOpen(false); form.reset(); }}
                 className="text-slate-600"
               >
                 Cancel
@@ -515,7 +518,10 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(val) => {
+      setOpen(val);
+      if (!val) form.reset();
+    }}>
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -581,7 +587,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => { setOpen(false); form.reset(); }}
                 className="text-slate-600"
               >
                 Cancel
