@@ -70,6 +70,7 @@ export interface MasterDataResponse {
     projects: Project[];
     users: User[];
     categories: RawCategoryData[];
+    facetProjects?: any[];
 }
 
 // Task template from category master data

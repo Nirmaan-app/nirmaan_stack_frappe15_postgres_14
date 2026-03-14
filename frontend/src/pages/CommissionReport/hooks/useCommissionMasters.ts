@@ -17,7 +17,7 @@ export const useCommissionMasters = () => {
     const { data: response,
         isLoading: masterLoading,
         error: masterError,
-        mutate: mutateMasters } = useFrappeGetCall<MasterDataResponse[]>(
+        mutate: mutateMasters } = useFrappeGetCall<{ message: MasterDataResponse }>(
             "nirmaan_stack.api.commission_report.tracker_options.get_all_master_data",
             {},
             "nirmaan_stack.api.commission_report.tracker_options.get_all_master_data"
@@ -33,13 +33,13 @@ export const useCommissionMasters = () => {
 
     const usersList: User[] = masterData?.users || [];
 
-    const FacetProjectsOptions: Project[] = masterData?.facetProjects?.map((projectArray: any) => {
+    const FacetProjectsOptions: any[] = masterData?.facetProjects?.map((projectArray: any) => {
         const [id, name] = projectArray;
         return {
             value: id,
             label: name
         };
-    });
+    }) || [];
 
     const rawCategories = masterData?.categories || [];
 

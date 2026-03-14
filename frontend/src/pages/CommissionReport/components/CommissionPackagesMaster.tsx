@@ -529,16 +529,16 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                     className="h-7 text-xs text-slate-600 hover:bg-slate-100"
                 >
                     <PlusCircle className="w-3.5 h-3.5 mr-1" />
-                    Add Task
+                    Add Report
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="text-lg font-semibold text-slate-900">
-                        Add New Task
+                        Add New Report
                     </DialogTitle>
                     <DialogDescription className="text-sm text-slate-500">
-                        Define a default task for this commission category.
+                        Define a default report for this commission category.
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
@@ -549,7 +549,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel className="text-sm font-medium text-slate-700">
-                                        Task Name
+                                        Report Name
                                     </FormLabel>
                                     <FormControl>
                                         <Input
@@ -663,7 +663,7 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel className="text-sm font-medium text-slate-700">
-                                        Task Name
+                                        Task Report
                                     </FormLabel>
                                     <FormControl>
                                         <Input
