@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,16 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
 
 import { ProjectWiseCard } from "./components/ProjectWiseCard";
+import { TaskWiseTable } from "./components/TaskWiseTable";
+
+const COMMISSION_TABS = {
+    PROJECT_WISE: "project",
+    TASK_WISE: "task",
+};
 
 export default function CommissionReportList() {
     const navigate = useNavigate();
@@ -22,8 +30,35 @@ export default function CommissionReportList() {
     const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
     const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
 
+    const initialTab = useMemo(() => getUrlStringParam("tab", COMMISSION_TABS.PROJECT_WISE), []);
+    const [activeTab, setActiveTab] = useState<string>(initialTab);
+    const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
+
     const { role, user_id } = useUserData();
+    const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const hasHideAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Project Manager Profile" || user_id === "Administrator" || role === "Administrator";
+
+    const onClick = useCallback((value: string) => {
+        if (activeTab === value) return;
+        setActiveTab(value);
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (urlStateManager.getParam("tab") !== activeTab) {
+            urlStateManager.updateParam("tab", activeTab);
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
+            const newTab = value || COMMISSION_TABS.PROJECT_WISE;
+            if (activeTab !== newTab) {
+                setActiveTab(newTab);
+            }
+        });
+
+        return unsubscribe;
+    }, [activeTab]);
 
     // Fetch List from Commission Report Endpoint
     const { data: trackerDocsData, isLoading, mutate: refetchList } = useFrappeGetCall<any>(
@@ -98,11 +133,36 @@ export default function CommissionReportList() {
 
     return (
         <div className="flex-1 space-y-4 md:p-4 pt-6">
-            <div className="flex items-center justify-between px-2">
+            <div className="flex flex-col gap-3 px-2">
+            <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-1.5">
                     <h2 className="text-2xl font-bold tracking-tight text-gray-900 border-l-4 border-primary pl-3">
                         Testing & Commissioning Reports
                     </h2>
+                    </div>
+                </div>
+
+                <div className="inline-flex w-fit border border-gray-300 rounded-lg overflow-hidden bg-white">
+                    <button
+                        onClick={() => onClick(COMMISSION_TABS.PROJECT_WISE)}
+                        className={`px-4 py-2 text-sm font-medium transition-colors ${
+                            activeTab === COMMISSION_TABS.PROJECT_WISE
+                                ? "bg-primary text-white"
+                                : "bg-white text-gray-700 hover:bg-gray-50"
+                        } border-r border-gray-300`}
+                    >
+                        Project Wise
+                    </button>
+                    <button
+                        onClick={() => onClick(COMMISSION_TABS.TASK_WISE)}
+                        className={`px-4 py-2 text-sm font-medium transition-colors ${
+                            activeTab === COMMISSION_TABS.TASK_WISE
+                                ? "bg-primary text-white"
+                                : "bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                    >
+                        Task Wise
+                    </button>
                 </div>
             </div>
 
@@ -119,6 +179,8 @@ export default function CommissionReportList() {
                     </p>
                 </div>
             ) : (
+                <>
+                    {activeTab === COMMISSION_TABS.PROJECT_WISE && (
                 <>
                     {/* Search and Filter Section */}
                     <div className="flex flex-col sm:flex-row gap-3 px-2 mt-4">
@@ -276,6 +338,41 @@ export default function CommissionReportList() {
                                 </div>
                             </CollapsibleContent>
                         </Collapsible>
+                    )}
+                    </>
+                    )}
+
+                    {activeTab === COMMISSION_TABS.TASK_WISE && (
+                    <div className="space-y-5 px-2 mt-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider mr-1">Status</span>
+                        {([
+                            { value: "All", label: "All Tasks", active: "bg-gray-800 text-white", inactive: "text-gray-700 border-gray-300 hover:bg-gray-100" },
+                            { value: "Pending", label: "Pending", active: "bg-orange-500 text-white", inactive: "text-orange-700 border-orange-300 hover:bg-orange-50" },
+                            { value: "In Progress", label: "In Progress", active: "bg-blue-600 text-white", inactive: "text-blue-700 border-blue-300 hover:bg-blue-50" },
+                            { value: "Completed", label: "Completed", active: "bg-green-600 text-white", inactive: "text-green-700 border-green-300 hover:bg-green-50" },
+                        ] as const).map((tab) => (
+                            <button
+                                key={tab.value}
+                                onClick={() => setActiveStatusTab(tab.value)}
+                                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-150 border ${
+                                    activeStatusTab === tab.value
+                                        ? `${tab.active} shadow-sm`
+                                        : `bg-white ${tab.inactive}`
+                                }`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <TaskWiseTable
+                        refetchList={refetchList}
+                        user_id={user_id}
+                        isDesignExecutive={isDesignExecutive}
+                        statusFilter={activeStatusTab}
+                    />
+                    </div>
                     )}
                 </>
             )}
