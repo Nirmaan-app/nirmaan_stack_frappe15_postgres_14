@@ -83,6 +83,7 @@ import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list"
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
 import { DesignPackages } from "../design-packages";
 import { CommissionPackages } from "../commission-packages";
+import { WOServicePackages } from "../wo-service-packages";
 import { CriticalPOCategories } from "../layout/critical-po-categories";
 
 //Critical PO Tracker
@@ -642,6 +643,7 @@ export const appRoutes: RouteObject[] = [
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
           { path: "design-packages", element: <DesignPackages /> },
           { path: "commission-packages", element: <CommissionPackages /> },
+          { path: "wo-service-packages", element: <WOServicePackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
           { path: "help-repository", element: <HelpRepositoryPage /> },

@@ -208,6 +208,7 @@ export function NewSidebar() {
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
             { key: "/commission-packages", label: "Commission Packages" },
+            { key: "/wo-service-packages", label: "WO Service packages" },
             { key: "/tds-repository", label: "TDS Repository" },
 
             ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
@@ -649,6 +650,7 @@ export function NewSidebar() {
     'inventory',
     'help-repository',
     "commission-packages",
+    "wo-service-packages",
     "commission-tracker",
 
   ]), [])
@@ -660,7 +662,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "commission-packages", "tds-repository", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "commission-packages", "wo-service-packages", "tds-repository", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],

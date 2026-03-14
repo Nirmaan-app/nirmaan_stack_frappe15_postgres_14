@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil, PlusCircle, Trash2, FileEdit, Package } from "lucide-react";
+import { Pencil, PlusCircle, Trash2, FileEdit, Layers } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -45,19 +45,20 @@ import * as z from "zod";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 
 // --- Types ---
-export interface CommissionReportCategory {
-    name: string; // Frappe ID
+export interface WOServiceCategory {
+    name: string;
     category_name: string;
-    work_package?: string; // Link to Work Packages
+    work_package?: string;
     creation?: string;
     modified?: string;
 }
 
-export interface CommissionReportTask {
-    name: string; // Frappe ID
-    task_name: string;
-    category_link: string; // Link to Commission Report Category
-    deadline_offset?: number;
+export interface WOServiceItem {
+    name: string;
+    item_name: string;
+    category_link: string;
+    unit?: string;
+    rate?: number;
     creation?: string;
     modified?: string;
 }
@@ -74,41 +75,38 @@ const categoryFormSchema = z.object({
 });
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-const taskFormSchema = z.object({
-    task_name: z.string().min(1, "Task Name is required."),
-    deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
+const itemFormSchema = z.object({
+    item_name: z.string().min(1, "Item Name is required."),
+    unit: z.string().min(1, "Unit is required."),
+    rate: z.coerce.number({ invalid_type_error: "Rate is required" }).min(0, "Rate must be positive"),
 });
-type TaskFormValues = z.infer<typeof taskFormSchema>;
-
+type ItemFormValues = z.infer<typeof itemFormSchema>;
 
 // =========================================================================
-// Main Component: CommissionPackagesMaster
+// Main Component: WOServicePackagesMaster
 // =========================================================================
 
-export const CommissionPackagesMaster: React.FC = () => {
-    // 1. Fetch Categories
+export const WOServicePackagesMaster: React.FC = () => {
     const {
         data: categories,
         isLoading: catLoading,
         error: catError,
-        mutate: mutateCategories
-    } = useFrappeGetDocList<CommissionReportCategory>(
-        "Commission Report Category",
+        mutate: mutateCategories,
+    } = useFrappeGetDocList<WOServiceCategory>(
+        "WO Service Category",
         { fields: ["name", "category_name", "work_package"], limit: 0, orderBy: { field: "creation", order: "asc" } }
     );
 
-    // 2. Fetch Tasks
     const {
-        data: tasks,
-        isLoading: taskLoading,
-        error: taskError,
-        mutate: mutateTasks
-    } = useFrappeGetDocList<CommissionReportTask>(
-        "Commission Report Tasks",
-        { fields: ["name", "task_name", "category_link", "deadline_offset"], limit: 0, orderBy: { field: "creation", order: "asc" } }
+        data: items,
+        isLoading: itemLoading,
+        error: itemError,
+        mutate: mutateItems,
+    } = useFrappeGetDocList<WOServiceItem>(
+        "WO Service Item",
+        { fields: ["name", "item_name", "category_link", "unit", "rate"], limit: 0, orderBy: { field: "creation", order: "asc" } }
     );
 
-    // 3. Fetch Work Packages for dropdown
     const {
         data: workPackages,
         isLoading: wpLoading,
@@ -117,7 +115,7 @@ export const CommissionPackagesMaster: React.FC = () => {
         { fields: ["name", "work_package_name"], limit: 0, orderBy: { field: "work_package_name", order: "asc" } }
     );
 
-    if (catLoading || taskLoading || wpLoading) {
+    if (catLoading || itemLoading || wpLoading) {
         return (
             <div className="flex justify-center items-center h-64">
                 <TailSpin width={40} height={40} color="#dc2626" />
@@ -125,26 +123,25 @@ export const CommissionPackagesMaster: React.FC = () => {
         );
     }
 
-    if (catError || taskError) {
+    if (catError || itemError) {
         return (
             <div className="p-4 text-center text-red-600 border border-red-200 rounded-md bg-red-50">
-                Error loading data: {catError?.message || taskError?.message}
+                Error loading data: {catError?.message || itemError?.message}
             </div>
         );
     }
 
     return (
         <div className="min-h-screen bg-slate-50">
-            {/* Header */}
             <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
                 <div className="max-w-5xl mx-auto px-6 py-5">
                     <div className="flex items-center justify-between">
                         <div>
                             <h1 className="text-xl font-semibold text-slate-900 tracking-tight">
-                                Commission Packages
+                                Work Order Rate Card
                             </h1>
                             <p className="text-sm text-slate-500 mt-0.5">
-                                Configure commission categories and their default tasks
+                                Configure WO service categories and their items (with unit and rate)
                             </p>
                         </div>
                         <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />
@@ -152,15 +149,14 @@ export const CommissionPackagesMaster: React.FC = () => {
                 </div>
             </div>
 
-            {/* Content */}
             <div className="max-w-5xl mx-auto px-6 py-8">
                 {categories?.length === 0 ? (
                     <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
                         <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 mb-4">
-                            <Package className="w-6 h-6 text-slate-400" />
+                            <Layers className="w-6 h-6 text-slate-400" />
                         </div>
-                        <h3 className="text-lg font-medium text-slate-900 mb-1">No Commission Categories</h3>
-                        <p className="text-sm text-slate-500 mb-4">Create your first commission category to get started.</p>
+                        <h3 className="text-lg font-medium text-slate-900 mb-1">No WO Service Categories</h3>
+                        <p className="text-sm text-slate-500 mb-4">Create your first category to get started.</p>
                         <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />
                     </div>
                 ) : (
@@ -169,9 +165,9 @@ export const CommissionPackagesMaster: React.FC = () => {
                             <CategoryCard
                                 key={cat.name}
                                 category={cat}
-                                tasks={tasks?.filter(t => t.category_link === cat.name) || []}
+                                items={items?.filter((i) => i.category_link === cat.name) || []}
                                 mutateCategories={mutateCategories}
-                                mutateTasks={mutateTasks}
+                                mutateItems={mutateItems}
                                 workPackages={workPackages || []}
                             />
                         ))}
@@ -182,18 +178,15 @@ export const CommissionPackagesMaster: React.FC = () => {
     );
 };
 
-
 // =========================================================================
 // Sub-components
 // =========================================================================
 
-// --- 1. Dialog: Create Category ---
 interface CreateCategoryDialogProps {
     mutate: () => Promise<any>;
-    workPackages: WorkPackage[];
 }
 
-const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, workPackages }) => {
+const CreateCategoryDialog: React.FC<CreateCategoryDialogProps & { workPackages: WorkPackage[] }> = ({ mutate, workPackages }) => {
     const [open, setOpen] = useState(false);
     const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -204,9 +197,9 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
 
     const onSubmit = async (values: CategoryFormValues) => {
         try {
-            await createDoc("Commission Report Category", {
+            await createDoc("WO Service Category", {
                 category_name: values.category_name,
-                work_package: values.work_package_link,
+                work_package: values.work_package_link || null,
             });
             toast({ title: "Success", description: "Category created successfully.", variant: "success" });
             form.reset({ category_name: "", work_package_link: "" });
@@ -225,16 +218,16 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
             <DialogTrigger asChild>
                 <Button size="sm" className="bg-slate-900 hover:bg-slate-800 text-white">
                     <PlusCircle className="w-4 h-4 mr-1.5" />
-                    Add Commission Package
+                    Add Category
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="text-lg font-semibold text-slate-900">
-                        Create Commission Category
+                        Create WO Service Category
                     </DialogTitle>
                     <DialogDescription className="text-sm text-slate-500">
-                        Define a new category for commission deliverables.
+                        Define a new category for WO service items.
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
@@ -249,7 +242,7 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
                                     </FormLabel>
                                     <FormControl>
                                         <Input
-                                            placeholder="e.g., Architecture, Structural, MEP"
+                                            placeholder="e.g., Plumbing, Electrical, HVAC"
                                             className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                                             {...field}
                                         />
@@ -258,7 +251,6 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
                                 </FormItem>
                             )}
                         />
-
                         <FormField
                             control={form.control}
                             name="work_package_link"
@@ -288,7 +280,6 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
                                 </FormItem>
                             )}
                         />
-
                         <div className="flex justify-end gap-2 pt-2">
                             <Button
                                 type="button"
@@ -313,18 +304,16 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
     );
 };
 
-// --- 2. Dialog: Edit Category (Rename) ---
 interface EditCategoryDialogProps {
-    category: CommissionReportCategory;
+    category: WOServiceCategory;
     mutate: () => Promise<any>;
-    mutateTasks: () => Promise<any>;
-    workPackages: WorkPackage[];
+    mutateItems: () => Promise<any>;
 }
 
-const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutate, mutateTasks, workPackages }) => {
+const EditCategoryDialog: React.FC<EditCategoryDialogProps & { workPackages: WorkPackage[] }> = ({ category, mutate, mutateItems, workPackages }) => {
     const [open, setOpen] = useState(false);
     const { call: renameDoc, loading: renameLoading } = useFrappePostCall(
-        'frappe.model.rename_doc.update_document_title'
+        "frappe.model.rename_doc.update_document_title"
     );
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 
@@ -336,7 +325,6 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
         },
     });
 
-    // Reset form when dialog opens with current values
     React.useEffect(() => {
         if (open) {
             form.reset({
@@ -355,12 +343,10 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
             setOpen(false);
             return;
         }
-
         try {
-            // Handle rename if name changed
             if (nameChanged) {
                 const payload = {
-                    doctype: "Commission Report Category",
+                    doctype: "WO Service Category",
                     docname: category.name,
                     name: values.category_name,
                     merge: 0,
@@ -370,21 +356,20 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
                 await renameDoc(payload);
             }
 
-            // Handle work package update (after rename if name changed)
             if (packageChanged) {
                 const docName = nameChanged ? values.category_name : category.name;
-                await updateDoc("Commission Report Category", docName, {
-                    work_package: values.work_package_link,
+                await updateDoc("WO Service Category", docName, {
+                    work_package: values.work_package_link || null,
                 });
             }
 
             toast({ title: "Success", description: "Category updated.", variant: "success" });
             await mutate();
-            await mutateTasks();
+            await mutateItems();
             setOpen(false);
         } catch (error: any) {
             console.error("Failed to update category:", error);
-            toast({ title: "Error", description: `Failed to update category: ${error.message || 'Unknown error'}`, variant: "destructive" });
+            toast({ title: "Error", description: `Failed to update category: ${error.message || "Unknown error"}`, variant: "destructive" });
         }
     };
 
@@ -430,7 +415,6 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
                                 </FormItem>
                             )}
                         />
-
                         <FormField
                             control={form.control}
                             name="work_package_link"
@@ -460,14 +444,8 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
                                 </FormItem>
                             )}
                         />
-
                         <div className="flex justify-end gap-2 pt-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setOpen(false)}
-                                className="text-slate-600"
-                            >
+                            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="text-slate-600">
                                 Cancel
                             </Button>
                             <Button
@@ -485,30 +463,30 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
     );
 };
 
-// --- 3. Dialog: Create Task ---
-interface CreateTaskDialogProps {
+interface CreateItemDialogProps {
     categoryId: string;
     mutate: () => Promise<any>;
 }
 
-const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate }) => {
+const CreateItemDialog: React.FC<CreateItemDialogProps> = ({ categoryId, mutate }) => {
     const [open, setOpen] = useState(false);
     const { createDoc, loading } = useFrappeCreateDoc();
 
-    const form = useForm<TaskFormValues>({
-        resolver: zodResolver(taskFormSchema),
-        defaultValues: { task_name: "", deadline_offset: 0 },
+    const form = useForm<ItemFormValues>({
+        resolver: zodResolver(itemFormSchema),
+        defaultValues: { item_name: "", unit: "", rate: undefined },
     });
 
-    const onSubmit = async (values: TaskFormValues) => {
+    const onSubmit = async (values: ItemFormValues) => {
         try {
-            await createDoc("Commission Report Tasks", {
-                task_name: values.task_name,
-                deadline_offset: values.deadline_offset,
-                category_link: categoryId, // Linking to parent category
+            await createDoc("WO Service Item", {
+                item_name: values.item_name,
+                category_link: categoryId,
+                unit: values.unit || null,
+                rate: values.rate,
             });
-            toast({ title: "Success", description: "Task added successfully.", variant: "success" });
-            form.reset({ task_name: "", deadline_offset: undefined });
+            toast({ title: "Success", description: "Item added successfully.", variant: "success" });
+            form.reset({ item_name: "", unit: "", rate: undefined });
             await mutate();
             setOpen(false);
         } catch (error: any) {
@@ -519,7 +497,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
     return (
         <Dialog open={open} onOpenChange={(val) => {
             setOpen(val);
-            if (!val) form.reset({ task_name: "", deadline_offset: undefined });
+            if (!val) form.reset({ item_name: "", unit: "", rate: undefined });
         }}>
             <DialogTrigger asChild>
                 <Button
@@ -528,31 +506,31 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                     className="h-7 text-xs text-slate-600 hover:bg-slate-100"
                 >
                     <PlusCircle className="w-3.5 h-3.5 mr-1" />
-                    Add Report
+                    Add Item
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="text-lg font-semibold text-slate-900">
-                        Add New Report
+                        Add WO Service Item
                     </DialogTitle>
                     <DialogDescription className="text-sm text-slate-500">
-                        Define a default report for this commission category.
+                        Add an item with unit and rate for this category.
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                         <FormField
                             control={form.control}
-                            name="task_name"
+                            name="item_name"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel className="text-sm font-medium text-slate-700">
-                                        Report Name
+                                        Item Name
                                     </FormLabel>
                                     <FormControl>
                                         <Input
-                                            placeholder="e.g., Concept Design, 3D Render"
+                                            placeholder="e.g., Pipe Fitting, Cable Run"
                                             className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                                             {...field}
                                         />
@@ -563,19 +541,43 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                         />
                         <FormField
                             control={form.control}
-                            name="deadline_offset"
+                            name="unit"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel className="text-sm font-medium text-slate-700">
-                                        Deadline Offset{" "}
-                                        <span className="text-slate-400 font-normal">(days)</span>
+                                        Unit
+                                    </FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="e.g., Nos, m, Sq.m"
+                                            className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="rate"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel className="text-sm font-medium text-slate-700">
+                                        Rate
                                     </FormLabel>
                                     <FormControl>
                                         <Input
                                             type="number"
-                                            placeholder="0"
+                                            step="any"
+                                            placeholder="0.00"
                                             className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                                             {...field}
+                                            value={field.value === undefined || field.value === null ? "" : field.value}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                field.onChange(v === "" ? undefined : (Number(v) || v));
+                                            }}
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -586,7 +588,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={() => { setOpen(false); form.reset({ task_name: "", deadline_offset: undefined }); }}
+                                onClick={() => { setOpen(false); form.reset({ item_name: "", unit: "", rate: undefined }); }}
                                 className="text-slate-600"
                             >
                                 Cancel
@@ -606,27 +608,41 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
     );
 };
 
-// --- 4. Dialog: Edit Task ---
-interface EditTaskDialogProps {
-    task: CommissionReportTask;
+interface EditItemDialogProps {
+    item: WOServiceItem;
     mutate: () => Promise<any>;
 }
 
-const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
+const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
     const [open, setOpen] = useState(false);
     const { updateDoc, loading } = useFrappeUpdateDoc();
-    const form = useForm<TaskFormValues>({
-        resolver: zodResolver(taskFormSchema),
-        defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0 },
+    const form = useForm<ItemFormValues>({
+        resolver: zodResolver(itemFormSchema),
+        defaultValues: {
+            item_name: item.item_name,
+            unit: item.unit || "",
+            rate: item.rate ?? undefined,
+        },
     });
 
-    const onSubmit = async (values: TaskFormValues) => {
-        try {
-            await updateDoc("Commission Report Tasks", task.name, {
-                task_name: values.task_name,
-                deadline_offset: values.deadline_offset
+    React.useEffect(() => {
+        if (open) {
+            form.reset({
+                item_name: item.item_name,
+                unit: item.unit || "",
+                rate: item.rate ?? undefined,
             });
-            toast({ title: "Success", description: "Task updated.", variant: "success" });
+        }
+    }, [open, item, form]);
+
+    const onSubmit = async (values: ItemFormValues) => {
+        try {
+            await updateDoc("WO Service Item", item.name, {
+                item_name: values.item_name,
+                unit: values.unit || null,
+                rate: values.rate,
+            });
+            toast({ title: "Success", description: "Item updated.", variant: "success" });
             await mutate();
             setOpen(false);
         } catch (error: any) {
@@ -648,24 +664,36 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="text-lg font-semibold text-slate-900">
-                        Edit Task
+                        Edit Item
                     </DialogTitle>
                     <DialogDescription className="text-sm text-slate-500">
-                        Update the task name or deadline offset.
+                        Update item name, unit, or rate.
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                         <FormField
                             control={form.control}
-                            name="task_name"
+                            name="item_name"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel className="text-sm font-medium text-slate-700">
-                                        Task Report
-                                    </FormLabel>
+                                    <FormLabel className="text-sm font-medium text-slate-700">Item Name</FormLabel>
+                                    <FormControl>
+                                        <Input className="border-slate-300 focus:border-slate-500 focus:ring-slate-500" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="unit"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel className="text-sm font-medium text-slate-700">Unit</FormLabel>
                                     <FormControl>
                                         <Input
+                                            placeholder="e.g., Nos, m"
                                             className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                                             {...field}
                                         />
@@ -676,18 +704,21 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
                         />
                         <FormField
                             control={form.control}
-                            name="deadline_offset"
+                            name="rate"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel className="text-sm font-medium text-slate-700">
-                                        Deadline Offset{" "}
-                                        <span className="text-slate-400 font-normal">(days)</span>
-                                    </FormLabel>
+                                    <FormLabel className="text-sm font-medium text-slate-700">Rate</FormLabel>
                                     <FormControl>
                                         <Input
                                             type="number"
+                                            step="any"
                                             className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                                             {...field}
+                                            value={field.value === undefined || field.value === null ? "" : field.value}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                field.onChange(v === "" ? undefined : (Number(v) || v));
+                                            }}
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -695,12 +726,7 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
                             )}
                         />
                         <div className="flex justify-end gap-2 pt-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setOpen(false)}
-                                className="text-slate-600"
-                            >
+                            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="text-slate-600">
                                 Cancel
                             </Button>
                             <Button
@@ -718,20 +744,19 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
     );
 };
 
-// --- 5. Dialog: Delete Task ---
-interface DeleteTaskDialogProps {
-    task: CommissionReportTask;
+interface DeleteItemDialogProps {
+    item: WOServiceItem;
     mutate: () => Promise<any>;
 }
 
-const DeleteTaskDialog: React.FC<DeleteTaskDialogProps> = ({ task, mutate }) => {
+const DeleteItemDialog: React.FC<DeleteItemDialogProps> = ({ item, mutate }) => {
     const [open, setOpen] = useState(false);
     const { deleteDoc, loading } = useFrappeDeleteDoc();
 
     const handleDelete = async () => {
         try {
-            await deleteDoc("Commission Report Tasks", task.name);
-            toast({ title: "Success", description: "Task deleted.", variant: "success" });
+            await deleteDoc("WO Service Item", item.name);
+            toast({ title: "Success", description: "Item deleted.", variant: "success" });
             await mutate();
             setOpen(false);
         } catch (error: any) {
@@ -753,10 +778,10 @@ const DeleteTaskDialog: React.FC<DeleteTaskDialogProps> = ({ task, mutate }) => 
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle className="text-lg font-semibold text-slate-900">
-                        Delete Task?
+                        Delete Item?
                     </AlertDialogTitle>
                     <AlertDialogDescription className="text-sm text-slate-500">
-                        Are you sure you want to delete "<span className="font-semibold text-slate-700">{task.task_name}</span>"?
+                        Are you sure you want to delete &quot;<span className="font-semibold text-slate-700">{item.item_name}</span>&quot;?
                         This action cannot be undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -777,19 +802,20 @@ const DeleteTaskDialog: React.FC<DeleteTaskDialogProps> = ({ task, mutate }) => 
     );
 };
 
-// --- 6. Card Component: Category Card ---
 interface CategoryCardProps {
-    category: CommissionReportCategory;
-    tasks: CommissionReportTask[];
+    category: WOServiceCategory;
+    items: WOServiceItem[];
     mutateCategories: () => Promise<any>;
-    mutateTasks: () => Promise<any>;
-    workPackages: WorkPackage[];
+    mutateItems: () => Promise<any>;
 }
 
-const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCategories, mutateTasks, workPackages }) => {
+const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }> = ({ category, items, mutateCategories, mutateItems, workPackages }) => {
+    const linkedWorkPackage = category.work_package
+        ? workPackages.find((wp) => wp.name === category.work_package)
+        : null;
+
     return (
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-            {/* Card Header */}
             <div className="px-5 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                     <div className="min-w-0">
@@ -799,34 +825,32 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                             </h3>
                             {category.work_package && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium">
-                                    <Package className="w-3 h-3" />
-                                    {category.work_package}
+                                    <Layers className="w-3 h-3" />
+                                    {linkedWorkPackage?.work_package_name || category.work_package}
                                 </span>
                             )}
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
-                            {tasks.length} task{tasks.length !== 1 ? "s" : ""}
+                            {items.length} item{items.length !== 1 ? "s" : ""}
                         </p>
                     </div>
                 </div>
-
                 <div className="flex items-center gap-1">
                     <EditCategoryDialog
                         category={category}
                         mutate={mutateCategories}
-                        mutateTasks={mutateTasks}
+                        mutateItems={mutateItems}
                         workPackages={workPackages}
                     />
-                    <CreateTaskDialog categoryId={category.name} mutate={mutateTasks} />
+                    <CreateItemDialog categoryId={category.name} mutate={mutateItems} />
                 </div>
             </div>
 
-            {/* Card Content */}
             <div className="border-t border-slate-100">
-                {tasks.length === 0 ? (
+                {items.length === 0 ? (
                     <div className="px-5 py-8 text-center">
                         <p className="text-sm text-slate-500">
-                            No tasks defined. Add your first task above.
+                            No items defined. Add your first item above.
                         </p>
                     </div>
                 ) : (
@@ -834,38 +858,48 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                         <TableHeader>
                             <TableRow className="bg-slate-50/50 border-b border-slate-100">
                                 <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
-                                    Task
+                                    Item
                                 </TableHead>
-                                <TableHead className="w-32 text-slate-500 font-medium text-xs uppercase tracking-wider">
-                                    Offset
+                                <TableHead className="w-24 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                                    Unit
                                 </TableHead>
+                                <TableHead className="w-28 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                                    Rate
+                                </TableHead>
+
                                 <TableHead className="w-24 text-right text-slate-500 font-medium text-xs uppercase tracking-wider">
                                     Actions
                                 </TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {tasks.map((task) => (
+                            {items.map((item) => (
                                 <TableRow
-                                    key={task.name}
+                                    key={item.name}
                                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
                                 >
                                     <TableCell className="font-medium text-slate-900">
-                                        {task.task_name}
+                                        {item.item_name}
                                     </TableCell>
                                     <TableCell>
-                                        {task.deadline_offset == 0 ? (
-                                            <span className="text-slate-400 text-sm">—</span>
+                                        {item.unit ? (
+                                            <span className="text-slate-700 text-sm px-2">{item.unit}</span>
                                         ) : (
-                                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-xs font-medium">
-                                                T + {task.deadline_offset}d
-                                            </span>
+                                            <span className="text-slate-400 text-sm">—</span>
                                         )}
                                     </TableCell>
+                                    <TableCell>
+                                        {item.rate != null && item.rate !== undefined ? (
+                                            <span className="text-slate-700 text-sm px-2">{Number(item.rate).toLocaleString()}</span>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">—</span>
+                                        )}
+                                    </TableCell>
+
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-1">
-                                            <EditTaskDialog task={task} mutate={mutateTasks} />
-                                            <DeleteTaskDialog task={task} mutate={mutateTasks} />
+                                            <EditItemDialog item={item} mutate={mutateItems} />
+                                            <DeleteItemDialog item={item} mutate={mutateItems} />
                                         </div>
                                     </TableCell>
                                 </TableRow>
