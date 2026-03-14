@@ -14,6 +14,9 @@ const PRTrackerDetail: React.FC = () => {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
 
+    const [viewMode, setViewMode] = React.useState<"list" | "table">("table");
+
+
     // Fetch project data
     const {
         data: project,
@@ -55,15 +58,14 @@ const PRTrackerDetail: React.FC = () => {
         );
     }
 
-    const [viewMode, setViewMode] = React.useState<"list" | "table">("table");
 
     return (
         <div className="flex-1 p-6 space-y-6">
             {/* Header with back button and project info */}
             <div className="flex flex-col gap-4">
-                <Button 
-                    variant="ghost" 
-                    size="sm" 
+                <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => navigate("/pr-tracker")}
                     className="w-fit text-gray-500 hover:text-gray-900 -ml-2"
                 >

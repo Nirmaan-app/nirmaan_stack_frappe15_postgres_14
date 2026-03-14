@@ -2,6 +2,20 @@ import frappe
 import json
 from collections import defaultdict
 
+from typing import Any, Dict, Set, TypedDict
+
+class ProjectStats(TypedDict):
+    project: str
+    project_name: str
+    total_tags: int
+    released_tags: int
+    released_count: int
+    not_released_count: int
+    total_enabled_packages: int
+    total_available_headers: int
+    used_packages: Set[str]
+    used_headers: Set[str]
+    all_prs: Set[str]
 
 # Roles that require project-level filtering based on user permissions
 FILTERED_ACCESS_ROLES = {
@@ -65,14 +79,23 @@ def get_projects_with_critical_pr_stats():
             return []
         filters = [["project", "in", allowed_projects]]
 
-    # Fetch Critical PR Tags
+    # 1. Fetch all PR Tag Headers to map packages to headers
+    tag_headers = frappe.get_all("PR Tag Headers", fields=["tag_package", "pr_header"])
+    package_to_headers = defaultdict(list)
+    for h in tag_headers:
+        if h.tag_package:
+            package_to_headers[h.tag_package].append(h.pr_header)
+
+    # 2. Fetch Critical PR Tags
     tags = frappe.get_all(
         "Critical PR Tags",
         fields=[
             "name",
             "project",
             "projectname",
-            "associated_prs"
+            "associated_prs",
+            "package",
+            "header"
         ],
         filters=filters,
         order_by="project asc"
@@ -81,7 +104,22 @@ def get_projects_with_critical_pr_stats():
     if not tags:
         return []
 
-    project_data = {}
+    # 3. Fetch unique procurement packages from Project Work Package Category Make for each project
+    project_ids = list(set(tag.get("project") for tag in tags if tag.get("project")))
+    
+    # Efficiently fetch all relevant child table entries in one go
+    wp_makes = frappe.get_all(
+        "Project Work Package Category Make",
+        filters={"parent": ["in", project_ids], "parenttype": "Projects"},
+        fields=["parent", "procurement_package"]
+    )
+    
+    project_pkgs_map = defaultdict(set)
+    for entry in wp_makes:
+        if entry.procurement_package:
+            project_pkgs_map[entry.parent].add(entry.procurement_package)
+
+    project_data: Dict[str, ProjectStats] = {}
 
     for tag in tags:
         p_id = tag.get("project")
@@ -89,18 +127,33 @@ def get_projects_with_critical_pr_stats():
             continue
 
         if p_id not in project_data:
+            enabled_pkgs = list(project_pkgs_map.get(p_id, []))
+            
+            # Calculate total available headers based on enabled packages
+            available_headers = set()
+            for pkg in enabled_pkgs:
+                for h in package_to_headers.get(pkg, []):
+                    available_headers.add(h)
+
             project_data[p_id] = {
                 "project": p_id,
                 "project_name": tag.get("projectname", ""),
                 "total_tags": 0,
                 "released_tags": 0,
                 "released_count": 0,
-                "not_released_count": 0
+                "not_released_count": 0,
+                "total_enabled_packages": len(enabled_pkgs),
+                "total_available_headers": len(available_headers),
+                "used_packages": set(),
+                "used_headers": set(),
+                "all_prs": set()
             }
         
         # Determine release status based on associated_prs
         prs_raw = tag.get("associated_prs")
         is_rel = False
+        p_data = project_data[p_id] # Helping the linter with a local variable
+        
         if prs_raw:
             try:
                 data = prs_raw
@@ -109,15 +162,26 @@ def get_projects_with_critical_pr_stats():
                 
                 if isinstance(data, dict) and data.get("prs"):
                     is_rel = True
+                    # Collect unique PR names/IDs from strings or objects
+                    for pr_entry in data["prs"]:
+                        if isinstance(pr_entry, dict) and pr_entry.get("name"):
+                            p_data["all_prs"].add(pr_entry["name"])
+                        elif isinstance(pr_entry, str):
+                            p_data["all_prs"].add(pr_entry)
             except Exception:
                 pass
         
-        project_data[p_id]["total_tags"] += 1
+        p_data["total_tags"] += 1
+        if tag.get("package"):
+            p_data["used_packages"].add(tag.get("package"))
+        if tag.get("header"):
+            p_data["used_headers"].add(tag.get("header"))
+
         if is_rel:
-            project_data[p_id]["released_tags"] += 1
-            project_data[p_id]["released_count"] += 1
+            p_data["released_tags"] += 1
+            p_data["released_count"] += 1
         else:
-            project_data[p_id]["not_released_count"] += 1
+            p_data["not_released_count"] += 1
 
     result = []
     for p_id in sorted(project_data.keys()):
@@ -131,7 +195,12 @@ def get_projects_with_critical_pr_stats():
                 "status_counts": {
                     "Released": data["released_count"],
                     "Not Released": data["not_released_count"]
-                }
+                },
+                "total_enabled_packages": data["total_enabled_packages"],
+                "used_packages_count": len(data["used_packages"]),
+                "total_available_headers": data["total_available_headers"],
+                "used_headers_count": len(data["used_headers"]),
+                "total_prs": len(data["all_prs"])
             })
 
     # Final sort by project name

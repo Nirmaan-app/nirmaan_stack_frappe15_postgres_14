@@ -39,28 +39,31 @@ export const PRCriticalTagsTable: React.FC<PRCriticalTagsTableProps> = ({
         return Array.from(headers).sort().map((header) => ({ label: header, value: header }));
     }, [tags]);
 
+    // Unique packages for filter
+    const uniquePackages = useMemo(() => {
+        const pkgs = new Set(tags.filter(t => t.package).map((tag) => tag.package!));
+        return Array.from(pkgs).sort().map((pkg) => ({ label: pkg, value: pkg }));
+    }, [tags]);
+
     // Faceted filter options
     const facetFilterOptions = useMemo(
         () => ({
             header: {
-                title: "Data",
+                title: "Headers",
                 options: uniqueHeaders,
             },
-            status: {
-                title: "Status",
-                options: [
-                    { label: "Released", value: "Released" },
-                    { label: "Not Released", value: "Not Released" },
-                ],
+            package: {
+                title: "Package",
+                options: uniquePackages,
             },
         }),
-        [uniqueHeaders]
+        [uniqueHeaders, uniquePackages]
     );
 
     // Search field options
     const searchFieldOptions = [
         { value: "name", label: "Tag Name", default: true },
-        { value: "header", label: "Data" },
+        { value: "header", label: "Headers" },
         { value: "package", label: "Package" },
     ];
 

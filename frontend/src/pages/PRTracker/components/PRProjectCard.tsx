@@ -20,17 +20,25 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
   project,
   onClick,
 }) => {
-  const { status_counts, total_tags, released_tags, project_name } = project;
+  const { 
+    status_counts, 
+    total_tags, 
+    released_tags, 
+    project_name,
+    total_enabled_packages,
+    used_packages_count,
+    total_available_headers,
+    used_headers_count,
+    total_prs
+  } = project;
 
   const completionPercentage =
-    total_tags > 0 ? Math.round((released_tags / total_tags) * 100) : 0;
+    total_available_headers > 0 ? Math.round((used_headers_count / total_available_headers) * 100) : 0;
 
   const progressColor = getProgressColor(completionPercentage);
 
   // Check completion status
-  const isAllReleased = released_tags === total_tags && total_tags > 0;
   const notReleasedCount = status_counts["Not Released"] || 0;
-  const hasIncompleteWork = notReleasedCount > 0;
 
   return (
     <Card
@@ -61,59 +69,73 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-4">
-        {/* Completion Counter - Primary Info */}
-        <div className="mb-4">
-          <div className="flex items-center gap-1.5 mb-1">
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-            <span className="text-xs text-gray-500">PR Tags Released</span>
+      <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-3">
+        {/* Stats Summary */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+           {/* Packages Stat */}
+           <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 flex flex-col justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-blue-600 font-bold">Packages</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                 <span className="text-lg font-bold text-blue-700 tabular-nums">{used_packages_count}</span>
+                 <span className="text-xs text-blue-400 font-medium">/ {total_enabled_packages}</span>
+              </div>
+              <span className="text-[9px] text-blue-500/80 font-medium mt-0.5">Used total</span>
+           </div>
+
+           {/* Headers Stat */}
+           <div className="bg-purple-50/50 p-2 rounded-lg border border-purple-100/50 flex flex-col justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-purple-600 font-bold">Headers</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                 <span className="text-lg font-bold text-purple-700 tabular-nums">{used_headers_count}</span>
+                 <span className="text-xs text-purple-400 font-medium">/ {total_available_headers}</span>
+              </div>
+              <span className="text-[9px] text-purple-500/80 font-medium mt-0.5">Used total</span>
+           </div>
+        </div>
+
+        {/* PR Count - Compact Single Line */}
+        <div className="flex items-center justify-between py-2 px-3 bg-gray-50/50 rounded-lg border border-gray-100/50 mb-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-blue-600" />
+            <span className="text-xs font-semibold text-gray-700">Total PRs Created</span>
           </div>
-          <div className="flex items-baseline gap-1">
-            <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
-              {released_tags}
-            </span>
-            <span className="text-lg text-gray-400 font-medium">/</span>
-            <span className="text-lg text-gray-500 font-semibold tabular-nums">
-              {total_tags}
-            </span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xl font-bold tabular-nums text-blue-700">{total_prs}</span>
+            <span className="text-[10px] text-gray-400 font-medium italic">Tags</span>
           </div>
         </div>
 
         {/* Status Breakdown */}
         {total_tags > 0 ? (
-          <div className="flex-1">
-            {hasIncompleteWork ? (
+          notReleasedCount > 0 && (
+            <div className="flex-1">
               <div className="grid grid-cols-2 gap-2">
-                  <TooltipProvider>
-                    <Tooltip delayDuration={300}>
-                      <TooltipTrigger asChild>
-                        <div
-                          className={`
-                            flex items-center justify-between px-2.5 py-1.5 rounded-md
-                            ${getStatusStyle("Not Released")}
-                            cursor-default
-                          `}
-                        >
-                          <span className="text-[11px] font-medium truncate pr-1">
-                            Not Released
-                          </span>
-                          <span className="text-xs font-bold tabular-nums">
-                            {notReleasedCount}
-                          </span>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">
-                        Not Released: {notReleasedCount} {notReleasedCount === 1 ? "tag" : "tags"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                <TooltipProvider>
+                  <Tooltip delayDuration={300}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={`
+                          flex items-center justify-between px-2.5 py-1.5 rounded-md
+                          ${getStatusStyle("Not Released")}
+                          cursor-default
+                        `}
+                      >
+                        <span className="text-[11px] font-medium truncate pr-1">
+                          Not Released
+                        </span>
+                        <span className="text-xs font-bold tabular-nums">
+                          {notReleasedCount}
+                        </span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      Not Released: {notReleasedCount} {notReleasedCount === 1 ? "tag" : "tags"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
-            ) : isAllReleased ? (
-              <div className="flex items-center justify-center py-2 px-3 rounded-md bg-green-50 text-green-700">
-                <span className="text-xs font-medium">All PR tags released!</span>
-              </div>
-            ) : null}
-          </div>
+            </div>
+          )
         ) : (
           <div className="flex-1 flex items-center justify-center py-4">
             <p className="text-xs text-gray-400 italic">No tags created yet</p>

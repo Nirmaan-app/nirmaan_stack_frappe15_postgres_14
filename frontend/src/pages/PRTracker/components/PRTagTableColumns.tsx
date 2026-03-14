@@ -24,7 +24,7 @@ export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
     return [
         {
             accessorKey: "header",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Data" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Headers" />,
             cell: ({ row }) => (
                 <Badge variant="outline" className="text-xs truncate max-w-[150px]">
                     {row.original.header}
@@ -52,42 +52,9 @@ export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
                     {row.original.package || "--"}
                 </span>
             ),
-            size: 150,
-        },
-        {
-            id: "status",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-            accessorFn: (row) => {
-                const prsRaw = row.associated_prs;
-                const prs = typeof prsRaw === "string" 
-                    ? JSON.parse(prsRaw || '{"prs":[]}').prs 
-                    : prsRaw?.prs;
-                return prs && prs.length > 0 ? "Released" : "Not Released";
-            },
-            cell: ({ row }) => {
-                const status = row.getValue("status") as string;
-                const isReleased = status === "Released";
-                return (
-                    <div className="flex justify-center">
-                        <Badge
-                            className={`min-h-[22px] py-0.5 px-2 text-[10px] justify-center rounded-full ${
-                                isReleased 
-                                ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100" 
-                                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
-                            }`}
-                        >
-                            {isReleased ? (
-                                <><CheckCircle2 className="h-3 w-3 mr-1" /> Released</>
-                            ) : (
-                                <><AlertCircle className="h-3 w-3 mr-1" /> Not Released</>
-                            )}
-                        </Badge>
-                    </div>
-                );
-            },
             enableColumnFilter: true,
             filterFn: facetedFilterFn,
-            size: 130,
+            size: 150,
         },
         {
             id: "associated_prs",

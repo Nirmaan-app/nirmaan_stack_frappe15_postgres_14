@@ -213,8 +213,8 @@ const CreatePRTagHeaderDialog: React.FC<PRTagHeaderDialogProps> = ({ mutate, pac
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
-  const assignedPackages = new Set(existingTags.map(t => t.tag_package).filter(Boolean));
-  const availablePackages = packages.filter(p => !assignedPackages.has(p.name));
+  // Allow all packages to be selectable multiple times
+  const availablePackages = packages;
 
   const form = useForm<PRTagHeaderFormValues>({
     resolver: zodResolver(prTagHeaderFormSchema),
@@ -300,8 +300,8 @@ const EditPRTagHeaderDialog: React.FC<{ tag: PRTagHeader } & PRTagHeaderDialogPr
   const [open, setOpen] = useState(false);
   const { updateDoc, loading } = useFrappeUpdateDoc();
 
-  const assignedPackages = new Set(existingTags.filter(t => t.name !== tag.name).map(t => t.tag_package).filter(Boolean));
-  const availablePackages = packages.filter(p => !assignedPackages.has(p.name));
+  // Allow all packages to be selectable multiple times
+  const availablePackages = packages;
 
   const form = useForm<PRTagHeaderFormValues>({
     resolver: zodResolver(prTagHeaderFormSchema),
