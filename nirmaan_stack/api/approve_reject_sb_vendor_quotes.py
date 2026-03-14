@@ -350,7 +350,8 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
             po_doc.vendor_name = vendor_doc.vendor_name
             po_doc.vendor_address = vendor_doc.vendor_address
             po_doc.vendor_gst = vendor_doc.vendor_gst
-            if not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package"):
+            # Check if the work_package is explicitly "Custom"
+            if frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package") == "Custom":
                  po_doc.custom = "true"
             if vendor_name in payment_terms_by_vendor:
                 milestones = payment_terms_by_vendor[vendor_name]

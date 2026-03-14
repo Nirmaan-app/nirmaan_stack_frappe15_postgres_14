@@ -607,14 +607,14 @@ def after_insert(doc, method):
     #             })
 
     #     frappe.delete_doc("Procurement Requests", last_pr.name)
-    if doc.work_package is not None and validate_procurement_request(doc):
+    if doc.work_package == "Normal" and validate_procurement_request(doc):
         doc.workflow_state = "Approved"
         doc.save(ignore_permissions=True)
         doc.db_set("modified_by", "Administrator", update_modified=False)
          
     elif doc.work_package is not None:
         lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
-        custom = True if doc.work_package is None else False
+        custom = doc.work_package == "Custom"
         if lead_admin_users:
             for user in lead_admin_users:
                 if user["push_notification"] == "true":
@@ -675,7 +675,7 @@ def update_quantity(data, target_name, new_quantity):
             item['quantity'] += new_quantity
 
 def on_update(doc, method):
-    custom = True if doc.work_package is None else False
+    custom = doc.work_package == "Custom"
     old_doc = doc.get_doc_before_save()
     # if old_doc and old_doc.workflow_state=='In Progress' and doc.workflow_state == "Vendor Selected":
     #     if validate_procurement_request_for_po(doc):
@@ -908,6 +908,7 @@ def on_update(doc, method):
 
     elif old_doc and old_doc.workflow_state in ('Pending', 'Vendor Selected') and doc.workflow_state == "Rejected":
         manager_admin_users = get_allowed_manager_users(doc) + get_admin_users()
+        custom = doc.work_package == "Custom"
         if manager_admin_users:
             for user in manager_admin_users:
                 if user["push_notification"] == "true":

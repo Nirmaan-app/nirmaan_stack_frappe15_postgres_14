@@ -37,7 +37,6 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         
         # Make a copy of the original state for comparison if needed later
         original_workflow_state = pr_doc.workflow_state
-        custom = True if pr_doc.work_package is None else False # Determine if custom PR
 
         # procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
         order_list = pr_doc.get("order_list", [])
@@ -84,7 +83,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                     "category": item.get("category"),
                     "status": "Pending", # Status in Sent Back should be Pending
                     "comment": item.get("comment"),
-                    "procurement_package": item.get("procurement_package") or pr_doc.work_package,
+                    "procurement_package": item.get("procurement_package"),
                     "make": item.get("make"),
                     # Add other relevant fields needed by Sent Back Category
                 })
@@ -267,7 +266,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # 2. Add a debug print to confirm the string format.
                 print(f"DEBUGSVQ: Passing payment_terms as string: {payment_terms_str}")
 
-                po_details = generate_pos_from_selection(pr_doc.project, pr_doc.name, po_items_arr, po_selected_vendors, False,payment_terms=payment_terms_str)
+                po_details = generate_pos_from_selection(pr_doc.project, pr_doc.name, po_items_arr, po_selected_vendors, pr_doc.work_package == 'Custom',payment_terms=payment_terms_str)
                 if po_details and po_details.get('po'):
                     final_message += f" PO {po_details['po']} generated."
                     po_doc = frappe.get_doc("Procurement Orders", po_details['po'])
@@ -292,7 +291,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                         notification_title = f"Action Required: PR {pr_doc.name} Vendors Selected"
                         notification_body = (
                             f"Hi {user.get('full_name', 'User')}, Vendors selected for PR {pr_doc.name} "
-                            f"({'Custom PR' if custom else f'Project {pr_doc.project}, WP {pr_doc.work_package}'}). "
+                            f"(Project {pr_doc.project}, {'Custom PR' if pr_doc.work_package == 'Custom' else f'WP {pr_doc.work_package}'}). "
                             "Requires your approval as PO checks failed."
                         )
                         click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20PO" # Adjust URL if needed
@@ -310,7 +309,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                             "title": title,
                             "description": description,
                             "project": pr_doc.project,
-                            "work_package": pr_doc.work_package if not custom else "Custom",
+                            "work_package": pr_doc.work_package,
                             "sender": frappe.session.user,
                             "docname": pr_doc.name
                         }
@@ -324,7 +323,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                         new_notification_doc.document = 'Procurement Requests'
                         new_notification_doc.docname = pr_doc.name
                         new_notification_doc.project = pr_doc.project
-                        new_notification_doc.work_package = pr_doc.work_package if not custom else "Custom"
+                        new_notification_doc.work_package = pr_doc.work_package
                         new_notification_doc.seen = "false"
                         new_notification_doc.type = "info"
                         new_notification_doc.event_id = "pr:vendorSelected"

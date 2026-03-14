@@ -22,16 +22,20 @@ class ProcurementRequests(Document):
     def after_insert(self):
         # When a new PR is created, add all its tags
         for tag in self.pr_tag_list:
+            print(f"after_insert PR")
             self.update_single_critical_tag(tag, add=True)
 
     def on_update(self):
+        print(f"On_update PR")
         # If the PR is already submitted/cancelled, don't update tags here 
         # (unless business logic requires tracking changes after submission)
         if self.docstatus != 0:
+            print(f"Doc status=0")
             return
 
         old_doc = self.get_doc_before_save()
         if not old_doc:
+            print(f"No Old Doc")
             return
 
         # Compare old and new tags
@@ -41,12 +45,14 @@ class ProcurementRequests(Document):
         # Tags to remove: in old but not in new
         removed_tags = old_tags - new_tags
         for header, package in removed_tags:
+            print(f"Removed Tags")
             tag_stub = frappe._dict({"tag_header": header, "tag_package": package})
             self.update_single_critical_tag(tag_stub, add=False)
 
         # Tags to add: in new but not in old
         added_tags = new_tags - old_tags
         for header, package in added_tags:
+            print(f"Added Tags")
             tag_stub = frappe._dict({"tag_header": header, "tag_package": package})
             self.update_single_critical_tag(tag_stub, add=True)
 
