@@ -91,7 +91,6 @@ import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
-import { PORevisionHistory } from "@/pages/PORevision/components/PORevisionHistory";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface PODetailsProps {
@@ -150,11 +149,11 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   // console.log("po", po);
 
-  const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
-    "Procurement Requests",
-    po?.procurement_request,
-    po ? undefined : null
-  );
+  // const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
+  //   "Procurement Requests",
+  //   po?.procurement_request,
+  //   po ? undefined : null
+  // );
 
   // Fetch vendor quote attachment for this PO's PR + vendor
   const { data: vendorQuoteAttachment } = useFrappeGetDocList<NirmaanAttachment>(
@@ -572,11 +571,15 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Tooltip>
               )}
             </h1>
-            {/* Approved By - right aligned */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Approved By</span>
-              <Badge variant="outline" className="font-normal">{po?.owner}</Badge>
-            </div>
+            {/* Approved By / Merged PO - right aligned */}
+            {po?.merged === "true" ? (
+              <Badge variant="orange" className="font-semibold">Merged PO</Badge>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Approved By</span>
+                <Badge variant="outline" className="font-normal">{po?.owner}</Badge>
+              </div>
+            )}
           </div>
         </CardHeader>
 
@@ -608,14 +611,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
                   />
                 )}
-              </div>
-
-              <Separator orientation="vertical" className="h-5 hidden sm:block" />
-
-              {/* Package */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Package</span>
-                <span className="text-sm font-medium">{pr?.work_package || "Custom"}</span>
               </div>
 
               <Separator orientation="vertical" className="h-5 hidden sm:block" />
@@ -665,10 +660,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
                 </div>
 
-                {/* Total Invoiced Amount */}
+                {/* Total Approved Invoice Amount */}
                 <div className="space-y-0.5">
-                  <p className="text-xs text-gray-500">Total Invoiced Amount</p>
-                  <p className="text-sm font-medium">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</p>
+                  <p className="text-xs text-gray-500">Approved Invoice Amount</p>
+                  <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
                 </div>
 
                 {/* Total Amount Paid */}
@@ -685,40 +680,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-sm font-medium text-blue-600">
                     {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
                   </p>
-                </div>
-              </div>
-
-              {/* Invoice Statistics Row */}
-              <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
-                <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
-                {/* Invoice mismatch warning (informational only) */}
-                {po?.status !== "PO Approved" &&
-                  totalUploadedInvoiceAmount && po?.total_amount &&
-                  Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1 && (
-                    <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
-                      <span>Total PO Amount and Total Invoice Amount is not matching.</span>
-                    </div>
-                  )}
-              </div>
-              <div className="">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Total Amount of Invoices Uploaded */}
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-gray-500">Overall Invoices Amount</p>
-                    <p className="text-sm font-medium">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
-                  </div>
-
-                  {/* Invoices Pending Approval */}
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
-                    <p className="text-sm font-medium text-orange-500">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
-                  </div>
-
-                  {/* Total Invoices Approved */}
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-gray-500">Invoices Amount Approved</p>
-                    <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
-                  </div>
                 </div>
               </div>
             </div>
@@ -769,36 +730,42 @@ export const PODetails: React.FC<PODetailsProps> = ({
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 5: ACTIONS - Compact minimalist buttons
           ═══════════════════════════════════════════════════════════════════ */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
-            {/* Revise PO Button */}
-            {["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status || "") &&
-              !isItemLocked &&
-              !PoPaymentTermsValidationSafe &&
-              !summaryPage &&
-              !accountsPage &&
-              !estimatesViewing && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setOpenRevisionDialog(true)}
-                      className="h-8 px-2.5 border-primary text-primary shrink-0"
-                    >
-                      <FilePenLine className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Revise PO</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Revise PO</TooltipContent>
-                </Tooltip>
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-between">
+            {/* Left group: Workflow actions */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Revise PO Button */}
+              {["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status || "") &&
+                !isItemLocked &&
+                !PoPaymentTermsValidationSafe &&
+                !summaryPage &&
+                !accountsPage &&
+                !estimatesViewing &&
+                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setOpenRevisionDialog(true)}
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      >
+                        <FilePenLine className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Revise PO</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Revise PO</TooltipContent>
+                  </Tooltip>
+                )}
+
+              {/* Adjust Payments Button */}
+              {po?.name && onAdjustPayments && !summaryPage && !accountsPage && !estimatesViewing &&
+                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                <POAdjustmentButton poId={po.name} onClick={onAdjustPayments} />
               )}
+            </div>
 
-            {/* Adjust Payments Button */}
-            {po?.name && onAdjustPayments && !summaryPage && !accountsPage && !estimatesViewing && (
-              <POAdjustmentButton poId={po.name} onClick={onAdjustPayments} />
-            )}
-
-            {/* Document Actions - Only shown for non-approved statuses */}
+            {/* Right group: Document operations */}
+            <div className="flex items-center gap-1.5 shrink-0 sm:flex-wrap">
             {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
               <>
                 {/* Upload DC - shown for delivered statuses */}
@@ -1000,6 +967,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <TooltipContent className="sm:hidden">Mark Inactive</TooltipContent>
                 </Tooltip>
               )}
+            </div>
           </div>
         </CardContent>
 
@@ -1544,9 +1512,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
         poItems={poItemsForSelector}
         onSuccess={handlePDDUploadSuccess}
       />
-
-         {/* PO Revision History */}
-        {po?.name && <PORevisionHistory poId={po.name} />}
 
       {/* PO Revision Dialog */}
       {po && (

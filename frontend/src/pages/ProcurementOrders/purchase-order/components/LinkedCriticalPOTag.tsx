@@ -286,14 +286,14 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                 </span>
 
-                {/* Task name with truncation */}
-                <span className="truncate max-w-[120px] tracking-tight">
+                {/* Task name */}
+                <span className="tracking-tight">
                   {task.item_name}
                 </span>
 
                 {/* Sub-category in muted style */}
                 {task.sub_category && (
-                  <span className="text-slate-400 font-normal truncate max-w-[60px]">
+                  <span className="text-slate-400 font-normal">
                     · {task.sub_category}
                   </span>
                 )}

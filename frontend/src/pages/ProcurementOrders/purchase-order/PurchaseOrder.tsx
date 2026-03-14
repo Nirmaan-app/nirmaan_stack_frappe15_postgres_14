@@ -104,7 +104,7 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
 import { POAdjustmentDialog } from "@/pages/POAdjustment/POAdjustmentDialog";
-import { POAdjustmentHistory } from "@/pages/POAdjustment/POAdjustmentHistory";
+import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustments";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -1208,9 +1208,16 @@ export const PurchaseOrder = ({
             <AccordionItem key="transac&payments" value="transac&payments">
               {/* {tab === "Delivered PO" && ( */}
               <AccordionTrigger>
-                <p className="font-semibold text-lg text-red-600 pl-6">
-                  Payment Details
-                </p>
+                <div className="flex items-center gap-3 pl-6">
+                  <p className="font-semibold text-lg text-red-600">
+                    Payment Details
+                  </p>
+                  {(poPayments || []).filter((p) => p?.status === "Paid").length > 0 && (
+                    <Badge variant="secondary">
+                      {(poPayments || []).filter((p) => p?.status === "Paid").length}
+                    </Badge>
+                  )}
+                </div>
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
@@ -1329,6 +1336,9 @@ export const PurchaseOrder = ({
           </Accordion>
         </Card>
       )}
+
+      {/* Revisions & Adjustments Accordion */}
+      {poId && <PORevisionsAndAdjustments poId={poId} />}
 
       {/* Invoice Dialog */}
       <InvoiceDialog
@@ -1694,9 +1704,6 @@ export const PurchaseOrder = ({
         vendor={PO?.vendor || "Unknown"}
         onSuccess={poPaymentsMutate}
       />
-      {/* PO Adjustment History */}
-      {poId && <POAdjustmentHistory poId={poId} />}
-
       {/* PO Adjustment Button - moved to PODetails Section 5 buttons row */}
 
       {/* PO Adjustment Dialog */}
