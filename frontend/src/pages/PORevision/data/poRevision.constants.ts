@@ -18,8 +18,6 @@ export const poRevisionKeys = {
     ["po-revision", "makelist", wp] as const,
   vendorInvoices: (poId: string) =>
     ["po-revision", "invoices", poId] as const,
-  candidatePOs: (vendor: string) =>
-    ["po-revision", "candidatePOs", vendor] as const,
 
   // Approval context
   originalPO: (poId: string) => ["po-revision", "originalPO", poId] as const,
@@ -41,8 +39,6 @@ export const PO_REVISION_APIS = {
     "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions",
   getHistory:
     "nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history",
-  getCandidatePOs:
-    "nirmaan_stack.api.po_revisions.revision_logic.get_adjustment_candidate_pos",
   getAllLocked:
     "nirmaan_stack.api.po_revisions.revision_po_check.get_all_locked_po_names",
 } as const;

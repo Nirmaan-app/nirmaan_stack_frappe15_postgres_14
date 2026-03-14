@@ -4,7 +4,6 @@
  */
 export const PO_TABS = {
     APPROVE_PO: 'Approve PO',
-    APPROVE_AMENDED_PO: 'Approve Amended PO',
     APPROVE_SENT_BACK_PO: 'Approve Sent Back PO',
     APPROVED_PO: 'Approved PO',
     PARTIALLY_DISPATCHED_PO: 'Partially Dispatched PO',
@@ -25,7 +24,6 @@ export interface POTabOption {
 
 export const PO_ADMIN_TAB_OPTIONS: POTabOption[] = [
     { label: "Approve PO", value: PO_TABS.APPROVE_PO, countKey: "pr.approve" },
-    { label: "Approve Amended PO", value: PO_TABS.APPROVE_AMENDED_PO, countKey: "po.PO Amendment" },
     { label: "Approve Sent Back PO", value: PO_TABS.APPROVE_SENT_BACK_PO, countKey: "sb.approve" },
 ];
 

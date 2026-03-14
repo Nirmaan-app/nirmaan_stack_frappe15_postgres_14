@@ -13,7 +13,7 @@ export const useProjectAllCredits = (projectId: string | undefined) => {
     useEffect(() => {
         const filters: any[] = [
             ["PO Payment Terms", "payment_type", "=", "Credit"],
-            ["status", "not in", ["Merged", "Inactive", "PO Amendment"]]
+            ["status", "not in", ["Merged", "Inactive"]]
         ];
 
         if (projectId) {

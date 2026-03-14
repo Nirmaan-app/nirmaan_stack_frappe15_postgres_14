@@ -24,6 +24,7 @@ import {
   CircleX,
   Download,
   Eye,
+  FilePenLine,
   FileText,
   Mail,
   Paperclip,
@@ -88,6 +89,7 @@ import SITEURL from "@/constants/siteURL";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 import { PORevisionHistory } from "@/pages/PORevision/components/PORevisionHistory";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
@@ -110,6 +112,7 @@ interface PODetailsProps {
   totalUploadedInvoiceAmount?: number;
   totalPendingInvoiceAmount?: number;
   totalApprovedInvoiceAmount?: number;
+  onAdjustPayments?: () => void;
 }
 
 
@@ -128,6 +131,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   totalUploadedInvoiceAmount,
   totalPendingInvoiceAmount,
   totalApprovedInvoiceAmount,
+  onAdjustPayments,
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
 
@@ -182,7 +186,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   // PO Revision Lock status fetch using SWR hook
   const { data: lockData } = usePOLockCheck(po?.name);
-  const isLocked = lockData?.is_locked || false;
+  const isItemLocked = lockData?.is_item_locked || false;
+  const isPaymentLocked = lockData?.is_payment_locked || false;
 
   const [inactiveDialog, setInactiveDialog] = useState(false);
 
@@ -686,37 +691,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
               {/* Invoice Statistics Row */}
               <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
                 <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
-                {/* Conditional Revision Warning or Standard Link */}
-                {/* && !po?.custom  */}
-                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
-                  (totalUploadedInvoiceAmount && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
+                {/* Invoice mismatch warning (informational only) */}
+                {po?.status !== "PO Approved" &&
+                  totalUploadedInvoiceAmount && po?.total_amount &&
+                  Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1 && (
                     <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
-                      <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
-                        onClick={() => {
-                          setOpenRevisionDialog(true);
-                        }}
-                      >
-                        Revise PO
-                      </Button>
+                      <span>Total PO Amount and Total Invoice Amount is not matching.</span>
                     </div>
-                  ) : (
-                    // <Button
-                    //     variant="link"
-                    //     size="sm"
-                    //     className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
-                    //     onClick={() => {
-                    //         setOpenRevisionDialog(true);
-                    //     }}
-                    // >
-                    //     Revision PO
-                    // </Button> 
-                    ""
-                  )
-                )}
+                  )}
               </div>
               <div className="">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -788,6 +770,34 @@ export const PODetails: React.FC<PODetailsProps> = ({
               SECTION 5: ACTIONS - Compact minimalist buttons
           ═══════════════════════════════════════════════════════════════════ */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
+            {/* Revise PO Button */}
+            {["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status || "") &&
+              !isItemLocked &&
+              !PoPaymentTermsValidationSafe &&
+              !summaryPage &&
+              !accountsPage &&
+              !estimatesViewing && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setOpenRevisionDialog(true)}
+                      className="h-8 px-2.5 border-primary text-primary shrink-0"
+                    >
+                      <FilePenLine className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Revise PO</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Revise PO</TooltipContent>
+                </Tooltip>
+              )}
+
+            {/* Adjust Payments Button */}
+            {po?.name && onAdjustPayments && !summaryPage && !accountsPage && !estimatesViewing && (
+              <POAdjustmentButton poId={po.name} onClick={onAdjustPayments} />
+            )}
+
             {/* Document Actions - Only shown for non-approved statuses */}
             {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
               <>
@@ -941,7 +951,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!isValid || isLocked}
+                      disabled={!isValid || isItemLocked}
                       onClick={isValid ? toggleDispatchPODialog : undefined}
                       className="h-8 px-2.5 shrink-0"
                     >
@@ -981,7 +991,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       onClick={toggleInactiveDialog}
                       className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
-                      disabled={isLocked}
+                      disabled={isItemLocked}
                     >
                       <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Mark Inactive</span>

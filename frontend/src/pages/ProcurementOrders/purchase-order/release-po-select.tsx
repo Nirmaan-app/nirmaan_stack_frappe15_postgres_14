@@ -46,8 +46,6 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../../Sent Back Requests/approve-select-sent-back"));
-const ApproveSelectAmendPO = React.lazy(() => import("../amend-po/approve-select-amend-po"));
-
 const DOCTYPE = 'Procurement Orders';
 const URL_SYNC_KEY = 'po'; // Unique key for URL state for this table instance
 
@@ -370,7 +368,7 @@ export const ReleasePOSelect: React.FC = () => {
                     const data = row.original
                     const masterPO = posMap(data.merged!);
                     return (
-                        !["PO Amendment", "Merged"].includes(masterPO?.status!) ?
+                        !["Merged"].includes(masterPO?.status!) ?
                             <Link
                                 className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
                                 to={`/purchase-orders/${masterPO?.name?.replaceAll("/", "&=")}?tab=${masterPO?.status}`}
@@ -700,7 +698,6 @@ export const ReleasePOSelect: React.FC = () => {
     // --- Determine which view to render based on tab ---
     const renderTabView = () => {
         if (tab === PO_TABS.APPROVE_PO) return <ApproveSelectVendor />;
-        if (tab === PO_TABS.APPROVE_AMENDED_PO) return <ApproveSelectAmendPO />;
         if (tab === PO_TABS.APPROVE_SENT_BACK_PO) return <ApproveSelectSentBack />;
 
         if (shouldShowTable) {

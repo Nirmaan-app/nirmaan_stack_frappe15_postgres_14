@@ -32,7 +32,7 @@ export const EstimatesExecutive = () => {
 
     const { data: PO_COUNT, isLoading: PO_COUNT_LOADING } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["name"],
-        filters: [["status", "not in", ["Merged", "PO Amendment"]]],
+        filters: [["status", "not in", ["Merged"]]],
         limit: 100000
     },
     )
