@@ -8,6 +8,11 @@ export interface ProjectWithCriticalPRStats {
   total_tags: number;           // Total tags
   released_tags: number;        // Count of "Released" tags (those with associated PRs)
   status_counts: PRStatusCounts; // Breakdown by status
+  total_enabled_packages: number;
+  used_packages_count: number;
+  total_available_headers: number;
+  used_headers_count: number;
+  total_prs: number;
 }
 
 /**

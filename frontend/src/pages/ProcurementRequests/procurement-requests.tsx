@@ -1,7 +1,7 @@
 import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
 
 // --- Tab Configuration ---
@@ -49,6 +49,7 @@ import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import { HeaderHoverCard } from "@/components/helpers/HeaderHoverCard";
 import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
@@ -61,6 +62,14 @@ const SentBackRequest = React.lazy(() => import("@/pages/Sent Back Requests/sent
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
 const URL_SYNC_KEY_BASE = 'pr'; // Base key for URL params for this page
+
+export const PRTagsCell: React.FC<{ prName: string; }> = ({ prName }) => {
+    return (
+        <div className="flex items-center gap-1.5 min-w-0">
+            <HeaderHoverCard prName={prName} />
+        </div>
+    );
+};
 
 
 const PRDataTableWrapper: React.FC<{
@@ -164,7 +173,7 @@ const PRDataTableWrapper: React.FC<{
         const combinedFacetOptions = {
             ...facetFilterOptions,
             project: { title: "Project", options: projectFacets },
-            work_package: { title: "Package", options: wpFacets },
+            work_package: { title: "Header", options: wpFacets },
             owner: { title: "Created By", options: ownerFacets },
             workflow_state: tab === PR_TABS.ALL_PRS ? { title: "Status", options: statusFacets } : facetFilterOptions.workflow_state
         };
@@ -326,7 +335,8 @@ export const ProcurementRequests: React.FC = () => {
                         ) : (
                             <p>{prId?.slice(-4)}</p>
                         )}
-                        {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+                        {/* // Pr_work_Package - Relying on work_package field */}
+                        {data.work_package?.toLowerCase() === "custom" && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
                                 parentDoc={data}
@@ -370,8 +380,10 @@ export const ProcurementRequests: React.FC = () => {
             }
         },
         {
-            accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
-            cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
+            // Pr_work_Package
+            id: "header_tags",
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
+            cell: ({ row }) => <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*/ />,
             enableColumnFilter: true, size: 150,
         },
         {
@@ -458,7 +470,7 @@ export const ProcurementRequests: React.FC = () => {
     const facetFilterOptionsForDataTable = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
         workflow_state: { title: "Status", options: statusOptions },
-        work_package: { title: "Package", options: workPackageOptions },
+        work_package: { title: "Header", options: workPackageOptions },
         owner: { title: "Created By", options: userOptions }
     }), [projectOptions, statusOptions, workPackageOptions, userOptions]); // Add new dependencies
 

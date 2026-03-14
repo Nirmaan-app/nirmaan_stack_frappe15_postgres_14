@@ -3,12 +3,12 @@ import { Category } from "../types";
 import { getCategoryListOptions, queryKeys } from "@/config/queryKeys";
 
 interface UseCategoryListProps {
-    workPackage?: string;
+    workPackages?: string | string[];
 }
 
-export const useCategoryList = ({ workPackage }: UseCategoryListProps) => {
-    console.log("workPackage",workPackage)
-    const options = getCategoryListOptions(workPackage);
+export const useCategoryList = ({ workPackages }: UseCategoryListProps) => {
+    console.log("workPackages", workPackages)
+    const options = getCategoryListOptions(workPackages);
     // Generate the key based on the options used for the fetch
     const queryKey = queryKeys.categories.list(options);
     // const enabled = !!workPackage && "Tool & Equipments"; // Fetch only if workPackage is provided

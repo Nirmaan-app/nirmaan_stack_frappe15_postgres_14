@@ -14,6 +14,7 @@ export interface PRCategory {
     name: string;
     makes?: string[];
     status?: 'Pending' | 'Request' | string;
+    work_package?: string; // Procurement Package
 }
 export type { NirmaanUsers as User };
 export type { NirmaanComments as Comment };

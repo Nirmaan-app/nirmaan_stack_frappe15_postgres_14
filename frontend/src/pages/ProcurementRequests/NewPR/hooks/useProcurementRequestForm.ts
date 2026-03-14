@@ -2,32 +2,35 @@ import { useCallback, useMemo } from 'react';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import Fuse, { FuseResult, IFuseOptions } from 'fuse.js';
-import { CategoryMakesMap, CategorySelection, ItemOption, MakeOption, ProcurementRequestItem } from '../types';
+import { CategoryMakesMap, CategorySelection, ItemOption, MakeOption, ProcurementRequestItem, SelectedHeaderTag } from '../types';
 import { Items } from '@/types/NirmaanStack/Items';
-import { Makelist } from '@/types/NirmaanStack/Makelist';
 
 interface UseProcurementRequestFormResult {
     selectedWP: string;
     procList: ProcurementRequestItem[];
     selectedCategories: CategorySelection[];
-    updateCategoryMakes: (categoryName: string, newMake: string) => void; // <<< Action to add a make
-    makeListMutate: () => Promise<any>; // <<< Mutator for makes list
-    allMakeOptions: MakeOption[]; // <<< All makes available for selection
+    updateCategoryMakes: (categoryName: string, newMake: string) => void;
+    makeListMutate: () => Promise<any>;
+    allMakeOptions: MakeOption[];
     undoStack: ProcurementRequestItem[];
     newPRComment: string;
     isStoreInitialized: boolean;
-    selectWorkPackage: (wp: string, wpSpecificMakes: CategoryMakesMap) => void;
-    addOrUpdateItem: (itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest?: boolean) => void; // Renamed for clarity
-    updateItemInList: (updatedItem: ProcurementRequestItem) => void; // <-- ADDED THIS
+    selectHeaders: (headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => void;
+    addOrUpdateItem: (itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest?: boolean) => void;
+    updateItemInList: (updatedItem: ProcurementRequestItem) => void;
     deleteItemFromList: (itemName: string) => void;
     undoLastDelete: () => void;
     setComment: (comment: string) => void;
-    handleFuzzySearch: (input: string) => FuseResult<Items>[]; // Corrected type Item from Items
-
+    handleFuzzySearch: (input: string) => FuseResult<Items>[];
     itemFuseOptions: IFuseOptions<ItemOption>;
 }
 
-export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>, rawItemList?: Items[], makeList?: Makelist[], allMakeOptionsFromDataHook: MakeOption[] = [],): UseProcurementRequestFormResult => {
+export const useProcurementRequestForm = (
+    makeListMutateHook: () => Promise<any>,
+    rawItemList?: Items[],
+    _makeList?: any,
+    allMakeOptionsFromDataHook: MakeOption[] = [],
+): UseProcurementRequestFormResult => {
     const { toast } = useToast();
 
     // --- Select state and actions individually ---
@@ -38,38 +41,28 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
     const newPRComment = useProcurementRequestStore(state => state.newPRComment);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
 
-    // Actions are stable references, so selecting them is fine
-    const setSelectedWP = useProcurementRequestStore(state => state.setSelectedWP);
+    // Actions
+    const setSelectedHeaders = useProcurementRequestStore(state => state.setSelectedHeaders);
     const addProcItem = useProcurementRequestStore(state => state.addProcItem);
     const updateProcItem = useProcurementRequestStore(state => state.updateProcItem);
     const deleteProcItem = useProcurementRequestStore(state => state.deleteProcItem);
     const undoDelete = useProcurementRequestStore(state => state.undoDelete);
     const setNewPRComment = useProcurementRequestStore(state => state.setNewPRComment);
     const updateCategoryMakes = useProcurementRequestStore(state => state.updateCategoryMakes);
-    // --- End of individual selection ---
 
     // --- Fuse.js Configuration for Item Selection ---
     const itemFuseOptions: IFuseOptions<ItemOption> = useMemo(() => ({
-        keys: ['label', 'value', 'category'], // Search on item label (name), value (ID), and category
+        keys: ['label', 'value', 'category'],
         threshold: 0.3,
         includeScore: false,
-        // Example: Give more weight to the item label (name)
-        // keys: [
-        //   { name: 'label', weight: 0.7 },
-        //   { name: 'value', weight: 0.2 },
-        //   { name: 'category', weight: 0.1 }
-        // ]
     }), []);
 
-    const selectWorkPackage = useCallback((wp: string, wpSpecificMakes: CategoryMakesMap) => {
-        // console.log("Hook: Selecting WP", wp, "with makes:", wpSpecificMakes);
-        setSelectedWP(wp, wpSpecificMakes); // Call store action with both params
-    }, [setSelectedWP]);
+    const selectHeaders = useCallback((headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => {
+        setSelectedHeaders(headers, combinedMakes);
+    }, [setSelectedHeaders]);
 
-
-    // Renamed for clarity: This adds NEW items or REQUESTS
     const addOrUpdateItem = useCallback((itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest = false) => {
-        const currentSelectedWP = useProcurementRequestStore.getState().selectedWP; // Get latest WP
+        const currentSelectedWP = useProcurementRequestStore.getState().selectedWP;
         const success = addProcItem({
             ...itemData,
             status: isRequest ? 'Request' : 'Pending',
@@ -85,37 +78,32 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
             toast({
                 title: "Item Already Exists",
                 description: `Item "${itemData.item}" is already in the list. Edit quantity instead.`,
-                variant: "destructive", // Use destructive/warning
+                variant: "destructive",
             });
         }
     }, [addProcItem, toast]);
 
-    // Function specifically for updating existing items in the list
     const updateItemInList = useCallback((updatedItem: ProcurementRequestItem) => {
-        updateProcItem(updatedItem);
+        if (!updatedItem.uniqueId) {
+            toast({ title: "Error", description: "Cannot update item without unique ID.", variant: "destructive" });
+            return;
+        }
+        updateProcItem({ ...updatedItem, uniqueId: updatedItem.uniqueId });
         toast({ title: "Item Updated", description: `"${updatedItem.item}" details updated.`, variant: "success" });
     }, [updateProcItem, toast]);
 
-
     const deleteItemFromList = useCallback((itemName: string) => {
         deleteProcItem(itemName);
-        // Optionally add a toast for deletion confirmation
-        // toast({ title: "Item Removed", variant: "info" });
     }, [deleteProcItem]);
 
     const undoLastDelete = useCallback(() => {
         undoDelete();
-        // Optionally add a toast for undo confirmation
-        // toast({ title: "Action Undone", description: "Last deleted item restored.", variant: "info" });
     }, [undoDelete]);
-
 
     const setComment = useCallback((comment: string) => {
         setNewPRComment(comment);
     }, [setNewPRComment]);
 
-
-    // Setup Fuse instance
     const fuse = useMemo(() => {
         if (!rawItemList) return null;
         return new Fuse(rawItemList, {
@@ -138,16 +126,16 @@ export const useProcurementRequestForm = (makeListMutateHook: () => Promise<any>
         undoStack,
         newPRComment,
         isStoreInitialized,
-        selectWorkPackage,
+        selectHeaders,
         addOrUpdateItem,
         updateItemInList,
-        deleteItemFromList, // Use the memoized callback
-        undoLastDelete, // Use the memoized callback
-        setComment, // Use the memoized callback
+        deleteItemFromList,
+        undoLastDelete,
+        setComment,
         handleFuzzySearch,
         updateCategoryMakes,
         makeListMutate: makeListMutateHook,
         allMakeOptions: allMakeOptionsFromDataHook,
-        itemFuseOptions,          // Provide the Fuse configuration
+        itemFuseOptions,
     };
 };

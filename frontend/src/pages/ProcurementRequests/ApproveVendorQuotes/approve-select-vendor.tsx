@@ -212,7 +212,7 @@ export const ApproveSelectVendor: React.FC = () => {
               >
                 {prId?.slice(-4)} {/* Display last 4 chars */}
               </Link>
-              {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+              {data.work_package?.toLowerCase() === "custom" && <Badge className="text-xs">Custom</Badge>}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 {" "}
                 {/* Show hover card on group hover */}
@@ -280,7 +280,7 @@ export const ApproveSelectVendor: React.FC = () => {
       {
         accessorKey: "work_package",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Package" />
+          <DataTableColumnHeader column={column} title="Header" />
         ),
         cell: ({ row }) => (
           <div className="font-medium truncate">

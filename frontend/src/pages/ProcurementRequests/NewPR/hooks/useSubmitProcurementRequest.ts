@@ -54,8 +54,9 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     const projectId = useProcurementRequestStore(state => state.projectId);
 
     // CEO Hold guard
-    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId || undefined);
     const selectedWP = useProcurementRequestStore(state => state.selectedWP);
+    const selectedHeaderTags = useProcurementRequestStore(state => state.selectedHeaderTags);
     const procList = useProcurementRequestStore(state => state.procList);
     const selectedCategories = useProcurementRequestStore(state => state.selectedCategories);
     // const newPRComment = useProcurementRequestStore(state => state.newPRComment);
@@ -156,9 +157,15 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             const backendOrderList = transformToBackendOrderList(procList);
             const payload = {
                 project: projectId,
-                work_package: selectedWP,
+                work_package: "Normal",
                 category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }),
                 order_list: backendOrderList,
+                pr_tag_list: selectedHeaderTags
+                    .filter(tag => tag.tag_header)
+                    .map(tag => ({
+                        tag_header: tag.tag_header,
+                        tag_package: tag.tag_package
+                    }))
             };
 
             const res = await createDoc("Procurement Requests", payload);
@@ -222,6 +229,12 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
                 category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }),
                 order_list: backendOrderList,
                 workflow_state: "Pending",
+                pr_tag_list: selectedHeaderTags
+                    .filter(tag => tag.tag_header)
+                    .map(tag => ({
+                        tag_header: tag.tag_header,
+                        tag_package: tag.tag_package
+                    }))
             };
 
             await updateDoc("Procurement Requests", prId, updateData);

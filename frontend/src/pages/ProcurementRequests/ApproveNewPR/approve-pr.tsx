@@ -52,6 +52,7 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
+import { PRTagsCell } from "../procurement-requests";
 const DOCTYPE = "Procurement Requests";
 const URL_SYNC_KEY = "pr_new_approve"; // Unique key for this specific table instance/view
 
@@ -174,11 +175,12 @@ export const ApprovePR: React.FC = () => {
   const prSearchableFields = useMemo(
     () =>
       PR_SEARCHABLE_FIELDS.concat([
+        /* // Pr_work_Package
         {
           value: "work_package",
           label: "Work Package",
           placeholder: "Search by Work Package...",
-        },
+        }, */
         {
           value: "owner",
           label: "Created By",
@@ -224,7 +226,10 @@ export const ApprovePR: React.FC = () => {
               >
                 {prId?.slice(-4)}
               </Link>
-              {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+              {/* // Pr_work_Package */}
+              {data.work_package?.toLowerCase() === "custom" && (
+                <Badge className="text-xs">Custom</Badge>
+              )}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
                   parentDoc={data}
@@ -290,25 +295,18 @@ export const ApprovePR: React.FC = () => {
         },
       },
       {
-        accessorKey: "work_package",
+        // Pr_work_Package
+        accessorKey: "name",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Package" />
+          <DataTableColumnHeader column={column} title="Header" />
         ),
         cell: ({ row }) => (
           <div className="font-medium truncate">
-            {row.getValue("work_package") || "Custom"}
+             <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*/ />
           </div>
         ),
         enableColumnFilter: true,
         size: 150,
-        meta: {
-          enableFacet: true,
-          facetTitle: "Work Package",
-          exportHeaderName: "Package",
-          exportValue: (row: ProcurementRequest) => {
-            return row.work_package || "--";
-          },
-        },
       },
       {
         accessorKey: "category_list",
@@ -465,6 +463,7 @@ export const ApprovePR: React.FC = () => {
     enabled: true,
   });
 
+  /* // Pr_work_Package
   const { facetOptions: workPackageFacetOptions, isLoading: isWPFacetLoading } =
     useFacetValues({
       doctype: DOCTYPE,
@@ -474,7 +473,7 @@ export const ApprovePR: React.FC = () => {
       selectedSearchField,
       additionalFilters: staticFilters,
       enabled: true,
-    });
+    }); */
 
   // --- (6) UPDATED: Faceted Filter Options ---
   const facetFilterOptions = useMemo(
@@ -484,18 +483,19 @@ export const ApprovePR: React.FC = () => {
         options: projectFacetOptions,
         isLoading: isProjectFacetLoading,
       },
+      /* // Pr_work_Package
       work_package: {
         title: "Package",
         options: workPackageFacetOptions,
         isLoading: isWPFacetLoading,
-      },
+      }, */
       owner: { title: "Created By", options: userOptions },
     }),
     [
       projectFacetOptions,
       isProjectFacetLoading,
-      workPackageFacetOptions,
-      isWPFacetLoading,
+      /*workPackageFacetOptions,
+      isWPFacetLoading,*/
       userOptions,
     ]
   );

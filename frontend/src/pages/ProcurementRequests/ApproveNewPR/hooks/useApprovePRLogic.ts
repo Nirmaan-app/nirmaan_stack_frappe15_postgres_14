@@ -26,7 +26,7 @@ import { parseNumber } from '@/utils/parseNumber';
 import { Items } from '@/types/NirmaanStack/Items';
 import { MakeOption } from '../../NewPR/types';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
-import { extractMakesFromChildTableForWP } from '../../NewPR/NewProcurementRequestPage';
+import { extractMakesFromChildTableForMultipleWPs } from '../../NewPR/NewProcurementRequestPage';
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import the type
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { DraftItem, DraftCategory } from '@/zustand/useApproveNewPRDraftStore';
@@ -149,6 +149,7 @@ export const useApprovePRLogic = ({
     const [isDeletePRDialogOpen, setIsDeletePRDialogOpen] = useState(false);
     const [isConfirmActionDialogOpen, setIsConfirmActionDialogOpen] = useState(false);
 
+
     // --- Fuse.js Configuration for Item Selection ---
     const itemFuseOptions: IFuseOptions<ItemOption> = useMemo(() => ({
         keys: ['label', 'value', 'category'], // Search on item label (name), value (ID), and category
@@ -164,8 +165,37 @@ export const useApprovePRLogic = ({
 
     // --- Memoized Derived Data ---
     const itemOptions = useMemo((): ItemOption[] => {
+        const projectMakes = projectDoc?.project_wp_category_makes || [];
+        const allowedCategoriesFromProject = projectMakes.map((item: any) => item.category).filter(Boolean);
+        const allowedPackagesFromProject = projectMakes.map((item: any) => item.procurement_package).filter(Boolean);
+
         return itemList
-            .filter(item => categoryList.some(cat => cat.name === item.category)) // Ensure item's category is in the fetched list for the work package
+            .filter(item => {
+                const category = categoryList.find(cat => cat.name === item.category);
+                if (!category) return false;
+
+                // Always allow "Tool & Equipments"
+                if (category.category_name === "Tool & Equipments") return true;
+
+                // Priority 1: Use project document configuration if available
+                if (allowedCategoriesFromProject.length > 0 || allowedPackagesFromProject.length > 0) {
+                    const matchesCategory = allowedCategoriesFromProject.includes(item.category);
+                    const matchesPackage = allowedPackagesFromProject.includes(category.work_package);
+                    return matchesCategory || matchesPackage;
+                }
+
+                // Priority 2: Fallback to work package tags if project doc has no makes (legacy support)
+                const prTags = prDoc?.pr_tag_list || [];
+                const allowedPackagesFromTags = prTags.length > 0 
+                    ? Array.from(new Set(prTags.map((t: any) => t.tag_package)))
+                    : [];
+
+                if (allowedPackagesFromTags.length > 0) {
+                    return allowedPackagesFromTags.includes(category.work_package) || category.work_package === "Tool & Equipments";
+                }
+
+                return true;
+            })
             .map(item => {
                 const category = categoryList.find(cat => cat.name === item.category);
                 return {
@@ -176,7 +206,7 @@ export const useApprovePRLogic = ({
                     tax: parseNumber(category?.tax ?? "0"),
                 };
             });
-    }, [itemList, categoryList]);
+    }, [itemList, categoryList, prDoc?.pr_tag_list, projectDoc?.project_wp_category_makes]);
 
     const managersIdList = useMemo(() =>
         usersList
@@ -290,7 +320,7 @@ export const useApprovePRLogic = ({
 
     //     const categoryMap = new Map<string, { displayName: string; items: PRItemUIData[], statusSet: Set<string> }>();
     //     const initialMakesForPRWP = projectDoc && orderData.work_package
-    //         ? extractMakesFromChildTableForWP(projectDoc, orderData.work_package)
+    //         ? extractMakesFromChildTableForMultipleWPs(projectDoc, [orderData.work_package])
     //         : {};
 
     //     orderData.order_list.forEach(item => {
@@ -586,7 +616,7 @@ export const useApprovePRLogic = ({
             const categoryExists = currentCategoryList.some(c => c.name === newItemForOrderList.category && c.status === newItemForOrderList.status);
             if (!categoryExists) {
                 categoryNeedsUpdate = true;
-                const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, orderData?.work_package || "");
+                const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [orderData?.work_package || ""]);
                 const baselineMakes = initialMakesMap[newItemForOrderList.category] || [];
                 const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
                 updatedCategoryList.push({
@@ -638,7 +668,7 @@ export const useApprovePRLogic = ({
         const categoryExists = orderData.category_list.list.some(c => c.name === newItemForOrderList.category && c.status === newItemForOrderList.status);
         if (!categoryExists) {
             categoryNeedsUpdate = true;
-            const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, orderData?.work_package || "");
+            const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [orderData?.work_package || ""]);
             const baselineMakes = initialMakesMap[newItemForOrderList.category] || [];
             const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
             updatedCategoryList.push({
@@ -724,7 +754,7 @@ export const useApprovePRLogic = ({
             // If category wasn't found in the *local* list, add it
             if (!categoryFound) {
                 // Need to get baseline makes again if category is truly new to this PR session
-                const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, prevOrderData?.work_package || "");
+                const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [prevOrderData?.work_package || ""]);
                 const baselineMakes = initialMakesMap[categoryName] || [];
                 updatedCategoryList.push({
                     name: categoryName,
@@ -1195,7 +1225,7 @@ export const useApprovePRLogic = ({
                     cat => cat.name === newDraftItem.category && cat.status === 'Pending'
                 );
                 if (!newItemsCategoryExistsAsPending) {
-                    const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
+                    const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [workPackage || ""]);
                     const baselineMakes = initialMakesMap[newDraftItem.category] || [];
                     updatedCategoryList.push({
                         name: newDraftItem.category,
@@ -1362,7 +1392,7 @@ export const useApprovePRLogic = ({
                 cat => cat.name === newDraftItem.category && cat.status === 'Pending'
             );
             if (!newItemsCategoryExistsAsPending) {
-                const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
+                const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [workPackage || ""]);
                 const baselineMakes = initialMakesMap[newDraftItem.category] || [];
                 updatedCategoryList.push({
                     name: newDraftItem.category,
@@ -1431,7 +1461,7 @@ export const useApprovePRLogic = ({
             cat => cat.name === itemToAdd.category && cat.status === 'Pending'
         );
         if (!newItemsCategoryExistsAsPending) {
-            const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
+            const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [workPackage || ""]);
             const baselineMakes = initialMakesMap[itemToAdd.category] || [];
             updatedCategoryList.push({
                 name: itemToAdd.category,

@@ -8,11 +8,11 @@ import { Category } from "@/types/NirmaanStack/Category";
 
 interface UseRelatedPRDataProps {
     prDoc?: PRDocType; // Make optional to avoid errors before PR loads
+    workPackages?: string[]; // Plural packages
     enabled?: boolean; // Control fetching
 }
 
-export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
-    const workPackage = prDoc?.work_package;
+export const useRelatedPRData = ({ prDoc, workPackages = [] }: UseRelatedPRDataProps) => {
     const prName = prDoc?.name;
 
     const { data: usersList, isLoading: usersLoading, error: usersError } = useFrappeGetDocList<User>("Nirmaan Users", {
@@ -24,23 +24,22 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         // ],
     }, "Nirmaan Users");
 
-      // Corrected categoryList fetch logic
+    // Corrected categoryList fetch logic
     const categoryFilters = useMemo(() => {
-        if (workPackage && workPackage !== "") { // If a specific work package is provided
-            return [["work_package", "in", [workPackage, "Tool & Equipments"]]];
-        }
-        // If workPackage is null/undefined/empty, fetch based on your "Custom" PR policy.
-        // For example, fetch all categories:
-        return []; // This will fetch ALL categories if workPackage is null/empty.
-                  // If you only want "Tool & Equipments" for empty workPackage, change this to `[["work_package", "=", "Tool & Equipments"]]`.
-    }, [workPackage]);
+        const pkgs = [...workPackages, "Tool & Equipments"];
+        return pkgs.length > 0 ? [["work_package", "in", pkgs]] as any : [];
+    }, [workPackages]);
+
+    const categoryCacheKey = useMemo(() => {
+        return workPackages.length > 0 ? `Category_${workPackages.sort().join('_')}` : "Category_All";
+    }, [workPackages]);
 
     const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useFrappeGetDocList<Category>("Category", {
         fields: ["name", "category_name", "work_package", "tax"], // Added unit_name if default unit comes from category
         filters: categoryFilters,
         orderBy: { field: "category_name", order: "asc" },
         limit: 0,
-    }, workPackage ? `Category_${workPackage}` : null);
+    }, categoryCacheKey);
 
     const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
 
@@ -65,30 +64,30 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
     }, prName ? `Nirmaan Comments ${prName}` : null);
 
 
-    const {data: categoryMakelist, isLoading: categoryMakeListLoading, error: categoryMakeListError, mutate: categoryMakeListMutate} = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
-            fields: ["category", "make"],
-            filters: [["category", "in", categoryNames]],
-            orderBy: { field: "category", order: "asc" },
-            limit: 0,
-        },
+    const { data: categoryMakelist, isLoading: categoryMakeListLoading, error: categoryMakeListError, mutate: categoryMakeListMutate } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
+        fields: ["category", "make"],
+        filters: [["category", "in", categoryNames]],
+        orderBy: { field: "category", order: "asc" },
+        limit: 0,
+    },
         categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
-        )
-    
-         // --- Fetch Make List ---
-         const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
-            "Makelist", {
-                fields: ["name", "make_name"],
-                limit: 0, // Consider if this needs pagination for very large lists
-            }
-        );
-    
-        // --- Derived Make Options ---
-        const allMakeOptions = useMemo<MakeOption[]>(() => {
-            return make_list?.map(make => ({
-                value: make.name, // Use DocType name (which might be same as make_name if not customized)
-                label: make.make_name,
-            })) || [];
-        }, [make_list]);
+    )
+
+    // --- Fetch Make List ---
+    const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
+        "Makelist", {
+        fields: ["name", "make_name"],
+        limit: 0, // Consider if this needs pagination for very large lists
+    }
+    );
+
+    // --- Derived Make Options ---
+    const allMakeOptions = useMemo<MakeOption[]>(() => {
+        return make_list?.map(make => ({
+            value: make.name, // Use DocType name (which might be same as make_name if not customized)
+            label: make.make_name,
+        })) || [];
+    }, [make_list]);
 
     const isLoading = usersLoading || categoriesLoading || itemsLoading || quotesLoading || commentsLoading || categoryMakeListLoading || makeLoading;
     const error = usersError || categoriesError || itemsError || quotesError || commentsError || makeError || categoryMakeListError;

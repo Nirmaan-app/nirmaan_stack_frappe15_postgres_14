@@ -9,9 +9,10 @@ interface ProcurementHeaderCardProps {
   sentBack?: boolean
   sr?: boolean
   customPr?: boolean
+  headers?: { tag_header: string; tag_package: string }[]
 }
 
-export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false, customPr = false }: ProcurementHeaderCardProps) => {
+export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false, customPr = false, headers = [] }: ProcurementHeaderCardProps) => {
   const [creatorId, setCreatorId] = useState<string | undefined>("")
   const [approverId, setApproverId] = useState<string | undefined>("")
 
@@ -39,7 +40,9 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
       {!sentBack && (
         <div className="border-0 flex flex-col">
           <p className="text-left py-1 font-light text-sm text-red-700">Package</p>
-          <p className="text-left font-bold py-1 text-base text-black">{sr ? "Services" : customPr ? "Custom" : orderData?.work_package}</p>
+          <p className="text-left font-bold py-1 text-base text-black">
+            {sr ? "Services" : customPr ? (headers.length > 0 ? headers.map(h => h.tag_header).join(", ") : "Custom") : orderData?.work_package}
+          </p>
         </div>
       )}
       {sentBack && (

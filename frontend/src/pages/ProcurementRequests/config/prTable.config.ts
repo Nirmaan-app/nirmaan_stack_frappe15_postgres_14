@@ -2,6 +2,7 @@ import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
 
 // Fields to fetch by default for most PR tables
+// Pr_work_Package
 export const DEFAULT_PR_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] = [
     "name", "project", "owner", "workflow_state", "work_package", "order_list"
 ];
