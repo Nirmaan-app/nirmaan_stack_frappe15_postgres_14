@@ -11,7 +11,7 @@
   "section_break_gahe",
   "projectname",
   "package",
-  "associated_pos"
+  "associated_prs"
  ],
  "fields": [
   {
@@ -33,7 +33,7 @@
   },
   {
    "fieldname": "header",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Header",
    "options": "PR Tag Headers"
   },
@@ -47,15 +47,15 @@
    "fieldtype": "Section Break"
   },
   {
-   "fieldname": "associated_pos",
+   "fieldname": "associated_prs",
    "fieldtype": "JSON",
-   "label": "Associated Pos"
+   "label": "Associated PRs"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-13 12:54:42.141807",
+ "modified": "2026-03-13 16:52:25.409455",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Critical PR Tags",

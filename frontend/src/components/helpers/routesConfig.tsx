@@ -103,6 +103,10 @@ import MaterialPlanTrackerDetail from "@/pages/MaterialPlanTracker/material-plan
 import CashflowPlanTrackerList from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-list";
 import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-detail";
 
+//PR Tracker
+import { PRTrackerList } from "@/pages/PRTracker";
+import PRTrackerDetail from "@/pages/PRTracker/pr-tracker-detail";
+
 import InventoryItemWisePage from "@/pages/inventory/InventoryItemWisePage";
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
@@ -423,6 +427,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: CASHFLOW PLAN TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: PR TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "pr-tracker",
+            children: [
+              // List View (e.g., /pr-tracker)
+              { index: true, element: <PRTrackerList /> },
+              // Detail View (e.g., /pr-tracker/PROJ-0001)
+              { path: ":projectId", element: <PRTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: PR TRACKER SECTION ---
           // ======================================================
 
           // --- Projects Section ---

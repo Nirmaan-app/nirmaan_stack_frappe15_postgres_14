@@ -25,8 +25,8 @@ import {
   Banknote,
   CreditCard,
   Dices,
-  Landmark, PencilRuler,
-  Warehouse
+  Landmark, PencilRuler, SquareStack,
+  Warehouse, ClipboardList
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -556,6 +556,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+      ? [
+        {
+          key: '/pr-tracker',
+          icon: ClipboardList,
+          label: 'PR Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
       ? [
         {
@@ -629,6 +638,7 @@ export function NewSidebar() {
     'reports',
     'design-tracker',
     'critical-po-tracker',
+    'pr-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
@@ -668,6 +678,7 @@ export function NewSidebar() {
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
+    '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
@@ -766,6 +777,7 @@ export function NewSidebar() {
                     "Reports",
                     "Design Tracker",
                     "Commission Report Tracker",
+                    "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",

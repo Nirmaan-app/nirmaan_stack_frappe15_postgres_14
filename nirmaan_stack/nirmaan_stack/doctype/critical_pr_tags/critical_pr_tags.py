@@ -1,9 +1,10 @@
-# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
-# For license information, please see license.txt
-
-# import frappe
+import frappe
 from frappe.model.document import Document
+from frappe.model.naming import getseries
 
 
 class CriticalPRTags(Document):
-	pass
+	def autoname(self):
+		# Extract project suffix (last part of name, max 5 chars)
+		project_id = self.project.split("-")[-1][-5:]
+		self.name = f"{project_id}-{self.header}"
