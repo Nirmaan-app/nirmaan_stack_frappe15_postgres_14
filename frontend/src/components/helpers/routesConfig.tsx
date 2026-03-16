@@ -643,7 +643,7 @@ export const appRoutes: RouteObject[] = [
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
           { path: "design-packages", element: <DesignPackages /> },
           { path: "commission-packages", element: <CommissionPackages /> },
-          { path: "wo-service-packages", element: <WOServicePackages /> },
+          { path: "work-order-rate-card", element: <WOServicePackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
           { path: "help-repository", element: <HelpRepositoryPage /> },
