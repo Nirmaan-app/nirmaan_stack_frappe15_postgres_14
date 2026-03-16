@@ -982,6 +982,7 @@ export const PurchaseOrder = ({
         amountPaid={PO?.amount_paid}
         poMutate={poMutate}
         onAdjustPayments={() => setIsAdjustmentDialogOpen(true)}
+        onCancelPO={toggleCancelPODialog}
       />
       {/* Payment Details - hidden for Project Manager */}
       {!isProjectManager && (

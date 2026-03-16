@@ -112,6 +112,7 @@ interface PODetailsProps {
   totalPendingInvoiceAmount?: number;
   totalApprovedInvoiceAmount?: number;
   onAdjustPayments?: () => void;
+  onCancelPO?: () => void;
 }
 
 
@@ -131,6 +132,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   totalPendingInvoiceAmount,
   totalApprovedInvoiceAmount,
   onAdjustPayments,
+  onCancelPO,
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
 
@@ -796,6 +798,31 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent className="sm:hidden">Revert</TooltipContent>
+                  </Tooltip>
+                )}
+
+              {/* Cancel PO Button */}
+              {onCancelPO &&
+                !summaryPage &&
+                !accountsPage &&
+                !po?.custom &&
+                !estimatesViewing &&
+                role !== "Nirmaan Accountant Profile" &&
+                po?.status === "PO Approved" &&
+                !(poPayments?.length) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onCancelPO}
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      >
+                        <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Cancel PO</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Cancel PO</TooltipContent>
                   </Tooltip>
                 )}
             </div>
