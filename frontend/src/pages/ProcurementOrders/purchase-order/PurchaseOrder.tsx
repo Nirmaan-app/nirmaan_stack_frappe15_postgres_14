@@ -99,6 +99,8 @@ import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustment
 import {
   MergePOTable,
   MergeConflictResolution,
+  MergeEligibilityBanner,
+  MergeMatchCriteria,
   useMergeResolution,
   type MergeStep,
 } from "./merge";
@@ -644,6 +646,15 @@ export const PurchaseOrder = ({
     [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
+  const mergeConditions = useMemo(() => [
+    { label: "PO Approved", met: PO?.status === "PO Approved", detail: PO?.status },
+    { label: "Not Custom", met: PO?.custom !== "true" },
+    { label: "Not Merged", met: PO?.merged !== "true" },
+    { label: "No Payments", met: !((poPayments || []).length > 0) },
+    { label: "Not Locked", met: !isItemLocked },
+    { label: "Matches Found", met: mergeablePOs.length > 0, detail: `${mergeablePOs.length}` },
+  ], [PO, poPayments, isItemLocked, mergeablePOs]);
+
   const CANCELPOVALIDATION = useMemo(
     () =>
       !summaryPage &&
@@ -766,22 +777,22 @@ export const PurchaseOrder = ({
 
       {MERGEPOVALIDATIONS && !isItemLocked && (
         <>
-          <Alert variant="warning" className="">
+          <Alert variant="warning">
             <AlertTitle className="text-sm flex items-center gap-2">
               <MessageCircleWarning className="h-4 w-4" />
-              Heads Up - PO Merging Available
+              PO Merge Available
             </AlertTitle>
-            <AlertDescription className="text-xs flex justify-end items-center">
-              <span className="sr-only">
-                This purchase order can be merged with other compatible orders
-              </span>
-              {/* PO Merging Feature is available for this PO. */}
-              <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                <SheetTrigger
-                  disabled={!isValid}
-                  className="disabled:opacity-50"
-                >
-                  <div>
+            <AlertDescription>
+              <MergeEligibilityBanner
+                conditions={mergeConditions}
+                matchCount={mergeablePOs.length}
+              />
+              <div className="flex justify-end mt-3">
+                <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
+                  <SheetTrigger
+                    disabled={!isValid}
+                    className="disabled:opacity-50"
+                  >
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -789,7 +800,6 @@ export const PurchaseOrder = ({
                             isValid ? "Merge PO(s)" : "Merge unavailable"
                           }
                           className="flex items-center gap-1"
-                          color="primary"
                         >
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
@@ -807,45 +817,34 @@ export const PurchaseOrder = ({
                         </TooltipContent>
                       )}
                     </Tooltip>
-                  </div>
-                </SheetTrigger>
-                <SheetContent className="overflow-y-auto">
-                  <div className="md:p-6">
-                    <h2 className="text-2xl font-bold mb-4">
-                      Merge Purchase Orders
-                    </h2>
+                  </SheetTrigger>
+                  <SheetContent className="overflow-y-auto">
+                    <div className="md:p-6">
+                      <h2 className="text-2xl font-bold mb-4">
+                        Merge Purchase Orders
+                      </h2>
 
-                    {/* Step indicator */}
-                    {hasConflicts && (
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className={`h-2 w-2 rounded-full ${mergeStep === "selection" ? "bg-primary" : "bg-muted-foreground/30"}`} />
-                        <span className={`text-xs ${mergeStep === "selection" ? "font-medium" : "text-muted-foreground"}`}>
-                          Select POs
-                        </span>
-                        <div className="h-px w-4 bg-border" />
-                        <div className={`h-2 w-2 rounded-full ${mergeStep === "resolution" ? "bg-primary" : "bg-muted-foreground/30"}`} />
-                        <span className={`text-xs ${mergeStep === "resolution" ? "font-medium" : "text-muted-foreground"}`}>
-                          Resolve Conflicts
-                        </span>
-                      </div>
-                    )}
+                      {/* Step indicator */}
+                      {hasConflicts && (
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className={`h-2 w-2 rounded-full ${mergeStep === "selection" ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                          <span className={`text-xs ${mergeStep === "selection" ? "font-medium" : "text-muted-foreground"}`}>
+                            Select POs
+                          </span>
+                          <div className="h-px w-4 bg-border" />
+                          <div className={`h-2 w-2 rounded-full ${mergeStep === "resolution" ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                          <span className={`text-xs ${mergeStep === "resolution" ? "font-medium" : "text-muted-foreground"}`}>
+                            Resolve Conflicts
+                          </span>
+                        </div>
+                      )}
 
-                    <Card className="mb-4">
-                      <CardHeader className="flex flex-row justify-between items-center">
-                        <div className="flex flex-col">
-                          <span className="text-sm text-gray-500">Project:</span>
-                          <p className="text-base font-medium tracking-tight text-black">
-                            {PO?.project_name}
-                          </p>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm text-gray-500">Vendor:</span>
-                          <p className="text-base font-medium tracking-tight text-black">
-                            {PO?.vendor_name}
-                          </p>
-                        </div>
-                      </CardHeader>
-                    </Card>
+                      <MergeMatchCriteria
+                        project={PO?.project_name || ""}
+                        vendor={PO?.vendor_name || ""}
+                        paymentType={PO?.payment_terms?.[0]?.payment_type || "N/A"}
+                        matchCount={mergeablePOs.length}
+                      />
 
                     {/* Step content */}
                     {mergeStep === "selection" ? (
@@ -962,6 +961,7 @@ export const PurchaseOrder = ({
                   </div>
                 </SheetContent>
               </Sheet>
+              </div>
             </AlertDescription>
           </Alert>
         </>
