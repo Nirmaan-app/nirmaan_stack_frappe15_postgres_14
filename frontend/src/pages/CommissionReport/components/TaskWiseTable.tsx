@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import {
     ColumnDef,
     getCoreRowModel,
@@ -29,9 +28,9 @@ import {
     getUnifiedStatusStyle,
     parseDesignersFromField,
 } from "../utils";
+import { useUpdateCommissionTaskChild } from "../data/useCommissionMutations";
 
 const PARENT_DOCTYPE = "Project Commission Report";
-const CHILD_DOCTYPE = "Commission Report Task Child Table";
 
 export const TASK_DATE_COLUMNS = ["deadline", "last_submitted"];
 
@@ -191,7 +190,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
     statusFilter,
 }) => {
     const { usersList, categoryData, statusOptions, FacetProjectsOptions } = useCommissionMasters();
-    const { updateDoc: updateTask } = useFrappeUpdateDoc();
+    const { updateTaskChild } = useUpdateCommissionTaskChild();
 
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
 
@@ -317,7 +316,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         }
 
         try {
-            await updateTask(CHILD_DOCTYPE, editingTask.name, fieldsToSend);
+            await updateTaskChild(editingTask.name, fieldsToSend);
             toast({
                 title: "Success",
                 description: "Task updated successfully.",

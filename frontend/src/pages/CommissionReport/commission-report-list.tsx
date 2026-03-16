@@ -1,5 +1,4 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
-import { useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +15,8 @@ import { urlStateManager } from "@/utils/urlStateManager";
 
 import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import { TaskWiseTable } from "./components/TaskWiseTable";
+import { useCommissionTrackerList } from "./data/useCommissionQueries";
+import { useToggleCommissionReportVisibility } from "./data/useCommissionMutations";
 
 const COMMISSION_TABS = {
     PROJECT_WISE: "project",
@@ -61,10 +62,7 @@ export default function CommissionReportList() {
     }, [activeTab]);
 
     // Fetch List from Commission Report Endpoint
-    const { data: trackerDocsData, isLoading, mutate: refetchList } = useFrappeGetCall<any>(
-        "nirmaan_stack.api.commission_report.get_tracker_list.get_tracker_list",
-        {}
-    );
+    const { data: trackerDocsData, isLoading, mutate: refetchList } = useCommissionTrackerList();
 
     const trackerDocs = useMemo(() => {
         if (!trackerDocsData) return [];
@@ -104,13 +102,11 @@ export default function CommissionReportList() {
     const activeDocs = useMemo(() => filteredDocs.filter((doc: any) => doc.hide_commission_report !== 1), [filteredDocs]);
     const hiddenDocs = useMemo(() => filteredDocs.filter((doc: any) => doc.hide_commission_report === 1), [filteredDocs]);
 
-    const { updateDoc } = useFrappeUpdateDoc();
+    const { toggleVisibility } = useToggleCommissionReportVisibility();
 
     const handleHideToggle = useCallback(async (trackerId: string, newHiddenState: boolean) => {
         try {
-            await updateDoc("Project Commission Report", trackerId, {
-                hide_commission_report: newHiddenState ? 1 : 0
-            });
+            await toggleVisibility(trackerId, newHiddenState);
             refetchList();
             toast({
                 title: newHiddenState ? "Report Hidden" : "Report Visible",
@@ -125,7 +121,7 @@ export default function CommissionReportList() {
                 variant: "destructive"
             });
         }
-    }, [updateDoc, refetchList]);
+    }, [toggleVisibility, refetchList]);
 
     if (isLoading) return <TableSkeleton />;
 

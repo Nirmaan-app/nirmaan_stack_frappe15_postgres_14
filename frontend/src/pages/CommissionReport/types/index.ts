@@ -84,3 +84,26 @@ export interface RawCategoryData {
     category_name: string;
     tasks: TaskTemplate[];
 }
+
+// --- NEW: Master Data Interfaces for Commission Packages ---
+export interface CommissionCategoryMaster {
+    name: string; // Frappe ID
+    category_name: string;
+    work_package?: string; // Link to Work Packages
+    creation?: string;
+    modified?: string;
+}
+
+export interface CommissionTaskMaster {
+    name: string; // Frappe ID
+    task_name: string;
+    category_link: string; // Link to Commission Report Category
+    deadline_offset?: number;
+    creation?: string;
+    modified?: string;
+}
+
+export interface WorkPackage {
+    name: string;
+    work_package_name: string;
+}

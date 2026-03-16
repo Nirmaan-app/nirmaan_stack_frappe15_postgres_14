@@ -1,6 +1,5 @@
 // frontend/src/pages/CommissionReport/hooks/useCommissionTrackerLogic.ts
 import { useState, useCallback } from 'react';
-import { useFrappeGetDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { toast } from '@/components/ui/use-toast';
 import {
     ProjectCommissionReportType,
@@ -8,8 +7,8 @@ import {
     User,
 } from '../types';
 import { useCommissionMasters } from './useCommissionMasters';
-
-const DOCTYPE = 'Project Commission Report';
+import { useCommissionTrackerDoc } from '../data/useCommissionQueries';
+import { useUpdateCommissionTracker } from '../data/useCommissionMutations';
 
 interface UseCommissionTrackerLogicProps {
     trackerId: string;
@@ -39,9 +38,7 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
     const [editingTask, setEditingTask] = useState<CommissionReportTask | null>(null);
 
     // --- Data Fetching ---
-    const { data: trackerDoc, isLoading: docLoading, error: docError, mutate: refetchTracker } = useFrappeGetDoc<ProjectCommissionReportType>(
-        DOCTYPE, trackerId, trackerId ? undefined : null
-    );
+    const { data: trackerDoc, isLoading: docLoading, error: docError, mutate: refetchTracker } = useCommissionTrackerDoc(trackerId);
 
     const {
         usersList: rawUsersList,
@@ -52,7 +49,7 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
     } = useCommissionMasters();
     const usersList = rawUsersList || [];
 
-    const { updateDoc } = useFrappeUpdateDoc();
+    const { updateTracker } = useUpdateCommissionTracker();
 
     const handleParentDocSave = useCallback(async (
         updatedFields: Partial<ProjectCommissionReportType>
@@ -64,7 +61,7 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
 
         try {
             // Update the main document fields
-            await updateDoc(DOCTYPE, trackerDoc.name, updatedFields);
+            await updateTracker(trackerDoc.name, updatedFields);
 
             // Refetch data to update the local state and UI
             await refetchTracker();
@@ -73,7 +70,7 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
             console.error("Failed to update parent document:", error);
             throw error;
         }
-    }, [trackerDoc, updateDoc, refetchTracker]);
+    }, [trackerDoc, updateTracker, refetchTracker]);
 
 
     // --- Actions: Robust Child Table (Task) Update ---
@@ -112,7 +109,7 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
 
         try {
             // Update the document via API
-            await updateDoc(DOCTYPE, trackerDoc.name, payload);
+            await updateTracker(trackerDoc.name, payload);
 
             // Success cleanup
             await refetchTracker();
@@ -124,7 +121,7 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
             throw error;
         }
 
-    }, [trackerDoc, updateDoc, refetchTracker, setEditingTask]);
+    }, [trackerDoc, updateTracker, refetchTracker, setEditingTask]);
 
 
     // --- Actions: NEW TASK CREATION ---
@@ -146,14 +143,14 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
         };
 
         try {
-            await updateDoc(DOCTYPE, trackerDoc.name, payload);
+            await updateTracker(trackerDoc.name, payload);
             await refetchTracker();
         } catch (error) {
             console.error("Failed to create new task via parent document:", error);
             throw error;
         }
 
-    }, [trackerDoc, updateDoc, refetchTracker]);
+    }, [trackerDoc, updateTracker, refetchTracker]);
 
 
     const isLoading = docLoading || mastersLoading;
