@@ -21,6 +21,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
 | [domain/delivery-notes.md](./domain/delivery-notes.md) | Delivery Notes | DN doctype, DN Item child table, APIs, received_quantity, 51-point linkage map |
 | [domain/po-status-map.md](./domain/po-status-map.md) | PO Status | Full PO status lifecycle, all codebase usage (28 frontend + 19 backend files), cross-module linkages, DataTable/API call map |
+| [domain/po-adjustments.md](./domain/po-adjustments.md) | PO Adjustments | PO payment adjustment system, double-entry accounting, manual resolution dialog |
 
 ### Module References (in-code)
 
@@ -47,6 +48,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | Inventory Item-Wise | `src/pages/inventory/` | `InventoryItemWisePage.tsx`, `hooks/useInventoryItemWise.ts`, `inventory.types.ts` — cross-project aggregation with estimated cost |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
 | Reports: DCs & MIRs | `src/pages/reports/` | `DCMIRReports.tsx`, `InventoryReport.tsx` sub-types with facet filters, HoverCard item popover, Critical PO column |
+| PO Adjustments | `src/pages/POAdjustment/` | `POAdjustmentButton.tsx`, `POAdjustmentDialog.tsx`, `POAdjustmentHistory.tsx`, `hooks/usePOAdjustment.ts`, `data/usePOAdjustmentQueries.ts` |
 | Vendor Data Hooks | `src/pages/vendors/data/` | `useVendorQueries.ts`, `useVendorMutations.ts` — centralized vendor CRUD with Sentry error capturing |
 | Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
@@ -97,7 +99,8 @@ const { role, user_id } = useUserData();
         ├── milestones.md      # Daily progress reports & zone tracking
         ├── projects.md        # Project status lifecycle & frontend behavior
         ├── ceo-hold.md        # CEO Hold status & blocked operations
-        └── po-status-map.md   # PO status lifecycle & full codebase usage map
+        ├── po-status-map.md   # PO status lifecycle & full codebase usage map
+        └── po-adjustments.md  # PO payment adjustment system & dialog
 ```
 
 ---

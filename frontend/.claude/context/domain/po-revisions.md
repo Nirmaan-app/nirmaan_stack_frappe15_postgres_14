@@ -2,10 +2,12 @@
 
 ## Overview
 
-PO Revision is a **two-phase workflow** (draft → approve/reject) for modifying a live Purchase Order's items and reconciling payment terms after goods have started moving. It creates a separate `PO Revisions` document that stages all changes without touching the original PO until approval.
+PO Revision is a **two-phase workflow** (draft -> approve/reject) for modifying a live Purchase Order's items after goods have started moving. It creates a separate `PO Revisions` document that stages all changes without touching the original PO until approval.
+
+**Financial adjustment (payment reconciliation) is handled separately by the PO Adjustments system.** See `po-adjustments.md` for the full reference.
 
 **Autoname:** `PRT/{project_short}/{po_number}/{sequence}`
-**Statuses:** Pending → Approved | Rejected
+**Statuses:** Pending -> Approved | Rejected
 
 ---
 
@@ -16,22 +18,22 @@ A PO is eligible for revision when **ALL** conditions are met:
 | Condition | Detail |
 |-----------|--------|
 | **Status** | `Partially Dispatched`, `Dispatched`, `Partially Delivered`, or `Delivered` |
-| **Not locked** | No existing Pending revision involves this PO (as Original or Target) |
+| **Not locked** | No existing Pending revision or Pending PO Adjustment involves this PO |
 | **Invoice mismatch** | `Math.abs(totalInvoiceAmount - po.total_amount) > 1` |
 
-The "Revise PO" button renders as a **red warning banner** in the Invoices section of `PODetails.tsx` (~line 691-704).
+The "Revise PO" button renders as a **red warning banner** in the Invoices section of `PODetails.tsx`.
 
 ---
 
-## Lock Mechanism (Bidirectional)
+## Lock Mechanism
 
-When a revision is created, involved POs are locked until approval/rejection.
+When a revision is Pending, the PO is locked for both items and payments. When a PO Adjustment is Pending, only payments are locked.
 
 **Backend:** `revision_po_check.py`
-- `check_po_in_pending_revisions(po_id)` → `{ is_locked, role, revision_id }`
-- `_check_pending_as_original(po_id)` — Is PO the `revised_po` in any Pending revision?
-- `_check_pending_as_target(po_id)` — Is PO in `target_pos` array of any Pending revision's JSON?
-- `get_all_locked_po_names()` — Bulk fetch all locked PO names (used for candidate filtering)
+- `check_po_in_pending_revisions(po_id)` -> `{ is_locked, is_item_locked, is_payment_locked, item_lock_revision_id, payment_lock_source, payment_lock_id }`
+- Check 1: Pending revision on this PO -> locks both items and payments
+- Check 2: Pending PO Adjustment on this PO -> locks payments only
+- `get_all_locked_po_names()` -> Bulk fetch all locked PO names (revision + adjustment)
 
 **Frontend:** `usePOLockCheck(poId)` hook (SWR-cached POST call)
 
@@ -43,9 +45,9 @@ When a revision is created, involved POs are locked until approval/rejection.
 | `POPaymentTermsCard.tsx` | Edit Payment Terms (`disabled` + tooltip) |
 | `RequestPaymentDialog` (both locations) | Request Payment button (`disabled` + red warning text) |
 | `PurchaseOrder.tsx` | Merge PO (hidden), Update Delivery (`disabled`) |
-| `DeliveryPivotTable` | All DN operations — create, edit, return (submit `disabled` + alert) |
+| `DeliveryPivotTable` | All DN operations -- create, edit, return (submit `disabled` + alert) |
 
-**Key:** Unlike CEO Hold which *exempts* DN operations, PO Revision *blocks* them. However, the DN lock is **frontend-only** — no backend validation prevents DN creation during revision.
+**Key:** Unlike CEO Hold which *exempts* DN operations, PO Revision *blocks* them. However, the DN lock is **frontend-only** -- no backend validation prevents DN creation during revision.
 
 ---
 
@@ -54,29 +56,26 @@ When a revision is created, involved POs are locked until approval/rejection.
 ### File Structure
 ```
 src/pages/PORevision/
-├── PORevisionDialog.tsx          # 3-step wizard for creating revisions
+├── PORevisionDialog.tsx          # 2-step wizard for creating revisions (items + summary)
 ├── PORevisionWarning.tsx         # Red lock banner on PO detail page
 ├── PORevisionsApprovalList.tsx   # List page with Pending/Approved/Rejected tabs
 ├── PORevisionsApprovalDetail.tsx # Detail page for review + approve/reject
-├── types.ts                     # RevisionItem, PaymentTerm, RefundAdjustment, etc.
+├── types.ts                     # RevisionItem, RefundAdjustment, etc.
 ├── config/
 │   └── poRevisions.config.tsx   # DataTable columns + search config
 ├── data/
 │   ├── poRevision.constants.ts  # Cache keys, API endpoints, doctype names
-│   ├── usePORevisionQueries.ts  # 14 read hooks with Sentry logging
-│   └── usePORevisionMutations.ts # 3 mutation hooks with cache invalidation
+│   ├── usePORevisionQueries.ts  # Read hooks with Sentry logging
+│   └── usePORevisionMutations.ts # Mutation hooks with cache invalidation
 ├── hooks/
 │   ├── usePORevision.ts         # Main dialog state + calculations + submission
 │   └── usePORevisionsApprovalDetail.ts # Approval page state + mutations
 └── components/
     ├── RevisionHeader.tsx        # Dialog header with stepper
     ├── RevisionFooter.tsx        # Dialog footer with navigation
-    ├── Step1ReviseItems.tsx      # Item editing + justification
-    ├── Step2PositiveFlow.tsx     # Payment term allocation (amount increased)
-    ├── Step2NegativeFlow.tsx     # Refund adjustment (amount decreased)
-    ├── Step3Summary.tsx          # Final review before submit
+    ├── Step1/Step1ReviseItems.tsx # Item editing + justification
+    ├── Step3/Step3Summary.tsx     # Final review before submit
     ├── ImpactSummaryTable.tsx    # Before/After/Difference financial table
-    ├── InvoicesSection.tsx       # Invoice summary + detail table
     ├── AddNewItemDialog.tsx      # Add catalog/custom item to revision
     ├── AddChargeDialog.tsx       # Add "Additional Charges" item
     ├── PORevisionHistory.tsx     # Timeline of past revisions on PO detail
@@ -87,17 +86,16 @@ src/pages/PORevision/
     └── PORevisionPaymentRectification.tsx  # Adjustment details display
 ```
 
-### Cache Key Factory — `poRevisionKeys`
+### Cache Key Factory -- `poRevisionKeys`
 All SWR keys generated from single factory in `poRevision.constants.ts`:
-- `revisionDoc(id)`, `revisionHistory(poId)`, `procurementRequest(prId)`, `categories(wp)`, `items(wp)`, `categoryMakelist(wp)`, `vendorInvoices(poId)`, `candidatePOs(vendor)`, `originalPO(poId)`, `lockCheck(poId)`, `allLocked()`
+- `revisionDoc(id)`, `revisionHistory(poId)`, `procurementRequest(prId)`, `categories(wp)`, `items(wp)`, `categoryMakelist(wp)`, `vendorInvoices(poId)`, `originalPO(poId)`, `lockCheck(poId)`, `allLocked()`
 
-### API Endpoints — `PO_REVISION_APIS`
-- `makeRevision` → `nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions`
-- `approveRevision` → `nirmaan_stack.api.po_revisions.revision_logic.on_approval_revision`
-- `checkLock` → `nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions`
-- `getHistory` → `nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history`
-- `getCandidatePOs` → `nirmaan_stack.api.po_revisions.revision_logic.get_adjustment_candidate_pos`
-- `getAllLocked` → `nirmaan_stack.api.po_revisions.revision_po_check.get_all_locked_po_names`
+### API Endpoints -- `PO_REVISION_APIS`
+- `makeRevision` -> `nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions`
+- `approveRevision` -> `nirmaan_stack.api.po_revisions.revision_logic.on_approval_revision`
+- `checkLock` -> `nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions`
+- `getHistory` -> `nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history`
+- `getAllLocked` -> `nirmaan_stack.api.po_revisions.revision_po_check.get_all_locked_po_names`
 
 ---
 
@@ -108,10 +106,10 @@ All SWR keys generated from single factory in `poRevision.constants.ts`:
 | Type | Meaning | Transition |
 |------|---------|-----------|
 | Original | Unchanged from PO | Default state |
-| Revised | Same item, qty/rate/tax changed | Original → edit value fields |
-| Replace | Different item_id swapped in | Original → change item_id |
+| Revised | Same item, qty/rate/tax changed | Original -> edit value fields |
+| Replace | Different item_id swapped in | Original -> change item_id |
 | New | Entirely new item added | Via "Add Item" / "Add Charge" |
-| Deleted | Soft-deleted for backend | Original/Revised → click delete |
+| Deleted | Soft-deleted for backend | Original/Revised -> click delete |
 
 ### Received Quantity Constraints
 
@@ -125,72 +123,40 @@ For items with `received_quantity > 0`:
 | Quantity | min = `received_quantity` (red border if violated) |
 | Delete button | DISABLED |
 
-Hover card shows: warning + received qty + min allowed qty.
-
 ### Custom PO Differences
 - Item name: free-text `Input` (not `ReactSelect`)
 - Make column: hidden from table
 - New items: require manual Category + Procurement Package selection (no catalog lookup)
 
-### Validation (Step 1 → 2)
+### Validation (Step 1 -> Summary)
+- At least one item must have changed (not all "Original")
 - Justification text required (non-empty)
 - All non-Deleted items: rate > 0
 - All non-Deleted items: qty > 0 AND qty >= received_quantity
-- Difference ≠ 0 (button disabled if no financial change)
 
 ---
 
-## Step 2: Financial Adjustment
+## Step 2: Summary & Submit
 
-### Positive Flow (revised > original)
-- User creates Payment Terms: description (max 140 chars) + amount
-- Validation: total allocated = `|difference.inclGst|` (±₹1 tolerance)
-- Multiple terms allowed
+Shows item changes + justification + financial impact (before/after/difference).
 
-### Negative Flow (revised < original)
+Submission calls `make_po_revisions` -> creates Pending document -> returns revision ID.
 
-**Auto-absorb:** System reduces unpaid "Created" payment terms first (`createdTermsAbsorbable`).
-
-**User allocation** for remaining (`userAllocationRequired`):
-
-| Method | Description | Details |
-|--------|-------------|---------|
-| **Against another PO** | Transfer credit to another PO | Same vendor, eligible status, not locked, absorbable > ₹100 |
-| **Ad-hoc expense** | Write off as expense | Expense type + description + comment |
-| **Vendor has refunded** | Direct refund with proof | File upload + date picker |
-
-**Constraints:**
-- Only ONE "Against PO" adjustment allowed
-- Adhoc + Refunded can be combined via "Add Another Adjustment Method"
-- Validation: user allocation total = `userAllocationRequired` (±₹1)
-
-### Candidate PO Filtering (Against-po)
-Backend `get_adjustment_candidate_pos(vendor, current_po)`:
-1. Same vendor, not current PO
-2. Status in: PO Approved, Partially Dispatched, Dispatched, Partially Delivered, Delivered
-3. Not locked by any pending revision
-4. `created_terms_amount > ₹100` (sufficient unpaid balance)
-
----
-
-## Step 3: Summary & Submit
-
-Shows item changes + justification + financial summary + adjustment details.
-
-Submission calls `make_po_revisions` → creates Pending document → returns revision ID.
+**Note:** No payment allocation step -- financial reconciliation happens automatically on approval and manually via PO Adjustments.
 
 ---
 
 ## Backend: Creating a Revision
 
-**API:** `make_po_revisions(po_id, justification, revision_items, total_amount_difference, payment_return_details)`
+**API:** `make_po_revisions(po_id, justification, revision_items, total_amount_difference)`
 
-1. Fetches original PO (read-only — extracts project, vendor)
+1. Fetches original PO (read-only -- extracts project, vendor)
 2. Creates new `PO Revisions` doc with status="Pending"
 3. Populates `revision_items` child table per item type
-4. Stores `payment_return_details` JSON as-is
-5. `.insert(ignore_permissions=True)` — allows low-permission users to create drafts
-6. Returns revision name
+4. Sets `payment_return_details = None` (payment handling decoupled)
+5. `.insert(ignore_permissions=True)` -- allows low-permission users to create drafts
+6. Emits `po:revision_created` Socket.IO event
+7. Returns revision name
 
 ---
 
@@ -211,28 +177,31 @@ Runs as a **single atomic transaction** with full rollback on failure.
 | Deleted | Remove row (throws error if `received_quantity > 0`) |
 
 Post-sync:
-- `calculate_totals_from_items()` — recalculates PO amount/tax/total
+- `calculate_totals_from_items()` -- recalculates PO amount/tax/total
 - Delivery status recalculation (see DN Interaction below)
 - Save with `ignore_validate_update_after_submit=True`
 
-### Phase 2: Financial Processing
+### Phase 2: Auto Financial Adjustment
 
-**Positive Flow** (`process_positive_increase`):
-1. Parse payment terms from JSON
-2. Update existing terms or merge into first "Created" term or append new
-3. For Credit payment type: new terms get `due_date = today + 2 days`
-4. Recalculate ALL term percentages to sum to 100%
+If `total_amount_difference != 0`, the system automatically:
 
-**Negative Flow** (`process_negative_returns`):
-1. **Against-po:** Create negative payment on original PO (`VR-` UTR prefix) + positive payment on target PO. `_split_target_po_term()` reduces target's Created terms and appends consolidated "Credit PO" term.
-2. **Vendor-has-refund:** Create negative payment on original PO + append "RA Vendor" Return term.
-3. **Ad-hoc:** Create negative payment + create `Project Expenses` record + append "RA Adhoc" Return term.
-4. **LIFO Reduction** (`_reduce_payment_terms_lifo`): Reduce original PO's Created terms bottom-up. If deficit → auto-create "Overpayment Return Required" term.
-5. Recalculate percentages (Return terms = 0%).
-6. `_recalculate_amount_paid()` for all affected POs.
+**Positive diff (PO amount increased):** `_auto_add_payment_term()`
+1. Appends a new "Created" payment term labeled "Revision Adjustment - {revision_id}"
+2. Rebalances all term percentages
+3. Creates double-entry in PO Adjustment: "Revision Impact" (+diff) + "Term Addition" (-diff) -> net 0 -> Done
 
-### Phase 3: Finalize
-- Status → "Approved", save revision doc
+**Negative diff (PO amount decreased):** `_auto_absorb_created_terms()`
+1. LIFO-reduces "Created" payment terms to absorb the reduction
+2. Creates double-entry in PO Adjustment: "Revision Impact" (-abs_diff) + "Auto Absorb" entries (+absorbed amounts)
+3. If fully absorbed -> net 0 -> Done. If partially absorbed -> remaining negative -> Pending (user resolves via PO Adjustment dialog)
+
+### Phase 3: Create/Update PO Adjustment Doc
+
+`_create_or_update_adjustment()` creates or appends to the `PO Adjustments` doc for the original PO, recording all auto-generated entries and recalculating `remaining_impact`.
+
+### Phase 4: Finalize
+- Status -> "Approved", save revision doc
+- Emits `po:revision_approved` Socket.IO event
 
 ### Error Handling
 ```python
@@ -244,20 +213,20 @@ except Exception as e:
 
 ---
 
-## Transaction Safety: `from_revision` Flag
+## Transaction Safety: `from_adjustment` Flag
 
 **Problem:** Normal payment hooks call `frappe.db.commit()` mid-transaction, preventing rollback.
 
-**Solution:** `_create_project_payment()` sets `pay.flags.from_revision = True`.
+**Solution:** `_create_project_payment()` (in `api/po_adjustments/_payment_utils.py`) sets `pay.flags.from_adjustment = True`.
 
 **Hooks that check and return early:**
 
 | File | Hook |
 |------|------|
-| `doctype/project_payments/project_payments.py` | `before_insert()` — skips amount validation |
-| `doctype/project_payments/project_payments.py` | `on_update()` — skips status sync + commit |
-| `integrations/controllers/project_payments.py` | `after_insert()` — skips notifications + commit |
-| `integrations/controllers/project_payments.py` | `on_update()` — skips notifications + commit |
+| `doctype/project_payments/project_payments.py` | `before_insert()` -- skips amount validation |
+| `doctype/project_payments/project_payments.py` | `on_update()` -- skips status sync + commit |
+| `integrations/controllers/project_payments.py` | `after_insert()` -- skips notifications + commit |
+| `integrations/controllers/project_payments.py` | `on_update()` -- skips notifications + commit |
 
 **Manual recalc:** `_recalculate_amount_paid(po_id)` sums all Paid payments and updates `amount_paid` field via `frappe.db.set_value()`.
 
@@ -271,15 +240,15 @@ except Exception as e:
 - Quantity cannot go below received_quantity (frontend min + backend accepts gracefully)
 
 ### DN Operations Blocked During Revision
-- `DeliveryPivotTable` receives `isLocked` prop → submit disabled + alert shown
-- **Frontend-only enforcement** — no backend validation on DN APIs checks revision lock
+- `DeliveryPivotTable` receives `isLocked` prop -> submit disabled + alert shown
+- **Frontend-only enforcement** -- no backend validation on DN APIs checks revision lock
 - Contrast with CEO Hold: CEO Hold *exempts* DNs; Revision *blocks* them
 
 ### Post-Approval Delivery Status Recalculation
 
 After `sync_original_po_items`, the system recalculates delivery status:
 
-1. **Check dispatch completeness**: If any items not dispatched → `Partially Dispatched` (sticky)
+1. **Check dispatch completeness**: If any items not dispatched -> `Partially Dispatched` (sticky)
 2. **For fully-dispatched POs**: Run `calculate_order_status()`:
    - Integer quantities: exact match (`quantity <= received_quantity`)
    - Float quantities: 2.5% tolerance
@@ -287,39 +256,15 @@ After `sync_original_po_items`, the system recalculates delivery status:
 3. **Recalculate `po_amount_delivered`** via `calculate_delivered_amount()`
 4. **New items auto-dispatched**: Items added to post-dispatch PO get `is_dispatched=1`
 
-**Key scenario — quantity reduced below received:**
-If revision reduces qty from 10→5 but 7 were received, backend silently accepts → item marked "delivered" (7≥5) → PO may auto-transition to "Delivered".
+**Key scenario -- quantity reduced below received:**
+If revision reduces qty from 10->5 but 7 were received, backend silently accepts -> item marked "delivered" (7>=5) -> PO may auto-transition to "Delivered".
 
 ### Return Notes Can Independently Affect Status
-Return DNs store negative `delivered_quantity` → `recalculate_po_delivery_fields()` sums all DNs → status may revert (Delivered → Partially Delivered).
+Return DNs store negative `delivered_quantity` -> `recalculate_po_delivery_fields()` sums all DNs -> status may revert (Delivered -> Partially Delivered).
 
 ---
 
-## Role Access
-
-| Feature | Roles |
-|---------|-------|
-| Create revision | Any role that can view a PO |
-| View revision history | Admin, PMO, Accountant, Procurement Exec |
-| View revision link in warning | Admin, PMO, Accountant |
-| Approve/Reject | Via approval list page (accessible to permitted roles) |
-
----
-
-## Revision History API
-
-**API:** `get_po_revision_history(po_id)`
-
-Returns array of revision objects (newest-first) with:
-- Pre-parsed `payment_return_details` JSON (no frontend JSON.parse needed)
-- Pre-computed `original_total_incl_tax` and `revised_total_incl_tax`
-- Full `revision_items` child rows
-
-**Frontend:** `PORevisionHistory` component — collapsible timeline with status-colored dots, expandable cards showing items changed + payment details.
-
----
-
-## Payload Structures
+## Payload Structure
 
 ### revision_items (sent to backend)
 ```json
@@ -334,63 +279,33 @@ Returns array of revision objects (newest-first) with:
 }]
 ```
 
-### payment_return_details — Positive Flow
-```json
-{
-  "list": {
-    "type": "Payment Terms",
-    "Details": [{
-      "return_type": "Payment-terms",
-      "status": "Pending",
-      "amount": 5000,
-      "terms": [{ "label": "Milestone 1", "amount": 2500 }]
-    }]
-  }
-}
-```
-
-### payment_return_details — Negative Flow
-```json
-{
-  "list": {
-    "type": "Refund Adjustment",
-    "auto_adjusted_amount": 2000,
-    "Details": [{
-      "status": "Pending",
-      "amount": 2000,
-      "return_type": "Against-po|Ad-hoc|Vendor-has-refund",
-      "target_pos": [{ "po_number": "PO-002", "amount": 2000 }],
-      "ad-hoc_type": "expense", "ad-hoc_description": "reason",
-      "refund_date": "2026-02-27", "refund_attachment": "/files/receipt.pdf"
-    }]
-  }
-}
-```
-
 ---
 
 ## Key Backend Files
 
 | File | Purpose |
 |------|---------|
-| `api/po_revisions/revision_logic.py` | Create, approve, reject revisions; item sync; financial flows |
-| `api/po_revisions/revision_po_check.py` | Lock checks (original + target), bulk lock list |
-| `api/po_revisions/revision_history.py` | History API with pre-parsed JSON + computed totals |
+| `api/po_revisions/revision_logic.py` | Create, approve, reject revisions; item sync; auto-adjustment |
+| `api/po_revisions/revision_po_check.py` | Lock checks (revision + adjustment), bulk lock list |
+| `api/po_revisions/revision_history.py` | History API with computed totals |
+| `api/po_adjustments/_payment_utils.py` | Shared payment utilities (create payment, LIFO reduction, split terms) |
+| `api/po_adjustments/adjustment_logic.py` | Manual adjustment execution (Against-PO, Adhoc, Refund) |
 | `doctype/po_revisions/po_revisions.json` | PO Revisions doctype schema |
 | `doctype/po_revisions_items/po_revisions_items.json` | Child table schema |
-| `doctype/project_payments/project_payments.py` | `from_revision` flag checks |
-| `integrations/controllers/project_payments.py` | `from_revision` flag checks |
-| `integrations/controllers/procurement_orders.py` | AQ creation on dispatch |
-| `api/delivery_notes/update_delivery_note.py` | `calculate_order_status()`, `calculate_delivered_amount()` |
+| `doctype/po_adjustments/po_adjustments.json` | PO Adjustments doctype schema |
+| `doctype/project_payments/project_payments.py` | `from_adjustment` flag checks |
+| `integrations/controllers/project_payments.py` | `from_adjustment` flag checks |
 
 ---
 
 ## Gotchas
 
-1. **DN lock is frontend-only** — no backend validation prevents DN creation during pending revision
-2. **Quantity below received accepted** — backend doesn't re-validate the constraint; item gets marked over-delivered
-3. **Partially Dispatched is sticky** — stays even with DNs recorded, until ALL items dispatched
+1. **DN lock is frontend-only** -- no backend validation prevents DN creation during pending revision
+2. **Quantity below received accepted** -- backend doesn't re-validate the constraint; item gets marked over-delivered
+3. **Partially Dispatched is sticky** -- stays even with DNs recorded, until ALL items dispatched
 4. **Additional Charges** skipped from delivery status calc, use full qty for amount calc
-5. **`_check_pending_as_target` is O(N)** — iterates all pending revisions, parses JSON each time
-6. **from_revision flag is critical** — without it, payment hook commits break rollback atomicity
-7. **TimestampMismatchError** — `_recalculate_amount_paid` for original PO must run AFTER `.save()` because `set_value` updates `modified`
+5. **from_adjustment flag is critical** -- without it, payment hook commits break rollback atomicity
+6. **TimestampMismatchError** -- `_recalculate_amount_paid` for original PO must run AFTER `.save()` because `set_value` updates `modified`
+7. **payment_return_details is deprecated** -- revision no longer stores payment allocation; set to None on creation
+8. **Positive diff is auto-resolved** -- auto-creates Created term + PO Adjustment entries that net to zero -> status "Done"
+9. **Negative diff may need manual resolution** -- only auto-absorbs Created terms; remaining deficit tracked as Pending in PO Adjustment
