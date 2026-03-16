@@ -30,9 +30,7 @@ export const PO_STATUS_OPTIONS = [
     { label: "Dispatched", value: "Dispatched" },
     { label: "Partially Delivered", value: "Partially Delivered" },
     { label: "Delivered", value: "Delivered" },
-    { label: "Merged", value: "Merged" },
-    { label: "Inactive", value: "Inactive"},
-
+    { label: "Inactive", value: "Inactive" },
 ]
 
 // Date columns commonly used for filtering PO tables
@@ -49,8 +47,6 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
             return [["status", "in", ["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]];
         }
         else return [];
-    } else if (tab === "Merged POs") {
-        return [["status", "=", "Merged"]];
     }
     // const isEstimatesExec = role === "Nirmaan Estimates Executive Profile";
     // if (isEstimatesExec) {

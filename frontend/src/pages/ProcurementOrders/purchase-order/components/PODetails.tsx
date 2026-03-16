@@ -398,6 +398,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
       showBlockedToast();
       return;
     }
+    if (isItemLocked) {
+      toast({
+        title: "Cannot revert",
+        description: "This PO has a pending revision. Complete or cancel it first.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (hasDNsForPO) {
       toast({
         title: "Cannot revert",
@@ -417,6 +425,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
       await poMutate();
       invalidateSidebarCounts();
 
+      toggleRevertDialog();
+
       toast({
         title: "Success!",
         description: `PO: ${po.name} Reverted back to PO Approved!`,
@@ -425,6 +435,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
       navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`);
     } catch (error) {
+      toggleRevertDialog();
+
       toast({
         title: "Failed!",
         description: `PO: ${po.name} Revert Failed!`,
@@ -762,6 +774,30 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                 <POAdjustmentButton poId={po.name} onClick={onAdjustPayments} />
               )}
+
+              {/* Revert Button */}
+              {!summaryPage &&
+                !accountsPage &&
+                !estimatesViewing &&
+                !isItemLocked &&
+                ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
+                !(poPayments?.length) &&
+                ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={toggleRevertDialog}
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      >
+                        <Undo2 className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Revert</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Revert</TooltipContent>
+                  </Tooltip>
+                )}
             </div>
 
             {/* Right group: Document operations */}
@@ -826,29 +862,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
               </>
             )}
 
-            {/* Revert Button */}
-            {!summaryPage &&
-              !accountsPage &&
-              !estimatesViewing &&
-              ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
-              !((poPayments || [])?.length > 0) &&
-              ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={toggleRevertDialog}
-                      className="h-8 px-2.5 border-primary text-primary shrink-0"
-                    >
-                      <Undo2 className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Revert</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Revert</TooltipContent>
-                </Tooltip>
-              )}
-
             {/* Preview Button */}
             {(po?.status !== "PO Approved" ||
               summaryPage ||
@@ -890,7 +903,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               !accountsPage &&
               !estimatesViewing &&
               po?.status === "PO Approved" &&
-              !((poPayments || [])?.length > 0) &&
+              !(poPayments?.length) &&
               ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -983,8 +996,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </DialogHeader>
 
             <DialogDescription>
-              Clicking on Confirm will revert this PO's status back to{" "}
-              <span className="text-primary">PO Approved</span>.
+              This will revert the PO status to{" "}
+              <span className="text-primary">PO Approved</span> and clear all
+              dispatch markings.
             </DialogDescription>
 
             <div className="flex items-center justify-end gap-2">

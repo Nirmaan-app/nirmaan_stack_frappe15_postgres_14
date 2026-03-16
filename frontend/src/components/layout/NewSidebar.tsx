@@ -778,7 +778,7 @@ export function NewSidebar() {
                     "Projects",
                     "Work Orders",
                     "In-Flow Payments",
-                    "Invoice Recon",
+                    "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
                     "Commission Report",

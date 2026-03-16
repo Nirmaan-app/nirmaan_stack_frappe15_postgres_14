@@ -99,8 +99,8 @@ def on_update(doc, method):
         except frappe.DoesNotExistError:
             print("PO NOT AVAILABLE IN DB")
 
-    # Revert from Partially Dispatched → PO Approved: clear all is_dispatched flags
-    if old_doc and old_doc.status == "Partially Dispatched" and doc.status == "PO Approved":
+    # Revert from Partially Dispatched/Dispatched → PO Approved: clear all is_dispatched flags
+    if old_doc and old_doc.status in ("Partially Dispatched", "Dispatched") and doc.status == "PO Approved":
         frappe.db.sql("""
             UPDATE "tabPurchase Order Item"
             SET is_dispatched = 0

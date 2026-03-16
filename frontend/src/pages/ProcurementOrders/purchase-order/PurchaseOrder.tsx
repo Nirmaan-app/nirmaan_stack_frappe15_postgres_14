@@ -65,7 +65,6 @@ import {
   // getPreviewTotal,
 } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { Tree } from "antd";
 import {
   useFrappeDocumentEventListener,
   useFrappeGetDocList,
@@ -78,7 +77,6 @@ import {
   CheckCheck,
   CircleX,
   Eye,
-  List,
   Merge,
   MessageCircleMore,
   MessageCircleWarning,
@@ -138,7 +136,6 @@ export const PurchaseOrder = ({
 
   if (!id) return <div>No PO ID Provided</div>;
 
-  const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
   const { data: lockData } = usePOLockCheck(poId);
@@ -240,8 +237,6 @@ export const PurchaseOrder = ({
 
   const [mergeablePOs, setMergeablePOs] = useState<ProcurementOrder[]>([]);
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
-  const [prevMergedPOs, setPrevMergedPos] = useState<ProcurementOrder[]>([]);
-
   // --- NEW: State for merged payment terms ---
   const [mergedPaymentTerms, setMergedPaymentTerms] = useState<PaymentTerm[]>(
     []
@@ -273,11 +268,6 @@ export const PurchaseOrder = ({
     setCancelPODialog((prevState) => !prevState);
   }, [cancelPODialog]);
 
-  const [unMergeDialog, setUnMergeDialog] = useState(false);
-
-  const toggleUnMergeDialog = useCallback(() => {
-    setUnMergeDialog((prevState) => !prevState);
-  }, []);
 
   const [isAdjustmentDialogOpen, setIsAdjustmentDialogOpen] = useState(false);
 
@@ -292,10 +282,6 @@ export const PurchaseOrder = ({
     "nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos"
   );
 
-  const { call: unMergePOCall, loading: unMergePOCallLoading } =
-    useFrappePostCall(
-      "nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos"
-    );
 
   const { data: potentialMergePOsList, isLoading: listIsLoading } =
     useFrappeGetDocList<ProcurementOrder>(
@@ -592,18 +578,13 @@ export const PurchaseOrder = ({
         toggleMergeConfirmDialog();
         toggleMergeSheet();
 
-        setIsRedirecting(true);
-
-        setTimeout(() => {
-          setIsRedirecting(false);
-          navigate(
-            `/purchase-orders/${response.message.new_po_name.replaceAll(
-              "/",
-              "&="
-            )}?tab=Approved%20PO`
-          );
-          window.location.reload();
-        }, 1000);
+        invalidateSidebarCounts();
+        navigate(
+          `/purchase-orders/${response.message.new_po_name.replaceAll(
+            "/",
+            "&="
+          )}?tab=Approved%20PO`
+        );
       } else if (response.message.status === 400) {
         toast({
           title: "Error!",
@@ -616,45 +597,6 @@ export const PurchaseOrder = ({
       toast({
         title: "Error!",
         description: "Failed to merge POs. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUnmergePOs = async () => {
-    try {
-      // The payload is simple: just the ID of the master PO.
-      // The backend will handle the rest.
-      const response = await unMergePOCall({
-        po_id: poId,
-      });
-
-      // Handle the success or error response from the backend
-      if (response.message.status === 200) {
-        toggleUnMergeDialog();
-        toast({
-          title: "Success!",
-          description: response.message.message,
-          variant: "success",
-        });
-        setIsRedirecting(true);
-        setTimeout(() => {
-          setIsRedirecting(false);
-          navigate(`/purchase-orders?tab=Approved%20PO`);
-          window.location.reload();
-        }, 1000);
-      } else if (response.message.status === 400) {
-        toast({
-          title: "Error!",
-          description: response.message.error, // Display the error from the backend
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.log("error while unmerging po's", error);
-      toast({
-        title: "Error!",
-        description: "Failed to unmerge POs. Please try again.",
         variant: "destructive",
       });
     }
@@ -691,29 +633,6 @@ export const PurchaseOrder = ({
       });
     }
   };
-
-  const treeData = useMemo(() => {
-    if (!PO?.items) {
-      return [{ title: PO?.name, key: "mainPO", children: [] }];
-    }
-
-    const allSourcePoNames = PO.items.map(item => item.po).filter(Boolean);
-    const uniqueSourcePoNames = [...new Set(allSourcePoNames)];
-
-    const childrenNodes = uniqueSourcePoNames.map((poName, idx) => ({
-      title: poName,
-      key: `po-${idx}-${poName}`,
-      isLeaf: true,
-    }));
-
-    return [
-      {
-        title: PO?.name,
-        key: "mainPO",
-        children: childrenNodes,
-      },
-    ];
-  }, [PO]);
 
   // const amountPaid = useMemo(
   //   () =>
@@ -762,8 +681,7 @@ export const PurchaseOrder = ({
       !estimatesViewing &&
       !isAccountant &&
       ["PO Approved"].includes(PO?.status) &&
-      !((poPayments || []).length > 0) &&
-      PO?.merged !== "true",
+      !((poPayments || []).length > 0),
     [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
@@ -806,27 +724,6 @@ export const PurchaseOrder = ({
       ).length || 0,
     [poAttachmentsData]
   );
-
-  const UNMERGEPOVALIDATIONS = useMemo(
-    () =>
-      !summaryPage &&
-      !accountsPage &&
-      !PO?.custom &&
-      !estimatesViewing &&
-      !isAccountant &&
-      PO?.merged === "true",
-    [PO, summaryPage, accountsPage, estimatesViewing, isAccountant]
-  );
-
-  if (isRedirecting) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-        <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-          <p className="text-lg font-semibold">Redirecting... Please wait</p>
-        </div>
-      </div>
-    );
-  }
 
   if (
     poLoading ||
@@ -1492,102 +1389,9 @@ export const PurchaseOrder = ({
           </div>
         </CardContent>
       </Card>
-      {/* Unmerge, Amend and Cancel PO Buttons  */}
-      {/* Unmerge */}
-      <div className="flex items-center justify-between">
-        {UNMERGEPOVALIDATIONS ? (
-          PO?.status === "PO Approved" &&
-          !((poPayments || [])?.length > 0) && (
-            <AlertDialog
-              open={unMergeDialog}
-              onOpenChange={toggleUnMergeDialog}
-            >
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant={"outline"}
-                  className="flex border-primary items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
-                >
-                  <Split className="h-4 w-4" />
-                  Unmerge
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="overflow-auto max-h-[90vh]">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                </AlertDialogHeader>
-                <div className="space-y-6">
-                  <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                      <List className="w-5 h-5 mr-2" />
-                      Associated Merged PO's
-                    </h3>
-                    <Tree
-                      treeData={treeData}
-                      defaultExpandedKeys={["mainPO"]}
-                    />
-                  </div>
-                  <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                      <AlertTriangle className="w-5 h-5 mr-2" />
-                      Important Notes
-                    </h3>
-                    <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
-                      <li>
-                        If you need to{" "}
-                        <span className="italic text-primary font-bold">
-                          Amend / Cancel
-                        </span>
-                        , You should proceed with this option.
-                      </li>
-                      <li>
-                        This action will delete the current PO, unmerge all{" "}
-                        <span className="text-primary font-semibold">
-                          the above listed merged PO(s)
-                        </span>{" "}
-                        and make them available in the table!
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-                <AlertDialogDescription className="space-y-2">
-                  <div>
-                    Please be informed that the above mentioned are the PO(s)
-                    that are going to be unmerged and be available in the table,
-                    it is advised to note these PO numbers!
-                  </div>
-
-                  <p className="">
-                    Click on confirm to proceed with unmerging!
-                  </p>
-                </AlertDialogDescription>
-                {unMergePOCallLoading ? (
-                  <div className="flex items-center justify-center">
-                    <TailSpin width={80} color="red" />{" "}
-                  </div>
-                ) : (
-                  <div className="flex justify-end items-center gap-2">
-                    <AlertDialogCancel>
-                      <CircleX className="h-4 w-4 mr-1" />
-                      Cancel
-                    </AlertDialogCancel>
-                    <Button
-                      onClick={handleUnmergePOs}
-                      className="flex items-center gap-1"
-                    >
-                      <Split className="h-4 w-4 mr-1" />
-                      Confirm
-                    </Button>
-                  </div>
-                )}
-              </AlertDialogContent>
-            </AlertDialog>
-          )
-        ) : (
-          <div />
-        )}
-
+      {/* Cancel PO Button */}
+      <div className="flex items-center justify-end">
         <div className="flex gap-2 items-center justify-end">
-          {/* Cancel PO */}
           {CANCELPOVALIDATION && (
             <Button
               onClick={toggleCancelPODialog}
@@ -1629,6 +1433,12 @@ export const PurchaseOrder = ({
                         </span>{" "}
                         side option.
                       </li>
+                      {PO?.merged === "true" && (
+                        <li>
+                          This is a <Badge variant="orange">Merged PO</Badge>. Cancelling will also cancel
+                          all source POs that were merged into it.
+                        </li>
+                      )}
                     </ul>
                   </div>
                 </div>

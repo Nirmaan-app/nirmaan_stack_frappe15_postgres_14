@@ -11,7 +11,6 @@ export const PO_TABS = {
     PARTIALLY_DELIVERED_PO: 'Partially Delivered PO',
     DELIVERED_PO: 'Delivered PO',
     ALL_POS: 'All POs',
-    MERGED_POS: 'Merged POs',
 } as const;
 
 export type POTabValue = typeof PO_TABS[keyof typeof PO_TABS];
