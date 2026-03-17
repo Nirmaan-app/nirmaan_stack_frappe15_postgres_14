@@ -45,6 +45,7 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../../Sent Back Requests/approve-select-sent-back"));
+const PORevisionsApprovalList = React.lazy(() => import("../../PORevision/PORevisionsApprovalList"));
 const DOCTYPE = 'Procurement Orders';
 const URL_SYNC_KEY = 'po'; // Unique key for URL state for this table instance
 
@@ -638,6 +639,7 @@ export const ReleasePOSelect: React.FC = () => {
     const renderTabView = () => {
         if (tab === PO_TABS.APPROVE_PO) return <ApproveSelectVendor />;
         if (tab === PO_TABS.APPROVE_SENT_BACK_PO) return <ApproveSelectSentBack />;
+        if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;
 
         if (shouldShowTable) {
             if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {

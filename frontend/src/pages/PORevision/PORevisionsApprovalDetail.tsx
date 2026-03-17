@@ -28,7 +28,7 @@ export default function PORevisionsApprovalDetail() {
         try {
             await approveRevision();
             // Success - Redirect back to the list
-            navigate("/po-revisions-approval");
+            navigate("/purchase-orders?tab=Approve+PO+Revision");
         } catch (err) {
             alert("Failed to approve revision. Please try again.");
         }
@@ -38,7 +38,7 @@ export default function PORevisionsApprovalDetail() {
         try {
             await rejectRevision();
             // Success - Redirect back to the list
-            navigate("/po-revisions-approval");
+            navigate("/purchase-orders?tab=Approve+PO+Revision");
         } catch (err) {
             alert("Failed to reject revision. Please try again.");
         }
