@@ -1262,9 +1262,69 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               ? commissionMasterData.message.categories
               : [];
 
+            const selectedProjectWorkPackages = (() => {
+              const selected = new Set<string>();
+              const normalizePackageKey = (value: string) => value.trim().toLowerCase();
+              const addPackage = (raw?: unknown) => {
+                if (typeof raw !== "string") return;
+                const normalized = normalizePackageKey(raw);
+                if (normalized) selected.add(normalized);
+              };
+              if (Array.isArray(data?.project_wp_category_makes)) {
+                data.project_wp_category_makes.forEach((row: ProjectWPCategoryMake | undefined) => {
+                  addPackage(row?.procurement_package);
+                });
+              }
+
+              // Legacy/fallback source: JSON field shape used in older project payloads.
+              const rawProjectWorkPackages = data?.project_work_packages as any;
+              const parsedProjectWorkPackages = (() => {
+                if (!rawProjectWorkPackages) return null;
+                if (typeof rawProjectWorkPackages === "string") {
+                  try {
+                    return JSON.parse(rawProjectWorkPackages);
+                  } catch {
+                    return null;
+                  }
+                }
+                return rawProjectWorkPackages;
+              })();
+
+              if (parsedProjectWorkPackages && typeof parsedProjectWorkPackages === "object") {
+                const workPackages = Array.isArray(parsedProjectWorkPackages?.work_packages)
+                  ? parsedProjectWorkPackages.work_packages
+                  : Array.isArray(parsedProjectWorkPackages?.work_packages?.list)
+                    ? parsedProjectWorkPackages.work_packages.list
+                    : [];
+
+                workPackages.forEach((wp: any) => {
+                  addPackage(wp?.work_package_name);
+                  addPackage(wp?.name);
+                  addPackage(wp?.value);
+                  addPackage(wp?.work_package);
+                });
+              }
+
+              return selected;
+            })();
+
+            const categoriesForSelectedPackages = masterCategories.filter((category: any) => {
+              const categoryPackage = typeof category?.work_package === "string"
+                ? category.work_package.trim().toLowerCase()
+                : "";
+
+              // Keep backward compatibility for categories that are not package-linked.
+              if (!categoryPackage) return true;
+
+              // Fallback behavior for legacy project records where package data might be unavailable.
+              if (selectedProjectWorkPackages.size === 0) return true;
+
+              return selectedProjectWorkPackages.has(categoryPackage);
+            });
+
             const commissionTasks: any[] = [];
 
-            masterCategories.forEach((category: any) => {
+            categoriesForSelectedPackages.forEach((category: any) => {
               const categoryName = category?.category_name;
               const categoryTasks = Array.isArray(category?.tasks) ? category.tasks : [];
               if (!categoryName || categoryTasks.length === 0) return;

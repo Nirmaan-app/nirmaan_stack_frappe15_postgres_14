@@ -47,7 +47,7 @@ def get_all_master_data():
     # 3. Fetch Commission Categories and Tasks
     categories = frappe.get_list(
         "Commission Report Category",
-        fields=["name", "category_name"],
+        fields=["name", "category_name", "work_package"],
         order_by="category_name asc",
         as_list=False
     )

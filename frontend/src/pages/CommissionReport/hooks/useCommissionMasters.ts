@@ -42,6 +42,7 @@ export const useCommissionMasters = () => {
     const categoryData = useMemo(() => {
         return rawCategories.map((cat: any) => ({
             category_name: cat.category_name,
+            work_package: cat.work_package,
             tasks: cat.tasks.map((t: any) => ({
                 task_name: t.task_name,
                 deadline_offset: t.deadline_offset

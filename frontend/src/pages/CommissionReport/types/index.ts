@@ -82,6 +82,7 @@ export interface TaskTemplate {
 // Raw category data from API
 export interface RawCategoryData {
     category_name: string;
+    work_package?: string;
     tasks: TaskTemplate[];
 }
 
