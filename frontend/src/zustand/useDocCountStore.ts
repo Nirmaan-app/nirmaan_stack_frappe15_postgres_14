@@ -15,8 +15,9 @@ export interface SidebarCountsData {
         "Partially Delivered": number;
         "Delivered": number;
         "Merged": number;
-        "PO Amendment": number;
-
+    }
+    po_adjustments: {
+        pending: number;
     }
     po_revisions: {
         all: number;
@@ -88,7 +89,9 @@ export const useDocCountStore = create<Store>()(
             "Partially Delivered": 0,
             "Delivered": 0,
             "Merged": 0,
-            "PO Amendment": 0,
+        },
+        po_adjustments: {
+            pending: 0,
         },
         po_revisions: {
             all: 0,

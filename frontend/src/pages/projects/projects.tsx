@@ -289,7 +289,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         "amount_paid",
         "po_amount_delivered",
       ],
-      filters: [["status", "not in", ["Merged", "Inactive", "PO Amendment"]]],
+      filters: [["status", "not in", ["Merged", "Inactive"]]],
       limit: 100000,
     },
     "POs_For_ProjectsList"

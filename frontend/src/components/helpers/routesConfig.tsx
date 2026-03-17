@@ -107,7 +107,6 @@ import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
 // PO Revisions Approval
-import PORevisionsApprovalList from "@/pages/PORevision/PORevisionsApprovalList";
 import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDetail";
 
 //Help Repository
@@ -288,7 +287,6 @@ export const appRoutes: RouteObject[] = [
           {
             path: "po-revisions-approval",
             children: [
-              { index: true, element: <PORevisionsApprovalList /> },
               { path: ":id", element: <PORevisionsApprovalDetail /> },
             ],
           },

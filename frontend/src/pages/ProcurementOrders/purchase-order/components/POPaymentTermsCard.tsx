@@ -1073,7 +1073,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                   className="h-7 px-3 text-xs"
                   onClick={() => setEditTermsOpen(true)}
                   disabled={isLocked}
-                  title={isLocked ? "PO is in Revision, cannot edit payment terms." : ""}
+                  title={isLocked ? "PO payments are locked due to a pending Revision or Adjustment." : ""}
                 >
                   <PencilIcon className="w-3 h-3 mr-1" />
                   Edit

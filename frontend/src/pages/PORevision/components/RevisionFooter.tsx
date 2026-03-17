@@ -8,7 +8,6 @@ interface RevisionFooterProps {
   onNext: () => void;
   onSubmit: () => void;
   loading: boolean;
-  differenceAmount: number;
 }
 
 export const RevisionFooter: React.FC<RevisionFooterProps> = ({
@@ -17,32 +16,31 @@ export const RevisionFooter: React.FC<RevisionFooterProps> = ({
   onNext,
   onSubmit,
   loading,
-  differenceAmount,
 }) => {
   return (
-    <div className="border-t pt-6 mt-8 flex flex-col gap-4">
-      <p className="text-center text-[11px] font-medium text-gray-400">
-        By submitting, you acknowledge that this revision cannot be modified for the next 7 days.
+    <div className="border-t border-gray-200 pt-4 mt-4 flex items-center justify-between">
+      <p className="text-[10px] text-gray-400">
+        Revision locks the PO for 7 days after submission.
       </p>
-      <div className="flex w-full justify-end gap-3">
-        <Button variant="outline" onClick={onCancel} disabled={loading} className="px-8 font-bold border-gray-200">
+      <div className="flex items-center gap-2">
+        <Button variant="outline" onClick={onCancel} disabled={loading} className="px-6 text-xs font-medium border-gray-200">
           Cancel
         </Button>
-        {step < 3 ? (
-          <Button 
-            className="bg-[#D94444] hover:bg-[#C13D3D] text-white gap-2 px-8 font-bold border-none shadow-none"
+        {step === 1 ? (
+          <Button
+            className="bg-primary hover:bg-primary/90 text-white gap-1.5 px-6 text-xs font-medium"
             onClick={onNext}
-            disabled={loading || (step === 1 && differenceAmount === 0)}
+            disabled={loading}
           >
-            {step === 1 ? "Go to Payment Rectification" : "Continue"} <ArrowRight className="h-4 w-4" />
+            Review Summary <ArrowRight className="h-3.5 w-3.5" />
           </Button>
         ) : (
-          <Button 
-            className="bg-green-600 hover:bg-green-700 text-white gap-2 px-8 font-bold"
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 px-6 text-xs font-medium"
             onClick={onSubmit}
             disabled={loading}
           >
-            {loading ? "Processing..." : "Submit Revision Request"} <CheckCircle2 className="h-4 w-4" />
+            {loading ? "Processing..." : "Submit Revision"} <CheckCircle2 className="h-3.5 w-3.5" />
           </Button>
         )}
       </div>

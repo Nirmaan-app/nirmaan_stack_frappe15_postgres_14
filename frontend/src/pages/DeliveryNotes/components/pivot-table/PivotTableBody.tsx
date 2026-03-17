@@ -32,6 +32,7 @@ interface PivotTableBodyProps {
   viewMode?: "create" | "view-only" | "full";
   // Return entry props
   showReturn?: boolean;
+  hideTotalReceived?: boolean;
   returnHook?: {
     returnQuantities: Record<string, string>;
     handleReturnQuantityChange: (itemKey: string, value: string, maxAllowed: number) => void;
@@ -48,6 +49,7 @@ export function PivotTableBody({
   onEditQuantityChange,
   viewMode = "full",
   showReturn = false,
+  hideTotalReceived = false,
   returnHook,
 }: PivotTableBodyProps) {
   return (
@@ -77,6 +79,9 @@ export function PivotTableBody({
           >
             <div className="text-sm line-clamp-2 break-words">
               {row.itemName}
+              {row.make && (
+                <span className="text-red-500 font-light"> - {row.make}</span>
+              )}
               {row.comment && (
                 <HoverCard>
                   <HoverCardTrigger>
@@ -197,18 +202,20 @@ export function PivotTableBody({
           )}
 
           {/* Total Received */}
-          <TableCell className="py-1.5 px-2 text-right tabular-nums text-xs font-medium">
-            {row.totalReceived}
-            {viewMode !== "create" && (
-              row.isOverDelivered ? (
-                <AlertTriangle className="inline ml-1 h-3 w-3 text-amber-600" />
-              ) : row.isFullyDelivered ? (
-                <CheckCircle2 className="inline ml-1 h-3 w-3 text-green-600" />
-              ) : row.totalReceived > 0 ? (
-                <ArrowDown className="inline ml-1 h-3 w-3 text-primary" />
-              ) : null
-            )}
-          </TableCell>
+          {!hideTotalReceived && (
+            <TableCell className="py-1.5 px-2 text-right tabular-nums text-xs font-medium">
+              {row.totalReceived}
+              {viewMode !== "create" && (
+                row.isOverDelivered ? (
+                  <AlertTriangle className="inline ml-1 h-3 w-3 text-amber-600" />
+                ) : row.isFullyDelivered ? (
+                  <CheckCircle2 className="inline ml-1 h-3 w-3 text-green-600" />
+                ) : row.totalReceived > 0 ? (
+                  <ArrowDown className="inline ml-1 h-3 w-3 text-primary" />
+                ) : null
+              )}
+            </TableCell>
+          )}
         </TableRow>
       ))}
 
@@ -220,7 +227,7 @@ export function PivotTableBody({
               (viewMode !== "create" ? pivotData.dnColumns.length : 0) +
               (showEdit && !editingDnName ? 1 : 0) +
               (showReturn && !editingDnName ? 1 : 0) +
-              1
+              (hideTotalReceived ? 0 : 1)
             }
             className="text-center py-8 text-muted-foreground text-sm"
           >

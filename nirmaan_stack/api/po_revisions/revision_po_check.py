@@ -1,109 +1,64 @@
 import frappe
 from frappe import _
-import json
+
 
 @frappe.whitelist()
 def check_po_in_pending_revisions(po_id):
     """
-    Checks if a given PO is locked by any Pending PO Revision,
-    either as the Original PO or as an incoming Target PO.
-    Returns dict with 'is_locked', 'role', 'revision_id', status code.
+    Checks if a given PO is locked by any Pending PO Revision (as original PO only)
+    or by a Pending PO Adjustment.
+    Returns dict with is_locked, is_item_locked, is_payment_locked, and lock source details.
     """
     if not po_id:
-        return {"is_locked": False}
-        
-    # Check 1: Is this PO the Original PO being revised?
-    is_original_locked = _check_pending_as_original(po_id)
-    if is_original_locked:
-        return {
-            "is_locked": True,
-            "role": "Original PO",
-            "revision_id": is_original_locked,
-            "message": _(f"PO {po_id} is locked by Pending Revision: {is_original_locked}")
-        }
-        
-    # Check 2: Is this PO a Target PO receiving credit from another revision?
-    is_target_locked = _check_pending_as_target(po_id)
-    if is_target_locked:
-        return {
-            "is_locked": True,
-            "role": "Target PO",
-            "revision_id": is_target_locked,
-            "message": _(f"PO {po_id} is locked receiving credit from Pending Revision: {is_target_locked}")
-        }
-        
-    # Free
-    return {"is_locked": False, "message": _(f"PO {po_id} is not involved in any pending revisions.")}
+        return {"is_locked": False, "is_item_locked": False, "is_payment_locked": False}
 
+    result = {
+        "is_locked": False,
+        "is_item_locked": False,
+        "is_payment_locked": False,
+        "item_lock_revision_id": None,
+        "payment_lock_source": None,
+        "payment_lock_id": None,
+    }
 
-def _check_pending_as_original(po_id):
-    """
-    Checks if the given PO ID is the 'revised_po' (Original PO)
-    in any Pending PO Revisions.
-    Returns the Revision ID if true, else False.
-    """
+    # Check 1: Is this PO the Original PO being revised? (locks both items and payments)
     pending_revision = frappe.db.get_value(
         "PO Revisions",
         {"revised_po": po_id, "status": "Pending"},
         "name"
     )
-    return pending_revision or False
-# O(N)  need to optimize..
-def _check_pending_as_target(po_id):
-    """
-    Iterates through all Pending PO Revisions and checks their
-    JSON structure to see if this PO ID is a Target PO in an 'Against-po' transfer.
-    Returns the Revision ID if true, else False.
-    """
-    # Fetch all Pending Revisions that have some JSON details
-    pending_revisions = frappe.get_all(
-        "PO Revisions",
-        filters={"status": "Pending"},
-        fields=["name", "payment_return_details"]
-    )
-    
-    for rev in pending_revisions:
-        data = rev.get("payment_return_details")
-        if not data:
-            continue
-            
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except Exception:
-                continue
-                
-        if not isinstance(data, dict):
-            continue
-            
-        block = data.get("list")
-        if not isinstance(block, dict) or block.get("type") != "Refund Adjustment":
-            continue
-            
-        entries = block.get("Details", [])
-        if not isinstance(entries, list):
-            entries = [entries] if entries else []
-            
-        # Inspect each entry in the JSON
-        for entry in entries:
-            if isinstance(entry, dict) and entry.get("return_type") == "Against-po":
-                targets = entry.get("target_pos", [])
-                if not isinstance(targets, list):
-                    continue
-                    
-                for target in targets:
-                    if isinstance(target, dict) and target.get("po_number") == po_id:
-                        return rev.name # Found it! This PO is locked as a target.
+    if pending_revision:
+        result["is_locked"] = True
+        result["is_item_locked"] = True
+        result["is_payment_locked"] = True
+        result["item_lock_revision_id"] = pending_revision
+        result["payment_lock_source"] = "PO Revision"
+        result["payment_lock_id"] = pending_revision
+        return result
 
-    return False
+    # Check 2: Is there a Pending PO Adjustment? (locks payments only)
+    pending_adjustment = frappe.db.get_value(
+        "PO Adjustments",
+        {"po_id": po_id, "status": "Pending"},
+        "name"
+    )
+    if pending_adjustment:
+        result["is_payment_locked"] = True
+        result["payment_lock_source"] = "PO Adjustment"
+        result["payment_lock_id"] = pending_adjustment
+        return result
+
+    return result
+
+
 @frappe.whitelist()
 def get_all_locked_po_names():
     """
-    Returns a unique list of all PO names currently involved in a Pending 
-    PO Revision (as Original or Target).
+    Returns a unique list of all PO names currently involved in a Pending
+    PO Revision (as Original only) or a Pending PO Adjustment.
     Useful for bulk filtering (e.g. merge candidates).
     """
-    # 1. Get all Original POs in pending revisions
+    # Get all Original POs in pending revisions
     original_pos = frappe.get_all(
         "PO Revisions",
         filters={"status": "Pending"},
@@ -111,37 +66,12 @@ def get_all_locked_po_names():
     )
     locked_set = set(original_pos)
 
-    # 2. Get all Target POs from pending revisions
-    pending_details = frappe.get_all(
-        "PO Revisions",
+    # Get all POs with pending adjustments
+    adjustment_pos = frappe.get_all(
+        "PO Adjustments",
         filters={"status": "Pending"},
-        fields=["payment_return_details"]
+        pluck="po_id"
     )
-
-    for rev in pending_details:
-        data = rev.get("payment_return_details")
-        if not data:
-            continue
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except Exception:
-                continue
-        
-        block = data.get("list")
-        if not isinstance(block, dict) or block.get("type") != "Refund Adjustment":
-            continue
-            
-        entries = block.get("Details", [])
-        if not isinstance(entries, list):
-            entries = [entries] if entries else []
-            
-        for entry in entries:
-            if isinstance(entry, dict) and entry.get("return_type") == "Against-po":
-                targets = entry.get("target_pos", [])
-                if isinstance(targets, list):
-                    for target in targets:
-                        if isinstance(target, dict) and target.get("po_number"):
-                            locked_set.add(target.get("po_number"))
+    locked_set.update(adjustment_pos)
 
     return list(locked_set)

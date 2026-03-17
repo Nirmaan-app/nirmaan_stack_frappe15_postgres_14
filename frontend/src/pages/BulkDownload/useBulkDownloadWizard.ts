@@ -88,7 +88,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
             fields: ["name", "vendor_name", "vendor", "status", "amount", "creation"],
             filters: [
                 ["project", "=", projectId],
-                ["status", "not in", ["Merged", "Inactive", "PO Amendment", "Cancelled"]],
+                ["status", "not in", ["Merged", "Inactive", "Cancelled"]],
             ],
             limit: 0,
             orderBy: { field: "creation", order: "desc" },

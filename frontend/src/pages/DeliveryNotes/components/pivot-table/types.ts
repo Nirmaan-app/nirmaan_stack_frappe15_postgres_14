@@ -16,6 +16,7 @@ export interface PivotRow {
   isFullyDelivered: boolean;
   isOverDelivered: boolean;
   comment?: string;
+  make?: string;
 }
 
 /** A single column header — one per Delivery Note */

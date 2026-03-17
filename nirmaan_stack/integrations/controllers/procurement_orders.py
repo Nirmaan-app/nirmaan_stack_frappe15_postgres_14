@@ -99,8 +99,8 @@ def on_update(doc, method):
         except frappe.DoesNotExistError:
             print("PO NOT AVAILABLE IN DB")
 
-    # Revert from Partially Dispatched → PO Approved: clear all is_dispatched flags
-    if old_doc and old_doc.status == "Partially Dispatched" and doc.status == "PO Approved":
+    # Revert from Partially Dispatched/Dispatched → PO Approved: clear all is_dispatched flags
+    if old_doc and old_doc.status in ("Partially Dispatched", "Dispatched") and doc.status == "PO Approved":
         frappe.db.sql("""
             UPDATE "tabPurchase Order Item"
             SET is_dispatched = 0
@@ -115,64 +115,6 @@ def on_update(doc, method):
 
     if(doc.status=="Cancelled"):
         frappe.delete_doc("Procurement Orders", doc.name)
-
-    if old_doc and old_doc.status == 'PO Approved' and doc.status == "PO Amendment":
-        lead_admin_users = get_allowed_lead_users(doc) + get_admin_users()
-        pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
-        if lead_admin_users:
-            for user in lead_admin_users:
-                if user["push_notification"] == "true":
-                    # Dynamically generate notification title/body for each lead
-                    notification_title = f"PO: {doc.name} has been Amended"
-                    notification_body = (
-                        f"Hi {user['full_name']}, {'Custom PO' if custom else 'PO'}: {doc.name} for the {doc.project} "
-                        f"project has been amended by {get_user_name(frappe.session.user)} and is awaiting your review."
-                        )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approve%20Amended%20PO"
-                    # Send notification for each lead
-                    PrNotification(user, notification_title, notification_body, click_action_url)
-                else:
-                    print(f"push notifications were not enabled for user: {user['full_name']}")
-        else:
-            print("No project leads or admins found with push notifications enabled.")
-
-        message = {
-            "title": _(f"{'Custom PO' if custom else 'PO'} Status Updated!"),
-            "description": _(f" {'Custom PO' if custom else 'PO'}: {doc.name} has been amended!"),
-            "project": doc.project,
-            "work_package": pr.work_package if not custom else "Custom",
-            "sender": frappe.session.user,
-            "docname": doc.name
-        }
-        # Emit the event to the allowed users
-        for user in lead_admin_users:
-            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-            new_notification_doc.recipient = user['name']
-            new_notification_doc.recipient_role = user['role_profile']
-            if frappe.session.user != 'Administrator':
-                new_notification_doc.sender = frappe.session.user
-            new_notification_doc.title = message["title"]
-            new_notification_doc.description = message["description"]
-            new_notification_doc.document = 'Procurement Orders'
-            new_notification_doc.docname = doc.name
-            new_notification_doc.project = doc.project
-            new_notification_doc.work_package = pr.work_package if not custom else "Custom"
-            new_notification_doc.seen = "false"
-            new_notification_doc.type = "info"
-            new_notification_doc.event_id = "po:amended"
-            action_url = doc.name.replace("/", "&=")
-            new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approve%20Amended%20PO"
-            new_notification_doc.insert()
-            frappe.db.commit()
-
-            message["notificationId"] = new_notification_doc.name
-            print(f"running publish realtime for: {user}")
-
-            frappe.publish_realtime(
-                event="po:amended",  # Custom event name
-                message=message,
-                user=user['name']  # Notify only specific users
-            )
 
 def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {

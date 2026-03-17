@@ -20,7 +20,6 @@ export const useCreateRevision = () => {
     justification: string;
     revision_items: string;
     total_amount_difference: number;
-    payment_return_details: string;
   }) => {
     try {
       const result = await call(payload);

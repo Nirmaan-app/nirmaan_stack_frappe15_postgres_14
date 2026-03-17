@@ -4,15 +4,14 @@
  */
 export const PO_TABS = {
     APPROVE_PO: 'Approve PO',
-    APPROVE_AMENDED_PO: 'Approve Amended PO',
     APPROVE_SENT_BACK_PO: 'Approve Sent Back PO',
+    APPROVE_PO_REVISION: 'Approve PO Revision',
     APPROVED_PO: 'Approved PO',
     PARTIALLY_DISPATCHED_PO: 'Partially Dispatched PO',
     DISPATCHED_PO: 'Dispatched PO',
     PARTIALLY_DELIVERED_PO: 'Partially Delivered PO',
     DELIVERED_PO: 'Delivered PO',
     ALL_POS: 'All POs',
-    MERGED_POS: 'Merged POs',
 } as const;
 
 export type POTabValue = typeof PO_TABS[keyof typeof PO_TABS];
@@ -25,8 +24,8 @@ export interface POTabOption {
 
 export const PO_ADMIN_TAB_OPTIONS: POTabOption[] = [
     { label: "Approve PO", value: PO_TABS.APPROVE_PO, countKey: "pr.approve" },
-    { label: "Approve Amended PO", value: PO_TABS.APPROVE_AMENDED_PO, countKey: "po.PO Amendment" },
     { label: "Approve Sent Back PO", value: PO_TABS.APPROVE_SENT_BACK_PO, countKey: "sb.approve" },
+    { label: "Approve PO Revision", value: PO_TABS.APPROVE_PO_REVISION, countKey: "po_revisions.pending_approval" },
 ];
 
 export const PO_COMMON_TAB_OPTIONS: POTabOption[] = [

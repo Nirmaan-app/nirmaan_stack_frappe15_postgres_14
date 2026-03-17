@@ -27,7 +27,6 @@ import {
     PO_ESTIMATES_ROLES,
     POTabOption,
 } from "./config/poTabs.constants";
-import memoize from 'lodash/memoize';
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../../components/ui/badge";
@@ -46,8 +45,7 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../../Sent Back Requests/approve-select-sent-back"));
-const ApproveSelectAmendPO = React.lazy(() => import("../amend-po/approve-select-amend-po"));
-
+const PORevisionsApprovalList = React.lazy(() => import("../../PORevision/PORevisionsApprovalList"));
 const DOCTYPE = 'Procurement Orders';
 const URL_SYNC_KEY = 'po'; // Unique key for URL state for this table instance
 
@@ -224,17 +222,6 @@ export const ReleasePOSelect: React.FC = () => {
         }, new Map<string, number>());
     }, [vendorInvoices]);
 
-    const { data: poData } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
-        fields: ["name", "status", "merged"],
-        limit: 0
-    }, "All_POs_For_Merged")
-
-    const posMap = useMemo(() => {
-        const map = new Map<string, ProcurementOrdersType>();
-        poData?.forEach(po => map.set(po.name, po));
-        return memoize((id: string) => map.get(id) || null);
-    }, [poData])
-
     // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
     //     await mutate()
     // })
@@ -300,17 +287,12 @@ export const ReleasePOSelect: React.FC = () => {
             ? ["expected_delivery_date"] : []),
         ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)
             ? ["latest_delivery_date"] : []),
-        ...(tab === PO_TABS.MERGED_POS ? ["merged", "modified_by"] : [])
     ], [tab]);
 
     const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." },
     ...(tab === PO_TABS.ALL_POS ? [
         { value: "status", label: "Status", placeholder: "Search by Status..." },
     ] : []),
-    ...(tab === PO_TABS.MERGED_POS ? [
-        { value: "merged", label: "Master PO", placeholder: "Search by Master PO..." },
-    ] : [])
-
     ]), [tab]);
 
     const dateColumns = useMemo(() => {
@@ -336,7 +318,7 @@ export const ReleasePOSelect: React.FC = () => {
             cell: ({ row }) => (
                 <>
                     <div className="flex gap-1 items-center">
-                        {(tab !== PO_TABS.MERGED_POS && row.original.status !== "Merged") ? (
+                        {row.original.status !== "Merged" ? (
                             <Link
                                 className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
                                 // Adjust the route path as needed
@@ -362,26 +344,6 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...(tab === PO_TABS.MERGED_POS ? [
-            {
-                accessorKey: "merged",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Master PO" />,
-                cell: ({ row }) => {
-                    const data = row.original
-                    const masterPO = posMap(data.merged!);
-                    return (
-                        !["PO Amendment", "Merged"].includes(masterPO?.status!) ?
-                            <Link
-                                className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
-                                to={`/purchase-orders/${masterPO?.name?.replaceAll("/", "&=")}?tab=${masterPO?.status}`}
-                            >
-                                {masterPO?.name}
-                            </Link> : <p>{masterPO?.name}</p>
-                    );
-                },
-                size: 180,
-            } as ColumnDef<ProcurementOrdersType>
-        ] : []),
         {
             accessorKey: 'creation',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
@@ -454,30 +416,6 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...(tab === PO_TABS.MERGED_POS ? [
-            {
-                accessorKey: "modified_by",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Merged By" />,
-                cell: ({ row }) => {
-                    const data = row.original
-                    const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
-                    return (
-                        <div className="font-medium">
-                            {mergedBy?.full_name || data?.modified_by || "--"}
-                        </div>
-                    );
-                },
-                size: 180,
-                meta: {
-                    exportHeaderName: "Merged By",
-                    exportValue: (row) => {
-                        const data = row
-                        const mergedBy = userList?.find((entry) => data?.modified_by === entry.name)
-                        return mergedBy?.full_name || data?.modified_by || "--";
-                    }
-                }
-            } as ColumnDef<ProcurementOrdersType>
-        ] : []),
         {
             accessorKey: "total_amount",
             header: ({ column }) => {
@@ -643,7 +581,7 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ],[tab, userList, vendorsList, projects, posMap, invoiceTotalsMap]);
+    ],[tab, userList, vendorsList, projects, invoiceTotalsMap]);
     // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     const facetFilterOptions = useMemo(() => ({
@@ -657,7 +595,7 @@ export const ReleasePOSelect: React.FC = () => {
     // --- useServerDataTable Hook Instantiation ---
     // Only instantiate if the current tab is supposed to show a data table
     const shouldShowTable = useMemo(() =>
-        [PO_TABS.APPROVED_PO, PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS, PO_TABS.MERGED_POS].includes(tab as any),
+        [PO_TABS.APPROVED_PO, PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS].includes(tab as any),
         [tab]);
 
     // --- Tab Change Handler ---
@@ -700,8 +638,8 @@ export const ReleasePOSelect: React.FC = () => {
     // --- Determine which view to render based on tab ---
     const renderTabView = () => {
         if (tab === PO_TABS.APPROVE_PO) return <ApproveSelectVendor />;
-        if (tab === PO_TABS.APPROVE_AMENDED_PO) return <ApproveSelectAmendPO />;
         if (tab === PO_TABS.APPROVE_SENT_BACK_PO) return <ApproveSelectSentBack />;
+        if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;
 
         if (shouldShowTable) {
             if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {

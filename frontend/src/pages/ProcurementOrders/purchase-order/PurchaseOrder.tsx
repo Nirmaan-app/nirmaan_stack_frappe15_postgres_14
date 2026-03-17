@@ -6,13 +6,6 @@ import {
 } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   AlertDialog,
   AlertDialogCancel,
   AlertDialogContent,
@@ -25,23 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
   Sheet,
-  SheetClose,
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
@@ -70,7 +47,6 @@ import { POPdf } from "./components/POPdf";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import {
   ProcurementOrder,
-  PurchaseOrderItem,
 } from "@/types/NirmaanStack/ProcurementOrders";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
@@ -83,9 +59,7 @@ import {
   // getPreviewTotal,
 } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { Tree } from "antd";
 import {
-  useFrappeCreateDoc,
   useFrappeDocumentEventListener,
   useFrappeGetDocList,
   useFrappePostCall,
@@ -97,22 +71,14 @@ import {
   CheckCheck,
   CircleX,
   Eye,
-  List,
-  ListChecks,
   Merge,
   MessageCircleMore,
   MessageCircleWarning,
-  Pencil,
-  PencilRuler,
-  Split,
-  Trash2,
-  Undo,
   X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import ReactSelect, { components } from "react-select";
 import { DeliveryPivotTable, DELIVERY_EDIT_ROLES, RETURN_NOTE_ROLES } from "@/pages/DeliveryNotes/components/pivot-table";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
@@ -128,9 +94,18 @@ import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
-import { AmendAddChargeDialog } from "./components/AmendAddChargeDialog";
-import { Items } from "@/types/NirmaanStack/Items";
-import { Category } from "@/types/NirmaanStack/Category";
+import { POAdjustmentDialog } from "@/pages/POAdjustment/POAdjustmentDialog";
+import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustments";
+import {
+  MergePOTable,
+  MergeConflictResolution,
+  MergeEligibilityBanner,
+  MergeMatchCriteria,
+  useMergeResolution,
+  detectIncompatibilities,
+  type MergeStep,
+  type MergeIncompatibility,
+} from "./merge";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -164,15 +139,14 @@ export const PurchaseOrder = ({
 
   if (!id) return <div>No PO ID Provided</div>;
 
-  const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
 
   const { data: lockData } = usePOLockCheck(poId);
-  const isLocked = lockData?.is_locked || false;
+  const isItemLocked = lockData?.is_item_locked || false;
+  const isPaymentLocked = lockData?.is_payment_locked || false;
 
   const { data: allLockedPOs } = useAllLockedPOs();
 
-  const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
 
 
@@ -239,19 +213,11 @@ export const PurchaseOrder = ({
 
   useEffect(() => {
     if (po) {
-      const doc = po;
-      setPO(doc);
-      setOrderData(doc?.items || []);
-      // --- NEW: Initialize payment terms with the current PO's terms ---
-      setMergedPaymentTerms(doc?.payment_terms || []);
-    }
-    if (po) {
+      setPO(po);
       const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data), delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }
       setInvoicePO(data);
     }
-
-
-  }, [po]);//po add
+  }, [po]);
 
 
 
@@ -265,46 +231,39 @@ export const PurchaseOrder = ({
 
   const [mergeablePOs, setMergeablePOs] = useState<ProcurementOrder[]>([]);
   const [mergedItems, setMergedItems] = useState<ProcurementOrder[]>([]);
-  const [prevMergedPOs, setPrevMergedPos] = useState<ProcurementOrder[]>([]);
+  const [mergeStep, setMergeStep] = useState<MergeStep>("selection");
 
-  // --- NEW: State for merged payment terms ---
-  const [mergedPaymentTerms, setMergedPaymentTerms] = useState<PaymentTerm[]>(
-    []
-  );
+  const {
+    regularConflicts,
+    chargeConflicts,
+    hasConflicts,
+    allResolved,
+    estimatedTotal,
+    effectiveRegularResolutions,
+    effectiveChargeResolutions,
+    setRegularResolution,
+    setChargeResolution,
+    resetResolutions,
+    buildResolvedOrderData,
+    incompatibilities,
+    hasIncompatibilities,
+  } = useMergeResolution(PO, mergedItems);
 
-  const [loadingFuncName, setLoadingFuncName] = useState<string>("");
+  // For each mergeable PO, check if adding it would introduce incompatibilities
+  const incompatiblePOMap = useMemo(() => {
+    if (!PO) return new Map<string, MergeIncompatibility[]>();
+    const map = new Map<string, MergeIncompatibility[]>();
+    for (const candidate of mergeablePOs) {
+      const testSet = [...mergedItems, candidate];
+      const issues = detectIncompatibilities(PO, testSet);
+      if (issues.length > 0) {
+        map.set(candidate.name, issues);
+      }
+    }
+    return map;
+  }, [PO, mergeablePOs, mergedItems]);
 
-  const [quantity, setQuantity] = useState<number | null | string>(null);
-  const [tax, setTax] = useState<number | null | string>(null);
-
-  interface Make {
-    make: string;
-    enabled: string;
-  }
-
-  interface Operation {
-    operation: "delete" | "quantity_change" | "make_change" | "tax_change" | "add";
-    item: PurchaseOrderItem;
-    previousQuantity?: number;
-    previousMakeList?: string;
-    previousTax?: number;
-  }
-
-  const [stack, setStack] = useState<Operation[]>([]);
   const [comment, setComment] = useState("");
-
-  const [editMakeOptions, setEditMakeOptions] = useState<
-    { label: string; value: string }[]
-  >([]);
-
-  const [selectedMake, setSelectedMake] = useState<{
-    label: string;
-    value: string;
-  } | null>(null);
-
-  const [amendEditItem, setAmendEditItem] = useState<PurchaseOrderItem | null>(
-    null
-  );
 
   const [poPdfSheet, setPoPdfSheet] = useState(false);
 
@@ -324,47 +283,18 @@ export const PurchaseOrder = ({
     setMergeConfirmDialog((prevState) => !prevState);
   }, [mergeConfirmDialog]);
 
-  const [amendPOSheet, setAmendPOSheet] = useState(false);
-
-  const toggleAmendPOSheet = useCallback(() => {
-    setAmendPOSheet((prevState) => !prevState);
-  }, []);
-
   const [cancelPODialog, setCancelPODialog] = useState(false);
 
   const toggleCancelPODialog = useCallback(() => {
     setCancelPODialog((prevState) => !prevState);
   }, [cancelPODialog]);
 
-  const [unMergeDialog, setUnMergeDialog] = useState(false);
 
-  const toggleUnMergeDialog = useCallback(() => {
-    setUnMergeDialog((prevState) => !prevState);
-  }, []);
-
-  const [amendEditItemDialog, setAmendEditItemDialog] = useState(false);
-
-  const toggleAmendEditItemDialog = useCallback(() => {
-    setAmendEditItemDialog((prevState) => !prevState);
-  }, [amendEditItemDialog]);
-
-  const [showAddNewMake, setShowAddNewMake] = useState(false);
-
-  const toggleAddNewMake = useCallback(() => {
-    setShowAddNewMake((prevState) => !prevState);
-  }, [showAddNewMake]);
-
-  const [isAddChargeDialogOpen, setIsAddChargeDialogOpen] = useState(false);
-
-  const toggleAddChargeDialog = useCallback(() => {
-    setIsAddChargeDialogOpen((prev) => !prev);
-  }, []);
+  const [isAdjustmentDialogOpen, setIsAdjustmentDialogOpen] = useState(false);
 
   const { toggleRequestPaymentDialog } = useDialogStore();
 
   const { updateDoc } = useFrappeUpdateDoc();
-
-  const { createDoc } = useFrappeCreateDoc();
 
   const { call: cancelPOCall, loading: cancelPOCallLoading } =
     useFrappePostCall("nirmaan_stack.api.handle_cancel_po.handle_cancel_po");
@@ -373,10 +303,6 @@ export const PurchaseOrder = ({
     "nirmaan_stack.api.po_merge_and_unmerge.handle_merge_pos"
   );
 
-  const { call: unMergePOCall, loading: unMergePOCallLoading } =
-    useFrappePostCall(
-      "nirmaan_stack.api.po_merge_and_unmerge.handle_unmerge_pos"
-    );
 
   const { data: potentialMergePOsList, isLoading: listIsLoading } =
     useFrappeGetDocList<ProcurementOrder>(
@@ -405,36 +331,6 @@ export const PurchaseOrder = ({
     useFrappePostCall(
       "nirmaan_stack.api.po_merge_and_unmerge.get_full_po_details" // This path looks correct based on your Python file
     );
-
-  const { data: chargeCategories } = useFrappeGetDocList<Category>("Category", {
-    fields: ["name", "tax", "work_package"],
-    filters: [["work_package", "=", "Additional Charges"]],
-    limit: 0,
-  });
-
-  const chargeCategoryNames = useMemo(() => chargeCategories?.map(c => c.name) || [], [chargeCategories]);
-
-  const { data: chargeItemsList } = useFrappeGetDocList<Items>("Items", {
-    fields: ["name", "item_name", "category", "unit_name"],
-    filters: chargeCategoryNames.length > 0 ? [["category", "in", chargeCategoryNames]] : [["name", "=", "INVALID"]],
-    limit: 0,
-  }, chargeCategoryNames.length > 0 ? "AdditionalChargeItems" : null);
-
-  const chargeItemOptions = useMemo(() => {
-    if (!chargeItemsList || !chargeCategories) return [];
-    return chargeItemsList.map(item => {
-      const cat = chargeCategories.find(c => c.name === item.category);
-      return {
-        label: item.item_name,
-        value: item.name,
-        item_id: item.name,
-        item_name: item.item_name,
-        unit: item.unit_name || "Nos",
-        category: item.category,
-        tax: parseFloat(cat?.tax || "0")
-      };
-    });
-  }, [chargeItemsList, chargeCategories]);
 
   const {
     data: usersList,
@@ -576,6 +472,8 @@ export const PurchaseOrder = ({
   useEffect(() => {
     if (!mergeSheet) {
       handleUnmergeAll();
+      setMergeStep("selection");
+      resetResolutions();
     }
   }, [mergeSheet]);
 
@@ -590,21 +488,22 @@ export const PurchaseOrder = ({
   //   return getPreviewTotal(orderData);
   // }, [orderData, setOrderData, PO])
   // --- REPLACE with this corrected function ---
-  const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPOs: ProcurementOrder[]) => {
-    const allPOs = [basePO, ...additionalPOs];
+  // Derive merged payment terms from resolved items — recalculates whenever
+  // resolutions change (via estimatedTotal dependency)
+  const mergedPaymentTerms = useMemo((): PaymentTerm[] => {
+    if (!PO || mergedItems.length === 0) return PO?.payment_terms || [];
+
+    // Step 1: Combine terms by label (sums original amounts, picks latest due_date)
+    const allPOs = [PO, ...mergedItems];
     const combinedTerms: { [label: string]: PaymentTerm } = {};
 
     allPOs.forEach(p => {
       (p.payment_terms || []).forEach(term => {
-        // Ensure the amount from the API is a number
         const termAmount = parseFloat(String(term.amount)) || 0;
 
         if (combinedTerms[term.label]) {
-          // --- THE FIX IS HERE ---
-          // Ensure we are doing MATH (number + number), not joining strings.
           combinedTerms[term.label].amount = (combinedTerms[term.label].amount || 0) + termAmount;
 
-          // The rest of your logic for due_date is fine
           if (
             term.payment_type === 'Credit' &&
             combinedTerms[term.label].payment_type === 'Credit' &&
@@ -616,80 +515,47 @@ export const PurchaseOrder = ({
             }
           }
         } else {
-          // When adding a new term, also ensure its amount is a number
           combinedTerms[term.label] = { ...term, amount: termAmount };
         }
       });
     });
 
-    return Object.values(combinedTerms);
-  }, []);
+    const rawTerms = Object.values(combinedTerms);
+    const rawTotal = rawTerms.reduce((sum, t) => sum + t.amount, 0);
 
-  // --- UPDATE: handleMerge function ---
-  const handleMerge = (poToMerge: ProcurementOrder) => {
-    // Merge items (existing logic)
-    const taggedItems = (poToMerge.items || []).map((item) => ({
-      ...item,
-      po: poToMerge.name,
+    // Step 2: Rescale amounts proportionally to match the resolved grand total
+    // This handles the case where conflict resolution changes the effective total
+    if (rawTotal === 0 || estimatedTotal === 0) return rawTerms;
+
+    return rawTerms.map(term => ({
+      ...term,
+      amount: (term.amount / rawTotal) * estimatedTotal,
+      percentage: (term.amount / rawTotal) * 100,
     }));
-    setOrderData((currentOrderData) => [...currentOrderData, ...taggedItems]);
+  }, [PO, mergedItems, estimatedTotal]);
 
-    const newMergedItems = [...mergedItems, poToMerge];
-    setMergedItems(newMergedItems);
-
-    // console.log("handleMerge: Tagged Items", mergedItems,taggedItems, orderData);
-    // console.log("newMergedItems", newMergedItems);
-    // --- NEW: Recalculate and set merged payment terms ---
-    if (PO) {
-      const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
-      setMergedPaymentTerms(newMergedPaymentTerms);
-    }
+  const handleMerge = (poToMerge: ProcurementOrder) => {
+    setMergedItems((prev) => [...prev, poToMerge]);
   };
 
-  // --- UPDATE: handleUnmerge function ---
   const handleUnmerge = (poToUnmerge: ProcurementOrder) => {
-    // Unmerge items (existing logic)
-    setOrderData((currentOrderData) =>
-      currentOrderData.filter((item) => item.po !== poToUnmerge.name)
-    );
-
-    const newMergedItems = mergedItems.filter(
-      (mergedPo) => mergedPo.name !== poToUnmerge.name
-    );
-    setMergedItems(newMergedItems);
-
-    // --- NEW: Recalculate and set merged payment terms ---
-    if (PO) {
-      const newMergedPaymentTerms = calculateMergedTerms(PO, newMergedItems);
-      setMergedPaymentTerms(newMergedPaymentTerms);
-    }
+    setMergedItems((prev) => prev.filter((m) => m.name !== poToUnmerge.name));
   };
 
   const handleUnmergeAll = () => {
-    if (mergedItems.length > 0) {
-      // Directly filter the orderData ARRAY, keeping only the original items
-      // (those that don't have a 'po' property).
-      setOrderData((currentOrderData) =>
-        currentOrderData.filter((item) => !item.po)
-      );
-
-      setMergedItems([]);
-      // --- NEW: Reset payment terms back to the original PO's terms ---
-      setMergedPaymentTerms(PO?.payment_terms || []);
-    }
+    setMergedItems([]);
   };
 
   const handleMergePOs = async () => {
     try {
-      const sanitizedOrderData = orderData.map(
+      const resolvedItems = buildResolvedOrderData();
+      const sanitizedOrderData = resolvedItems.map(
         ({ po, ...restOfItem }) => restOfItem
       );
-      // Call the backend API for merging POs
-      // console.log("payload",poId,mergedItems,sanitizedOrderData,mergedPaymentTerms)
       const response = await mergePOCall({
         po_id: poId,
         merged_items: mergedItems,
-        order_data: sanitizedOrderData, // Use the sanitized list
+        order_data: sanitizedOrderData,
         payment_terms: mergedPaymentTerms,
       });
 
@@ -703,18 +569,13 @@ export const PurchaseOrder = ({
         toggleMergeConfirmDialog();
         toggleMergeSheet();
 
-        setIsRedirecting(true);
-
-        setTimeout(() => {
-          setIsRedirecting(false);
-          navigate(
-            `/purchase-orders/${response.message.new_po_name.replaceAll(
-              "/",
-              "&="
-            )}?tab=Approved%20PO`
-          );
-          window.location.reload();
-        }, 1000);
+        invalidateSidebarCounts();
+        navigate(
+          `/purchase-orders/${response.message.new_po_name.replaceAll(
+            "/",
+            "&="
+          )}?tab=Approved%20PO`
+        );
       } else if (response.message.status === 400) {
         toast({
           title: "Error!",
@@ -729,170 +590,6 @@ export const PurchaseOrder = ({
         description: "Failed to merge POs. Please try again.",
         variant: "destructive",
       });
-    }
-  };
-
-  const handleUnmergePOs = async () => {
-    try {
-      // The payload is simple: just the ID of the master PO.
-      // The backend will handle the rest.
-      const response = await unMergePOCall({
-        po_id: poId,
-      });
-
-      // Handle the success or error response from the backend
-      if (response.message.status === 200) {
-        toggleUnMergeDialog();
-        toast({
-          title: "Success!",
-          description: response.message.message,
-          variant: "success",
-        });
-        setIsRedirecting(true);
-        setTimeout(() => {
-          setIsRedirecting(false);
-          navigate(`/purchase-orders?tab=Approved%20PO`);
-          window.location.reload();
-        }, 1000);
-      } else if (response.message.status === 400) {
-        toast({
-          title: "Error!",
-          description: response.message.error, // Display the error from the backend
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.log("error while unmerging po's", error);
-      toast({
-        title: "Error!",
-        description: "Failed to unmerge POs. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // console.log("PO?.payment_terms",PO?.payment_terms)
-  const handleAmendPo = async () => {
-    setLoadingFuncName("handleAmendPo");
-
-    // --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
-    // --- START: FULL FRONTEND VALIDATION (MIRRORS BACKEND) ---
-    // --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
-
-    // --- PRE-CALCULATIONS ---
-    // Use a console.log to be 100% sure your PO object is loaded correctly.
-    // console.log("Validating with PO data:", PO);
-
-    // 1. Calculate the new total based on the user's changes (items only).
-    const newTotalAmountForValidation = orderData.reduce((acc, item) => {
-      const itemAmount = (item.quantity || 0) * (item.quote || 0);
-      const taxAmount = itemAmount * ((item.tax || 0) / 100);
-      return acc + itemAmount + taxAmount;
-    }, 0);
-
-    // 2. Get the total from the PO before any changes were made.
-    const previousTotal = PO?.total_amount || 0;
-
-    // --- CHECK 1: "Overpayment / Return" Scenario ---
-    // This directly replicates the `frappe.throw` condition in your Python script.
-
-    // A) Calculate the sum of all payments that cannot be changed.
-    const lockedAmount = (PO?.payment_terms || [])
-      .filter((term) => ["Paid", "Requested", "Approved"].includes(term.term_status))
-      .reduce((sum, term) => sum + (term.amount || 0), 0);
-
-    // B) Check if a "Return" term already exists from a previous amendment.
-    const hasExistingReturn = PO?.payment_terms?.some(
-      (term) => term.term_status === "Return"
-    );
-
-    // C) Check if the new total is less than what's already been paid/requested.
-    const willCreateReturn =
-      newTotalAmountForValidation < lockedAmount && lockedAmount > 0;
-
-    // D) Perform the block if either condition is true.
-    if (hasExistingReturn || willCreateReturn) {
-      toast({
-        title: "Amendment Blocked: Overpayment",
-        description: `This change would create a negative balance. New total (${newTotalAmountForValidation}) cannot be less than the locked amount (${lockedAmount}).`,
-        variant: "destructive",
-        duration: 8000,
-      });
-      setLoadingFuncName("");
-      return; // STOP EXECUTION
-    }
-
-    // --- CHECK 2: "Impossible Reduction" Scenario ---
-    // This is the extra, intelligent check to prevent a logical error.
-
-    // This check only matters if the total is being reduced.
-    if (newTotalAmountForValidation < previousTotal) {
-      const reductionAmount = previousTotal - newTotalAmountForValidation;
-
-      // Calculate the total amount from terms that can actually be reduced.
-      const modifiableAmount = (PO?.payment_terms || [])
-        .filter((term) => ["Created", "Scheduled"].includes(term.term_status))
-        .reduce((sum, term) => sum + (term.amount || 0), 0);
-
-      // console.log("DEBUG: Reduction Amount:", reductionAmount);
-      // console.log("DEBUG: Modifiable Amount:", modifiableAmount);
-      // Block if the user is trying to reduce more than is available to be reduced.
-      if (reductionAmount > modifiableAmount) {
-        toast({
-          title: "Amendment Blocked: Invalid Reduction",
-          description: `Cannot reduce total by ${reductionAmount}. There is only ${modifiableAmount} available in 'Created' & 'Scheduled' payment terms.`,
-          variant: "destructive",
-          duration: 8000,
-        });
-        setLoadingFuncName("");
-        return; // STOP EXECUTION
-      }
-    }
-
-    try {
-      // This part only runs if the validation above passes
-      const itemsToSubmit = orderData.map((item) => {
-        if (item.name.startsWith("NEW-CHARGE-")) {
-          const { name, ...rest } = item;
-          return rest;
-        }
-        return item;
-      });
-
-      await updateDoc("Procurement Orders", poId, {
-        status: "PO Amendment",
-        items: itemsToSubmit,
-      });
-      if (comment) {
-        await createDoc("Nirmaan Comments", {
-          comment_type: "Comment",
-          reference_doctype: "Procurement Orders",
-          reference_name: poId,
-          comment_by: userData?.user_id,
-          content: comment,
-          subject: "updating po(amendment)",
-        });
-      }
-
-      toast({
-        title: "Success!",
-        description: `${poId} amended and sent to Project Lead!`,
-        variant: "success",
-      });
-
-      invalidateSidebarCounts();
-
-      navigate("/purchase-orders?tab=Approved%20PO");
-      setLoadingFuncName("");
-    } catch (error) {
-      console.log("Error while amending po", error); // Changed from "cancelling"
-      toast({
-        title: "Failed!",
-        description: `${poId} Amendment Failed!`,
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingFuncName("");
     }
   };
 
@@ -927,194 +624,6 @@ export const PurchaseOrder = ({
       });
     }
   };
-
-  const handleUnAmendAll = () => {
-    setOrderData(PO?.items || []);
-    setStack([]);
-  };
-
-  const handleAddCharge = (newCharge: PurchaseOrderItem) => {
-    setOrderData(prev => [...prev, newCharge]);
-    setStack(prev => [...prev, {
-      operation: "add" as const,
-      item: newCharge,
-    }]);
-  };
-
-  useEffect(() => {
-    if (!amendPOSheet && stack.length) {
-      handleUnAmendAll();
-    }
-  }, [amendPOSheet]);
-
-  const handleSave = useCallback(
-    (itemName: string) => {
-      const previousItem = orderData.find(
-        (curValue) => curValue.name === itemName
-      );
-      if (!previousItem) return;
-
-      // CORRECT: Get the make string from the `selectedMake` state object.
-      const newMakeValue = selectedMake?.value || "";
-
-      // Push quantity change to stack if different
-      if (quantity !== null && quantity !== previousItem.quantity) {
-        setStack((prev) => [
-          ...prev,
-          {
-            operation: "quantity_change",
-            item: previousItem,
-            previousQuantity: previousItem.quantity,
-          },
-        ]);
-      }
-      // Push make change to stack if different
-      if (newMakeValue !== previousItem.make) {
-        setStack((prev) => [
-          ...prev,
-          {
-            operation: "make_change",
-            item: previousItem,
-            previousMake: previousItem.make,
-          },
-        ]);
-      }
-
-      if (tax !== null && tax !== previousItem.tax) {
-        setStack((prev) => [
-          ...prev,
-          {
-            operation: "tax_change",
-            item: previousItem,
-            previousTax: previousItem.tax,
-          },
-        ]);
-      }
-
-      const updatedOrderData = orderData.map((curValue) => {
-        if (curValue.name === itemName) {
-          return {
-            ...curValue,
-            quantity: quantity !== null ? quantity : curValue.quantity,
-            make: newMakeValue,
-            tax: tax !== null ? Number(tax) : curValue.tax, // ➕ ADDED: Update tax
-          };
-        }
-        return curValue;
-      });
-
-      setOrderData(updatedOrderData);
-
-      // Reset state and close dialog
-      setQuantity(null);
-      setTax(null);
-      setSelectedMake(null); // CORRECT: Reset selectedMake
-      toggleAmendEditItemDialog();
-    },
-    [orderData, quantity, tax, selectedMake, toggleAmendEditItemDialog]
-  ); // CORRECT: Dependency is on selectedMake
-  // NEW `handleDelete`
-  const handleDelete = useCallback(
-    (itemNameToDelete: string) => {
-      // Pass the unique 'name' of the item row
-      const itemToDelete = orderData.find(
-        (curValue) => curValue.name === itemNameToDelete
-      );
-
-      if (itemToDelete) {
-        setStack((prevStack) => [
-          ...prevStack,
-          {
-            operation: "delete",
-            item: itemToDelete, // Push the entire object to the stack
-          },
-        ]);
-      }
-
-      // Filter out the deleted item from the main array
-      const updatedOrderData = orderData.filter(
-        (curValue) => curValue.name !== itemNameToDelete
-      );
-
-      setOrderData(updatedOrderData); // Set the new array
-      setTax(null);
-      setQuantity(null); // Reset quantity state
-      toggleAmendEditItemDialog();
-    },
-    [orderData, toggleAmendEditItemDialog] // Simplified dependencies
-  );
-
-  // NEW `UndoDeleteOperation`
-  const UndoDeleteOperation = useCallback(() => {
-    if (stack.length === 0) return;
-
-    const lastOperation = stack[stack.length - 1];
-    const newStack = stack.slice(0, -1); // More efficient way to pop
-
-    let updatedOrderData = [...orderData]; // Work on a copy
-
-    if (lastOperation.operation === "delete") {
-      // Restore the deleted item
-      updatedOrderData.push(lastOperation.item as PurchaseOrderItem);
-    } else if (lastOperation.operation === "quantity_change") {
-      // Find and restore the previous quantity
-      updatedOrderData = updatedOrderData.map((item) => {
-        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
-          return { ...item, quantity: lastOperation.previousQuantity! };
-        }
-        return item;
-      });
-    } else if (lastOperation.operation === "make_change") {
-      // Find and restore the previous make list
-      updatedOrderData = updatedOrderData.map((item) => {
-        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
-          const originalItem = lastOperation.item as PurchaseOrderItem;
-          return {
-            ...item,
-            makes: lastOperation.previousMakeList!,
-          };
-        }
-        return item;
-      });
-    } else if (lastOperation.operation === "tax_change") {
-      // ➕ ADDED: Handler for undoing tax changes
-      updatedOrderData = updatedOrderData.map((item) => {
-        if (item.name === (lastOperation.item as PurchaseOrderItem).name) {
-          return { ...item, tax: lastOperation.previousTax! };
-        }
-        return item;
-      });
-    } else if (lastOperation.operation === "add") {
-      // Remove the added charge
-      updatedOrderData = updatedOrderData.filter(item => item.name !== lastOperation.item.name);
-    }
-
-    setOrderData(updatedOrderData); // Set the restored array
-    setStack(newStack); // Update the stack
-  }, [orderData, stack]);
-
-  const treeData = useMemo(() => {
-    if (!PO?.items) {
-      return [{ title: PO?.name, key: "mainPO", children: [] }];
-    }
-
-    const allSourcePoNames = PO.items.map(item => item.po).filter(Boolean);
-    const uniqueSourcePoNames = [...new Set(allSourcePoNames)];
-
-    const childrenNodes = uniqueSourcePoNames.map((poName, idx) => ({
-      title: poName,
-      key: `po-${idx}-${poName}`,
-      isLeaf: true,
-    }));
-
-    return [
-      {
-        title: PO?.name,
-        key: "mainPO",
-        children: childrenNodes,
-      },
-    ];
-  }, [PO]);
 
   // const amountPaid = useMemo(
   //   () =>
@@ -1155,6 +664,15 @@ export const PurchaseOrder = ({
     [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
+  const mergeConditions = useMemo(() => [
+    { label: "PO Approved", met: PO?.status === "PO Approved", detail: PO?.status },
+    { label: "Not Custom", met: PO?.custom !== "true" },
+    { label: "Not Merged", met: PO?.merged !== "true" },
+    { label: "No Payments", met: !((poPayments || []).length > 0) },
+    { label: "Not Locked", met: !isItemLocked },
+    { label: "Matches Found", met: mergeablePOs.length > 0, detail: `${mergeablePOs.length}` },
+  ], [PO, poPayments, isItemLocked, mergeablePOs]);
+
   const CANCELPOVALIDATION = useMemo(
     () =>
       !summaryPage &&
@@ -1163,8 +681,7 @@ export const PurchaseOrder = ({
       !estimatesViewing &&
       !isAccountant &&
       ["PO Approved"].includes(PO?.status) &&
-      !((poPayments || []).length > 0) &&
-      PO?.merged !== "true",
+      !((poPayments || []).length > 0),
     [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
@@ -1207,38 +724,6 @@ export const PurchaseOrder = ({
       ).length || 0,
     [poAttachmentsData]
   );
-
-  const AMENDPOVALIDATION = useMemo(
-    () =>
-      !summaryPage &&
-      !accountsPage &&
-      !estimatesViewing &&
-      !isAccountant &&
-      ["PO Approved"].includes(PO?.status) &&
-      PO?.merged !== "true",
-    [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
-  );
-
-  const UNMERGEPOVALIDATIONS = useMemo(
-    () =>
-      !summaryPage &&
-      !accountsPage &&
-      !PO?.custom &&
-      !estimatesViewing &&
-      !isAccountant &&
-      PO?.merged === "true",
-    [PO, summaryPage, accountsPage, estimatesViewing, isAccountant]
-  );
-
-  if (isRedirecting) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-        <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-          <p className="text-lg font-semibold">Redirecting... Please wait</p>
-        </div>
-      </div>
-    );
-  }
 
   if (
     poLoading ||
@@ -1308,24 +793,24 @@ export const PurchaseOrder = ({
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
 
-      {MERGEPOVALIDATIONS && !isLocked && (
+      {MERGEPOVALIDATIONS && !isItemLocked && (
         <>
-          <Alert variant="warning" className="">
+          <Alert variant="warning">
             <AlertTitle className="text-sm flex items-center gap-2">
               <MessageCircleWarning className="h-4 w-4" />
-              Heads Up - PO Merging Available
+              PO Merge Available
             </AlertTitle>
-            <AlertDescription className="text-xs flex justify-end items-center">
-              <span className="sr-only">
-                This purchase order can be merged with other compatible orders
-              </span>
-              {/* PO Merging Feature is available for this PO. */}
-              <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
-                <SheetTrigger
-                  disabled={!isValid}
-                  className="disabled:opacity-50"
-                >
-                  <div>
+            <AlertDescription>
+              <MergeEligibilityBanner
+                conditions={mergeConditions}
+                matchCount={mergeablePOs.length}
+              />
+              <div className="flex justify-end mt-3">
+                <Sheet open={mergeSheet} onOpenChange={toggleMergeSheet}>
+                  <SheetTrigger
+                    disabled={!isValid}
+                    className="disabled:opacity-50"
+                  >
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -1333,7 +818,6 @@ export const PurchaseOrder = ({
                             isValid ? "Merge PO(s)" : "Merge unavailable"
                           }
                           className="flex items-center gap-1"
-                          color="primary"
                         >
                           <Merge className="w-4 h-4" />
                           Merge PO(s)
@@ -1351,242 +835,167 @@ export const PurchaseOrder = ({
                         </TooltipContent>
                       )}
                     </Tooltip>
-                  </div>
-                </SheetTrigger>
-                <SheetContent className="overflow-y-auto">
-                  <div className="md:p-6">
-                    <h2 className="text-2xl font-bold mb-4">
-                      Merge Purchase Orders
-                    </h2>
+                  </SheetTrigger>
+                  <SheetContent className="overflow-y-auto">
+                    <div className="md:p-6">
+                      <h2 className="text-2xl font-bold mb-4">
+                        Merge Purchase Orders
+                      </h2>
 
-                    <Card className="mb-4">
-                      <CardHeader className="flex flex-row justify-between items-center">
-                        <div className="flex flex-col">
-                          <span className="text-sm text-gray-500">
-                            Project:
+                      {/* Step indicator */}
+                      {hasConflicts && (
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className={`h-2 w-2 rounded-full ${mergeStep === "selection" ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                          <span className={`text-xs ${mergeStep === "selection" ? "font-medium" : "text-muted-foreground"}`}>
+                            Select POs
                           </span>
-                          <p className="text-base font-medium tracking-tight text-black">
-                            {PO?.project_name}
-                          </p>
+                          <div className="h-px w-4 bg-border" />
+                          <div className={`h-2 w-2 rounded-full ${mergeStep === "resolution" ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                          <span className={`text-xs ${mergeStep === "resolution" ? "font-medium" : "text-muted-foreground"}`}>
+                            Resolve Conflicts
+                          </span>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm text-gray-500">Vendor:</span>
-                          <p className="text-base font-medium tracking-tight text-black">
-                            {PO?.vendor_name}
-                          </p>
-                        </div>
-                      </CardHeader>
-                    </Card>
+                      )}
 
-                    {mergeablePOs.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <Table className="min-w-[500px]">
-                          <TableHeader>
-                            <TableRow className="bg-red-100">
-                              <TableHead className="w-[15%]">
-                                ID(PO/PR)
-                              </TableHead>
-                              <TableHead>Items Count</TableHead>
-                              <TableHead>Items List</TableHead>
-                              <TableHead>Action</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            <TableRow key={PO?.name}>
-                              <TableCell>
-                                {poId?.slice(3, 6)}/
-                                {PO?.procurement_request?.slice(9)}
-                              </TableCell>
-                              <TableCell>{PO?.items?.length}</TableCell>
-                              <TableCell>
-                                <ul className="list-disc">
-                                  {PO?.items?.map((j) => (
-                                    <li key={j?.name}>
-                                      {j?.item_name}{" "}
-                                      <span>(Qty-{j?.quantity})</span>
-                                      <p className="text-primary text-sm">
-                                        Make:{" "}
-                                        <span className="text-xs text-gray-500 italic">
-                                          {j?.make || "--"}
-                                        </span>
-                                      </p>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
-                                  variant={"ghost"}
-                                  disabled
-                                >
-                                  <Split className="w-4 h-4" />
-                                  Split
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                            {mergeablePOs.map((po) => {
-                              // CORRECTED: Helper function now uses .items
-                              const isMergeDisabled = po.items.some(
-                                (poItem) => {
-                                  return orderData?.some(
-                                    (currentItem) =>
-                                      currentItem.item_name ===
-                                      poItem.item_name &&
-                                      currentItem.quote !== poItem.quote
-                                  );
-                                }
-                              );
+                      <MergeMatchCriteria
+                        project={PO?.project_name || ""}
+                        vendor={PO?.vendor_name || ""}
+                        paymentType={PO?.payment_terms?.[0]?.payment_type || "N/A"}
+                        matchCount={mergeablePOs.length}
+                      />
 
-                              return (
-                                <TableRow key={po.name}>
-                                  <TableCell>
-                                    {po?.name?.slice(3, 6)}/
-                                    {po?.procurement_request?.slice(9)}
-                                  </TableCell>
-                                  <TableCell>{po.items.length}</TableCell>
-                                  <TableCell>
-                                    <ul className="list-disc">
-                                      {po?.items?.map((i) => (
-                                        <li key={i?.name}>
-                                          {i?.item_name}{" "}
-                                          <span>(Qty-{i?.quantity})</span>
-                                          <p className="text-primary text-sm">
-                                            Make:{" "}
-                                            <span className="text-xs text-gray-500 italic">
-                                              {i?.make || "--"}
-                                            </span>
-                                          </p>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </TableCell>
-                                  <TableCell>
-                                    {!mergedItems.some(
-                                      (mergedItem) =>
-                                        mergedItem?.name === po.name
-                                    ) ? (
-                                      isMergeDisabled ? (
-                                        <HoverCard>
-                                          <HoverCardTrigger>
-                                            <Button
-                                              className="flex items-center gap-1"
-                                              disabled
-                                            >
-                                              <Merge className="w-4 h-4" />
-                                              Merge
-                                            </Button>
-                                          </HoverCardTrigger>
-                                          <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg mr-28">
-                                            Unable to Merge this PO as it has
-                                            some{" "}
-                                            <span className="text-primary">
-                                              overlapping item(s) with different
-                                              quotes
-                                            </span>
-                                          </HoverCardContent>
-                                        </HoverCard>
-                                      ) : (
-                                        <Button
-                                          className="flex items-center gap-1"
-                                          onClick={() => handleMerge(po)}
-                                        >
-                                          <Merge className="w-4 h-4" />
-                                          Merge
-                                        </Button>
-                                      )
-                                    ) : (
-                                      <Button
-                                        className="flex items-center gap-1 bg-blue-500 text-white hover:text-white hover:bg-blue-400"
-                                        variant={"ghost"}
-                                        onClick={() => handleUnmerge(po)}
-                                      >
-                                        <Split className="w-4 h-4" />
-                                        Split
-                                      </Button>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
+                    {/* Step content */}
+                    {mergeStep === "selection" ? (
+                      PO && (
+                        <>
+                          <MergePOTable
+                            basePO={PO}
+                            mergeablePOs={mergeablePOs}
+                            mergedItems={mergedItems}
+                            onMerge={handleMerge}
+                            onUnmerge={handleUnmerge}
+                            incompatiblePOMap={incompatiblePOMap}
+                          />
+                          {hasIncompatibilities && (
+                            <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 mt-3">
+                              <p className="text-sm font-medium text-destructive mb-2">
+                                Cannot merge — item variant conflicts detected:
+                              </p>
+                              <ul className="text-xs text-destructive/80 space-y-1 list-disc ml-4">
+                                {incompatibilities.map((inc, i) => (
+                                  <li key={i}>{inc.detail}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      )
                     ) : (
-                      <p>No mergeable POs available.</p>
+                      <MergeConflictResolution
+                        regularConflicts={regularConflicts}
+                        chargeConflicts={chargeConflicts}
+                        regularResolutions={effectiveRegularResolutions}
+                        chargeResolutions={effectiveChargeResolutions}
+                        onRegularResolutionChange={setRegularResolution}
+                        onChargeResolutionChange={setChargeResolution}
+                        estimatedTotal={estimatedTotal}
+                      />
                     )}
 
                     {/* Button Section */}
                     <div className="flex justify-end space-x-4 mt-6">
+                      {mergeStep === "resolution" && (
+                        <Button
+                          variant="outline"
+                          onClick={() => setMergeStep("selection")}
+                        >
+                          Back
+                        </Button>
+                      )}
                       <Button
                         className="flex items-center gap-1"
                         onClick={togglePoPdfSheet}
-                        variant={"outline"}
+                        variant="outline"
                       >
                         <Eye className="w-4 h-4" />
                         Preview
                       </Button>
-                      <AlertDialog
-                        open={mergeConfirmDialog}
-                        onOpenChange={toggleMergeConfirmDialog}
-                      >
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            className="flex items-center gap-1"
-                            disabled={!mergedItems.length}
-                          >
-                            <CheckCheck className="h-4 w-4" />
-                            Confirm
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="overflow-auto">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure!</AlertDialogTitle>
-                          </AlertDialogHeader>
-                          <AlertDialogDescription>
-                            Below are the subsequent actions executed on
-                            clicking the Confirm button:
-                            <ul className="list-disc ml-6 italic">
-                              <li>
-                                Merged PO(s) including the current PO will be
-                                marked as{" "}
-                                <span className="text-primary">Merged</span>!
-                              </li>
-                              <li>
-                                A <span className="text-primary">New PO</span>{" "}
-                                will be created to contain the merged PO(s)
-                                items
-                              </li>
-                            </ul>
-                            <p className="mt-2 font-semibold text-base">
-                              Continue?
-                            </p>
-                          </AlertDialogDescription>
-                          {mergePOCallLoading ? (
-                            <div className="flex items-center justify-center">
-                              <TailSpin width={80} color="red" />{" "}
-                            </div>
-                          ) : (
-                            <AlertDialogDescription className="flex gap-2 items-center justify-center">
-                              <AlertDialogCancel className="flex items-center gap-1">
-                                <CircleX className="h-4 w-4" />
-                                Cancel
-                              </AlertDialogCancel>
-                              <Button
-                                onClick={handleMergePOs}
-                                className="flex gap-1 items-center"
-                              >
-                                <CheckCheck className="h-4 w-4" />
-                                Confirm
-                              </Button>
+
+                      {mergeStep === "selection" && hasConflicts && mergedItems.length > 0 ? (
+                        <Button
+                          className="flex items-center gap-1"
+                          onClick={() => setMergeStep("resolution")}
+                        >
+                          Next: Resolve
+                        </Button>
+                      ) : (
+                        <AlertDialog
+                          open={mergeConfirmDialog}
+                          onOpenChange={toggleMergeConfirmDialog}
+                        >
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              className="flex items-center gap-1"
+                              disabled={
+                                !mergedItems.length ||
+                                hasIncompatibilities ||
+                                (mergeStep === "resolution" && !allResolved)
+                              }
+                            >
+                              <CheckCheck className="h-4 w-4" />
+                              {mergeStep === "resolution" ? "Confirm Merge" : "Confirm"}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="overflow-auto">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you sure!</AlertDialogTitle>
+                            </AlertDialogHeader>
+                            <AlertDialogDescription>
+                              Below are the subsequent actions executed on
+                              clicking the Confirm button:
+                              <ul className="list-disc ml-6 italic">
+                                <li>
+                                  Merged PO(s) including the current PO will be
+                                  marked as{" "}
+                                  <span className="text-primary">Merged</span>!
+                                </li>
+                                <li>
+                                  A <span className="text-primary">New PO</span>{" "}
+                                  will be created to contain the merged PO(s)
+                                  items
+                                </li>
+                              </ul>
+                              <p className="mt-2 font-semibold text-base">
+                                Continue?
+                              </p>
                             </AlertDialogDescription>
-                          )}
-                        </AlertDialogContent>
-                      </AlertDialog>
+                            {mergePOCallLoading ? (
+                              <div className="flex items-center justify-center">
+                                <TailSpin width={80} color="red" />{" "}
+                              </div>
+                            ) : (
+                              <AlertDialogDescription className="flex gap-2 items-center justify-center">
+                                <AlertDialogCancel className="flex items-center gap-1">
+                                  <CircleX className="h-4 w-4" />
+                                  Cancel
+                                </AlertDialogCancel>
+                                <Button
+                                  onClick={handleMergePOs}
+                                  className="flex gap-1 items-center"
+                                >
+                                  <CheckCheck className="h-4 w-4" />
+                                  Confirm
+                                </Button>
+                              </AlertDialogDescription>
+                            )}
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </div>
                   </div>
                 </SheetContent>
               </Sheet>
+              </div>
             </AlertDescription>
           </Alert>
         </>
@@ -1606,6 +1015,8 @@ export const PurchaseOrder = ({
         totalApprovedInvoiceAmount={totalApprovedInvoiceAmount}
         amountPaid={PO?.amount_paid}
         poMutate={poMutate}
+        onAdjustPayments={() => setIsAdjustmentDialogOpen(true)}
+        onCancelPO={toggleCancelPODialog}
       />
       {/* Payment Details - hidden for Project Manager */}
       {!isProjectManager && (
@@ -1619,9 +1030,16 @@ export const PurchaseOrder = ({
             <AccordionItem key="transac&payments" value="transac&payments">
               {/* {tab === "Delivered PO" && ( */}
               <AccordionTrigger>
-                <p className="font-semibold text-lg text-red-600 pl-6">
-                  Payment Details
-                </p>
+                <div className="flex items-center gap-3 pl-6">
+                  <p className="font-semibold text-lg text-red-600">
+                    Payment Details
+                  </p>
+                  {(poPayments || []).filter((p) => p?.status === "Paid").length > 0 && (
+                    <Badge variant="secondary">
+                      {(poPayments || []).filter((p) => p?.status === "Paid").length}
+                    </Badge>
+                  )}
+                </div>
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
@@ -1646,7 +1064,7 @@ export const PurchaseOrder = ({
                     getTotal={PO?.total_amount}
                     poMutate={poMutate}
                     projectPaymentsMutate={poPaymentsMutate}
-                    isLocked={isLocked}
+                    isLocked={isPaymentLocked}
                   />
                 </div>
               </AccordionContent>
@@ -1684,7 +1102,7 @@ export const PurchaseOrder = ({
                     returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
                     isEmbedded
                     isProjectManager={isProjectManager}
-                    isLocked={isLocked}
+                    isLocked={isItemLocked}
                   />
                 </AccordionContent>
               </AccordionItem>
@@ -1740,6 +1158,9 @@ export const PurchaseOrder = ({
           </Accordion>
         </Card>
       )}
+
+      {/* Revisions & Adjustments Accordion */}
+      {poId && <PORevisionsAndAdjustments poId={poId} />}
 
       {/* Invoice Dialog */}
       <InvoiceDialog
@@ -1893,495 +1314,9 @@ export const PurchaseOrder = ({
           </div>
         </CardContent>
       </Card>
-      {/* Unmerge, Amend and Cancel PO Buttons  */}
-      {/* Unmerge */}
-      <div className="flex items-center justify-between">
-        {UNMERGEPOVALIDATIONS ? (
-          PO?.status === "PO Approved" &&
-          !((poPayments || [])?.length > 0) && (
-            <AlertDialog
-              open={unMergeDialog}
-              onOpenChange={toggleUnMergeDialog}
-            >
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant={"outline"}
-                  className="flex border-primary items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
-                >
-                  <Split className="h-4 w-4" />
-                  Unmerge
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="overflow-auto max-h-[90vh]">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                </AlertDialogHeader>
-                <div className="space-y-6">
-                  <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                      <List className="w-5 h-5 mr-2" />
-                      Associated Merged PO's
-                    </h3>
-                    <Tree
-                      treeData={treeData}
-                      defaultExpandedKeys={["mainPO"]}
-                    />
-                  </div>
-                  <div className="bg-indigo-500/10 p-4 rounded-lg border border-indigo-500/20">
-                    <h3 className="font-semibold text-indigo-500 mb-2 flex items-center">
-                      <AlertTriangle className="w-5 h-5 mr-2" />
-                      Important Notes
-                    </h3>
-                    <ul className="list-disc list-inside space-y-1 text-sm text-indigo-500/80">
-                      <li>
-                        If you need to{" "}
-                        <span className="italic text-primary font-bold">
-                          Amend / Cancel
-                        </span>
-                        , You should proceed with this option.
-                      </li>
-                      <li>
-                        This action will delete the current PO, unmerge all{" "}
-                        <span className="text-primary font-semibold">
-                          the above listed merged PO(s)
-                        </span>{" "}
-                        and make them available in the table!
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-                <AlertDialogDescription className="space-y-2">
-                  <div>
-                    Please be informed that the above mentioned are the PO(s)
-                    that are going to be unmerged and be available in the table,
-                    it is advised to note these PO numbers!
-                  </div>
-
-                  <p className="">
-                    Click on confirm to proceed with unmerging!
-                  </p>
-                </AlertDialogDescription>
-                {unMergePOCallLoading ? (
-                  <div className="flex items-center justify-center">
-                    <TailSpin width={80} color="red" />{" "}
-                  </div>
-                ) : (
-                  <div className="flex justify-end items-center gap-2">
-                    <AlertDialogCancel>
-                      <CircleX className="h-4 w-4 mr-1" />
-                      Cancel
-                    </AlertDialogCancel>
-                    <Button
-                      onClick={handleUnmergePOs}
-                      className="flex items-center gap-1"
-                    >
-                      <Split className="h-4 w-4 mr-1" />
-                      Confirm
-                    </Button>
-                  </div>
-                )}
-              </AlertDialogContent>
-            </AlertDialog>
-          )
-        ) : (
-          <div />
-        )}
-
-        {/* Amend PO */}
+      {/* Cancel PO Button */}
+      <div className="flex items-center justify-end">
         <div className="flex gap-2 items-center justify-end">
-          {AMENDPOVALIDATION && (
-            <Button
-              onClick={toggleAmendPOSheet}
-              variant={"outline"}
-              className="border-primary text-primary flex items-center gap-1 max-sm:px-3 max-sm:py-2 max-sm:h-8"
-            >
-              <PencilRuler className="w-4 h-4" />
-              Amend PO
-            </Button>
-          )}
-          <Sheet open={amendPOSheet} onOpenChange={toggleAmendPOSheet}>
-            <SheetContent className="overflow-auto">
-              <>
-                <div className="space-y-6 my-4">
-                  <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
-                    <h3 className="font-semibold text-primary mb-2 flex items-center">
-                      <AlertTriangle className="w-5 h-5 mr-2" />
-                      Important Notes
-                    </h3>
-                    <ul className="list-disc list-inside space-y-1 text-sm text-primary/80">
-                      <li>
-                        If you want to change quantities or remove items from
-                        this PO, choose this option.
-                      </li>
-                      <li>
-                        This action will create an{" "}
-                        <span className="text-red-700 font-semibold">
-                          Approve Amendment
-                        </span>{" "}
-                        for this PO and send it to Project Lead for
-                        verification.
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-                <div className="pb-4 text-lg font-bold">
-                  Amend: <span className="text-red-700">{poId}</span>
-                </div>
-                {/* PENDING CARD */}
-                <Card className="p-4">
-                  <div className="flex justify-between pb-2 gap-2">
-                    <div className="text-red-700 text-sm font-light">
-                      Order List
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={toggleAddChargeDialog}
-                        className="text-blue-600 border-blue-200 hover:bg-blue-50 text-[11px] h-8 font-bold px-4"
-                      >
-                        Add Charges
-                      </Button>
-                      {stack.length !== 0 && (
-                        <div className="flex items-center space-x-2">
-                          <HoverCard>
-                            <HoverCardTrigger asChild>
-                              <Button
-                                onClick={() => UndoDeleteOperation()}
-                                className="flex items-center gap-1"
-                              >
-                                <Undo className="mr-2 max-md:w-4 max-md:h-4" />{" "}
-                                {/* Undo Icon */}
-                                Undo
-                              </Button>
-                            </HoverCardTrigger>
-                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
-                              Click to undo the last operation
-                            </HoverCardContent>
-                          </HoverCard>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <table className="table-auto w-full">
-                    <thead>
-                      <tr className="bg-gray-200">
-                        <th className="w-[45%] text-left  py-1 text-xs">
-                          Item Name
-                        </th>
-                        <th className="w-[20%]  py-1 text-xs text-center">
-                          Tax
-                        </th>
-                        <th className="w-[20%]  py-1 text-xs text-center">
-                          Make
-                        </th>
-                        <th className="w-[10%]  py-1 text-xs text-center">
-                          Unit
-                        </th>
-                        <th className="w-[5%]  py-1 text-xs text-center">
-                          Qty
-                        </th>
-                        <th className="w-[10%]  py-1 text-xs text-center">
-                          Edit
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orderData?.map((item) => {
-                        return (
-                          <tr key={item.name}>
-                            <td className="w-[45%] text-left border-b-2 py-1 text-sm">
-                              {item.item_name}
-                            </td>
-                            <td className="w-[20%] border-b-2 py-1 text-sm text-center">
-                              {item.tax}
-                            </td>
-                            <td className="w-[20%] border-b-2 py-1 text-sm text-center">
-                              {item.make}
-                            </td>
-                            <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              {item.unit}
-                            </td>
-                            <td className="w-[5%] border-b-2 py-1 text-sm text-center">
-                              {item.quantity}
-                            </td>
-                            <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                {item.category != "Additional Charges" && (
-                                  <Pencil
-                                    onClick={() => {
-                                      // Find all makes for this item (from its `makes.list` in the original PO data)
-                                      const itemMakes =
-                                        PO?.items.find(
-                                          (i) => i.name === item.name
-                                        )?.makes?.list || [];
-                                      const options = itemMakes.map((m) => ({
-                                        label: m.make,
-                                        value: m.make,
-                                      }));
-
-                                      setEditMakeOptions(options);
-
-                                      // Find the currently enabled make
-                                      const currentMakeValue = item.make;
-                                      // Create the correct object structure for react-select
-                                      const currentSelectedObject = {
-                                        label: currentMakeValue,
-                                        value: currentMakeValue,
-                                      };
-
-                                      setSelectedMake(currentSelectedObject);
-                                      setTax(item.tax);
-                                      setQuantity(item.quantity);
-                                      setAmendEditItem(item);
-                                      setShowAddNewMake(false); // Make sure the card is hidden initially
-                                      toggleAmendEditItemDialog();
-                                    }}
-                                    className="w-4 h-4 cursor-pointer"
-                                  />
-                                )}
-                                {item.name.startsWith("NEW-CHARGE-") && (
-                                  <Trash2
-                                    onClick={() => handleDelete(item.name)}
-                                    className="w-4 h-4 cursor-pointer text-red-500"
-                                  />
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </Card>
-
-                <div className="flex p-2 gap-2 items-end justify-end">
-                  <SheetClose asChild>
-                    <Button
-                      variant="outline"
-                      className="flex items-center gap-1"
-                    >
-                      <CircleX className="h-4 w-4" />
-                      Cancel
-                    </Button>
-                  </SheetClose>
-                  {stack.length === 0 ? (
-                    <HoverCard>
-                      <HoverCardTrigger>
-                        <Button
-                          variant="outline"
-                          disabled
-                          className="border-primary flex items-center gap-1"
-                        >
-                          <CheckCheck className="h-4 w-4" />
-                          Confirm
-                        </Button>
-                      </HoverCardTrigger>
-                      <HoverCardContent className="w-80 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                        <div>
-                          <span className="text-primary underline">
-                            No Amend operations are performed in this PO
-                          </span>
-                        </div>
-                      </HoverCardContent>
-                    </HoverCard>
-                  ) : (
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="border-primary flex items-center gap-1"
-                        >
-                          <CheckCheck className="h-4 w-4" />
-                          Confirm
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>
-                            <h1 className="justify-center text-center">
-                              Are you sure you want to amend this PO?
-                            </h1>
-                          </DialogTitle>
-
-                          <DialogDescription className="flex flex-col text-center gap-1">
-                            Amending this PO will send this to Project Lead for
-                            approval. Continue?
-                            <div className="flex flex-col gap-2 mt-2">
-                              <Textarea
-                                placeholder="input the reason for amending this PO..."
-                                value={comment}
-                                onChange={(e) => setComment(e.target.value)}
-                              />
-                            </div>
-                            {loadingFuncName === "handleAmendPo" ? (
-                              <div className="flex items-center justify-center">
-                                <TailSpin width={80} color="red" />{" "}
-                              </div>
-                            ) : (
-                              <div className="flex gap-2 items-center justify-center pt-2">
-                                <Button
-                                  onClick={handleAmendPo}
-                                  className="flex items-center gap-1"
-                                >
-                                  <CheckCheck className="h-4 w-4" />
-                                  Confirm
-                                </Button>
-                              </div>
-                            )}
-                          </DialogDescription>
-                        </DialogHeader>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                </div>
-                <Dialog
-                  open={amendEditItemDialog}
-                  onOpenChange={toggleAmendEditItemDialog}
-                >
-                  <DialogContent className="max-w-3xl">
-                    <DialogHeader>
-                      <DialogTitle className="flex justify-between border-b-2 border-gray-300 pb-2">
-                        Edit Item
-                      </DialogTitle>
-                    </DialogHeader>
-                    <DialogDescription className="flex flex-col gap-2">
-                      <div className="flex space-x-2 max-md:flex-col space-y-2">
-                        <div className="w-full md:w-2/3">
-                          <h5 className="text-base text-gray-400 text-left mb-1">
-                            Item Name
-                          </h5>
-                          <div className="w-full  p-1 text-left">
-                            {amendEditItem?.item_name}
-                          </div>
-                        </div>
-                        <div className="w-[30%]">
-                          <h5 className="text-base text-gray-400 text-left mb-1">
-                            Tax %
-                          </h5>
-                          <Select
-                            value={String(tax) || ""}
-                            onValueChange={(value) => {
-                              // console.log(`Tax selection changed for String(item.tax || "")item_id: ${item.item_id}. New value: ${value}`);
-                              // console.log("tax", value);
-                              setTax(value);
-                              // onTaxChange(amendEditItem.item_id, value);
-                            }}
-                          // disabled={mode === "view" || isReadOnly}
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                className="text-gray-200"
-                                placeholder="Select Tax %"
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem key={5} value={"5"}>
-                                5 %
-                              </SelectItem>
-                              <SelectItem key={12} value={"12"}>
-                                12 %
-                              </SelectItem>
-                              <SelectItem key={18} value={"18"}>
-                                18 %
-                              </SelectItem>
-                              <SelectItem key={28} value={"28"}>
-                                28 %
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex space-x-2 w-full">
-                          <div className="w-[60%]">
-                            <h5 className="text-base text-gray-400 text-left mb-1">
-                              Make
-                            </h5>
-                            <div className="w-full">
-                              <MakesSelection
-                                selectedMake={selectedMake}
-                                setSelectedMake={setSelectedMake}
-                                editMakeOptions={editMakeOptions}
-                                setEditMakeOptions={setEditMakeOptions} // Pass the setter function
-                                // toggleAddNewMake={toggleAddNewMake}
-                                amendEditItem={amendEditItem}
-                              />
-                            </div>
-                          </div>
-                          <div className="w-[30%]">
-                            <h5 className="text-base text-gray-400 text-left mb-1">
-                              UOM
-                            </h5>
-                            <div className=" w-full  p-2 text-center justify-left flex">
-                              {amendEditItem?.unit}
-                            </div>
-                          </div>
-                          <div className="w-[25%]">
-                            <h5 className="text-base text-gray-400 text-left mb-1">
-                              Qty
-                            </h5>
-                            <Input
-                              type="number"
-                              value={quantity || ""}
-                              onChange={(e) =>
-                                setQuantity(
-                                  e.target.value !== ""
-                                    ? parseFloat(e.target.value)
-                                    : null
-                                )
-                              }
-                              disabled={false}
-                              readOnly={false}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* {showAddNewMake && (
-                        <AddNewMakes
-                          orderData={orderData}
-                          setOrderData={setOrderData}
-                          editMakeOptions={editMakeOptions}
-                          amendEditItem={amendEditItem}
-                          toggleAddNewMake={toggleAddNewMake}
-                          setEditMakeOptions={setEditMakeOptions}
-                        />
-                      )} */}
-                    </DialogDescription>
-                    <DialogDescription className="flex justify-end">
-                      <div className="flex gap-2">
-                        {orderData?.filter((item) => item.category !== "Additional Charges").length === 1 ? (
-                          <Button className="flex items-center gap-1" disabled>
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </Button>
-                        ) : (
-                          <Button
-                            onClick={() => handleDelete(amendEditItem?.name)}
-                            className="flex gap-1 items-center bg-gray-100 text-black hover:text-white"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </Button>
-                        )}
-                        <Button
-                          disabled={!quantity}
-                          onClick={() => handleSave(amendEditItem?.name)}
-                          variant={"outline"}
-                          className="flex gap-1 items-center"
-                        >
-                          <ListChecks className="h-4 w-4" />
-                          Save
-                        </Button>
-                      </div>
-                    </DialogDescription>
-                  </DialogContent>
-                </Dialog>
-              </>
-            </SheetContent>
-          </Sheet>
-
-          {/* Cancel PO */}
           {CANCELPOVALIDATION && (
             <Button
               onClick={toggleCancelPODialog}
@@ -2423,6 +1358,12 @@ export const PurchaseOrder = ({
                         </span>{" "}
                         side option.
                       </li>
+                      {PO?.merged === "true" && (
+                        <li>
+                          This is a <Badge variant="orange">Merged PO</Badge>. Cancelling will also cancel
+                          all source POs that were merged into it.
+                        </li>
+                      )}
                     </ul>
                   </div>
                 </div>
@@ -2474,7 +1415,7 @@ export const PurchaseOrder = ({
         poPdfSheet={poPdfSheet}
         togglePoPdfSheet={togglePoPdfSheet}
         po={PO}
-        orderData={orderData}
+        orderData={mergedItems.length > 0 ? buildResolvedOrderData() : PO?.items}
         includeComments={includeComments}
         paymentTerms={mergedPaymentTerms} // make set term state
         // getTotal={getTotal}
@@ -2498,84 +1439,19 @@ export const PurchaseOrder = ({
         vendor={PO?.vendor || "Unknown"}
         onSuccess={poPaymentsMutate}
       />
-      <AmendAddChargeDialog
-        open={isAddChargeDialogOpen}
-        onOpenChange={setIsAddChargeDialogOpen}
-        onAdd={handleAddCharge}
-        itemOptions={chargeItemOptions}
-        orderData={orderData}
-      />
+      {/* PO Adjustment Button - moved to PODetails Section 5 buttons row */}
+
+      {/* PO Adjustment Dialog */}
+      {poId && PO?.vendor && (
+        <POAdjustmentDialog
+          poId={poId}
+          vendor={PO.vendor}
+          isOpen={isAdjustmentDialogOpen}
+          onClose={() => setIsAdjustmentDialogOpen(false)}
+        />
+      )}
     </div>
   );
 };
 
 export default PurchaseOrder;
-
-// ===================================================================
-// ✨ NEW, SIMPLIFIED SINGLE-SELECT MAKES COMPONENT
-// ===================================================================
-interface MakesSelectionProps {
-  selectedMake: Make | null;
-  setSelectedMake: React.Dispatch<React.SetStateAction<Make | null>>;
-  amendEditItem: PurchaseOrderItem | null;
-}
-
-const MakesSelection = ({
-  selectedMake,
-  setSelectedMake,
-  amendEditItem,
-}: MakesSelectionProps) => {
-  // State for the options available in this component's dropdown.
-  const [availableMakeOptions, setAvailableMakeOptions] = useState<Make[]>([]);
-
-  // Fetch the list of possible makes for the current item's category
-  const { data: categoryMakeList, isLoading: makesLoading } =
-    useFrappeGetDocList(
-      "Category Makelist",
-      {
-        fields: ["make"],
-        filters: [["category", "=", amendEditItem?.category]],
-        limit: 1000,
-      },
-      amendEditItem?.category
-        ? `category_makelist_for_${amendEditItem.category}`
-        : null
-    );
-
-  // Populate the available makes dropdown when data is fetched
-  useEffect(() => {
-    if (categoryMakeList) {
-      const allCategoryMakes = categoryMakeList.map((i) => ({
-        label: i.make,
-        value: i.make,
-      }));
-      setAvailableMakeOptions(allCategoryMakes);
-
-      // ✨ Optional: If the current item's make is not in the list, add it.
-      // This handles cases where a make was manually entered before this feature was added.
-      const currentMakeExists = allCategoryMakes.some(
-        (opt) => opt.value === amendEditItem?.make
-      );
-      if (amendEditItem?.make && !currentMakeExists) {
-        setAvailableMakeOptions((prev) => [
-          { label: amendEditItem.make, value: amendEditItem.make },
-          ...prev,
-        ]);
-      }
-    }
-  }, [categoryMakeList, amendEditItem?.make]);
-
-  return (
-    <ReactSelect
-      options={availableMakeOptions}
-      value={selectedMake}
-      isMulti={false} // Ensure single select
-      isLoading={makesLoading}
-      onChange={(selectedOption) =>
-        setSelectedMake(selectedOption as Make | null)
-      }
-      placeholder="Select a make..."
-      noOptionsMessage={() => "No makes available for this category."}
-    />
-  );
-};

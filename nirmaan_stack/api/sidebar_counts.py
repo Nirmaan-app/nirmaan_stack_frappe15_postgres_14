@@ -149,7 +149,7 @@ def sidebar_counts(user: str) -> str:
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}
-    credit_po_filters["status"] = ["not in", ["Merged", "Inactive", "PO Amendment"]]
+    credit_po_filters["status"] = ["not in", ["Merged", "Inactive"]]
 
     # Get the list of valid PO names once for reuse
     valid_po_names = frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")
@@ -194,9 +194,18 @@ def sidebar_counts(user: str) -> str:
     # Total "due" count = Created (past due) + Requested + Approved
     credit_counts["due"] = created_due_count + requested_count + approved_count
 
+    # --- PO Adjustments ---
+    adj_filters = {"status": "Pending"}
+    if not is_full_access:
+        adj_filters["project"] = ["in", user_projects]
+    po_adj_counts = {
+        "pending": simple("PO Adjustments", adj_filters),
+    }
+
     return json.dumps({
         "po": po_map,
         "po_revisions": porev_counts,
+        "po_adjustments": po_adj_counts,
         "pr": pr_counts,
         "sb": sb_counts,
         "sr": sr_counts,

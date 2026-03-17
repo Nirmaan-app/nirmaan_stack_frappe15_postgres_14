@@ -1,13 +1,12 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { usePORevisionsApprovalDetail } from "./hooks/usePORevisionsApprovalDetail";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 import PORevisionInfoCard from "./components/detail/PORevisionInfoCard";
 import PORevisionInvoices from "./components/detail/PORevisionInvoices";
 import PORevisionImpactAndJustification from "./components/detail/PORevisionImpactAndJustification";
 import PORevisionLineItems from "./components/detail/PORevisionLineItems";
-import PORevisionPaymentRectification from "./components/detail/PORevisionPaymentRectification";
 
 export default function PORevisionsApprovalDetail() {
     const { id } = useParams();
@@ -29,7 +28,7 @@ export default function PORevisionsApprovalDetail() {
         try {
             await approveRevision();
             // Success - Redirect back to the list
-            navigate("/po-revisions-approval");
+            navigate("/purchase-orders?tab=Approve+PO+Revision");
         } catch (err) {
             alert("Failed to approve revision. Please try again.");
         }
@@ -39,7 +38,7 @@ export default function PORevisionsApprovalDetail() {
         try {
             await rejectRevision();
             // Success - Redirect back to the list
-            navigate("/po-revisions-approval");
+            navigate("/purchase-orders?tab=Approve+PO+Revision");
         } catch (err) {
             alert("Failed to reject revision. Please try again.");
         }
@@ -63,21 +62,21 @@ export default function PORevisionsApprovalDetail() {
     }
 
     // Calculate totals for Impact Summary
-    const beforeExclGst = parsedItems.reduce((acc, item) => {
+    const beforeExclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "New") return acc;
         const amount = Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0);
         return acc + amount;
     }, 0);
 
-    const beforeInclGst = parsedItems.reduce((acc, item) => {
+    const beforeInclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "New") return acc;
         const amount = Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0);
         const tax = Number(item.original_tax || 0);
         return acc + (amount * (1 + tax / 100));
     }, 0);
-    
+
     // Calculate the 'After' state by iterating through items (excluding Deleted)
-    const afterExclGst = parsedItems.reduce((acc, item) => {
+    const afterExclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "Deleted") return acc;
         const amount = (item.item_type === "Original")
             ? Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
@@ -85,7 +84,7 @@ export default function PORevisionsApprovalDetail() {
         return acc + amount;
     }, 0);
 
-    const afterInclGst = parsedItems.reduce((acc, item) => {
+    const afterInclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "Deleted") return acc;
         const amount = (item.item_type === "Original")
             ? Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
@@ -174,10 +173,6 @@ export default function PORevisionsApprovalDetail() {
                     {/* Line Items */}
                     <PORevisionLineItems items={parsedItems} isCustom={!!originalPO?.custom} />
 
-                    {/* Payment Rectification */}
-                    {revisionDoc.payment_return_details && (
-                        <PORevisionPaymentRectification paymentData={revisionDoc.payment_return_details} />
-                    )}
                 </div>
             </div>
         </div>

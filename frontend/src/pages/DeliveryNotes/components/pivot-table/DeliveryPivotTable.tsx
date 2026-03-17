@@ -1,4 +1,4 @@
-import { useState, useCallback ,useEffect} from "react";
+import { useState, useCallback } from "react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -58,6 +58,7 @@ export function DeliveryPivotTable({
 
   // In "view-only" mode, override canEdit to false
   const effectiveCanEdit = viewMode === "view-only" ? false : canEdit;
+  const hideTotalReceived = isProjectManager && viewMode === "create";
   // In "create" mode, auto-open the new entry form
   const [showEdit, setShowEdit] = useState(viewMode === "create");
   const [showReturn, setShowReturn] = useState(false);
@@ -261,6 +262,7 @@ export function DeliveryPivotTable({
             onOpenVendorDC={handleOpenVendorDC}
             viewMode={viewMode}
             showReturn={showReturn && !editHook.editingDnName}
+            hideTotalReceived={hideTotalReceived}
           />
           <PivotTableBody
             pivotData={pivotData}
@@ -273,6 +275,7 @@ export function DeliveryPivotTable({
             viewMode={viewMode}
             showReturn={showReturn && !editHook.editingDnName}
             returnHook={returnHook}
+            hideTotalReceived={hideTotalReceived}
           />
         </Table>
       </div>

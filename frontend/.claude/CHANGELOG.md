@@ -4,6 +4,90 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-03-16 — PO Adjustments: Decoupled Payment Reconciliation
+
+### PO Adjustments System (NEW)
+- New `PO Adjustments` doctype (`POADJ-.po_id.`) + `PO Adjustment Items` child table
+- New `api/po_adjustments/adjustment_logic.py` — get, execute, candidate PO APIs
+- New `api/po_adjustments/_payment_utils.py` — shared payment utilities (extracted from revision_logic)
+- New `src/pages/POAdjustment/` — Button, Dialog, History components + data/hooks layer
+
+### PO Revision Simplified
+- Removed Step 2 (financial allocation) from revision wizard — now 2 steps (Items + Summary)
+- Removed `Step2PositiveFlow.tsx`, `Step2NegativeFlow.tsx` from dialog
+- Removed payment-related state from `usePORevision.ts` hook
+- `make_po_revisions` API no longer accepts `payment_return_details`
+- Revision approval auto-creates PO Adjustment doc with double-entry entries
+
+### Lock Mechanism Updated
+- `revision_po_check.py` now returns `is_item_locked` + `is_payment_locked` separately
+- Pending PO Adjustments lock payments only (not items)
+- `get_all_locked_po_names()` includes both revision and adjustment POs
+
+### Legacy PO Amendment Removed
+- Deleted `approve_amend_po.py`, `approve-amend-po.tsx`, `approve-select-amend-po.tsx`, `AmendAddChargeDialog.tsx`
+- Removed `generate_amend_version`/`remove_amend_version` Version hooks from `hooks.py`
+- Migration patch `v3_0/migrate_po_amendment_to_revision.py` resets "PO Amendment" → "PO Approved"
+
+### Documentation Updated
+- Rewrote `frontend/.claude/context/domain/po-revisions.md` — removed Step 2 docs, updated approval flow
+- Created `frontend/.claude/context/domain/po-adjustments.md` — full system reference
+- Updated `frontend/.claude/context/_index.md` — added PO Adjustments entry
+- Updated `frontend/CLAUDE.md` — added PO Adjustments and simplified revision notes
+- Updated `memory/MEMORY.md` + `memory/project_po_revisions.md` — decoupled architecture
+
+---
+
+## 2026-03-12 — Context Sync: Feature Analysis (2026-03-11 to 2026-03-12)
+
+### Inventory Item-Wise Page
+- New `api/inventory_item_wise.py` backend API aggregating latest submitted Remaining Items Reports per project
+- Joins with max PO quote rates for estimated cost calculation (incl. GST)
+- Frontend at `src/pages/inventory/InventoryItemWisePage.tsx` with virtualized expandable table, search, category/unit facet filters
+- Summary cards: unique items count, total remaining qty, total estimated cost
+- CSV export support
+- Sidebar access: Admin, PMO, PL, PM, Procurement
+
+### Inventory Report Enhancements
+- Delivery filter: only items with `deliveredQuantity > 0` eligible
+- Estimated Cost column using max PO quote rate with tax
+- Procurement Executive access to Projects tab (Inventory Report only)
+- Copy Previous Report feature with AlertDialog confirmation
+- Backend 3-day cooldown enforcement (bypass for same-day edits)
+- Fixed broken cooldown by deriving state instead of useState+useEffect sync
+
+### DataTable Export-All-Rows System
+- 63-file commit wiring `exportAllRows` / `isExporting` across ~35 pages
+- Backend `EXPORT_MAX_PAGE_LENGTH=100_000`, skips aggregates for exports
+- Created `frontend/.claude/context/data-tables.md` reference doc (257 lines)
+
+### Vendor Financial Enhancements
+- Amount Due column (Total Invoiced - Amount Paid) on WO and Material Orders tables
+- Clickable Total Invoiced / Amount Paid cells opening InvoiceDataDialog / PaymentsDataDialog
+- InvoiceDataDialog migrated from JSON `invoice_data` to Vendor Invoices doctype records
+- Renamed "Service Orders" tab to "Work Orders", "Total SR Value" to "Total WO Value"
+
+### Package Rename Migration
+- "WLD & RR" renamed to "Critical Room ELV" across 20+ tables
+- Raw SQL patch updating PKs, Link fields, Data fields, JSON blobs
+- Fixtures updated: work_packages, procurement_packages, category
+
+### DN/CEO Hold Exemption
+- Delivery Note operations exempted from CEO Hold blocking
+- Removed `!isCEOHold` from canEdit/canReturn in DN detail and PO overview
+
+### Miscellaneous
+- Legacy `generateUserPermissions` hook removed from backend
+- Virtualization disabled in Material Usage tables to prevent flickering
+- Raw numeric lakhs export values in project CSVs
+- DN>DC Quantity Report defaults to "Mismatch" + "No DC Update" filters
+- Doctype permissions expanded for Procurement Orders and Remaining Items Report
+- TDS sidebar items reordered together
+- Return note conditional styling
+- DN download button noteNo passthrough
+
+---
+
 ## 2026-02-27 — Read-Only Approval Tabs for Non-Approver Roles
 - Show "Pending Approval" tab on TDS Approval page to all roles (read-only for non-approvers)
 - Show "Approve Payments" tab on Project Payments page to all roles (read-only for non-approvers)

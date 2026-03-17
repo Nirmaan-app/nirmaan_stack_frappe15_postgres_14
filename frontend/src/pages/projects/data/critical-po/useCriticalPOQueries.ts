@@ -119,7 +119,7 @@ export const useCriticalPOProcurementOrders = (
             filters: selectedPackage
                 ? [
                     ["project", "=", projectId],
-                    ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
+                    ["status", "not in", ["Merged", "Inactive"]],
                 ]
                 : undefined,
             limit: 0,

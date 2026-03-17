@@ -258,45 +258,23 @@ export const useCategories = () => {
   return response;
 };
 
-// ─── Candidate POs (for negative flow adjustment) ────────────
-
-import { useFrappeGetCall } from "frappe-react-sdk";
-
-export const useCandidatePOs = (
-  vendor: string | undefined,
-  currentPO: string | undefined,
-  enabled: boolean = true
-) => {
-  const response = useFrappeGetCall<{ message: any[] }>(
-    PO_REVISION_APIS.getCandidatePOs,
-    {
-      vendor: vendor || "",
-      current_po: currentPO || ""
-    },
-    enabled && vendor && currentPO ? poRevisionKeys.candidatePOs(vendor) : null
-  );
-  
-  // To keep compatibility with existing components that expect an array directly on `.data`
-  const formattedResponse = {
-      ...response,
-      data: response.data?.message || undefined
-  };
-
-  useApiErrorLogger(response.error, {
-    hook: "useCandidatePOs",
-    api: "get_adjustment_candidate_pos",
-    feature: "po-revision",
-    entity_id: vendor,
-  });
-  return formattedResponse;
-};
-
 // ─── PO Lock Check ───────────────────────────────────────────
+
+interface POLockCheckResult {
+  is_locked: boolean;
+  revision_name?: string;
+  is_item_locked?: boolean;
+  is_payment_locked?: boolean;
+  payment_lock_source?: string; // "PO Revision" | "PO Adjustment"
+  role?: string;
+  revision_id?: string;
+  [key: string]: any;
+}
 
 export const usePOLockCheck = (poId: string | undefined) => {
   const { call } = useFrappePostCall(PO_REVISION_APIS.checkLock);
 
-  const { data, isLoading, error, mutate } = useSWR(
+  const { data, isLoading, error, mutate } = useSWR<POLockCheckResult | null>(
     poId ? poRevisionKeys.lockCheck(poId) : null,
     () => call({ po_id: poId }).then((res) => res.message || null)
   );

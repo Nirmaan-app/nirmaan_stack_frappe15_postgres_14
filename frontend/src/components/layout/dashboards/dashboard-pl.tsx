@@ -40,14 +40,6 @@ export const ProjectLead = () => {
                             </p>
                         </Link>
                     </Card>
-                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                        <Link to="/purchase-orders?tab=Approve+Amended+PO">
-                            <p className="text-center py-6 font-bold text-gray-500">Approve Amended PO</p>
-                            <p className="text-center text-red-400 text-xl font-bold py-6 font-bold text-gray-500">
-                                {counts.po["PO Amendment"] || 0}
-                            </p>
-                        </Link>
-                    </Card>
 
                 </div>
                 <h2 className="text-base font-bold tracking-tight pt-4">Rejected/Delayed/Cancelled Sent Back Actions</h2>

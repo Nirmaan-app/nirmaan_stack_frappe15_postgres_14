@@ -20,8 +20,8 @@ class ProjectPayments(Document):
 		that affect the document itself before it's written.
 		"""
 		# Skip all validation when created programmatically by PO Revision flow
-		if self.flags.from_revision:
-			print(f"DEBUG_HOOK: project_payments.before_insert skipped for {self.document_name} due to from_revision flag")
+		if self.flags.from_adjustment:
+			print(f"DEBUG_HOOK: project_payments.before_insert skipped for {self.document_name} due to from_adjustment flag")
 			return
 
 		doc = frappe.get_doc(self.document_type, self.document_name)
@@ -50,8 +50,8 @@ class ProjectPayments(Document):
         We check if the status has just changed to 'Paid'.
         """
 		# Skip all hook logic when created by PO Revision — revision_logic.py handles amount_paid itself
-		if self.flags.from_revision:
-			print(f"DEBUG_HOOK: project_payments.before_insert Update for {self.document_name} due to from_revision flag")
+		if self.flags.from_adjustment:
+			print(f"DEBUG_HOOK: project_payments.on_update skipped for {self.document_name} due to from_adjustment flag")
 			
 			return
 
