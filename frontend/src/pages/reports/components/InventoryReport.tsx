@@ -376,6 +376,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
     },
     {
       id: "estimatedCost",
+      accessorFn: (row) => computeEstimatedCost(row),
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
@@ -415,7 +416,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
   ], [remainingHeader]);
 
   // Table state
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "estimatedCost", desc: true }]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   const table = useReactTable({
