@@ -1,6 +1,6 @@
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 import { ADDITIONAL_CHARGES_CATEGORY } from "./constants";
-import type { RegularItemConflict, ChargeConflict, ItemSourceEntry } from "./types";
+import type { RegularItemConflict, ChargeConflict, ItemSourceEntry, MergeIncompatibility } from "./types";
 
 interface TaggedItem extends PurchaseOrderItem {
   sourcePO: string;
@@ -125,4 +125,66 @@ export function detectConflicts(
   }
 
   return { regularConflicts, chargeConflicts };
+}
+
+/**
+ * Detect item variant incompatibilities that would corrupt downstream systems (e.g. DN edit).
+ * Groups by item_id alone (not item_id::make) to find same-item divergences across POs.
+ * Only flags cross-PO divergence — pre-existing within-PO variants are not a merge issue.
+ */
+export function detectIncompatibilities(
+  basePO: ProcurementOrder,
+  mergedPOs: ProcurementOrder[]
+): MergeIncompatibility[] {
+  const allTagged: TaggedItem[] = [
+    ...tagItems(basePO),
+    ...mergedPOs.flatMap(tagItems),
+  ];
+
+  const regularItems = allTagged.filter(
+    (i) => i.category !== ADDITIONAL_CHARGES_CATEGORY
+  );
+
+  // Group by item_id only
+  const groups = new Map<string, TaggedItem[]>();
+  for (const item of regularItems) {
+    const group = groups.get(item.item_id) || [];
+    group.push(item);
+    groups.set(item.item_id, group);
+  }
+
+  const result: MergeIncompatibility[] = [];
+
+  for (const [itemId, items] of groups) {
+    // Only check groups that span multiple POs
+    const poSet = new Set(items.map((i) => i.sourcePO));
+    if (poSet.size < 2) continue;
+
+    const makes = new Set(items.map((i) => i.make || ""));
+    if (makes.size > 1) {
+      const sourcePOs = [...poSet];
+      result.push({
+        item_id: itemId,
+        item_name: items[0].item_name,
+        reason: "different-make",
+        detail: `"${items[0].item_name}" has different makes across POs: ${[...makes].map((m) => m || "(none)").join(", ")}`,
+        sourcePOs,
+      });
+      continue; // Make divergence takes priority, skip comment check
+    }
+
+    const comments = new Set(items.map((i) => i.comment || ""));
+    if (comments.size > 1) {
+      const sourcePOs = [...poSet];
+      result.push({
+        item_id: itemId,
+        item_name: items[0].item_name,
+        reason: "different-comment",
+        detail: `"${items[0].item_name}" has different comments across POs`,
+        sourcePOs,
+      });
+    }
+  }
+
+  return result;
 }

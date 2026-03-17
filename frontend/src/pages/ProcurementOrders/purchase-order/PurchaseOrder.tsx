@@ -102,7 +102,9 @@ import {
   MergeEligibilityBanner,
   MergeMatchCriteria,
   useMergeResolution,
+  detectIncompatibilities,
   type MergeStep,
+  type MergeIncompatibility,
 } from "./merge";
 
 interface PurchaseOrderProps {
@@ -243,7 +245,23 @@ export const PurchaseOrder = ({
     setChargeResolution,
     resetResolutions,
     buildResolvedOrderData,
+    incompatibilities,
+    hasIncompatibilities,
   } = useMergeResolution(PO, mergedItems);
+
+  // For each mergeable PO, check if adding it would introduce incompatibilities
+  const incompatiblePOMap = useMemo(() => {
+    if (!PO) return new Map<string, MergeIncompatibility[]>();
+    const map = new Map<string, MergeIncompatibility[]>();
+    for (const candidate of mergeablePOs) {
+      const testSet = [...mergedItems, candidate];
+      const issues = detectIncompatibilities(PO, testSet);
+      if (issues.length > 0) {
+        map.set(candidate.name, issues);
+      }
+    }
+    return map;
+  }, [PO, mergeablePOs, mergedItems]);
 
   const [comment, setComment] = useState("");
 
@@ -849,13 +867,28 @@ export const PurchaseOrder = ({
                     {/* Step content */}
                     {mergeStep === "selection" ? (
                       PO && (
-                        <MergePOTable
-                          basePO={PO}
-                          mergeablePOs={mergeablePOs}
-                          mergedItems={mergedItems}
-                          onMerge={handleMerge}
-                          onUnmerge={handleUnmerge}
-                        />
+                        <>
+                          <MergePOTable
+                            basePO={PO}
+                            mergeablePOs={mergeablePOs}
+                            mergedItems={mergedItems}
+                            onMerge={handleMerge}
+                            onUnmerge={handleUnmerge}
+                            incompatiblePOMap={incompatiblePOMap}
+                          />
+                          {hasIncompatibilities && (
+                            <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 mt-3">
+                              <p className="text-sm font-medium text-destructive mb-2">
+                                Cannot merge — item variant conflicts detected:
+                              </p>
+                              <ul className="text-xs text-destructive/80 space-y-1 list-disc ml-4">
+                                {incompatibilities.map((inc, i) => (
+                                  <li key={i}>{inc.detail}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
                       )
                     ) : (
                       <MergeConflictResolution
@@ -905,6 +938,7 @@ export const PurchaseOrder = ({
                               className="flex items-center gap-1"
                               disabled={
                                 !mergedItems.length ||
+                                hasIncompatibilities ||
                                 (mergeStep === "resolution" && !allResolved)
                               }
                             >

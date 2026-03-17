@@ -7,8 +7,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { Merge, Split } from "lucide-react";
+import type { MergeIncompatibility } from "./types";
 
 interface MergePOTableProps {
   basePO: ProcurementOrder;
@@ -16,6 +22,7 @@ interface MergePOTableProps {
   mergedItems: ProcurementOrder[];
   onMerge: (po: ProcurementOrder) => void;
   onUnmerge: (po: ProcurementOrder) => void;
+  incompatiblePOMap?: Map<string, MergeIncompatibility[]>;
 }
 
 export function MergePOTable({
@@ -24,6 +31,7 @@ export function MergePOTable({
   mergedItems,
   onMerge,
   onUnmerge,
+  incompatiblePOMap,
 }: MergePOTableProps) {
   if (mergeablePOs.length === 0) {
     return <p className="text-sm text-muted-foreground">No mergeable POs available.</p>;
@@ -66,6 +74,8 @@ export function MergePOTable({
           {/* Mergeable PO rows */}
           {mergeablePOs.map((po) => {
             const isMerged = mergedItems.some((m) => m.name === po.name);
+            const issues = incompatiblePOMap?.get(po.name);
+            const isIncompatible = !isMerged && !!issues?.length;
 
             return (
               <TableRow key={po.name}>
@@ -87,6 +97,23 @@ export function MergePOTable({
                       <Split className="w-4 h-4" />
                       Split
                     </Button>
+                  ) : isIncompatible ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <Button
+                            className="flex items-center gap-1"
+                            disabled
+                          >
+                            <Merge className="w-4 h-4" />
+                            Merge
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        {issues!.map((i) => i.detail).join("; ")}
+                      </TooltipContent>
+                    </Tooltip>
                   ) : (
                     <Button
                       className="flex items-center gap-1"

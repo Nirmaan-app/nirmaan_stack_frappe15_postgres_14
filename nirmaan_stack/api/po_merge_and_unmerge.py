@@ -25,6 +25,41 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
                 title="Merge Blocked"
             )
 
+        # Block merge if items have incompatible variants (same item_id, different make/comment)
+        from collections import defaultdict
+        all_merge_items = []
+        for po_name in all_po_names:
+            po = frappe.get_doc("Procurement Orders", po_name)
+            for item in po.get("items"):
+                if item.category != "Additional Charges":
+                    all_merge_items.append({
+                        "item_id": item.item_id,
+                        "make": item.make or "",
+                        "comment": item.comment or "",
+                        "po_name": po_name,
+                    })
+
+        item_groups = defaultdict(list)
+        for item in all_merge_items:
+            item_groups[item["item_id"]].append(item)
+
+        for item_id, group in item_groups.items():
+            po_names_in_group = set(i["po_name"] for i in group)
+            if len(po_names_in_group) < 2:
+                continue
+            makes = set(i["make"] for i in group)
+            if len(makes) > 1:
+                frappe.throw(
+                    f"Cannot merge: item '{item_id}' has different makes across POs ({', '.join(makes)})",
+                    title="Merge Blocked"
+                )
+            comments = set(i["comment"] for i in group)
+            if len(comments) > 1:
+                frappe.throw(
+                    f"Cannot merge: item '{item_id}' has different comments across POs",
+                    title="Merge Blocked"
+                )
+
         # --- STEP 1: Create the new document object in memory ---
         new_po_doc = frappe.new_doc("Procurement Orders")
         # Copy header fields

@@ -39,3 +39,15 @@ export interface ChargeResolution {
   resolvedAmount: number;
   resolvedTax: number;
 }
+
+export interface MergeIncompatibility {
+  /** The item_id that has conflicting variants */
+  item_id: string;
+  item_name: string;
+  /** "different-make" | "different-comment" */
+  reason: "different-make" | "different-comment";
+  /** Human-readable description */
+  detail: string;
+  /** Which POs contribute to the incompatibility */
+  sourcePOs: string[];
+}

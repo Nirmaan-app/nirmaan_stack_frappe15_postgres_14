@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
-import { detectConflicts } from "./detectConflicts";
+import { detectConflicts, detectIncompatibilities } from "./detectConflicts";
 import { ADDITIONAL_CHARGES_CATEGORY, DEFAULT_TAX } from "./constants";
 import type {
   RegularItemResolution,
@@ -27,6 +27,14 @@ export function useMergeResolution(
   }, [basePO, mergedPOs]);
 
   const hasConflicts = regularConflicts.length > 0 || chargeConflicts.length > 0;
+
+  // Detect item variant incompatibilities (same item_id, different make/comment across POs)
+  const incompatibilities = useMemo(() => {
+    if (!basePO || mergedPOs.length === 0) return [];
+    return detectIncompatibilities(basePO, mergedPOs);
+  }, [basePO, mergedPOs]);
+
+  const hasIncompatibilities = incompatibilities.length > 0;
 
   // Auto-initialize resolutions for new conflicts (default to first source's values)
   const effectiveRegularResolutions = useMemo(() => {
@@ -233,6 +241,8 @@ export function useMergeResolution(
     hasConflicts,
     allResolved,
     estimatedTotal,
+    incompatibilities,
+    hasIncompatibilities,
     effectiveRegularResolutions,
     effectiveChargeResolutions,
     setRegularResolution,
