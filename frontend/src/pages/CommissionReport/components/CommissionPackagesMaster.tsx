@@ -42,30 +42,22 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import {
+    useCategoryList,
+    useCommissionTaskList,
+    useWorkPackageList,
+} from "../data/useCommissionQueries";
+import {
+    useCategoryMutations,
+    useTaskMasterMutations,
+} from "../data/useCommissionMutations";
 
 // --- Types ---
-export interface CommissionReportCategory {
-    name: string; // Frappe ID
-    category_name: string;
-    work_package?: string; // Link to Work Packages
-    creation?: string;
-    modified?: string;
-}
-
-export interface CommissionReportTask {
-    name: string; // Frappe ID
-    task_name: string;
-    category_link: string; // Link to Commission Report Category
-    deadline_offset?: number;
-    creation?: string;
-    modified?: string;
-}
-
-export interface WorkPackage {
-    name: string;
-    work_package_name: string;
-}
+import { 
+    CommissionCategoryMaster, 
+    CommissionTaskMaster, 
+    WorkPackage 
+} from "../types";
 
 // --- Zod Schemas ---
 const categoryFormSchema = z.object({
@@ -92,10 +84,7 @@ export const CommissionPackagesMaster: React.FC = () => {
         isLoading: catLoading,
         error: catError,
         mutate: mutateCategories
-    } = useFrappeGetDocList<CommissionReportCategory>(
-        "Commission Report Category",
-        { fields: ["name", "category_name", "work_package"], limit: 0, orderBy: { field: "creation", order: "asc" } }
-    );
+    } = useCategoryList();
 
     // 2. Fetch Tasks
     const {
@@ -103,19 +92,13 @@ export const CommissionPackagesMaster: React.FC = () => {
         isLoading: taskLoading,
         error: taskError,
         mutate: mutateTasks
-    } = useFrappeGetDocList<CommissionReportTask>(
-        "Commission Report Tasks",
-        { fields: ["name", "task_name", "category_link", "deadline_offset"], limit: 0, orderBy: { field: "creation", order: "asc" } }
-    );
+    } = useCommissionTaskList();
 
     // 3. Fetch Work Packages for dropdown
     const {
         data: workPackages,
         isLoading: wpLoading,
-    } = useFrappeGetDocList<WorkPackage>(
-        "Work Packages",
-        { fields: ["name", "work_package_name"], limit: 0, orderBy: { field: "work_package_name", order: "asc" } }
-    );
+    } = useWorkPackageList();
 
     if (catLoading || taskLoading || wpLoading) {
         return (
@@ -195,7 +178,7 @@ interface CreateCategoryDialogProps {
 
 const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, workPackages }) => {
     const [open, setOpen] = useState(false);
-    const { createDoc, loading } = useFrappeCreateDoc();
+    const { createCategory, loading } = useCategoryMutations();
 
     const form = useForm<CategoryFormValues>({
         resolver: zodResolver(categoryFormSchema),
@@ -204,7 +187,7 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
 
     const onSubmit = async (values: CategoryFormValues) => {
         try {
-            await createDoc("Commission Report Category", {
+            await createCategory({
                 category_name: values.category_name,
                 work_package: values.work_package_link,
             });
@@ -315,7 +298,7 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, wor
 
 // --- 2. Dialog: Edit Category (Rename) ---
 interface EditCategoryDialogProps {
-    category: CommissionReportCategory;
+    category: CommissionCategoryMaster;
     mutate: () => Promise<any>;
     mutateTasks: () => Promise<any>;
     workPackages: WorkPackage[];
@@ -323,10 +306,7 @@ interface EditCategoryDialogProps {
 
 const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutate, mutateTasks, workPackages }) => {
     const [open, setOpen] = useState(false);
-    const { call: renameDoc, loading: renameLoading } = useFrappePostCall(
-        'frappe.model.rename_doc.update_document_title'
-    );
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    const { renameCategory, updateCategory, loading: categoryMutationLoading } = useCategoryMutations();
 
     const form = useForm<CategoryFormValues>({
         resolver: zodResolver(categoryFormSchema),
@@ -359,21 +339,13 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
         try {
             // Handle rename if name changed
             if (nameChanged) {
-                const payload = {
-                    doctype: "Commission Report Category",
-                    docname: category.name,
-                    name: values.category_name,
-                    merge: 0,
-                    freeze: true,
-                    freeze_message: `Renaming Category "${category.category_name}"...`,
-                };
-                await renameDoc(payload);
+                await renameCategory(category.name, values.category_name);
             }
 
             // Handle work package update (after rename if name changed)
             if (packageChanged) {
                 const docName = nameChanged ? values.category_name : category.name;
-                await updateDoc("Commission Report Category", docName, {
+                await updateCategory(docName, {
                     work_package: values.work_package_link,
                 });
             }
@@ -388,7 +360,7 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
         }
     };
 
-    const isLoading = renameLoading || updateLoading;
+    const isLoading = categoryMutationLoading;
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -493,7 +465,7 @@ interface CreateTaskDialogProps {
 
 const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate }) => {
     const [open, setOpen] = useState(false);
-    const { createDoc, loading } = useFrappeCreateDoc();
+    const { createTaskMaster, loading } = useTaskMasterMutations();
 
     const form = useForm<TaskFormValues>({
         resolver: zodResolver(taskFormSchema),
@@ -502,7 +474,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
 
     const onSubmit = async (values: TaskFormValues) => {
         try {
-            await createDoc("Commission Report Tasks", {
+            await createTaskMaster({
                 task_name: values.task_name,
                 deadline_offset: values.deadline_offset,
                 category_link: categoryId, // Linking to parent category
@@ -608,13 +580,13 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
 
 // --- 4. Dialog: Edit Task ---
 interface EditTaskDialogProps {
-    task: CommissionReportTask;
+    task: CommissionTaskMaster;
     mutate: () => Promise<any>;
 }
 
 const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
     const [open, setOpen] = useState(false);
-    const { updateDoc, loading } = useFrappeUpdateDoc();
+    const { updateTaskMaster, loading } = useTaskMasterMutations();
     const form = useForm<TaskFormValues>({
         resolver: zodResolver(taskFormSchema),
         defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0 },
@@ -622,7 +594,7 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
 
     const onSubmit = async (values: TaskFormValues) => {
         try {
-            await updateDoc("Commission Report Tasks", task.name, {
+            await updateTaskMaster(task.name, {
                 task_name: values.task_name,
                 deadline_offset: values.deadline_offset
             });
@@ -720,17 +692,17 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
 
 // --- 5. Dialog: Delete Task ---
 interface DeleteTaskDialogProps {
-    task: CommissionReportTask;
+    task: CommissionTaskMaster;
     mutate: () => Promise<any>;
 }
 
 const DeleteTaskDialog: React.FC<DeleteTaskDialogProps> = ({ task, mutate }) => {
     const [open, setOpen] = useState(false);
-    const { deleteDoc, loading } = useFrappeDeleteDoc();
+    const { deleteTaskMaster, loading } = useTaskMasterMutations();
 
     const handleDelete = async () => {
         try {
-            await deleteDoc("Commission Report Tasks", task.name);
+            await deleteTaskMaster(task.name);
             toast({ title: "Success", description: "Task deleted.", variant: "success" });
             await mutate();
             setOpen(false);
@@ -779,8 +751,8 @@ const DeleteTaskDialog: React.FC<DeleteTaskDialogProps> = ({ task, mutate }) => 
 
 // --- 6. Card Component: Category Card ---
 interface CategoryCardProps {
-    category: CommissionReportCategory;
-    tasks: CommissionReportTask[];
+    category: CommissionCategoryMaster;
+    tasks: CommissionTaskMaster[];
     mutateCategories: () => Promise<any>;
     mutateTasks: () => Promise<any>;
     workPackages: WorkPackage[];

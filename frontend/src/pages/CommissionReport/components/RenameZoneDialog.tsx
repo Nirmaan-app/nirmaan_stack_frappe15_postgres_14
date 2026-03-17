@@ -10,9 +10,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { useFrappePostCall } from 'frappe-react-sdk';
 import { toast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
+import { useRenameZone } from '../data/useCommissionMutations';
 
 interface RenameZoneDialogProps {
     isOpen: boolean;
@@ -32,7 +32,7 @@ export const RenameZoneDialog: React.FC<RenameZoneDialogProps> = ({
     const [selectedZone, setSelectedZone] = useState<string | null>(null);
     const [newZoneName, setNewZoneName] = useState('');
     
-    const { call: renameZoneCall, loading } = useFrappePostCall('nirmaan_stack.api.design_tracker.rename_zone.rename_zone');
+    const { renameZone, loading } = useRenameZone();
 
     useEffect(() => {
         if (isOpen && initialZone) {
@@ -58,11 +58,7 @@ export const RenameZoneDialog: React.FC<RenameZoneDialogProps> = ({
         }
 
         try {
-            await renameZoneCall({
-                tracker_id: trackerId,
-                old_zone_name: selectedZone,
-                new_zone_name: newZoneName
-            });
+            await renameZone(trackerId, selectedZone, newZoneName);
 
             toast({ title: "Success", description: `Renamed '${selectedZone}' to '${newZoneName}'.` });
             onSuccess();

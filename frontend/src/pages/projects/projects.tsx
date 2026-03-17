@@ -33,6 +33,7 @@ import { useFacetValues } from "@/hooks/useFacetValues";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
+import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToLakhsNumber } from "@/utils/FormatPrice";
 import {
@@ -116,6 +117,10 @@ const StatusCountPill: React.FC<StatusCountPillProps> = ({
         return { bg: "bg-green-100/50", border: "border-green-200", text: "text-green-700", dot: "bg-green-500" };
       case "Halted":
         return { bg: "bg-red-100/50", border: "border-red-200", text: "text-red-700", dot: "bg-red-500" };
+      case "Handover":
+        return { bg: "bg-blue-100/50", border: "border-blue-200", text: "text-blue-700", dot: "bg-blue-500" };
+      case "CEO Hold":
+        return { bg: "bg-amber-100/50", border: "border-amber-200", text: "text-amber-700", dot: "bg-amber-500" };
       default:
         return { bg: "bg-slate-100/50", border: "border-slate-200", text: "text-slate-700", dot: "bg-slate-500" };
     }
@@ -214,14 +219,17 @@ export const Projects: React.FC<ProjectsProps> = ({
     "all_projects_count"
   );
 
-  const statusOptions = useMemo(
-    () =>
-      ["WIP", "Completed", "Halted"].map((s) => ({
-        label: s,
-        value: s,
-      })),
-    []
-  ); // Example static status options
+  const statusOptions = useMemo(() => {
+    const options = ["WIP", "Completed", "Halted", "Handover"];
+    if (user_id === CEO_HOLD_AUTHORIZED_USER) {
+      options.push("CEO Hold");
+    }
+    return options.map((s) => ({
+      label: s,
+      value: s,
+    }));
+  }, [user_id]);
+ // Example static status options
 
   useEffect(() => {
     const fetchCounts = async () => {

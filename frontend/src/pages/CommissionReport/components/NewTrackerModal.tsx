@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { format } from "date-fns";
-import { useFrappeCreateDoc, useFrappeGetDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from '@/components/ui/label';
@@ -19,8 +18,8 @@ import { toast } from "@/components/ui/use-toast";
 import ReactSelect from 'react-select';
 import { CommissionReportTask, TaskTemplate } from "../types";
 import { Copy, Plus, X, PenTool, MapPin, Grid3X3 } from "lucide-react";
-
-const DOCTYPE = 'Project Commission Report';
+import { useCreateCommissionTracker } from "../data/useCommissionMutations";
+import { useProjectZones } from "../data/useCommissionQueries";
 
 // Zone source options for smart zone handling
 type ZoneSource = 'copy_from_progress' | 'single' | 'multiple';
@@ -58,17 +57,10 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
     const [zones, setZones] = useState<string[]>([]);
     const [currentZoneInput, setCurrentZoneInput] = useState("");
 
-    const { createDoc, loading: createLoading } = useFrappeCreateDoc();
+    const { createTracker, loading: createLoading } = useCreateCommissionTracker();
 
     // Fetch project zones from the Projects doctype when a project is selected
-    const { data: projectDoc, isLoading: projectZonesLoading } = useFrappeGetDoc<{
-        project_zones?: Array<{ zone_name: string }>;
-        enable_project_milestone_tracking?: number;
-    }>(
-        "Projects",
-        selectedProjectId || "",
-        selectedProjectId ? undefined : null // Don't fetch if no project selected
-    );
+    const { data: projectDoc, isLoading: projectZonesLoading } = useProjectZones(selectedProjectId || "");
 
     // Extract Daily Progress zones from project document
     const dailyProgressZones = useMemo<ProjectZone[]>(() => {
@@ -205,7 +197,7 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
         const zoneChildTableData = zones.map(z => ({ tracker_zone: z }));
 
         try {
-            await createDoc(DOCTYPE, {
+            await createTracker({
                 project: selectedProjectId,
                 project_name: projectLabel,
                 start_date: projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date,

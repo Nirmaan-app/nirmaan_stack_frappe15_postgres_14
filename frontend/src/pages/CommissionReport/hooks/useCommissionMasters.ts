@@ -1,8 +1,8 @@
 // frontend/src/pages/CommissionReport/hooks/useCommissionMasters.ts
 
-import { useFrappeGetCall } from "frappe-react-sdk";
 import { useMemo } from "react";
-import { User, Project, MasterDataResponse } from "../types";
+import { User, Project } from "../types";
+import { useCommissionMasterData } from "../data/useCommissionQueries";
 
 export const TASK_STATUS_OPTIONS = [
     { label: "Not Applicable", value: "Not Applicable" },
@@ -17,11 +17,7 @@ export const useCommissionMasters = () => {
     const { data: response,
         isLoading: masterLoading,
         error: masterError,
-        mutate: mutateMasters } = useFrappeGetCall<{ message: MasterDataResponse }>(
-            "nirmaan_stack.api.commission_report.tracker_options.get_all_master_data",
-            {},
-            "nirmaan_stack.api.commission_report.tracker_options.get_all_master_data"
-        );
+        mutate: mutateMasters } = useCommissionMasterData();
 
 
     const masterData = response?.message;
@@ -46,6 +42,7 @@ export const useCommissionMasters = () => {
     const categoryData = useMemo(() => {
         return rawCategories.map((cat: any) => ({
             category_name: cat.category_name,
+            work_package: cat.work_package,
             tasks: cat.tasks.map((t: any) => ({
                 task_name: t.task_name,
                 deadline_offset: t.deadline_offset
