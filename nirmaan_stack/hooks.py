@@ -360,6 +360,8 @@ fixtures = [
     "Print Format",
     "Expense Type",
     "Nirmaan Item Units",
+    "Commission Report Category",
+    "Commission Report Tasks",
     # "Pincodes"
 ]
 
