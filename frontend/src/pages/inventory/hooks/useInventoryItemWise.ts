@@ -30,6 +30,7 @@ export function useInventoryItemWise() {
           totalRemainingQty: 0,
           totalEstimatedCost: 0,
           projectCount: 0,
+          allPONumbers: [],
           projects: [],
         };
         map.set(row.item_id, agg);
@@ -43,6 +44,7 @@ export function useInventoryItemWise() {
         max_rate: row.max_rate,
         tax: row.tax,
         estimated_cost: row.estimated_cost,
+        po_numbers: row.po_numbers ?? [],
       };
 
       agg.totalRemainingQty += row.remaining_quantity;
@@ -51,7 +53,15 @@ export function useInventoryItemWise() {
       agg.projects.push(detail);
     }
 
-    return Array.from(map.values());
+    const result = Array.from(map.values());
+    for (const agg of result) {
+      const poSet = new Set<string>();
+      for (const proj of agg.projects) {
+        for (const po of proj.po_numbers) poSet.add(po);
+      }
+      agg.allPONumbers = Array.from(poSet);
+    }
+    return result;
   }, [data]);
 
   return { data: aggregated, isLoading, error };

@@ -32,8 +32,7 @@ def get_inventory_item_wise_summary():
             ri.remaining_quantity
         FROM latest_reports lr
         JOIN "tabRemaining Item Entry" ri ON ri.parent = lr.name
-        WHERE ri.remaining_quantity != -1
-          AND ri.remaining_quantity IS NOT NULL
+        WHERE ri.remaining_quantity > 0
     ),
     max_rates AS (
         SELECT DISTINCT ON (po.project, poi.item_id)
@@ -45,6 +44,14 @@ def get_inventory_item_wise_summary():
         JOIN "tabProcurement Orders" po ON poi.parent = po.name
         WHERE po.status NOT IN ('Merged', 'Inactive', 'PO Amendment')
         ORDER BY po.project, poi.item_id, poi.quote DESC
+    ),
+    po_numbers AS (
+        SELECT po.project, poi.item_id,
+               array_agg(DISTINCT po.name ORDER BY po.name) AS po_list
+        FROM "tabPurchase Order Item" poi
+        JOIN "tabProcurement Orders" po ON poi.parent = po.name
+        WHERE po.status NOT IN ('Merged', 'Inactive', 'PO Amendment')
+        GROUP BY po.project, poi.item_id
     )
     SELECT
         ri.project,
@@ -58,11 +65,14 @@ def get_inventory_item_wise_summary():
         COALESCE(mr.max_quote, 0) AS max_rate,
         COALESCE(mr.max_quote_tax, 18) AS tax,
         ri.remaining_quantity * COALESCE(mr.max_quote, 0)
-            * (1 + COALESCE(mr.max_quote_tax, 18) / 100.0) AS estimated_cost
+            * (1 + COALESCE(mr.max_quote_tax, 18) / 100.0) AS estimated_cost,
+        COALESCE(pn.po_list, ARRAY[]::text[]) AS po_numbers
     FROM report_items ri
     JOIN "tabProjects" p ON p.name = ri.project
     LEFT JOIN max_rates mr
         ON mr.project = ri.project AND mr.item_id = ri.item_id
+    LEFT JOIN po_numbers pn
+        ON pn.project = ri.project AND pn.item_id = ri.item_id
     ORDER BY ri.item_id, ri.project
     """
 

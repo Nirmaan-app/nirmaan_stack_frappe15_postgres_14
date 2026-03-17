@@ -10,6 +10,7 @@ export interface InventoryApiRow {
   max_rate: number;
   tax: number;
   estimated_cost: number;
+  po_numbers: string[];
 }
 
 export interface ProjectItemDetail {
@@ -20,6 +21,7 @@ export interface ProjectItemDetail {
   max_rate: number;
   tax: number;
   estimated_cost: number;
+  po_numbers: string[];
 }
 
 export interface AggregatedItemRow {
@@ -30,5 +32,6 @@ export interface AggregatedItemRow {
   totalRemainingQty: number;
   totalEstimatedCost: number;
   projectCount: number;
+  allPONumbers: string[];
   projects: ProjectItemDetail[];
 }
