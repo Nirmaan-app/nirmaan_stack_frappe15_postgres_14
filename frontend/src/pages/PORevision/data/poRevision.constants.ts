@@ -21,8 +21,6 @@ export const poRevisionKeys = {
 
   // Approval context
   originalPO: (poId: string) => ["po-revision", "originalPO", poId] as const,
-  approvalInvoices: (poId: string) =>
-    ["po-revision", "approvalInvoices", poId] as const,
 
   // Lock check
   lockCheck: (poId: string) => ["po-revision", "lockCheck", poId] as const,

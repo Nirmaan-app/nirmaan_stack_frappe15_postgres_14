@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   useRevisionDoc,
   useOriginalPO,
-  useApprovalInvoices,
 } from "../data/usePORevisionQueries";
 import {
   useApproveRevision,
@@ -26,8 +25,6 @@ export const usePORevisionsApprovalDetail = (revisionIdFromUrl?: string) => {
     const poId = revisionDoc?.revised_po;
 
     const { data: originalPO, isLoading: poLoading } = useOriginalPO(poId);
-
-    const { data: invoices, isLoading: invoicesLoading } = useApprovalInvoices(poId);
 
     // ─── Centralized Mutations ──────────────────────────────
     const { approveRevision: doApprove } = useApproveRevision();
@@ -64,9 +61,8 @@ export const usePORevisionsApprovalDetail = (revisionIdFromUrl?: string) => {
     return {
         revisionDoc,
         originalPO,
-        invoices,
         isLoading: revisionLoading,
-        isContextLoading: poLoading || invoicesLoading,
+        isContextLoading: poLoading,
         isApproving,
         isRejecting,
         error: revisionError,

@@ -189,41 +189,6 @@ export const useRevisionVendorInvoices = (
   return response;
 };
 
-// ─── Approval Invoices (for approval detail page) ────────────
-
-export const useApprovalInvoices = (poId?: string) => {
-  const response = useFrappeGetDocList(
-    "Vendor Invoices",
-    {
-      fields: [
-        "name",
-        "invoice_no",
-        "invoice_date",
-        "invoice_amount",
-        "status",
-        "uploaded_by",
-        "owner",
-      ],
-      filters: poId
-        ? [
-            ["document_type", "=", "Procurement Orders"],
-            ["document_name", "=", poId],
-          ]
-        : [],
-      limit: 1000,
-    },
-    poId ? poRevisionKeys.approvalInvoices(poId) : null
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useApprovalInvoices",
-    api: "Approval Vendor Invoices",
-    feature: "po-revision",
-    doctype: "Vendor Invoices",
-    entity_id: poId,
-  });
-  return response;
-};
-
 // ─── Categories & Packages (for custom items) ───────────────
 
 export const useProcurementPackages = () => {
