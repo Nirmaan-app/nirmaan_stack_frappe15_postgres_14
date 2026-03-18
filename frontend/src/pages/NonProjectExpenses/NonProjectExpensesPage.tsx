@@ -378,11 +378,17 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
             className="justify-end"
           />
         ),
-        cell: ({ row }) => (
-          <div className="font-medium ">
-            {formatToRoundedIndianRupee(row.original.amount)}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const amount = row.original.amount;
+          return (
+            <div className={cn(
+              "font-medium",
+              amount < 0 && "text-green-600 dark:text-green-400"
+            )}>
+              {formatToRoundedIndianRupee(amount)}
+            </div>
+          );
+        },
 
         meta: {
           exportHeaderName: "Amount",
