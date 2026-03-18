@@ -141,6 +141,7 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
   const headers = [
     "Item Name",
     "Category",
+    "Billing Category",
     "Unit",
     "Total Remaining Qty",
     "Total Estimated Cost",
@@ -150,6 +151,7 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
   const rows = items.map((item) => [
     item.item_name,
     item.category,
+    item.billingCategory,
     item.unit,
     item.totalRemainingQty,
     Math.ceil(item.totalEstimatedCost),
@@ -226,6 +228,7 @@ export default function InventoryItemWisePage() {
     new Set()
   );
   const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+  const [selectedBillingCategories, setSelectedBillingCategories] = useState<Set<string>>(new Set());
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
 
   // Sort
@@ -250,6 +253,13 @@ export default function InventoryItemWisePage() {
     return Array.from(cats)
       .sort()
       .map((c) => ({ label: c, value: c }));
+  }, [items]);
+
+  const billingCategoryOptions = useMemo(() => {
+    const values = new Set(items.map((i) => i.billingCategory).filter(Boolean));
+    return Array.from(values)
+      .sort()
+      .map((bc) => ({ label: bc, value: bc }));
   }, [items]);
 
   const projectOptions = useMemo(() => {
@@ -288,6 +298,11 @@ export default function InventoryItemWisePage() {
       result = result.filter((item) => selectedCategories.has(item.category));
     }
 
+    // Billing category filter
+    if (selectedBillingCategories.size > 0) {
+      result = result.filter((item) => selectedBillingCategories.has(item.billingCategory));
+    }
+
     // Unit filter
     if (selectedUnits.size > 0) {
       result = result.filter((item) => selectedUnits.has(item.unit));
@@ -316,7 +331,7 @@ export default function InventoryItemWisePage() {
     }
 
     return result;
-  }, [items, search, selectedCategories, selectedUnits, selectedProjects, sortKey, sortDir]);
+  }, [items, search, selectedCategories, selectedBillingCategories, selectedUnits, selectedProjects, sortKey, sortDir]);
 
   // Flatten for virtualization
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -516,6 +531,17 @@ export default function InventoryItemWisePage() {
               <TableHead>
                 <div className="flex items-center gap-1">
                   <SimpleFacetedFilter
+                    title="Billing Cat."
+                    options={billingCategoryOptions}
+                    selectedValues={selectedBillingCategories}
+                    onSelectedValuesChange={setSelectedBillingCategories}
+                  />
+                  <span>Billing Cat.</span>
+                </div>
+              </TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <SimpleFacetedFilter
                     title="Unit"
                     options={unitOptions}
                     selectedValues={selectedUnits}
@@ -549,7 +575,7 @@ export default function InventoryItemWisePage() {
           <TableBody>
             {virtualizer.getVirtualItems().length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   No inventory items found.
                 </TableCell>
               </TableRow>
@@ -559,7 +585,7 @@ export default function InventoryItemWisePage() {
                 {virtualizer.getVirtualItems()[0]?.start > 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       style={{
                         height: virtualizer.getVirtualItems()[0].start,
                       }}
@@ -604,6 +630,7 @@ export default function InventoryItemWisePage() {
                             {item.category}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-xs">{item.billingCategory}</TableCell>
                         <TableCell className="text-xs">{item.unit}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
                           {item.totalRemainingQty.toLocaleString("en-IN")}
@@ -639,6 +666,7 @@ export default function InventoryItemWisePage() {
                         </TableCell>
                         <TableCell />
                         <TableCell />
+                        <TableCell />
                         <TableCell className="text-right tabular-nums text-sm">
                           {proj.remaining_quantity.toLocaleString("en-IN")}
                         </TableCell>
@@ -653,7 +681,7 @@ export default function InventoryItemWisePage() {
                 {virtualizer.getVirtualItems().length > 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       style={{
                         height:
                           virtualizer.getTotalSize() -

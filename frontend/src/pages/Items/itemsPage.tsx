@@ -133,6 +133,21 @@ export default function ItemsPage() {
         },
       },
       {
+        accessorKey: "billing_category",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Billing Cat." />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium">{row.getValue("billing_category") || "N/A"}</div>
+        ),
+        enableColumnFilter: true,
+        size: 140,
+        meta: {
+          exportHeaderName: "Billing Category",
+          exportValue: (row: ItemsType) => row.billing_category || "N/A",
+        },
+      },
+      {
         accessorKey: "unit_name",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Unit" />
@@ -220,6 +235,17 @@ export default function ItemsPage() {
     enabled: true,
   });
 
+  // Dynamic facet values for billing category
+  const { facetOptions: billingCategoryFacetOptions, isLoading: isBillingCategoryFacetLoading } =
+    useFacetValues({
+      doctype: ITEM_DOCTYPE,
+      field: "billing_category",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      enabled: true,
+    });
+
   // Dynamic facet values for unit
   const { facetOptions: unitFacetOptions, isLoading: isUnitFacetLoading } =
     useFacetValues({
@@ -249,6 +275,11 @@ export default function ItemsPage() {
         options: categoryFacetOptions,
         isLoading: isCategoryFacetLoading,
       },
+      billing_category: {
+        title: "Billing Category",
+        options: billingCategoryFacetOptions,
+        isLoading: isBillingCategoryFacetLoading,
+      },
       unit_name: {
         title: "Unit",
         options: unitFacetOptions,
@@ -263,6 +294,8 @@ export default function ItemsPage() {
     [
       categoryFacetOptions,
       isCategoryFacetLoading,
+      billingCategoryFacetOptions,
+      isBillingCategoryFacetLoading,
       unitFacetOptions,
       isUnitFacetLoading,
       statusFacetOptions,

@@ -29,6 +29,7 @@ export interface AggregatedItemRow {
   item_name: string;
   unit: string;
   category: string;
+  billingCategory: string;
   totalRemainingQty: number;
   totalEstimatedCost: number;
   projectCount: number;

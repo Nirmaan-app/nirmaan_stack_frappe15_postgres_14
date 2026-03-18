@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import type {
   InventoryApiRow,
   AggregatedItemRow,
@@ -13,6 +13,25 @@ export function useInventoryItemWise() {
     "nirmaan_stack.api.inventory_item_wise.get_inventory_item_wise_summary"
   );
 
+  // Fetch billing categories from Items master
+  const { data: itemsData, isLoading: itemsLoading } = useFrappeGetDocList<{
+    name: string;
+    billing_category: string;
+  }>("Items", {
+    fields: ["name", "billing_category"],
+    limit: 0,
+  }, "all_items_billing_category");
+
+  const billingCategoryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    itemsData?.forEach((item) => {
+      if (item.name && item.billing_category) {
+        map.set(item.name, item.billing_category);
+      }
+    });
+    return map;
+  }, [itemsData]);
+
   const aggregated = useMemo<AggregatedItemRow[]>(() => {
     const rows = data?.message;
     if (!rows?.length) return [];
@@ -22,11 +41,14 @@ export function useInventoryItemWise() {
     for (const row of rows) {
       let agg = map.get(row.item_id);
       if (!agg) {
+        const bc = billingCategoryMap.get(row.item_id)
+          || (row.category === "Additional Charges" ? "" : row.item_id?.startsWith("ITEM-") ? "" : "Billable");
         agg = {
           item_id: row.item_id,
           item_name: row.item_name,
           unit: row.unit,
           category: row.category,
+          billingCategory: bc || "N/A",
           totalRemainingQty: 0,
           totalEstimatedCost: 0,
           projectCount: 0,
@@ -62,7 +84,7 @@ export function useInventoryItemWise() {
       agg.allPONumbers = Array.from(poSet);
     }
     return result;
-  }, [data]);
+  }, [data, billingCategoryMap]);
 
-  return { data: aggregated, isLoading, error };
+  return { data: aggregated, isLoading: isLoading || itemsLoading, error };
 }

@@ -213,7 +213,8 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     // 2. FILTER: Apply all active faceted filters.
     items = items.filter(item => {
       const catMatch = categoryFilter.size === 0 || categoryFilter.has(item.categoryName);
-      const bcMatch = billingCategoryFilter.size === 0 || billingCategoryFilter.has(item.billingCategory || "");
+      const bcValue = item.billingCategory || "N/A";
+      const bcMatch = billingCategoryFilter.size === 0 || billingCategoryFilter.has(bcValue);
       const delMatch = deliveryStatusFilter.size === 0 || deliveryStatusFilter.has(item.deliveryStatus);
       const poMatch = poStatusFilter.size === 0 || poStatusFilter.has(item.overallPOPaymentStatus);
       return catMatch && bcMatch && delMatch && poMatch;
