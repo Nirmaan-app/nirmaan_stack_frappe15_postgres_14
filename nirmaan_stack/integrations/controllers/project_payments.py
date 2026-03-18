@@ -47,7 +47,7 @@ def after_insert(doc, method):
     """
     # Skip notifications entirely during PO Revision — these hooks call frappe.db.commit()
     # which permanently commits the payment and destroys the ability to rollback on failure.
-    if doc.flags.from_revision:
+    if doc.flags.from_adjustment:
         return
 
     admin_users = get_admin_users()
@@ -108,7 +108,7 @@ def on_update(doc, method):
     On update, find the related PO term by searching and sync the status.
     """
     # Skip during PO Revision — notifications call frappe.db.commit() which kills rollback
-    if doc.flags.from_revision:
+    if doc.flags.from_adjustment:
         return
 
     old_doc = doc.get_doc_before_save()

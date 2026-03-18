@@ -48,7 +48,8 @@ import {
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappePostCall,
-  useFrappeUpdateDoc
+  useFrappeUpdateDoc,
+  useFrappeCreateDoc
 } from "frappe-react-sdk";
 import {
   ArrowRightLeft,
@@ -90,6 +91,8 @@ const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSum
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetailV2 })));
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
+const ProjectCommissionReportDetail = React.lazy(() => import("@/pages/CommissionReport/project-commission-report-details"));
+const NoCommissionReportView = React.lazy(() => import("@/pages/CommissionReport/components/NoCommissionReportView").then(module => ({ default: module.NoCommissionReportView })));
 const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
@@ -269,6 +272,7 @@ export const PROJECT_PAGE_TABS = {
   PROJECT_EXPENSES: 'projectexpenses', // --- (Indicator) NEW TAB KEY ---
   DC_MIR: 'projectdcmir',
   BULK_DOWNLOAD: 'bulkdownload',
+  COMMISSION_REPORT: 'commission-report',
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -281,7 +285,23 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     filters: [["project", "=", projectId]],
     limit: 1
   });
+
+  const { data: commissionReportList, mutate: mutateCommissionReportList } = useFrappeGetDocList("Project Commission Report", {
+    fields: ["name"],
+    filters: [["project", "=", projectId]],
+    limit: 1
+  }, projectId ? undefined : null);
+
+  const { data: commissionMasterData } = useFrappeGetCall<any>(
+    "nirmaan_stack.api.commission_report.tracker_options.get_all_master_data",
+    {},
+    "commission_report_tracker_master_data"
+  );
+
+
+
   const designTrackerId = designTrackerList?.[0]?.name;
+  const commissionReportId = commissionReportList?.[0]?.name;
 
   // console.log("modified-call", po_item_data)
 
@@ -292,7 +312,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
   const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-  const { call: generateHandoverTasks, loading: handoverTasksLoading } = useFrappePostCall<{ message: { status: string; tasks_created: number; message: string } }>(
+  const { createDoc: createCommissionReportDoc, loading: createCommissionReportLoading } = useFrappeCreateDoc();
+  const { call: generateHandoverTasks, loading: handoverTasksLoading } = useFrappePostCall<{ message: { status: string; tasks_created?: number; task_count?: number; message: string } }>(
     "nirmaan_stack.api.design_tracker.generate_handover_tasks.generate_handover_tasks"
   );
   // const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
@@ -384,6 +405,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
+    PROJECT_PAGE_TABS.COMMISSION_REPORT,
   ]), []);
 
   // Allowed tabs for Procurement Executive
@@ -397,6 +419,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
+    PROJECT_PAGE_TABS.COMMISSION_REPORT,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -412,6 +435,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
+    PROJECT_PAGE_TABS.COMMISSION_REPORT,
   ]), []);
 
   // Redirect users to allowed tab if on restricted tab
@@ -458,6 +482,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
+        ...(data?.status === "Handover" ? [{
+          label: "Commission Report",
+          key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+        }] : []),
       ];
     }
 
@@ -500,6 +528,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
+        ...(data?.status === "Handover" ? [{
+          label: "Commission Report",
+          key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+        }] : []),
       ];
     }
 
@@ -550,6 +582,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
+        ...(data?.status === "Handover" ? [{
+          label: "Commission Report",
+          key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+        }] : []),
       ];
     }
 
@@ -630,6 +666,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         label: "Bulk Download",
         key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
       },
+      ...(!isAccountant && data?.status === "Handover" ? [{
+        label: "Commission Report",
+        key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+      }] : []),
     ];
   }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser]);
 
@@ -746,7 +786,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data", "po_amount_delivered", "amount_paid"] as const,
       filters: [
         ["project", "=", projectId],
-        ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
+        ["status", "not in", ["Merged", "Inactive"]],
       ], // removed ["status", "!=", "PO Approved"] for now
       limit: 0,
       orderBy: { field: "creation", order: "desc" },
@@ -1167,10 +1207,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       await project_mutate();
 
       if (newStatus === "Handover") {
+        const notes: string[] = [];
+        const warnings: string[] = [];
+
         if (designTrackerId) {
           try {
             const result = await generateHandoverTasks({ project_id: projectId });
-            const tasksCreated = result?.message?.tasks_created ?? 0;
+            const tasksCreated = result?.message?.tasks_created ?? result?.message?.task_count ?? 0;
             await mutateDesignTrackerList();
             toast({
               title: "Success!",
@@ -1179,16 +1222,166 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             });
           } catch (handoverError: any) {
             console.log("handover task generation error", handoverError);
-            toast({
-              title: "Warning",
-              description: `Status changed to Handover, but handover task generation failed. Please try generating tasks manually.`,
-              variant: "destructive",
-            });
+            warnings.push("Design handover task generation failed.");
           }
+        } else {
+          notes.push("No Design Tracker found, so no design handover tasks were generated.");
+        }
+
+        try {
+          if (commissionReportId) {
+            notes.push("Commission report already exists.");
+          } else {
+            const normalizeToDate = (rawDate?: string | null) => {
+              if (!rawDate) return undefined;
+              const parsed = new Date(rawDate);
+              if (Number.isNaN(parsed.getTime())) return undefined;
+              return parsed.toISOString().split("T")[0];
+            };
+
+            const startDate = normalizeToDate(data?.project_start_date) || new Date().toISOString().split("T")[0];
+            const fallbackHandoverDeadline = (() => {
+              const d = new Date();
+              d.setDate(d.getDate() + 7);
+              return d.toISOString().split("T")[0];
+            })();
+
+            const configuredProjectZones = (
+              data?.enable_project_milestone_tracking &&
+              Array.isArray(data?.project_zones)
+            )
+              ? data.project_zones
+                .map((z) => z?.zone_name?.trim())
+                .filter((z): z is string => Boolean(z))
+              : [];
+
+            const zoneNames = configuredProjectZones.length > 0 ? configuredProjectZones : ["Default"];
+            const zoneChildRows = zoneNames.map((zone) => ({ tracker_zone: zone }));
+
+            const masterCategories = Array.isArray(commissionMasterData?.message?.categories)
+              ? commissionMasterData.message.categories
+              : [];
+
+            const selectedProjectWorkPackages = (() => {
+              const selected = new Set<string>();
+              const normalizePackageKey = (value: string) => value.trim().toLowerCase();
+              const addPackage = (raw?: unknown) => {
+                if (typeof raw !== "string") return;
+                const normalized = normalizePackageKey(raw);
+                if (normalized) selected.add(normalized);
+              };
+              if (Array.isArray(data?.project_wp_category_makes)) {
+                data.project_wp_category_makes.forEach((row: ProjectWPCategoryMake | undefined) => {
+                  addPackage(row?.procurement_package);
+                });
+              }
+
+              // Legacy/fallback source: JSON field shape used in older project payloads.
+              const rawProjectWorkPackages = data?.project_work_packages as any;
+              const parsedProjectWorkPackages = (() => {
+                if (!rawProjectWorkPackages) return null;
+                if (typeof rawProjectWorkPackages === "string") {
+                  try {
+                    return JSON.parse(rawProjectWorkPackages);
+                  } catch {
+                    return null;
+                  }
+                }
+                return rawProjectWorkPackages;
+              })();
+
+              if (parsedProjectWorkPackages && typeof parsedProjectWorkPackages === "object") {
+                const workPackages = Array.isArray(parsedProjectWorkPackages?.work_packages)
+                  ? parsedProjectWorkPackages.work_packages
+                  : Array.isArray(parsedProjectWorkPackages?.work_packages?.list)
+                    ? parsedProjectWorkPackages.work_packages.list
+                    : [];
+
+                workPackages.forEach((wp: any) => {
+                  addPackage(wp?.work_package_name);
+                  addPackage(wp?.name);
+                  addPackage(wp?.value);
+                  addPackage(wp?.work_package);
+                });
+              }
+
+              return selected;
+            })();
+
+            const categoriesForSelectedPackages = masterCategories.filter((category: any) => {
+              const categoryPackage = typeof category?.work_package === "string"
+                ? category.work_package.trim().toLowerCase()
+                : "";
+
+              // Keep backward compatibility for categories that are not package-linked.
+              if (!categoryPackage) return true;
+
+              // Fallback behavior for legacy project records where package data might be unavailable.
+              if (selectedProjectWorkPackages.size === 0) return true;
+
+              return selectedProjectWorkPackages.has(categoryPackage);
+            });
+
+            const commissionTasks: any[] = [];
+
+            categoriesForSelectedPackages.forEach((category: any) => {
+              const categoryName = category?.category_name;
+              const categoryTasks = Array.isArray(category?.tasks) ? category.tasks : [];
+              if (!categoryName || categoryTasks.length === 0) return;
+
+              zoneNames.forEach((zoneName) => {
+                categoryTasks.forEach((taskTemplate: any) => {
+                  const taskName = taskTemplate?.task_name?.trim?.();
+                  if (!taskName) return;
+
+                  let deadline = fallbackHandoverDeadline;
+                  const offset = Number(taskTemplate?.deadline_offset);
+                  if (Number.isFinite(offset)) {
+                    const d = new Date(startDate);
+                    d.setDate(d.getDate() + offset);
+                    deadline = d.toISOString().split("T")[0];
+                  }
+
+                  commissionTasks.push({
+                    task_name: taskName,
+                    commission_category: categoryName,
+                    task_status: "Pending",
+                    deadline,
+                    task_zone: zoneName,
+                    task_phase: "Handover",
+                  });
+                });
+              });
+            });
+
+            await createCommissionReportDoc("Project Commission Report", {
+              project: projectId,
+              project_name: data?.project_name,
+              start_date: startDate,
+              status: "Assign Pending",
+              handover_generated: 1,
+              zone: zoneChildRows,
+              commission_report_task: commissionTasks,
+            });
+
+            await mutateCommissionReportList();
+            notes.push(`Commission report created${commissionTasks.length ? ` with ${commissionTasks.length} task${commissionTasks.length !== 1 ? "s" : ""}` : ""}.`);
+          }
+        } catch (commissionError: any) {
+          console.log("commission report creation error", commissionError);
+          warnings.push("Commission report creation failed.");
+        }
+
+        if (warnings.length > 0) {
+          toast({
+            title: "Status updated with warnings",
+            description: `${notes.join(" ")} ${warnings.join(" ")}`.trim(),
+            variant: "destructive",
+          });
         } else {
           toast({
             title: "Success!",
-            description: `Successfully changed status to Handover. No Design Tracker exists, so no handover tasks were generated.`,
+            description: `Successfully changed status to Handover. ${notes.join(" ")}`.trim(),
             variant: "success",
           });
         }
@@ -1259,6 +1452,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             onTrackerCreated={() => {
               // Refetch the design tracker list to get the newly created tracker
               mutateDesignTrackerList();
+            }}
+          />
+        );
+      case PROJECT_PAGE_TABS.COMMISSION_REPORT:
+        return commissionReportId ? (
+          <ProjectCommissionReportDetail trackerId={commissionReportId} />
+        ) : (
+          <NoCommissionReportView
+            projectId={projectId}
+            projectName={data.project_name}
+            onTrackerCreated={() => {
+              mutateCommissionReportList();
             }}
           />
         );
@@ -1378,8 +1583,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <AlertDialogDescription>
                       {newStatus === "Handover" ? (
                         designTrackerId
-                          ? "This will change the project status to Handover and generate handover copies of all applicable design tasks with a 7-day deadline."
-                          : "This will change the project status to Handover. No Design Tracker exists for this project, so no handover tasks will be generated."
+                          ? "This will change the project status to Handover, generate handover copies of all applicable design tasks with a 7-day deadline, and initialize the project Commission Report if it does not exist."
+                          : "This will change the project status to Handover and initialize the project Commission Report. No Design Tracker exists for this project, so no design handover tasks will be generated."
                       ) : (
                         <>
                           This action will change the status from "{data.status} "
@@ -1392,7 +1597,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    {(updateDocLoading || handoverTasksLoading) ? (
+                    {(updateDocLoading || handoverTasksLoading || createCommissionReportLoading) ? (
                       <TailSpin color="red" width={26} height={26} />
                     ) : (
                       <>

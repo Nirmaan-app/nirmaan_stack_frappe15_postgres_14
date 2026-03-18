@@ -41,6 +41,7 @@ interface InventorySummaryRow {
   itemId: string;
   itemName: string;
   category: string;
+  billingCategory: string;
   unit: string;
   poNumbers: POEntry[];
   poQuantity: number;
@@ -214,6 +215,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
           itemId: item.itemId ?? "",
           itemName: item.itemName ?? "",
           category: item.categoryName,
+          billingCategory: item.billingCategory || "N/A",
           unit: item.unit ?? "",
           poNumbers: poEntries,
           poQuantity: item.orderedQuantity,
@@ -235,6 +237,14 @@ function SummaryTable({ projectId }: { projectId: string }) {
     return Array.from(categories)
       .sort()
       .map((c) => ({ label: c, value: c }));
+  }, [summaryData]);
+
+  // Billing category options for faceted filter
+  const billingCategoryOptions = useMemo(() => {
+    const values = new Set(summaryData.map((r) => r.billingCategory));
+    return Array.from(values)
+      .sort()
+      .map((bc) => ({ label: bc, value: bc }));
   }, [summaryData]);
 
   // Search state
@@ -321,6 +331,15 @@ function SummaryTable({ projectId }: { projectId: string }) {
       },
     },
     {
+      accessorKey: "billingCategory",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Billing Cat." />,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.billingCategory}</span>,
+      size: 140,
+      filterFn: (row, _columnId, filterValues: string[]) => {
+        return filterValues.includes(row.original.billingCategory);
+      },
+    },
+    {
       accessorKey: "unit",
       header: () => <div className="flex-1 text-center">Unit</div>,
       cell: ({ row }) => <span className="text-sm text-center block">{row.original.unit}</span>,
@@ -376,6 +395,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
     },
     {
       id: "estimatedCost",
+      accessorFn: (row) => computeEstimatedCost(row),
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
@@ -415,7 +435,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
   ], [remainingHeader]);
 
   // Table state
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "estimatedCost", desc: true }]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   const table = useReactTable({
@@ -447,6 +467,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
         itemId: row.itemId,
         poIds: row.poNumbers.map((p) => p.po).join(", ") || "---",
         category: row.category,
+        billingCategory: row.billingCategory,
         unit: row.unit,
         poQuantity: row.poQuantity.toFixed(2),
         latestDNQuantity: row.latestDNQuantity.toFixed(2),
@@ -460,6 +481,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
       { header: "Item ID", accessorKey: "itemId" },
       { header: "PO ID", accessorKey: "poIds" },
       { header: "Category", accessorKey: "category" },
+      { header: "Billing Category", accessorKey: "billingCategory" },
       { header: "Unit", accessorKey: "unit" },
       { header: "PO Quantity", accessorKey: "poQuantity" },
       { header: "DN Quantity", accessorKey: "latestDNQuantity" },
@@ -502,6 +524,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
       onSearchTermChange={setSearchTerm}
       facetFilterOptions={{
         category: { title: "Category", options: categoryOptions },
+        billingCategory: { title: "Billing Category", options: billingCategoryOptions },
       }}
       showExportButton={true}
       onExport={handleExport}

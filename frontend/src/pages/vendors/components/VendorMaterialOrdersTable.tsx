@@ -86,7 +86,7 @@ export const VendorMaterialOrdersTable: React.FC<
   const staticFilters = useMemo(() => {
     return [
       ["vendor", "=", vendorId],
-      ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
+      ["status", "not in", ["Merged", "Inactive"]],
     ];
   }, [vendorId]);
 

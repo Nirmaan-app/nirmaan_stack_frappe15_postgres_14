@@ -1,14 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
-import { useFrappeFileUpload } from "frappe-react-sdk";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { toast } from "@/components/ui/use-toast";
-import { 
-  RevisionItem, 
-  PaymentTerm, 
-  RefundAdjustment, 
-  AdjustmentMethodType, 
-  DifferenceData, 
-  SummaryData 
+import {
+  RevisionItem,
+  DifferenceData,
+  SummaryData
 } from "../types";
 import {
   useProcurementRequestForRevision,
@@ -16,7 +12,6 @@ import {
   useRevisionItems,
   useRevisionCategoryMakelist,
   useRevisionVendorInvoices,
-  useCandidatePOs,
 } from "../data/usePORevisionQueries";
 import { useCreateRevision } from "../data/usePORevisionMutations";
 
@@ -33,11 +28,6 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
 
-  // Step 2 State
-  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm[]>([]); 
-  const [refundAdjustments, setRefundAdjustments] = useState<RefundAdjustment[]>([]);
-  const [adjustmentMethod, setAdjustmentMethod] = useState<AdjustmentMethodType>("Another PO");
-
   // Calculations
   const beforeSummary = useMemo<SummaryData>(() => {
     const totalExclGst = po?.items?.reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
@@ -52,7 +42,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
         const rate = item.quote || 0;
         return sum + (qty * rate);
     }, 0);
-    
+
     const totalInclGst = revisionItems.reduce((sum, item) => {
         if (item.item_type === "Deleted") return sum;
         const qty = item.quantity || 0;
@@ -77,31 +67,12 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     return Math.abs(difference.inclGst);
   }, [difference]);
 
-  const totalAdjustmentAllocated = useMemo(() => {
-    return refundAdjustments.reduce((sum, adj) => sum + (adj.amount || 0), 0);
-  }, [refundAdjustments]);
-
-  // Auto-absorb: how much of the refund can be absorbed by shrinking "Created" terms
-  const createdTermsAbsorbable = useMemo(() => {
-    if (difference.inclGst >= 0) return 0; // Only for negative revisions
-    const createdTotal = (po?.payment_terms || [])
-      .filter((t: any) => t.term_status === "Created" && !(t.label || "").includes("Return"))
-      .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
-    return Math.min(createdTotal, Math.abs(difference.inclGst));
-  }, [po, difference]);
-
-  const userAllocationRequired = useMemo(() => {
-    return Math.max(0, Math.abs(difference.inclGst) - createdTermsAbsorbable);
-  }, [difference, createdTermsAbsorbable]);
-
   // Sync state on open
   useEffect(() => {
     if (open && po) {
       setRevisionItems(po.items.map(i => ({ ...i, item_type: "Original", original_row_id: i.name })));
       setStep(1);
       setJustification("");
-      setPaymentTerms([]);
-      setRefundAdjustments([]);
     }
   }, [open, po]);
 
@@ -138,11 +109,9 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   }, [itemsList, categories, categoryMakelist]);
 
   const { data: invoices } = useRevisionVendorInvoices(po?.name, open);
-  const { data: adjCandidatePOs } = useCandidatePOs(po?.vendor, po?.name, open);
 
   // ─── Centralized Mutations ───────────────────────────────
   const { createRevision } = useCreateRevision();
-  const { upload } = useFrappeFileUpload();
 
   // Item Handlers
   const handleAddItem = (newItem?: RevisionItem) => {
@@ -195,15 +164,15 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   const handleSave = async () => {
     try {
       setLoading(true);
-      
+
       const itemsToSubmit = revisionItems.map(item => {
         // Find original item if it exists
         const original = item.original_row_id ? po.items.find(i => i.name === item.original_row_id) : null;
-        
+
         return {
           item_type: item.item_type,
           original_row_id: item.original_row_id,
-          
+
           // Revision Details
           item_id: item.item_id,
           item_name: item.item_name,
@@ -215,7 +184,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
           tax: item.tax,
           category: item.category,
           procurement_package: item.procurement_package,
-          
+
           // Original Details
           original_item_id: original?.item_id,
           original_item_name: original?.item_name,
@@ -231,91 +200,25 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
         };
       });
 
-      let returnDetails = null;
-      if (difference.inclGst > 0) {
-        returnDetails = { 
-          list: {
-            type: "Payment Terms", 
-            Details: [
-              {
-                return_type: "Payment-terms",
-                status: "Pending",
-                amount: difference.inclGst,
-                terms: paymentTerms.map(pt => ({
-                  label: pt.term,
-                  amount: pt.amount
-                }))
-              }
-            ]
-          }
-        };
-      } else {
-        // Upload refund files if any
-        const detailsWithFiles = await Promise.all(refundAdjustments.map(async (adj) => {
-            const detail: any = {
-                status: "Pending",
-                amount: adj.amount,
-            };
-
-            if (adj.type === "Another PO") {
-                detail.return_type = "Against-po";
-                detail.target_pos = [{
-                    po_number: adj.po_id,
-                    amount: adj.amount
-                }];
-            } else if (adj.type === "Adhoc") {
-                detail.return_type = "Ad-hoc";
-                detail.status = "Pending";
-                detail["ad-hoc_type"] = adj.adhoc_type || "expense";
-                detail["ad-hoc_description"] = adj.description || "";
-                detail.comment = adj.comment || "";
-            } else if (adj.type === "Refunded") {
-                detail.return_type = "Vendor-has-refund";
-                detail.refund_date = adj.date || "";
-                
-                // Handle file upload
-                if (adj.refund_attachment_file) {
-                    try {
-                        const uploadResult = await upload(adj.refund_attachment_file, {
-                            doctype: "Procurement Orders",
-                            docname: po.name,
-                            fieldname: "attachment",
-                            isPrivate: true
-                        });
-                        detail.refund_attachment = uploadResult?.file_url || "";
-                    } catch (err) {
-                        console.error("Refund file upload failed:", err);
-                        // Continue anyway or throw? Let's proceed with empty if failed but log it
-                        detail.refund_attachment = "";
-                    }
-                } else {
-                    detail.refund_attachment = adj.refund_attachment || "";
-                }
-            }
-            return detail;
-        }));
-
-        returnDetails = {
-          list: {
-            type: "Refund Adjustment",
-            auto_absorbed_amount: createdTermsAbsorbable,
-            Details: detailsWithFiles
-          }
-        };
-      }
-
       const res = await createRevision({
         po_id: po.name,
         justification,
         revision_items: JSON.stringify(itemsToSubmit),
         total_amount_difference: difference.inclGst,
-        payment_return_details: JSON.stringify(returnDetails)
       });
 
-      const revName = res.message;
+      const result = res.message;
+      const revName = typeof result === "string" ? result : result?.name;
+      const autoApproved = typeof result === "object" && result?.auto_approved;
 
-      toast({ title: "Revision Created", description: `PO Revision ${revName} has been created successfully.`, variant: "success" });
-      
+      toast({
+        title: autoApproved ? "Revision Auto-Approved" : "Revision Created",
+        description: autoApproved
+          ? `PO Revision ${revName} was automatically approved.`
+          : `PO Revision ${revName} has been created successfully.`,
+        variant: "success",
+      });
+
       if (onSuccess) {
         onSuccess(revName);
       }
@@ -336,21 +239,11 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     loading,
     step,
     setStep,
-    paymentTerms,
-    setPaymentTerms,
-    refundAdjustments,
-    setRefundAdjustments,
-    adjustmentMethod,
-    setAdjustmentMethod,
     beforeSummary,
     afterSummary,
     difference,
     netImpact,
-    totalAdjustmentAllocated,
-    createdTermsAbsorbable,
-    userAllocationRequired,
     invoices,
-    adjCandidatePOs,
     handleAddItem,
     handleUpdateItem,
     handleRemoveItem,

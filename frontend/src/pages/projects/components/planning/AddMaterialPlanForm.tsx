@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { X, ChevronDown, Check, ChevronsUpDown, PlusCircleIcon, Search, Package, ExternalLink, RefreshCw } from "lucide-react";
+import { X, Package, ExternalLink, RefreshCw } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup"; 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
+import { useCreateMaterialDeliveryPlan, useFetchAllPOs, useFetchCategoriesAndTasks, useFetchDataV2 } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "./CategoryTaskSelector";
 import { AllPOsModal } from "./AllPOsModal";
@@ -111,22 +109,13 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     // ==========================================================================
     
     // Fetch Categories and Tasks
-    const { call: fetchCategoriesAndTasks, result: catTaskResult, loading: isLoadingCatTasks } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_categories_and_tasks"
-    );
-    
+    const { fetchCategoriesAndTasks, catTaskResult, isLoadingCatTasks } = useFetchCategoriesAndTasks();
     // Fetch POs/Items for Task (V2 API)
-    const { call: fetchDataV2, result: dataV2Result, loading: isLoadingDataV2 } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_material_plan_data_v2"
-    );
-    
+    const { fetchDataV2, dataV2Result, isLoadingDataV2 } = useFetchDataV2();
     // Fetch All Project POs (for "See All POs" modal)
-    const { call: fetchAllPOs, result: allPOsResult, loading: isLoadingAllPOs } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_all_project_pos"
-    );
-    
+    const { fetchAllPOs, allPOsResult, isLoadingAllPOs } = useFetchAllPOs();
     // Create Material Delivery Plan
-    const { createDoc, loading: isCreating } = useFrappeCreateDoc();
+    const { createMaterialPlan, loading: isCreating } = useCreateMaterialDeliveryPlan();
 
     // ==========================================================================
     // DERIVED DATA
@@ -366,7 +355,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
             });
             
             const plans: POPlan[] = Object.entries(poGroups).map(([poId, items]) => {
-                const poDoc = allProjectPOs.find(p => p.name === poId);
+                const poDoc = allProjectPOs.find((p: any) => p.name === poId);
                 const assocTasks = poDoc?.associated_tasks || [];
                 const isLocal = associatedPOs.includes(poId);
                 
@@ -410,8 +399,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                          finalSubCategory = foundTask.sub_category;
                      }
                 }
-
-                await createDoc("Material Delivery Plan", {
+                
+                await createMaterialPlan({
                     project: projectId,
                     po_link: plan.poName,
                     package_name: "", // V2: Not used
@@ -482,7 +471,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
         }));
         
         try {
-            await createDoc("Material Delivery Plan", {
+            await createMaterialPlan({
                 project: projectId,
                 po_link: "",
                 package_name: "",
@@ -668,7 +657,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                     <div className="flex-1 min-w-0">
                                         {searchMode === "po" ? (
                                             <ReactSelect
-                                                options={taskPOs.map(po => ({
+                                                options={taskPOs.map((po: any) => ({
                                                     label: po.name,
                                                     value: po.name,
                                                     original: po
@@ -721,7 +710,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                             />
                                         ) : (
                                             <ReactSelect
-                                                options={taskItems.map(item => ({
+                                                options={taskItems.map((item: any) => ({
                                                     label: item.item_name,
                                                     value: item.name,
                                                     original: item

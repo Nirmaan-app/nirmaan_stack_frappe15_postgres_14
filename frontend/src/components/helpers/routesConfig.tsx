@@ -74,11 +74,16 @@ import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
 // --- End component imports ---
 
+// NEW COMMISSION REPORT PAGES
+const CommissionReportList = lazy(() => import('@/pages/CommissionReport/commission-report-list'));
+const ProjectCommissionReportDetail = lazy(() => import('@/pages/CommissionReport/project-commission-report-details'));
 
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
 import { DesignPackages } from "../design-packages";
+import { CommissionPackages } from "../commission-packages";
+import { WOServicePackages } from "../wo-service-packages";
 import { CriticalPOCategories } from "../layout/critical-po-categories";
 
 //Critical PO Tracker
@@ -102,7 +107,6 @@ import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
 // PO Revisions Approval
-import PORevisionsApprovalList from "@/pages/PORevision/PORevisionsApprovalList";
 import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDetail";
 
 //Help Repository
@@ -283,7 +287,6 @@ export const appRoutes: RouteObject[] = [
           {
             path: "po-revisions-approval",
             children: [
-              { index: true, element: <PORevisionsApprovalList /> },
               { path: ":id", element: <PORevisionsApprovalDetail /> },
             ],
           },
@@ -318,7 +321,26 @@ export const appRoutes: RouteObject[] = [
             path: "project-expenses",
             element: <AllProjectExpensesPage />
           },
-         // ======================================================
+          // ======================================================
+          // --- START: COMMISSION REPORT SECTION ---
+          // ======================================================
+          {
+            path: "commission-tracker",
+            children: [
+              // 1. List View
+              { index: true, element: <CommissionReportList /> },
+
+              // 2. Detail View
+              {
+                path: ":id",
+                element: <ProjectCommissionReportDetail />,
+              },
+            ],
+          },
+          // ======================================================
+          // --- END: COMMISSION REPORT SECTION ---
+          // ======================================================
+          // ======================================================
           // --- START: NEW DESIGN TRACKER SECTION ---
           // ======================================================
           {
@@ -618,6 +640,8 @@ export const appRoutes: RouteObject[] = [
           // {path:"milestones-packages",element:}
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
           { path: "design-packages", element: <DesignPackages /> },
+          { path: "commission-packages", element: <CommissionPackages /> },
+          { path: "work-order-rate-card", element: <WOServicePackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
           { path: "help-repository", element: <HelpRepositoryPage /> },

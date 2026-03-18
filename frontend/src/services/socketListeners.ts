@@ -1,8 +1,10 @@
 import {FrappeDB} from "frappe-js-sdk/lib/db";
 import { Socket } from 'socket.io-client'; // Ensure correct import if FrappeSocket is not the base type
 import {
-    handlePOAmendedEvent,
     handlePONewEvent,
+    handlePORevisionCreatedEvent,
+    handlePORevisionApprovedEvent,
+    handlePOPaymentAdjustmentEvent,
     handlePRApproveNewEvent,
     handlePRDeleteEvent,
     handlePRNewEvent,
@@ -12,8 +14,8 @@ import {
     handleSOAmendedEvent,
     handleSRApprovedEvent,
     handleSRVendorSelectedEvent
-} from "@/zustand/eventListeners"; // Assuming these are correctly defined elsewhere
-import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
+} from "@/zustand/eventListeners";
+import { NotificationType } from "@/zustand/useNotificationStore";
 // import { useDataRefetchStore } from "@/zustand/useDataRefetchStore";
 
 // --- Define Explicit Action Interfaces ---
@@ -109,13 +111,17 @@ export const initializeSocketListeners = ({
     socket.on("Cancelled-sb:new", onSbNew);
 
     // PO Events
-    const onPoAmended = safeHandler(async (event: any) => handlePOAmendedEvent(db, event, notificationActions.add_new_notification));
     const onPoNew = safeHandler(async (event: any) => handlePONewEvent(db, event, notificationActions.add_new_notification));
     const onPoDelete = (event: any) => handlePRDeleteEvent(event, notificationActions.delete_notification); // Assuming same delete handler
+    const onPoRevisionCreated = safeHandler(async (event: any) => handlePORevisionCreatedEvent(db, event, notificationActions.add_new_notification));
+    const onPoRevisionApproved = safeHandler(async (event: any) => handlePORevisionApprovedEvent(db, event, notificationActions.add_new_notification));
+    const onPoPaymentAdjustment = safeHandler(async (event: any) => handlePOPaymentAdjustmentEvent(db, event, notificationActions.add_new_notification));
 
-    socket.on("po:amended", onPoAmended);
     socket.on("po:new", onPoNew);
     socket.on("po:delete", onPoDelete);
+    socket.on("po:revision_created", onPoRevisionCreated);
+    socket.on("po:revision_approved", onPoRevisionApproved);
+    socket.on("po:payment_adjustment", onPoPaymentAdjustment);
 
     // SR Events
     const onSrVendorSelected = safeHandler(async (event: any) => handleSRVendorSelectedEvent(db, event, notificationActions.add_new_notification));
@@ -161,9 +167,11 @@ export const initializeSocketListeners = ({
         socket.off("Delayed-sb:new", onSbNew);
         socket.off("Cancelled-sb:new", onSbNew);
 
-        socket.off("po:amended", onPoAmended);
         socket.off("po:new", onPoNew);
         socket.off("po:delete", onPoDelete);
+        socket.off("po:revision_created", onPoRevisionCreated);
+        socket.off("po:revision_approved", onPoRevisionApproved);
+        socket.off("po:payment_adjustment", onPoPaymentAdjustment);
 
         socket.off("sr:vendorSelected", onSrVendorSelected);
         socket.off("sr:approved", onSrApproved);

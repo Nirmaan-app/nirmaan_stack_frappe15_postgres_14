@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 
-import { X, Search, Calendar, Trash2, Plus } from "lucide-react";
+import { X, Search, Calendar } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { format } from "date-fns";
-import { Input } from "@/components/ui/input";
+import { useProcurementOrderDoc } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
+import { useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { useToast } from "@/components/ui/use-toast";
 
 interface EditMaterialPlanFormProps {
@@ -48,9 +47,9 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
     const [searchTerm, setSearchTerm] = useState("");
     // Fetch Full PO Data using standard Doc fetch (Only for Existing PO)
-    const { data: poDoc, isLoading: isLoadingPO } = useFrappeGetDoc<any>(
-        "Procurement Orders", 
-        !isNewPO ? plan.po_link : null
+    const { data: poDoc, isLoading: isLoadingPO } = useProcurementOrderDoc(
+        !isNewPO ? plan.po_link : null,
+        !isNewPO
     );
     
     // Derived PO Items
@@ -77,18 +76,18 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
     const handleSelectAll = () => {
         const all: Record<string, boolean> = {};
-        filteredItems.forEach(i => all[i.name] = true);
+        filteredItems.forEach((i: any) => all[i.name] = true);
         setSelectedItems(prev => ({ ...prev, ...all }));
     };
 
     const handleClearAll = () => {
         const cleared: Record<string, boolean> = {};
-        filteredItems.forEach(i => cleared[i.name] = false);
+        filteredItems.forEach((i: any) => cleared[i.name] = false);
         setSelectedItems(prev => ({ ...prev, ...cleared }));
     };
 
     // Filter items for search (Existing PO)
-    const filteredItems = poItems.filter(item => 
+    const filteredItems = poItems.filter((item: any) => 
         item.item_name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -96,7 +95,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
 
     // Update Doc
-    const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
+    const { updateMaterialPlan, loading: isUpdating } = useUpdateMaterialDeliveryPlan();
 
     const handleConfirm = async () => {
         if (!deliveryDate) {
@@ -145,8 +144,8 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
             }
              // Prepare items list with minimal fields
             itemsToSave = poItems
-                .filter(item => selectedItems[item.name])
-                .map(item => ({
+                .filter((item: any) => selectedItems[item.name])
+                .map((item: any) => ({
                     name: item.name,
                     item_id: item.item_id,
                     item_name: item.item_name,
@@ -157,7 +156,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         }
 
         try {
-            await updateDoc("Material Delivery Plan", plan.name, {
+            await updateMaterialPlan(plan.name, {
                 delivery_date: deliveryDate,
                 mp_items: JSON.stringify({ list: itemsToSave })
             });
@@ -303,7 +302,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                                 ) : filteredItems.length === 0 ? (
                                     <div className="p-8 text-center text-gray-500">No items found matching "{searchTerm}"</div>
                                 ) : (
-                                    filteredItems.map((item) => (
+                                    filteredItems.map((item: any) => (
                                         <div 
                                             key={item.name} 
                                             className={`flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors ${selectedItems[item.name] ? 'bg-blue-50/30' : ''}`}

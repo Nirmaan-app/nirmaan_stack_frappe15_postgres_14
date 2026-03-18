@@ -27,6 +27,7 @@ interface PivotTableHeaderProps {
   onEditDn?: (col: DNColumn) => void;
   viewMode?: "create" | "view-only" | "full";
   showReturn?: boolean;
+  hideTotalReceived?: boolean;
 }
 
 export function PivotTableHeader({
@@ -40,6 +41,7 @@ export function PivotTableHeader({
   onEditDn,
   viewMode = "full",
   showReturn = false,
+  hideTotalReceived = false,
 }: PivotTableHeaderProps) {
   const { data: usersList } = useFrappeGetDocList<NirmaanUsers>(
     "Nirmaan Users",
@@ -174,11 +176,13 @@ export function PivotTableHeader({
         )}
 
         {/* Total received column */}
-        <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground min-w-[80px] sm:min-w-[90px]">
-          <div className="flex flex-col items-end gap-1 px-1">
-            <span>Total Received</span>
-          </div>
-        </TableHead>
+        {!hideTotalReceived && (
+          <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground min-w-[80px] sm:min-w-[90px]">
+            <div className="flex flex-col items-end gap-1 px-1">
+              <span>Total Received</span>
+            </div>
+          </TableHead>
+        )}
       </TableRow>
     </TableHeader>
   );

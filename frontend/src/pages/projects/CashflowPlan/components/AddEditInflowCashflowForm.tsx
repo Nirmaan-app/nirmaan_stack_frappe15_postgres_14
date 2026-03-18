@@ -4,12 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, CheckCircle } from "lucide-react";
+import {CheckCircle } from "lucide-react";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
-import { useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useCreateCashflowPlan, useUpdateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { useToast } from "@/components/ui/use-toast";
 import { CashflowDatePicker } from "./CashflowDatePicker";
 
@@ -28,8 +25,8 @@ interface AddEditInflowCashflowFormProps {
 
 export const AddEditInflowCashflowForm = ({ isOpen, projectId, initialData, onClose, onSuccess }: AddEditInflowCashflowFormProps) => {
     const { toast } = useToast();
-    const { createDoc, loading: isCreating } = useFrappeCreateDoc();
-    const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
+    const { createCashflow, loading: isCreating } = useCreateCashflowPlan();
+    const { updateCashflow, loading: isUpdating } = useUpdateCashflowPlan();
 
     const isSubmitting = isCreating || isUpdating;
 
@@ -72,19 +69,19 @@ export const AddEditInflowCashflowForm = ({ isOpen, projectId, initialData, onCl
             return;
         }
 
-        const today = new Date().toISOString().split('T')[0];
+       
         const plannedDateStr = plannedDate ? format(plannedDate, "yyyy-MM-dd") : undefined;
 
         try {
             if (initialData) {
-                await updateDoc("Cashflow Plan", initialData.name, {
+                await updateCashflow(initialData.name, {
                     remarks: remarks,
                     planned_amount: parseFloat(plannedAmount),
                     planned_date: plannedDateStr
                 });
                 toast({ title: "Success", description: "Updated inflow plan." });
             } else {
-                await createDoc("Cashflow Plan", {
+                await createCashflow({
                     project: projectId,
                     type: "Inflow",
                     remarks: remarks,

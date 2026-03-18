@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import ReactSelect from "react-select"; // Assuming react-select is used based on other files
+import ReactSelect from "react-select";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { Trash2, FileText, MessageSquare } from 'lucide-react';
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useTdsRepositoryItems, useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
+import { useCreateTdsItem, useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import {
     Tooltip,
@@ -62,8 +64,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const [selectedBoqLineItem, setSelectedBoqLineItem] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const { createDoc } = useFrappeCreateDoc();
-    const { deleteDoc } = useFrappeDeleteDoc();
+    const { createDoc } = useCreateTdsItem();
+    const { deleteDoc } = useDeleteTdsItem();
 
     // Dialog State
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -71,18 +73,10 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const [pendingItemToAdd, setPendingItemToAdd] = useState<CartItem | null>(null);
 
     // 1. Fetch Master Data
-    const { data: repoItems } = useFrappeGetDocList<TDSRepositoryDoc>("TDS Repository", {
-        fields: ["name", "tds_item_id", "tds_item_name", "make", "description", "work_package", "category", "tds_attachment"],
-        limit: 0
-    });
+    const { data: repoItems } = useTdsRepositoryItems();
 
     // 2. Fetch Existing Project Items (to prevent duplicates, but allow re-entry of rejected)
-    const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
-        fields: ["name", "tds_item_id", "tds_make", "tds_request_id", "tds_status"], 
-        filters: [["tdsi_project_id", "=", projectId], ["docstatus", "!=", 2]],
-        limit: 0,
-        orderBy: { field: "creation", order: "desc" }
-    });
+    const { data: existingProjectItems } = useTdsExistingProjectItems(projectId);
 
     // Filter repo items to exclude those already in the project (unless Rejected)
     const availableRepoItems = useMemo(() => {
@@ -309,12 +303,12 @@ if (selectedBoqLineItem.length > 300) {
             // 1. Delete previous rejected records
             const itemsToDelete = cartItems.filter(item => item.previousDocName).map(item => item.previousDocName!);
             if (itemsToDelete.length > 0) {
-                await Promise.all(itemsToDelete.map(name => deleteDoc("Project TDS Item List", name)));
+                await Promise.all(itemsToDelete.map(name => deleteDoc(name, projectId)));
             }
 
             // 2. Create new requests
-            await Promise.all(cartItems.map(item => 
-                 createDoc("Project TDS Item List", {
+            await Promise.all(cartItems.map(item =>
+                createDoc({
                     tdsi_project_id: projectId,
                     tds_request_id: uniqueReqId,
                     tds_item_id: item.tds_item_id, // Source Doc ID
@@ -326,7 +320,7 @@ if (selectedBoqLineItem.length > 300) {
                     tds_status: "Pending",
                     tds_attachment: item.tds_attachment, // Snapshot attachment if needed?
                     tds_boq_line_item: item.tds_boq_line_item
-                })
+                }, projectId)
             ));
 
             toast({
@@ -403,13 +397,20 @@ if (selectedBoqLineItem.length > 300) {
                     {/* Item Name */}
                     <div className="space-y-2">
                          <Label className="text-sm font-semibold text-gray-700">Item Name <span className="text-red-500">*</span></Label>
-                         <ReactSelect
-                            options={itemOptions}
+                         <FuzzySearchSelect
+                            allOptions={itemOptions}
+                            tokenSearchConfig={{
+                                searchFields: ['label', 'value'],
+                                minSearchLength: 1,
+                                partialMatch: true,
+                                minTokenLength: 1,
+                                fieldWeights: { label: 2.0, value: 1.5 },
+                                minTokenMatches: 1,
+                            }}
                             value={selectedItemName ? { label: selectedItemName, value: selectedItemName } : null}
-                            onChange={(opt) => handleItemChange(opt?.value || null)}
-                            placeholder="Select Item Name"
-                            className="react-select-container"
-                            classNamePrefix="react-select"
+                            onChange={(opt) => handleItemChange((opt as { value: string } | null)?.value || null)}
+                            placeholder="Search Item Name..."
+                            isClearable
                             isLoading={!repoItems}
                          />
                     </div>

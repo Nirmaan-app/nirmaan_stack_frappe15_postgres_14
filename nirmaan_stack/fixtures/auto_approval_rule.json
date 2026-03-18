@@ -1,0 +1,29 @@
+[
+ {
+  "name": "Single Impact Rule",
+  "doctype": "Auto Approval Rule",
+  "rule_name": "Single Impact Rule",
+  "rule_key": "single_impact",
+  "description": "Auto-approve PO Revisions where the absolute value of the single revision impact is below the threshold.",
+  "threshold_value": 5000,
+  "enabled": 1
+ },
+ {
+  "name": "Cumulative Impact Rule",
+  "doctype": "Auto Approval Rule",
+  "rule_name": "Cumulative Impact Rule",
+  "rule_key": "cumulative_impact",
+  "description": "Auto-approve PO Revisions where the cumulative absolute impact of all approved revisions plus the current one is below the threshold.",
+  "threshold_value": 5000,
+  "enabled": 1
+ },
+ {
+  "name": "Rate Change Rule",
+  "doctype": "Auto Approval Rule",
+  "rule_name": "Rate Change Rule",
+  "rule_key": "rate_change",
+  "description": "Block auto-approval if any Revised or Replace item has a different rate from the original. Threshold is not used for this rule.",
+  "threshold_value": 0,
+  "enabled": 1
+ }
+]

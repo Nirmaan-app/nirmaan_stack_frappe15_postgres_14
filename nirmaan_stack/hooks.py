@@ -197,8 +197,6 @@ doc_events = {
     },
     "Version": {
         "after_insert": [
-            "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_amend_version",
-            "nirmaan_stack.integrations.controllers.nirmaan_versions.remove_amend_version",
             "nirmaan_stack.integrations.controllers.nirmaan_versions.generate_sr_amend_version"
             ]
     },
@@ -362,6 +360,9 @@ fixtures = [
     "Print Format",
     "Expense Type",
     "Nirmaan Item Units",
+    "Commission Report Category",
+    "Commission Report Tasks",
+    "Auto Approval Rule",
     # "Pincodes"
 ]
 

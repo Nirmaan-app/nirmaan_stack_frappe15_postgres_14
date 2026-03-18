@@ -9,15 +9,56 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
     This version calculates totals manually to build the document in one pass, avoiding ORM state errors.
     """
     try:
-        print("DEBUGMERGE01: --- Function Start ---")
-        # ... (Your other print statements for debugging are fine)
-
         frappe.db.begin()
         po_doc = frappe.get_doc("Procurement Orders", po_id)
         if not po_doc:
             raise frappe.ValidationError(f"Procurement Order {po_id} not found.")
 
-        print(f"DEBUGMERGE02: Successfully fetched base PO: {po_doc.name}")
+        # Block merge if any PO has pending revisions or adjustments
+        from nirmaan_stack.api.po_revisions.revision_po_check import get_all_locked_po_names
+        locked_pos = get_all_locked_po_names()
+        all_po_names = [po["name"] for po in (merged_items if isinstance(merged_items, list) else json.loads(merged_items))] + [po_id]
+        locked_in_merge = [name for name in all_po_names if name in locked_pos]
+        if locked_in_merge:
+            frappe.throw(
+                f"Cannot merge: PO(s) {', '.join(locked_in_merge)} have pending revisions or adjustments.",
+                title="Merge Blocked"
+            )
+
+        # Block merge if items have incompatible variants (same item_id, different make/comment)
+        from collections import defaultdict
+        all_merge_items = []
+        for po_name in all_po_names:
+            po = frappe.get_doc("Procurement Orders", po_name)
+            for item in po.get("items"):
+                if item.category != "Additional Charges":
+                    all_merge_items.append({
+                        "item_id": item.item_id,
+                        "make": item.make or "",
+                        "comment": item.comment or "",
+                        "po_name": po_name,
+                    })
+
+        item_groups = defaultdict(list)
+        for item in all_merge_items:
+            item_groups[item["item_id"]].append(item)
+
+        for item_id, group in item_groups.items():
+            po_names_in_group = set(i["po_name"] for i in group)
+            if len(po_names_in_group) < 2:
+                continue
+            makes = set(i["make"] for i in group)
+            if len(makes) > 1:
+                frappe.throw(
+                    f"Cannot merge: item '{item_id}' has different makes across POs ({', '.join(makes)})",
+                    title="Merge Blocked"
+                )
+            comments = set(i["comment"] for i in group)
+            if len(comments) > 1:
+                frappe.throw(
+                    f"Cannot merge: item '{item_id}' has different comments across POs",
+                    title="Merge Blocked"
+                )
 
         # --- STEP 1: Create the new document object in memory ---
         new_po_doc = frappe.new_doc("Procurement Orders")
@@ -63,9 +104,6 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         # NOTE: If you merge freight/loading charges, add them here too.
         # Example: grand_total_amount += float(po_doc.loading_charges or 0)
 
-        print(f"DEBUGMERGE_CALC: Manually calculated Total Amount: {grand_total_amount}")
-
-
         # --- STEP 3: Build the payment terms child table using the manually calculated total ---
         new_po_doc.payment_type=payment_terms[0].get("payment_type") if payment_terms else None
         for term_dict in payment_terms:
@@ -86,20 +124,15 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         
         # --- STEP 4: Save the fully constructed document to the database ONCE ---
         # .insert() will save the main doc and all its child tables in a single, clean transaction.
-        print("DEBUGMERGE_SAVE: Document fully built in memory. Calling .insert() now.")
         new_po_doc.insert()
-        print(f"DEBUGMERGE_SAVE_SUCCESS: .insert() successful. New PO Name: {new_po_doc.name}")
-        print(f"DEBUGMERGE_SAVE_SUCCESS: Frappe's final calculated total: {new_po_doc.total_amount}")
 
         # --- STEP 5: Update the old POs ---
         pos_to_update = [po["name"] for po in merged_items] + [po_id]
-        print(f"DEBUGMERGE08: Updating status to 'Merged' for the following POs: {pos_to_update}")
         for po_name in pos_to_update:
             frappe.db.set_value("Procurement Orders", po_name, "status", "Merged")
             frappe.db.set_value("Procurement Orders", po_name, "merged", new_po_doc.name)
         
         frappe.db.commit()
-        print("DEBUGMERGE09: --- Commit successful. Function End ---")
 
         return {
             "message": f"POs merged into new master PO {new_po_doc.name}",
@@ -109,73 +142,13 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
 
     except Exception as e:
         frappe.db.rollback()
-        print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        print(f"DEBUGMERGE_ERROR: An exception occurred during PO merge.")
-        print(f"DEBUGMERGE_ERROR: Error Type: {type(e).__name__}")
-        print(f"DEBUGMERGE_ERROR: Error Details: {e}")
         frappe.log_error(title="handle_merge_pos Error", message=frappe.get_traceback())
-        print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        
         return {"error": f"Failed to merge POs: {str(e)}", "status": 400}
-
-#  Umerge POs
 
 @frappe.whitelist()
 def handle_unmerge_pos(po_id: str):
-    """
-    Safely unmerges Procurement Orders from a master PO.
-    This function is designed to be called from the frontend.
-    It finds all linked POs from the database and performs safety checks.
-
-    Args:
-        po_id (str): The name of the master Procurement Order to unmerge.
-    """
-    try:
-        frappe.db.begin()
-        
-        # --- 1. Safety Check: Block unmerge if payments exist ---
-        # This is a critical safety feature to maintain data integrity.
-        if frappe.db.exists("Project Payments", {"document_name": po_id}):
-            frappe.throw(
-                "Cannot Unmerge: Payment requests have been made against this merged PO.",
-                title="Unmerge Blocked"
-            )
-
-        # --- 2. Find ALL original POs from the database (more secure) ---
-        # Instead of trusting a list from the frontend, the backend finds the children itself.
-        original_pos = frappe.get_all(
-            "Procurement Orders",
-            filters={"merged": po_id},
-            fields=["name"]
-        )
-
-        if not original_pos:
-            # Handle the edge case where a master PO might have no children linked.
-            print(f"UNMERGE_INFO: No original POs found linked to {po_id}. Proceeding to delete master PO.")
-        else:
-            print(f"UNMERGE_INFO: Found {len(original_pos)} original PO(s) to restore.")
-            # --- 3. Restore each original PO ---
-            for po in original_pos:
-                po_name = po.get("name")
-                print(f"UNMERGE_INFO: Restoring {po_name} to 'PO Approved' status.")
-                frappe.db.set_value("Procurement Orders", po_name, "status", "PO Approved")
-                frappe.db.set_value("Procurement Orders", po_name, "merged", None)
-        
-        # --- 4. Delete the master PO and its attachments ---
-        print(f"UNMERGE_INFO: Deleting attachments and master PO: {po_id}")
-        # frappe.db.delete("Nirmaan Attachments", {"associated_docname": ("=", po_id)})
-        frappe.delete_doc("Procurement Orders", po_id)
-        
-        frappe.db.commit()
-        print("UNMERGE_SUCCESS: Unmerge process completed successfully.")
-
-        return {"message": "Successfully unmerged PO(s)", "status": 200}
-
-    except Exception as e:
-        frappe.db.rollback()
-        frappe.log_error(title="handle_unmerge_pos Error", message=frappe.get_traceback())
-        # Return a clear error message to the frontend
-        return {"error": f"Error while unmerging PO(s): {str(e)}", "status": 400}
+    """Deprecated: Unmerge is no longer supported. Use PO Revisions or Cancel PO instead."""
+    return {"error": "Unmerge is no longer supported. Use Cancel PO instead.", "status": 400}
         
 
 @frappe.whitelist()

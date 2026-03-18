@@ -23,4 +23,6 @@ export interface Items {
 	/**	Category : Link - Category	*/
 	category: string
 	item_status?: "Active" | "Inactive"
+	/**	Billing Category : Data	*/
+	billing_category?: string
 }

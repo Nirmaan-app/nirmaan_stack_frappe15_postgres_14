@@ -24,9 +24,8 @@ import {
   ReceiptText, FileUp,
   Banknote,
   CreditCard,
-  BanknoteIcon,
   Dices,
-  Landmark, PencilRuler,SquareStack,
+  Landmark, PencilRuler,
   Warehouse
 } from "lucide-react";
 
@@ -39,7 +38,6 @@ import {
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
-  useSWRConfig,
 } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import {
@@ -51,9 +49,9 @@ import {
   ShoppingCart,
   SquareSquare,
   Store,
-  UsersRound,Waypoints
+  UsersRound, Waypoints
 } from "lucide-react";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { UserNav } from "../nav/user-nav";
 import {
@@ -73,7 +71,7 @@ export function NewSidebar() {
   const user_id = Cookies.get("user_id") ?? "";
 
   // * inside component body */
-  const _ = useCountsBridge(user_id);                //  <-- one hook, done
+  useCountsBridge(user_id);
 
   const [collapsedKey, setCollapsedKey] = useState<string | null>(null); // Tracks the currently open group
 
@@ -207,9 +205,11 @@ export function NewSidebar() {
             { key: "/product-packages", label: "Product Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
+            { key: "/commission-packages", label: "Commission Packages" },
+            { key: "/work-order-rate-card", label: "Work Order Rate Card" },
             { key: "/tds-repository", label: "TDS Repository" },
 
-            ...(user_id == "Administrator"|| role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
+            ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
             // { key: "/all-AQs", label: "Approved Quotations" },
@@ -364,7 +364,7 @@ export function NewSidebar() {
       ]
       : []),
 
-   
+
 
     ...([
       "Nirmaan Procurement Executive Profile",
@@ -392,19 +392,6 @@ export function NewSidebar() {
           key: "/purchase-orders",
           icon: ShoppingCart,
           label: "Purchase Orders",
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || [
-      "Nirmaan Admin Profile",
-      "Nirmaan PMO Executive Profile",
-      "Nirmaan Accountant Profile"
-    ].includes(role)
-      ? [
-        {
-          key: "/po-revisions-approval",
-          icon: SquareStack,
-          label: "PO Revisions Approval",
         },
       ]
       : []),
@@ -523,7 +510,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-       ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/tds-repository',
@@ -550,6 +537,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
+      ? [
+        {
+          key: '/commission-tracker',
+          icon: ClipboardMinus,
+          label: 'Commission Report Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
@@ -568,7 +564,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile","Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
           key: '/material-plan-tracker',
@@ -613,7 +609,6 @@ export function NewSidebar() {
     // "approve-payments",
     "procurement-requests",
     "purchase-orders",
-    "po-revisions-approval",
     "sent-back-requests",
     "service-requests",
     "service-requests-list",
@@ -637,7 +632,10 @@ export function NewSidebar() {
     'cashflow-plan-tracker',
     'tds-approval',
     'inventory',
-    'help-repository'
+    'help-repository',
+    "commission-packages",
+    "work-order-rate-card",
+    "commission-tracker",
 
   ]), [])
 
@@ -648,7 +646,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "tds-repository", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -658,7 +656,6 @@ export function NewSidebar() {
     "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
-    "/po-revisions-approval": ["po-revisions-approval"],
     "/project-payments": ["project-payments"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
@@ -674,7 +671,8 @@ export function NewSidebar() {
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
     '/inventory': ['inventory'],
-    '/help-repository': ['help-repository']
+    '/help-repository': ['help-repository'],
+    '/commission-tracker': ['commission-tracker'],
   }), []);
 
   const openKey = useMemo(() => {
@@ -751,8 +749,35 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "PO Revisions Approval", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Vendor Invoice Recon", "Reports",
-                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval", "Inventory"]).has(item?.label) ? (
+                  {new Set(["Dashboard",
+                    "Item Price Search",
+                    "TDS Repository",
+                    "Procurement Requests",
+                    "Purchase Orders",
+                    "Project Payments",
+                    "Credit Payments",
+                    "Sent Back Requests",
+                    "Projects",
+                    "Work Orders",
+                    "In-Flow Payments",
+                    "Vendor Invoice Recon",
+                    "Reports",
+                    "Design Tracker",
+                    "Commission Report Tracker",
+                    "PO Tracker",
+                    "Work Plan Tracker",
+                    "Material Plan Tracker",
+                    "Cashflow Plan Tracker",
+                    "Project Invoices",
+                    "Misc. Project Expenses",
+                    "Non Project Expenses",
+                    "Users",
+                    "Assets",
+                    "Vendors",
+                    "Customers",
+                    "Products",
+                    "TDS Approval",
+                    "Inventory"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
@@ -769,9 +794,9 @@ export function NewSidebar() {
                     >
                       {item.icon && <item.icon />}
                       <span className="font-medium">{item.label}</span>
-                      {item?.count !== 0 && state === "expanded" && (
+                      {'count' in item && (item as { count?: number }).count !== 0 && state === "expanded" && (
                         <span className="absolute top-2 right-4 text-xs font-medium tabular-nums text-sidebar-foreground h-4 w-4 flex items-center justify-center">
-                          {item.count}
+                          {(item as { count?: number }).count}
                         </span>
                       )}
                     </SidebarMenuButton>

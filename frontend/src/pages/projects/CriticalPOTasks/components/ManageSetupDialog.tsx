@@ -22,10 +22,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
-import { CriticalPOCategory } from "@/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { useBulkCreateTasks } from "../hooks/useBulkCreateTasks";
+import { useCriticalPOCategories } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { useDeleteCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 
 interface ManageSetupDialogProps {
   open: boolean;
@@ -54,17 +54,13 @@ export const ManageSetupDialog: React.FC<ManageSetupDialogProps> = ({
   const [pendingAction, setPendingAction] = useState<"add" | "remove" | null>(null);
 
   const { createTasksForCategories } = useBulkCreateTasks();
-  const { deleteDoc } = useFrappeDeleteDoc();
+  const { deleteDoc } = useDeleteCriticalPOTask();
 
   // Fetch all Critical PO Categories
   const {
     data: categories,
     isLoading: categoriesLoading,
-  } = useFrappeGetDocList<CriticalPOCategory>("Critical PO Category", {
-    fields: ["name", "category_name"],
-    limit: 0,
-    orderBy: { field: "category_name", order: "asc" },
-  });
+  } = useCriticalPOCategories();
 
   // Get categories that already have tasks
   const existingCategories = useMemo(() => {
@@ -172,7 +168,7 @@ export const ManageSetupDialog: React.FC<ManageSetupDialogProps> = ({
         let deletedCount = 0;
         for (const task of tasksToDelete) {
           try {
-            await deleteDoc("Critical PO Tasks", task.name);
+            await deleteDoc(task.name, projectId);
             deletedCount++;
           } catch (error) {
             console.error(`Failed to delete task ${task.name}:`, error);

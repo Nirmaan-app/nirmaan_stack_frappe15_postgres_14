@@ -54,7 +54,7 @@ export function NewWODialog() {
 
     return (
         <AlertDialog open={newWODialog} onOpenChange={(open) => { if (!open) handleClose(); }}>
-            <AlertDialogContent className="max-w-[420px] p-0 gap-0 overflow-hidden border-0 shadow-2xl">
+            <AlertDialogContent className="w-[420px] max-w-[calc(100vw-2rem)] p-0 gap-0 overflow-hidden border-0 shadow-2xl">
                 {/* Header */}
                 <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-5">
                     <div className="flex items-center gap-3">

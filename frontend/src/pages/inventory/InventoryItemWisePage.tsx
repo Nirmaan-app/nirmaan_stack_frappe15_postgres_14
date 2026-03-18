@@ -11,6 +11,7 @@ import {
   ChevronsUpDown,
   ListX,
   Warehouse,
+  FileText,
 } from "lucide-react";
 import {
   Table,
@@ -30,10 +31,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
-import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { unparse } from "papaparse";
 import { formatDate as formatDateFns } from "date-fns";
@@ -44,7 +50,7 @@ import type { AggregatedItemRow } from "./inventory.types";
 // SORT
 // =============================================================================
 
-type SortKey = "item_name" | "totalRemainingQty" | "totalEstimatedCost" | "projectCount";
+type SortKey = "item_name" | "totalRemainingQty" | "totalEstimatedCost" | "projectCount" | "poCount";
 
 interface SortableHeaderProps {
   sortableKey: SortKey;
@@ -119,9 +125,9 @@ type FlatRow =
       data: {
         project: string;
         project_name: string;
-        report_date: string;
         remaining_quantity: number;
         estimated_cost: number;
+        po_numbers: string[];
       };
     };
 
@@ -134,8 +140,8 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
 
   const headers = [
     "Item Name",
-    "Item ID",
     "Category",
+    "Billing Category",
     "Unit",
     "Total Remaining Qty",
     "Total Estimated Cost",
@@ -144,8 +150,8 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
 
   const rows = items.map((item) => [
     item.item_name,
-    item.item_id,
     item.category,
+    item.billingCategory,
     item.unit,
     item.totalRemainingQty,
     Math.ceil(item.totalEstimatedCost),
@@ -166,6 +172,48 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
 }
 
 // =============================================================================
+// PO NUMBERS RENDERER
+// =============================================================================
+
+function renderInventoryPONumbers(poNumbers: string[], project: string) {
+  if (!poNumbers.length) return <span className="text-muted-foreground">—</span>;
+
+  const poLink = (po: string) => (
+    <Link
+      key={po}
+      to={`/projects/${project}/po/${po.replace(/\//g, "&=")}`}
+      className="text-blue-600 hover:underline text-xs"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {po}
+    </Link>
+  );
+
+  if (poNumbers.length === 1) return poLink(poNumbers[0]);
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto py-0.5 px-1.5 text-xs gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <FileText className="h-3 w-3" />
+            {poNumbers.length} POs
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="flex flex-col gap-1 p-2">
+          {poNumbers.map((po) => poLink(po))}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
@@ -180,10 +228,12 @@ export default function InventoryItemWisePage() {
     new Set()
   );
   const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+  const [selectedBillingCategories, setSelectedBillingCategories] = useState<Set<string>>(new Set());
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
 
   // Sort
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [sortKey, setSortKey] = useState<SortKey | null>("totalEstimatedCost");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   // Expand
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -205,6 +255,25 @@ export default function InventoryItemWisePage() {
       .map((c) => ({ label: c, value: c }));
   }, [items]);
 
+  const billingCategoryOptions = useMemo(() => {
+    const values = new Set(items.map((i) => i.billingCategory).filter(Boolean));
+    return Array.from(values)
+      .sort()
+      .map((bc) => ({ label: bc, value: bc }));
+  }, [items]);
+
+  const projectOptions = useMemo(() => {
+    const projs = new Map<string, string>();
+    for (const item of items) {
+      for (const p of item.projects) {
+        if (!projs.has(p.project)) projs.set(p.project, p.project_name);
+      }
+    }
+    return Array.from(projs.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ label, value }));
+  }, [items]);
+
   const unitOptions = useMemo(() => {
     const units = new Set(items.map((i) => i.unit).filter(Boolean));
     return Array.from(units)
@@ -219,10 +288,8 @@ export default function InventoryItemWisePage() {
     // Search
     if (search.trim()) {
       const q = search.toLowerCase().trim();
-      result = result.filter(
-        (item) =>
-          item.item_name.toLowerCase().includes(q) ||
-          item.item_id.toLowerCase().includes(q)
+      result = result.filter((item) =>
+        item.item_name.toLowerCase().includes(q)
       );
     }
 
@@ -231,9 +298,21 @@ export default function InventoryItemWisePage() {
       result = result.filter((item) => selectedCategories.has(item.category));
     }
 
+    // Billing category filter
+    if (selectedBillingCategories.size > 0) {
+      result = result.filter((item) => selectedBillingCategories.has(item.billingCategory));
+    }
+
     // Unit filter
     if (selectedUnits.size > 0) {
       result = result.filter((item) => selectedUnits.has(item.unit));
+    }
+
+    // Project filter
+    if (selectedProjects.size > 0) {
+      result = result.filter((item) =>
+        item.projects.some((p) => selectedProjects.has(p.project))
+      );
     }
 
     // Sort
@@ -242,15 +321,17 @@ export default function InventoryItemWisePage() {
         let cmp = 0;
         if (sortKey === "item_name") {
           cmp = a.item_name.localeCompare(b.item_name);
-        } else {
-          cmp = (a[sortKey] as number) - (b[sortKey] as number);
+        } else if (sortKey === "poCount") {
+          cmp = a.allPONumbers.length - b.allPONumbers.length;
+        } else if (sortKey === "totalRemainingQty" || sortKey === "totalEstimatedCost" || sortKey === "projectCount") {
+          cmp = a[sortKey] - b[sortKey];
         }
         return sortDir === "asc" ? cmp : -cmp;
       });
     }
 
     return result;
-  }, [items, search, selectedCategories, selectedUnits, sortKey, sortDir]);
+  }, [items, search, selectedCategories, selectedBillingCategories, selectedUnits, selectedProjects, sortKey, sortDir]);
 
   // Flatten for virtualization
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -264,9 +345,9 @@ export default function InventoryItemWisePage() {
             data: {
               project: proj.project,
               project_name: proj.project_name,
-              report_date: proj.report_date,
               remaining_quantity: proj.remaining_quantity,
               estimated_cost: proj.estimated_cost,
+              po_numbers: proj.po_numbers,
             },
           });
         }
@@ -355,28 +436,10 @@ export default function InventoryItemWisePage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search item name or ID..."
+            placeholder="Search item name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8"
-          />
-        </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span>Category</span>
-          <SimpleFacetedFilter
-            title="Category"
-            options={categoryOptions}
-            selectedValues={selectedCategories}
-            onSelectedValuesChange={setSelectedCategories}
-          />
-        </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span>Unit</span>
-          <SimpleFacetedFilter
-            title="Unit"
-            options={unitOptions}
-            selectedValues={selectedUnits}
-            onSelectedValuesChange={setSelectedUnits}
           />
         </div>
         <span className="ml-auto text-sm text-muted-foreground">
@@ -403,9 +466,90 @@ export default function InventoryItemWisePage() {
               >
                 Item Name
               </SortableHeader>
-              <TableHead>Item ID</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Unit</TableHead>
+              <TableHead className="text-right">
+                <div className="flex items-center gap-1 justify-end">
+                  <SimpleFacetedFilter
+                    title="Project"
+                    options={projectOptions}
+                    selectedValues={selectedProjects}
+                    onSelectedValuesChange={setSelectedProjects}
+                  />
+                  <span>Projects</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                        {sortKey === "projectCount" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          ) : (
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          )
+                        ) : (
+                          <ChevronsUpDown className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleSetSort("projectCount", "asc")}>
+                        <ArrowUp className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+                        Asc
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleSetSort("projectCount", "desc")}>
+                        <ArrowDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+                        Desc
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleClearSort} disabled={sortKey !== "projectCount"}>
+                        <ListX className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+                        Clear
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </TableHead>
+              <SortableHeader
+                sortableKey="poCount"
+                className="text-right"
+                currentSortKey={sortKey}
+                currentSortDirection={sortDir}
+                onSetSort={handleSetSort}
+                onClearSort={handleClearSort}
+              >
+                POs
+              </SortableHeader>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <SimpleFacetedFilter
+                    title="Category"
+                    options={categoryOptions}
+                    selectedValues={selectedCategories}
+                    onSelectedValuesChange={setSelectedCategories}
+                  />
+                  <span>Category</span>
+                </div>
+              </TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <SimpleFacetedFilter
+                    title="Billing Cat."
+                    options={billingCategoryOptions}
+                    selectedValues={selectedBillingCategories}
+                    onSelectedValuesChange={setSelectedBillingCategories}
+                  />
+                  <span>Billing Cat.</span>
+                </div>
+              </TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <SimpleFacetedFilter
+                    title="Unit"
+                    options={unitOptions}
+                    selectedValues={selectedUnits}
+                    onSelectedValuesChange={setSelectedUnits}
+                  />
+                  <span>Unit</span>
+                </div>
+              </TableHead>
               <SortableHeader
                 sortableKey="totalRemainingQty"
                 className="text-right"
@@ -426,22 +570,12 @@ export default function InventoryItemWisePage() {
               >
                 Est. Cost
               </SortableHeader>
-              <SortableHeader
-                sortableKey="projectCount"
-                className="text-right"
-                currentSortKey={sortKey}
-                currentSortDirection={sortDir}
-                onSetSort={handleSetSort}
-                onClearSort={handleClearSort}
-              >
-                Projects
-              </SortableHeader>
             </TableRow>
           </TableHeader>
           <TableBody>
             {virtualizer.getVirtualItems().length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   No inventory items found.
                 </TableCell>
               </TableRow>
@@ -451,7 +585,7 @@ export default function InventoryItemWisePage() {
                 {virtualizer.getVirtualItems()[0]?.start > 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       style={{
                         height: virtualizer.getVirtualItems()[0].start,
                       }}
@@ -481,25 +615,28 @@ export default function InventoryItemWisePage() {
                         <TableCell className="font-medium max-w-[250px] truncate">
                           {item.item_name}
                         </TableCell>
-                        <TableCell className="text-muted-foreground text-xs">
-                          {item.item_id}
+                        <TableCell className="text-right">
+                          <Badge variant="secondary" className="text-xs">
+                            {item.projectCount}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="secondary" className="text-xs">
+                            {item.allPONumbers.length}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">
                             {item.category}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-xs">{item.billingCategory}</TableCell>
                         <TableCell className="text-xs">{item.unit}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
                           {item.totalRemainingQty.toLocaleString("en-IN")}
                         </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
                           {formatToIndianRupee(item.totalEstimatedCost)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant="secondary" className="text-xs">
-                            {item.projectCount}
-                          </Badge>
                         </TableCell>
                       </TableRow>
                     );
@@ -514,7 +651,7 @@ export default function InventoryItemWisePage() {
                         className="bg-muted/30"
                       >
                         <TableCell />
-                        <TableCell colSpan={2} className="pl-8">
+                        <TableCell className="pl-8">
                           <Link
                             to={`/projects/${proj.project}`}
                             className="text-blue-600 hover:underline text-sm"
@@ -522,13 +659,13 @@ export default function InventoryItemWisePage() {
                           >
                             {proj.project_name}
                           </Link>
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            ({proj.project})
-                          </span>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {formatDate(proj.report_date)}
+                        <TableCell />
+                        <TableCell>
+                          {renderInventoryPONumbers(proj.po_numbers, proj.project)}
                         </TableCell>
+                        <TableCell />
+                        <TableCell />
                         <TableCell />
                         <TableCell className="text-right tabular-nums text-sm">
                           {proj.remaining_quantity.toLocaleString("en-IN")}
@@ -536,7 +673,6 @@ export default function InventoryItemWisePage() {
                         <TableCell className="text-right tabular-nums text-sm">
                           {formatToIndianRupee(proj.estimated_cost)}
                         </TableCell>
-                        <TableCell />
                       </TableRow>
                     );
                   }
@@ -545,7 +681,7 @@ export default function InventoryItemWisePage() {
                 {virtualizer.getVirtualItems().length > 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       style={{
                         height:
                           virtualizer.getTotalSize() -

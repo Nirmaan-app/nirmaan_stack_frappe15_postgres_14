@@ -138,7 +138,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         const errors: Partial<Record<keyof NewExpenseFormState, string>> = {};
         if (!formState.type) errors.type = "Expense Type is required.";
         if (!formState.description.trim()) errors.description = "Description is required.";
-        if (!formState.amount || parseNumber(formState.amount) <= 0) errors.amount = "A valid amount is required.";
+        if (!formState.amount || parseNumber(formState.amount) === 0) errors.amount = "Amount cannot be zero. Use negative for refunds.";
 
         if (recordPaymentDetails) {
             if (!formState.payment_date) errors.payment_date = "Payment date is required.";
@@ -288,6 +288,9 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                         <Label htmlFor="amount_new_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>
                         <Input id="amount_new_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
+                        <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
+                            Use negative amount for refunds.
+                        </p>
                     </div>
 
                     <Separator className="my-4" />

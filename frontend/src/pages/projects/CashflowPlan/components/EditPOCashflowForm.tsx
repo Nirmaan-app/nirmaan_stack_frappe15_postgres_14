@@ -1,15 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
-import { useFrappeGetDoc, useFrappeUpdateDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useCashflowVendors, useCashflowPO } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useUpdateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, Search, X } from "lucide-react";
+import { Search } from "lucide-react";
 import ReactSelect from "react-select";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -26,7 +25,7 @@ interface EditPOCashflowFormProps {
 
 export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess }: EditPOCashflowFormProps) => {
     const { toast } = useToast();
-    const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
+    const { updateCashflow, loading: isUpdating } = useUpdateCashflowPlan();
 
     // State
     const [plannedAmount, setPlannedAmount] = useState<string>("");
@@ -45,17 +44,11 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     // Fetch the linked PO to get all available items
     // Only if NOT New PO
     const poId = plan?.id_link;
-    const { data: poDoc, isLoading: isLoadingPO } = useFrappeGetDoc("Procurement Orders", poId, {
-        enabled: !!poId && isOpen && !isNewPO
-    });
+    const { data: poDoc, isLoading: isLoadingPO } = useCashflowPO(poId, !!poId && isOpen && !isNewPO);
 
     // Fetch Vendors for New PO edit
     // Fetch Vendors for edit (enabled for both New and Existing to allow overrides)
-    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name"],
-        limit: 0,
-        enabled: isOpen
-    });
+    const { data: vendors, isLoading: isLoadingVendors } = useCashflowVendors(isOpen);
 
     const vendorOptions = useMemo(() => [
         ...(vendors || []).map((v: any) => ({ value: v.name, label: v.vendor_name })),
@@ -234,10 +227,10 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
         }
 
         try {
-            await updateDoc("Cashflow Plan", plan.name, {
+            await updateCashflow(plan.name, {
                 planned_amount: parseFloat(plannedAmount),
                 estimated_price: isNewPO ? parseFloat(estimatedPrice) : undefined,
-                planned_date: format(plannedDate, "yyyy-MM-dd"),
+                planned_date: plannedDate ? format(plannedDate, "yyyy-MM-dd") : "",
                 lines: undefined, // ensure no collision if any
                 vendor: isCustomVendor ? "" : vendor?.value,
                 vendor_name: vendor?.label,

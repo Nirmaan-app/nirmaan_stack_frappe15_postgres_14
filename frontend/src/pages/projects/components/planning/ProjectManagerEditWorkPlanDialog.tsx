@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useUpdateWorkPlan } from "@/pages/projects/data/work-plan/useWorkPlanMutations";
 import { z } from "zod";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
         }
     }, [initialData]);
 
-    const { updateDoc, loading: updating } = useFrappeUpdateDoc();
+    const { updateWorkPlan, loading: updating } = useUpdateWorkPlan();
 
     const handleChange = (field: string, value: any) => {
         setFormData((prev) => {
@@ -171,7 +171,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
         }
 
         try {
-            await updateDoc("Work Plan", docName, dataToUpdate);
+            await updateWorkPlan(docName, dataToUpdate);
 
             // Show contextual toast based on status change
             if (formData.wp_status === "Completed") {

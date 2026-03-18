@@ -130,7 +130,6 @@ export const PO_SUMMARY_STATUS_OPTIONS = [
   { label: "Partially Delivered", value: "Partially Delivered" },
   { label: "Delivered", value: "Delivered" },
   { label: "Merged", value: "Merged" },
-  { label: "PO Amendment", value: "PO Amendment" },
   // Add other relevant statuses
 ];
 
@@ -399,7 +398,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   // --- Static Filters for useServerDataTable ---
   const staticFilters = useMemo(() => {
     const filters: Array<[string, string, any]> = [
-      ["status", "not in", ["Cancelled", "Merged", "Inactive", "PO Amendment"]],
+      ["status", "not in", ["Cancelled", "Merged", "Inactive"]],
     ];
     if (projectId) {
       filters.push(["project", "=", projectId]);

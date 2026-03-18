@@ -1,13 +1,10 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { usePORevisionsApprovalDetail } from "./hooks/usePORevisionsApprovalDetail";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ExternalLink, Building2, FolderOpen } from "lucide-react";
 
-import PORevisionInfoCard from "./components/detail/PORevisionInfoCard";
-import PORevisionInvoices from "./components/detail/PORevisionInvoices";
 import PORevisionImpactAndJustification from "./components/detail/PORevisionImpactAndJustification";
 import PORevisionLineItems from "./components/detail/PORevisionLineItems";
-import PORevisionPaymentRectification from "./components/detail/PORevisionPaymentRectification";
 
 export default function PORevisionsApprovalDetail() {
     const { id } = useParams();
@@ -16,9 +13,7 @@ export default function PORevisionsApprovalDetail() {
     const {
         revisionDoc,
         originalPO,
-        invoices,
         isLoading,
-        isContextLoading,
         isApproving,
         isRejecting,
         approveRevision,
@@ -28,8 +23,7 @@ export default function PORevisionsApprovalDetail() {
     const handleApprove = async () => {
         try {
             await approveRevision();
-            // Success - Redirect back to the list
-            navigate("/po-revisions-approval");
+            navigate("/purchase-orders?tab=Approve+PO+Revision");
         } catch (err) {
             alert("Failed to approve revision. Please try again.");
         }
@@ -38,8 +32,7 @@ export default function PORevisionsApprovalDetail() {
     const handleReject = async () => {
         try {
             await rejectRevision();
-            // Success - Redirect back to the list
-            navigate("/po-revisions-approval");
+            navigate("/purchase-orders?tab=Approve+PO+Revision");
         } catch (err) {
             alert("Failed to reject revision. Please try again.");
         }
@@ -52,32 +45,31 @@ export default function PORevisionsApprovalDetail() {
     if (!revisionDoc) {
         return <div className="p-8 text-center text-red-500">PO Revision not found!</div>;
     }
-    // Safely parse JSON arrays for revision line items
+
     let parsedItems = [];
     try {
-        parsedItems = typeof revisionDoc.revision_items === "string" 
-            ? JSON.parse(revisionDoc.revision_items) 
+        parsedItems = typeof revisionDoc.revision_items === "string"
+            ? JSON.parse(revisionDoc.revision_items)
             : (revisionDoc.revision_items || []);
     } catch {
         parsedItems = [];
     }
 
     // Calculate totals for Impact Summary
-    const beforeExclGst = parsedItems.reduce((acc, item) => {
+    const beforeExclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "New") return acc;
         const amount = Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0);
         return acc + amount;
     }, 0);
 
-    const beforeInclGst = parsedItems.reduce((acc, item) => {
+    const beforeInclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "New") return acc;
         const amount = Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0);
         const tax = Number(item.original_tax || 0);
         return acc + (amount * (1 + tax / 100));
     }, 0);
-    
-    // Calculate the 'After' state by iterating through items (excluding Deleted)
-    const afterExclGst = parsedItems.reduce((acc, item) => {
+
+    const afterExclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "Deleted") return acc;
         const amount = (item.item_type === "Original")
             ? Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
@@ -85,7 +77,7 @@ export default function PORevisionsApprovalDetail() {
         return acc + amount;
     }, 0);
 
-    const afterInclGst = parsedItems.reduce((acc, item) => {
+    const afterInclGst = parsedItems.reduce((acc: number, item: Record<string, unknown>) => {
         if (item.item_type === "Deleted") return acc;
         const amount = (item.item_type === "Original")
             ? Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
@@ -96,89 +88,92 @@ export default function PORevisionsApprovalDetail() {
         return acc + (amount * (1 + tax / 100));
     }, 0);
 
+    const vendorName = revisionDoc?.vendor_name || originalPO?.vendor_name || revisionDoc?.vendor || originalPO?.vendor || "—";
+    const projectName = revisionDoc?.project_name || originalPO?.project_name || revisionDoc?.project || originalPO?.project || "—";
+
+    const statusBadge = revisionDoc.status === "Pending"
+        ? "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20"
+        : revisionDoc.status === "Approved"
+            ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
+            : revisionDoc.status === "Rejected"
+                ? "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20"
+                : "bg-gray-50 text-gray-700 ring-1 ring-inset ring-gray-600/20";
+
     return (
-        <div className="flex flex-col h-full bg-slate-50/50 p-4 md:p-6 pb-20 overflow-y-auto">
-            
-            {/* Header Section */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
-                <div className="flex items-center gap-3">
-                    {/* <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full h-8 w-8 hover:bg-slate-200">
-                        <ArrowLeft className="w-5 h-5 text-slate-700" />
-                    </Button> */}
-                    <div className="flex items-center gap-3">
-                        <h1 className="text-2xl font-bold text-slate-900">PO Revision Review</h1>
-                        {revisionDoc.status === "Pending" ? (
-                            <span className="inline-flex bg-blue-100 text-blue-700 px-2.5 py-1 text-xs font-semibold rounded-md">
-                                Pending
-                            </span>
-                        ) : (
-                            <span className="inline-flex bg-slate-200 text-slate-800 px-2.5 py-1 text-xs font-semibold rounded-md">
-                                {revisionDoc.status || "Draft"}
+        <div className="flex flex-col h-full bg-gray-50/60 overflow-y-auto">
+            {/* ── Compact Header ── */}
+            <div className="bg-white border-b px-4 md:px-6 py-3.5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <h1 className="text-base font-bold text-gray-900 shrink-0">PO Revision Review</h1>
+                        <span className={`inline-flex px-2 py-0.5 text-[11px] font-semibold rounded-md shrink-0 ${statusBadge}`}>
+                            {revisionDoc.status || "Draft"}
+                        </span>
+                        {revisionDoc.status === "Approved" && revisionDoc.approved_by && (
+                            <span className="text-xs text-slate-500">
+                                {revisionDoc.approved_by === "System" ? "Auto-Approved" : `Approved by ${revisionDoc.approved_by}`}
                             </span>
                         )}
-                    </div>
-                </div>
-
-                {/* Actions */}
-                {revisionDoc.status === "Pending" && (
-                    <div className="flex items-center gap-3">
-                        <Button 
-                            variant="outline" 
-                            className="text-red-500 border-red-500 hover:bg-red-50 hover:text-red-600" 
-                            onClick={handleReject}
-                            disabled={isApproving || isRejecting}
+                        <span className="text-gray-300 hidden sm:inline">|</span>
+                        <Link
+                            to={`/purchase-orders/${revisionDoc.revised_po?.replaceAll("/", "&=")}?tab=${originalPO?.status || "Approved%20PO"}`}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline inline-flex items-center gap-1 shrink-0"
                         >
-                            {isRejecting ? "Rejecting..." : "Reject Revision"}
-                        </Button>
-                        <Button 
-                            className="bg-red-600 hover:bg-red-700 text-white" 
-                            onClick={handleApprove}
-                            disabled={isApproving || isRejecting}
-                        >
-                            {isApproving ? "Approving..." : "Approve Revision"}
-                        </Button>
+                            {revisionDoc.revised_po}
+                            <ExternalLink className="w-3 h-3" />
+                        </Link>
                     </div>
-                )}
-            </div>
-            
-            <p className="items-center text-sm border-b pb-4 text-slate-500 ">
-                Review changes requested for Purchase Order{" "}
-                <Link to={`/purchase-orders/${revisionDoc.revised_po?.replaceAll("/", "&=")}?tab=${originalPO?.status || "Approved%20PO"}`} className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1">
-                    #{revisionDoc.revised_po}
-                    <ExternalLink className="w-3 h-3" />
-                </Link>
-            </p>
 
-            <div className=" mt-2">
-                {/* Metadata Card */}
-                <PORevisionInfoCard 
-                    vendor={revisionDoc?.vendor_name || originalPO?.vendor_name || revisionDoc?.vendor || originalPO?.vendor || "Loading..."}
-                    project={revisionDoc?.project_name || originalPO?.project_name || revisionDoc?.project || originalPO?.project || "N/A"}
-                    dispatched={originalPO?.dispatch_date ? new Date(originalPO.dispatch_date).toLocaleDateString() : "Pending"}
-                    currentTotal={originalPO?.total_amount || 0}
-                />
-
-                <div className="mt-6 flex flex-col gap-6">
-                    {/* Invoices */}
-                    <PORevisionInvoices invoices={invoices || []} isLoading={isContextLoading} />
-
-                    {/* Impact and Justification */}
-                    <PORevisionImpactAndJustification 
-                        beforeExclGst={beforeExclGst}
-                        afterExclGst={afterExclGst}
-                        beforeInclGst={beforeInclGst}
-                        afterInclGst={afterInclGst}
-                        justification={revisionDoc.revision_justification}
-                    />
-
-                    {/* Line Items */}
-                    <PORevisionLineItems items={parsedItems} isCustom={!!originalPO?.custom} />
-
-                    {/* Payment Rectification */}
-                    {revisionDoc.payment_return_details && (
-                        <PORevisionPaymentRectification paymentData={revisionDoc.payment_return_details} />
+                    {revisionDoc.status === "Pending" && (
+                        <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 h-8 text-xs"
+                                onClick={handleReject}
+                                disabled={isApproving || isRejecting}
+                            >
+                                {isRejecting ? "Rejecting..." : "Reject"}
+                            </Button>
+                            <Button
+                                size="sm"
+                                className="bg-primary hover:bg-primary/90 text-white h-8 text-xs"
+                                onClick={handleApprove}
+                                disabled={isApproving || isRejecting}
+                            >
+                                {isApproving ? "Approving..." : "Approve Revision"}
+                            </Button>
+                        </div>
                     )}
                 </div>
+
+                {/* Integrated Vendor + Project metadata */}
+                <div className="flex items-center gap-4 mt-2.5 text-xs text-gray-500">
+                    <div className="flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="font-medium text-gray-700" title={vendorName}>{vendorName}</span>
+                    </div>
+                    <span className="text-gray-300">·</span>
+                    <div className="flex items-center gap-1.5">
+                        <FolderOpen className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="font-medium text-gray-700" title={projectName}>{projectName}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Content ── */}
+            <div className="flex-1 px-4 md:px-6 py-5 space-y-5 pb-20">
+                {/* Impact and Justification */}
+                <PORevisionImpactAndJustification
+                    beforeExclGst={beforeExclGst}
+                    afterExclGst={afterExclGst}
+                    beforeInclGst={beforeInclGst}
+                    afterInclGst={afterInclGst}
+                    justification={revisionDoc.revision_justification}
+                />
+
+                {/* Line Items */}
+                <PORevisionLineItems items={parsedItems} isCustom={!!originalPO?.custom} />
             </div>
         </div>
     );

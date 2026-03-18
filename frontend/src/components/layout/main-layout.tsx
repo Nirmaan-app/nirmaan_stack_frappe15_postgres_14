@@ -40,6 +40,7 @@ export const MainLayout: React.FC = () => {
   const [poId, setPoId] = useState<string | null>(null);
   const [sbId, setSbId] = useState<string | null>(null);
   const [srId, setSrId] = useState<string | null>(null);
+  const [revisionId, setRevisionId] = useState<string | null>(null);
   const [breadcrumbItems, setBreadcrumbItems] = useState<BreadcrumbItem[]>([]);
   const [currentRoute, setCurrentRoute] = useState<string | null>(null);
 
@@ -64,9 +65,14 @@ export const MainLayout: React.FC = () => {
     srId ?? undefined,
     !!srId ? undefined : null
   );
+  const { data: revisionData } = useFrappeGetDoc(
+    "PO Revisions",
+    revisionId ?? undefined,
+    !!revisionId ? undefined : null
+  );
 
   // Determine the project ID to fetch based on available data
-  const derivedProjectId = project || prData?.project || poData?.project || sbData?.project || srData?.project;
+  const derivedProjectId = project || prData?.project || poData?.project || sbData?.project || srData?.project || (revisionData as any)?.project;
 
   const { data: projectData } = useFrappeGetDoc<Project>(
     "Projects",
@@ -132,11 +138,18 @@ export const MainLayout: React.FC = () => {
     const foundSbId = processedSegments.find((s) => s?.includes("SB-")) ?? null;
     const foundSrId = processedSegments.find((s) => s?.includes("SR-")) ?? null;
 
+    // PO Revision approval pages: /po-revisions-approval/:id
+    const isRevisionRoute = pathSegments[0] === "po-revisions-approval";
+    const foundRevisionId = isRevisionRoute && pathSegments[1]
+      ? pathSegments[1].replaceAll("&=", "/")
+      : null;
+
     setProject(foundProject);
     setPrId(foundPrId);
     setPoId(foundPoId);
     setSbId(foundSbId);
     setSrId(foundSrId);
+    setRevisionId(foundRevisionId);
   }, [location.pathname]);
 
   return (

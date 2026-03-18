@@ -66,7 +66,15 @@ export const handleSBVendorSelectedEvent = async (db: FrappeDB, event: any, add_
     await handleNotification(db, event, add_new_notification);
 };
 
-export const handlePOAmendedEvent = async (db: FrappeDB, event: any, add_new_notification: AddNotificationCallback) => {
+export const handlePORevisionCreatedEvent = async (db: FrappeDB, event: any, add_new_notification: AddNotificationCallback) => {
+    await handleNotification(db, event, add_new_notification);
+};
+
+export const handlePORevisionApprovedEvent = async (db: FrappeDB, event: any, add_new_notification: AddNotificationCallback) => {
+    await handleNotification(db, event, add_new_notification);
+};
+
+export const handlePOPaymentAdjustmentEvent = async (db: FrappeDB, event: any, add_new_notification: AddNotificationCallback) => {
     await handleNotification(db, event, add_new_notification);
 };
 

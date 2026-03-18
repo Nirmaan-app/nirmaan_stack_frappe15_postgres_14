@@ -1,0 +1,98 @@
+[
+ {
+  "category_name": "HVAC VRF/DX",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:01:46.187883",
+  "name": "HVAC VRF/DX",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "HVAC Chilled Water type",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 19:22:15.507094",
+  "name": "HVAC Chilled Water type",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "PA",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:05:32.315869",
+  "name": "PA",
+  "work_package": "PA System"
+ },
+ {
+  "category_name": "Fire Sprinkler System",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:06:25.336928",
+  "name": "Fire Sprinkler System",
+  "work_package": "Fire Fighting System"
+ },
+ {
+  "category_name": "Data & Networking",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:51:05.092667",
+  "name": "Data & Networking",
+  "work_package": "Data & Networking"
+ },
+ {
+  "category_name": "BMS",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:51:12.345223",
+  "name": "BMS",
+  "work_package": "BMS"
+ },
+ {
+  "category_name": "Electrical",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 17:59:52.200777",
+  "name": "Electrical",
+  "work_package": "Electrical Work"
+ },
+ {
+  "category_name": "HVAC Ducting",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 19:19:42.372365",
+  "name": "HVAC Ducting",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Access Control",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:08:31.211402",
+  "name": "Access Control",
+  "work_package": "Access Control System"
+ },
+ {
+  "category_name": "CCTV",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 19:20:47.241358",
+  "name": "CCTV",
+  "work_package": "CCTV System"
+ },
+ {
+  "category_name": "FA",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 19:23:02.855254",
+  "name": "FA",
+  "work_package": "FA System"
+ },
+ {
+  "category_name": "Critical Room ELV",
+  "docstatus": 0,
+  "doctype": "Commission Report Category",
+  "modified": "2026-03-17 18:07:47.091579",
+  "name": "Critical Room ELV",
+  "work_package": "Critical Room ELV"
+ }
+]

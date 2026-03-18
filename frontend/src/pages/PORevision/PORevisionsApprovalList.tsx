@@ -1,5 +1,4 @@
-import { useMemo, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useMemo, useCallback, useState } from "react";
 import { DOCTYPE, PO_REVISION_FIELDS_TO_FETCH, PO_REVISION_SEARCHABLE_FIELDS, PO_REVISION_DATE_COLUMNS, getPORevisionColumns } from "./config/poRevisions.config";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -14,19 +13,7 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 export default function PORevisionsApprovalList() {
     const { counts } = useDocCountStore();
-    const [searchParams, setSearchParams] = useSearchParams();
-    const activeTab = searchParams.get("tab") || "Pending Approval";
- 
-    const setActiveTab = (tab: string) => {
-        setSearchParams(
-            (prev) => {
-                const newParams = new URLSearchParams(prev);
-                newParams.set("tab", tab);
-                return newParams;
-            },
-            { replace: true }
-        );
-    };
+    const [activeTab, setActiveTab] = useState("Pending Approval");
 
     const tabs = [
         "Pending Approval",
@@ -135,6 +122,21 @@ export default function PORevisionsApprovalList() {
         enabled: true,
     });
 
+    const isApprovedTab = activeTab === "Approved";
+
+    const {
+        facetOptions: approvedByFacetOptions,
+        isLoading: isApprovedByFacetLoading,
+    } = useFacetValues({
+        doctype: DOCTYPE,
+        field: "approved_by",
+        currentFilters: columnFilters,
+        additionalFilters: statusFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: isApprovedTab,
+    });
+
     const facetOptionsConfig = useMemo(
         () => ({
             project: {
@@ -146,9 +148,16 @@ export default function PORevisionsApprovalList() {
                 title: "Vendor",
                 options: vendorFacetOptions,
                 isLoading: isVendorFacetLoading,
-            }
+            },
+            ...(isApprovedTab ? {
+                approved_by: {
+                    title: "Approved By",
+                    options: approvedByFacetOptions,
+                    isLoading: isApprovedByFacetLoading,
+                },
+            } : {}),
         }),
-        [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]
+        [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading, isApprovedTab, approvedByFacetOptions, isApprovedByFacetLoading]
     );
 
     const isLoadingOverall = isDataLoading || isProjectsLoading || isVendorsLoading;

@@ -24,6 +24,7 @@ import {
   CircleX,
   Download,
   Eye,
+  FilePenLine,
   FileText,
   Mail,
   Paperclip,
@@ -88,8 +89,8 @@ import SITEURL from "@/constants/siteURL";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
-import { PORevisionHistory } from "@/pages/PORevision/components/PORevisionHistory";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface PODetailsProps {
@@ -110,6 +111,8 @@ interface PODetailsProps {
   totalUploadedInvoiceAmount?: number;
   totalPendingInvoiceAmount?: number;
   totalApprovedInvoiceAmount?: number;
+  onAdjustPayments?: () => void;
+  onCancelPO?: () => void;
 }
 
 
@@ -128,6 +131,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
   totalUploadedInvoiceAmount,
   totalPendingInvoiceAmount,
   totalApprovedInvoiceAmount,
+  onAdjustPayments,
+  onCancelPO,
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
 
@@ -146,11 +151,11 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   // console.log("po", po);
 
-  const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
-    "Procurement Requests",
-    po?.procurement_request,
-    po ? undefined : null
-  );
+  // const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
+  //   "Procurement Requests",
+  //   po?.procurement_request,
+  //   po ? undefined : null
+  // );
 
   // Fetch vendor quote attachment for this PO's PR + vendor
   const { data: vendorQuoteAttachment } = useFrappeGetDocList<NirmaanAttachment>(
@@ -182,7 +187,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   // PO Revision Lock status fetch using SWR hook
   const { data: lockData } = usePOLockCheck(po?.name);
-  const isLocked = lockData?.is_locked || false;
+  const isItemLocked = lockData?.is_item_locked || false;
+  const isPaymentLocked = lockData?.is_payment_locked || false;
 
   const [inactiveDialog, setInactiveDialog] = useState(false);
 
@@ -394,6 +400,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
       showBlockedToast();
       return;
     }
+    if (isItemLocked) {
+      toast({
+        title: "Cannot revert",
+        description: "This PO has a pending revision. Complete or cancel it first.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (hasDNsForPO) {
       toast({
         title: "Cannot revert",
@@ -413,6 +427,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
       await poMutate();
       invalidateSidebarCounts();
 
+      toggleRevertDialog();
+
       toast({
         title: "Success!",
         description: `PO: ${po.name} Reverted back to PO Approved!`,
@@ -421,6 +437,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
       navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`);
     } catch (error) {
+      toggleRevertDialog();
+
       toast({
         title: "Failed!",
         description: `PO: ${po.name} Revert Failed!`,
@@ -567,11 +585,15 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Tooltip>
               )}
             </h1>
-            {/* Approved By - right aligned */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Approved By</span>
-              <Badge variant="outline" className="font-normal">{po?.owner}</Badge>
-            </div>
+            {/* Approved By / Merged PO - right aligned */}
+            {po?.merged === "true" ? (
+              <Badge variant="orange" className="font-semibold">Merged PO</Badge>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Approved By</span>
+                <Badge variant="outline" className="font-normal">{po?.owner}</Badge>
+              </div>
+            )}
           </div>
         </CardHeader>
 
@@ -603,14 +625,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
                   />
                 )}
-              </div>
-
-              <Separator orientation="vertical" className="h-5 hidden sm:block" />
-
-              {/* Package */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Package</span>
-                <span className="text-sm font-medium">{pr?.work_package || "Custom"}</span>
               </div>
 
               <Separator orientation="vertical" className="h-5 hidden sm:block" />
@@ -660,10 +674,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
                 </div>
 
-                {/* Total Invoiced Amount */}
+                {/* Total Approved Invoice Amount */}
                 <div className="space-y-0.5">
-                  <p className="text-xs text-gray-500">Total Invoiced Amount</p>
-                  <p className="text-sm font-medium">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</p>
+                  <p className="text-xs text-gray-500">Approved Invoice Amount</p>
+                  <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
                 </div>
 
                 {/* Total Amount Paid */}
@@ -680,63 +694,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-sm font-medium text-blue-600">
                     {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
                   </p>
-                </div>
-              </div>
-
-              {/* Invoice Statistics Row */}
-              <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
-                <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
-                {/* Conditional Revision Warning or Standard Link */}
-                {/* && !po?.custom  */}
-                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
-                  (totalUploadedInvoiceAmount && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
-                    <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
-                      <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
-                        onClick={() => {
-                          setOpenRevisionDialog(true);
-                        }}
-                      >
-                        Revise PO
-                      </Button>
-                    </div>
-                  ) : (
-                    // <Button
-                    //     variant="link"
-                    //     size="sm"
-                    //     className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
-                    //     onClick={() => {
-                    //         setOpenRevisionDialog(true);
-                    //     }}
-                    // >
-                    //     Revision PO
-                    // </Button> 
-                    ""
-                  )
-                )}
-              </div>
-              <div className="">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Total Amount of Invoices Uploaded */}
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-gray-500">Overall Invoices Amount</p>
-                    <p className="text-sm font-medium">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
-                  </div>
-
-                  {/* Invoices Pending Approval */}
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
-                    <p className="text-sm font-medium text-orange-500">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
-                  </div>
-
-                  {/* Total Invoices Approved */}
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-gray-500">Invoices Amount Approved</p>
-                    <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
-                  </div>
                 </div>
               </div>
             </div>
@@ -782,214 +739,274 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </div>
           </div>
 
-       
+
 
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 5: ACTIONS - Compact minimalist buttons
           ═══════════════════════════════════════════════════════════════════ */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
-            {/* Document Actions - Only shown for non-approved statuses */}
-            {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
-              <>
-                {/* Upload DC - shown for delivered statuses */}
-                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                  ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-2.5 border-primary text-primary shrink-0"
-                          onClick={() => handleOpenPDDUpload("DC")}
-                        >
-                          <CirclePlus className="h-3.5 w-3.5 sm:mr-1.5" />
-                          <span className="hidden sm:inline text-xs">Upload DC</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent className="sm:hidden">Upload DC</TooltipContent>
-                    </Tooltip>
-                  )}
-
-                {/* Upload MIR - shown for delivered statuses */}
-                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                  ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-2.5 border-primary text-primary shrink-0"
-                          onClick={() => handleOpenPDDUpload("MIR")}
-                        >
-                          <Upload className="h-3.5 w-3.5 sm:mr-1.5" />
-                          <span className="hidden sm:inline text-xs">Upload MIR</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent className="sm:hidden">Upload MIR</TooltipContent>
-                    </Tooltip>
-                  )}
-
-                {/* Add Invoice - hidden for Project Manager and Accountant */}
-                {!isProjectManager && role !== "Nirmaan Accountant Profile" && !estimatesViewing && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-between">
+            {/* Left group: Workflow actions */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Revise PO Button */}
+              {["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status || "") &&
+                !isItemLocked &&
+                !PoPaymentTermsValidationSafe &&
+                //!summaryPage &&
+                !accountsPage &&
+                !estimatesViewing &&
+                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="outline"
                         size="sm"
+                        onClick={() => setOpenRevisionDialog(true)}
                         className="h-8 px-2.5 border-primary text-primary shrink-0"
-                        onClick={toggleNewInvoiceDialog}
                       >
-                        <FileText className="h-3.5 w-3.5 sm:mr-1.5" />
-                        <span className="hidden sm:inline text-xs">Add Invoice</span>
+                        <FilePenLine className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Revise PO</span>
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent className="sm:hidden">Add Invoice</TooltipContent>
+                    <TooltipContent className="sm:hidden">Revise PO</TooltipContent>
                   </Tooltip>
                 )}
-              </>
-            )}
 
-            {/* Revert Button */}
-            {!summaryPage &&
-              !accountsPage &&
-              !estimatesViewing &&
-              ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
-              !((poPayments || [])?.length > 0) &&
-              ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={toggleRevertDialog}
-                      className="h-8 px-2.5 border-primary text-primary shrink-0"
-                    >
-                      <Undo2 className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Revert</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Revert</TooltipContent>
-                </Tooltip>
-              )}
+              {/* Adjust Payments Button */}
+              {po?.name && onAdjustPayments && !accountsPage && !estimatesViewing &&
+                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                  <POAdjustmentButton poId={po.name} onClick={onAdjustPayments} />
+                )}
 
-            {/* Preview Button */}
-            {(po?.status !== "PO Approved" ||
-              summaryPage ||
-              accountsPage ||
-              estimatesViewing ||
-              role !== "Nirmaan Procurement Executive Profile") && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!isValid}
-                      onClick={isValid ? togglePoPdfSheet : undefined}
-                      className="h-8 px-2.5 border-primary text-primary shrink-0"
-                    >
-                      <Eye className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Preview</span>
-                    </Button>
-                  </TooltipTrigger>
-                  {!isValid ? (
-                    <TooltipContent
-                      side="bottom"
-                      className="bg-background border border-border text-foreground w-80"
-                    >
-                      <ValidationMessages
-                        title="Required Before Preview"
-                        errors={errors}
-                      />
-                    </TooltipContent>
-                  ) : (
-                    <TooltipContent className="sm:hidden">Preview</TooltipContent>
+              {/* Revert Button */}
+              {!summaryPage &&
+                !accountsPage &&
+                !estimatesViewing &&
+                !isItemLocked &&
+                ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
+                !(poPayments?.length) &&
+                ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={toggleRevertDialog}
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      >
+                        <Undo2 className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Revert</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Revert</TooltipContent>
+                  </Tooltip>
+                )}
+
+              {/* Cancel PO Button */}
+              {onCancelPO &&
+                //!summaryPage &&
+                !accountsPage &&
+                !po?.custom &&
+                !estimatesViewing &&
+                role !== "Nirmaan Accountant Profile" &&
+                po?.status === "PO Approved" &&
+                !(poPayments?.length) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onCancelPO}
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      >
+                        <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Cancel PO</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Cancel PO</TooltipContent>
+                  </Tooltip>
+                )}
+            </div>
+
+            {/* Right group: Document operations */}
+            <div className="flex items-center gap-1.5 shrink-0 sm:flex-wrap">
+              {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
+                <>
+                  {/* Upload DC - shown for delivered statuses */}
+                  {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 border-primary text-primary shrink-0"
+                            onClick={() => handleOpenPDDUpload("DC")}
+                          >
+                            <CirclePlus className="h-3.5 w-3.5 sm:mr-1.5" />
+                            <span className="hidden sm:inline text-xs">Upload DC</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="sm:hidden">Upload DC</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                  {/* Upload MIR - shown for delivered statuses */}
+                  {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 border-primary text-primary shrink-0"
+                            onClick={() => handleOpenPDDUpload("MIR")}
+                          >
+                            <Upload className="h-3.5 w-3.5 sm:mr-1.5" />
+                            <span className="hidden sm:inline text-xs">Upload MIR</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="sm:hidden">Upload MIR</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                  {/* Add Invoice - hidden for Project Manager and Accountant */}
+                  {!isProjectManager && role !== "Nirmaan Accountant Profile" && !estimatesViewing && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2.5 border-primary text-primary shrink-0"
+                          onClick={toggleNewInvoiceDialog}
+                        >
+                          <FileText className="h-3.5 w-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline text-xs">Add Invoice</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="sm:hidden">Add Invoice</TooltipContent>
+                    </Tooltip>
                   )}
-                </Tooltip>
+                </>
               )}
 
-            {/* Delete Custom PO Button */}
-            {po?.custom === "true" &&
-              !summaryPage &&
-              !accountsPage &&
-              !estimatesViewing &&
-              po?.status === "PO Approved" &&
-              !((poPayments || [])?.length > 0) &&
-              ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={toggleDeleteDialog}
-                      variant="destructive"
-                      size="sm"
-                      className="h-8 px-2.5 shrink-0"
-                    >
-                      <Trash2Icon className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Delete</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Delete</TooltipContent>
-                </Tooltip>
-              )}
+              {/* Preview Button */}
+              {(po?.status !== "PO Approved" ||
+                summaryPage ||
+                accountsPage ||
+                estimatesViewing ||
+                role !== "Nirmaan Procurement Executive Profile") && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!isValid}
+                        onClick={isValid ? togglePoPdfSheet : undefined}
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      >
+                        <Eye className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Preview</span>
+                      </Button>
+                    </TooltipTrigger>
+                    {!isValid ? (
+                      <TooltipContent
+                        side="bottom"
+                        className="bg-background border border-border text-foreground w-80"
+                      >
+                        <ValidationMessages
+                          title="Required Before Preview"
+                          errors={errors}
+                        />
+                      </TooltipContent>
+                    ) : (
+                      <TooltipContent className="sm:hidden">Preview</TooltipContent>
+                    )}
+                  </Tooltip>
+                )}
 
-            {/* Dispatch PO Button */}
-            {!summaryPage &&
-              !accountsPage &&
-              !estimatesViewing &&
-              ["PO Approved", "Partially Dispatched"].includes(po?.status || "") &&
-              ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      disabled={!isValid || isLocked}
-                      onClick={isValid ? toggleDispatchPODialog : undefined}
-                      className="h-8 px-2.5 shrink-0"
-                    >
-                      <PackageCheck className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Mark Dispatched Items</span>
-                    </Button>
-                  </TooltipTrigger>
-                  {!isValid ? (
-                    <TooltipContent
-                      side="bottom"
-                      className="bg-background border border-border text-foreground w-80"
-                    >
-                      <ValidationMessages
-                        title="Required Before Dispatch"
-                        errors={errors}
-                      />
-                    </TooltipContent>
-                  ) : (
-                    <TooltipContent className="sm:hidden">Mark Dispatched Items</TooltipContent>
-                  )}
-                </Tooltip>
-              )}
+              {/* Delete Custom PO Button */}
+              {po?.custom === "true" &&
+                !summaryPage &&
+                !accountsPage &&
+                !estimatesViewing &&
+                po?.status === "PO Approved" &&
+                !(poPayments?.length) &&
+                ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={toggleDeleteDialog}
+                        variant="destructive"
+                        size="sm"
+                        className="h-8 px-2.5 shrink-0"
+                      >
+                        <Trash2Icon className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Delete</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Delete</TooltipContent>
+                  </Tooltip>
+                )}
 
-            {/* Mark Inactive Button */}
-            {po &&
-              po.status !== "Inactive" &&
-              po.status !== "Cancelled" &&
-              po.status !== "Merged" &&
-              po.status !== "PO Approved" &&
-              (po?.amount_paid ?? 0) <= 100 &&
-              !PoPaymentTermsValidationSafe &&
-              (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role)) && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={toggleInactiveDialog}
-                      className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
-                      disabled={isLocked}
-                    >
-                      <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Mark Inactive</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Mark Inactive</TooltipContent>
-                </Tooltip>
-              )}
+              {/* Dispatch PO Button */}
+              {!accountsPage &&
+                !estimatesViewing &&
+                ["PO Approved", "Partially Dispatched"].includes(po?.status || "") &&
+                ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        disabled={!isValid || isItemLocked}
+                        onClick={isValid ? toggleDispatchPODialog : undefined}
+                        className="h-8 px-2.5 shrink-0"
+                      >
+                        <PackageCheck className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Mark Dispatched Items</span>
+                      </Button>
+                    </TooltipTrigger>
+                    {!isValid ? (
+                      <TooltipContent
+                        side="bottom"
+                        className="bg-background border border-border text-foreground w-80"
+                      >
+                        <ValidationMessages
+                          title="Required Before Dispatch"
+                          errors={errors}
+                        />
+                      </TooltipContent>
+                    ) : (
+                      <TooltipContent className="sm:hidden">Mark Dispatched Items</TooltipContent>
+                    )}
+                  </Tooltip>
+                )}
+
+              {/* Mark Inactive Button */}
+              {po &&
+                po.status !== "Inactive" &&
+                po.status !== "Cancelled" &&
+                po.status !== "Merged" &&
+                po.status !== "PO Approved" &&
+                (po?.amount_paid ?? 0) <= 100 &&
+                !PoPaymentTermsValidationSafe &&
+                (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role)) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={toggleInactiveDialog}
+                        className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
+                        disabled={isItemLocked}
+                      >
+                        <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Mark Inactive</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Mark Inactive</TooltipContent>
+                  </Tooltip>
+                )}
+            </div>
           </div>
         </CardContent>
 
@@ -1005,8 +1022,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </DialogHeader>
 
             <DialogDescription>
-              Clicking on Confirm will revert this PO's status back to{" "}
-              <span className="text-primary">PO Approved</span>.
+              This will revert the PO status to{" "}
+              <span className="text-primary">PO Approved</span> and clear all
+              dispatch markings.
             </DialogDescription>
 
             <div className="flex items-center justify-end gap-2">
@@ -1361,13 +1379,12 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Button>
                 <Button
                   size="sm"
-                  className={`h-9 shadow-sm ${
-                    selectedDispatchItems.length === 0 ||
+                  className={`h-9 shadow-sm ${selectedDispatchItems.length === 0 ||
                     !expectedDeliveryDate ||
                     !criticalPOLinking.selectionValid
-                      ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                      : "bg-amber-500 hover:bg-amber-600 text-white"
-                  }`}
+                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                    : "bg-amber-500 hover:bg-amber-600 text-white"
+                    }`}
                   onClick={handleMarkAsDispatchedClick}
                   disabled={
                     selectedDispatchItems.length === 0 ||
@@ -1534,9 +1551,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
         poItems={poItemsForSelector}
         onSuccess={handlePDDUploadSuccess}
       />
-
-         {/* PO Revision History */}
-        {po?.name && <PORevisionHistory poId={po.name} />}
 
       {/* PO Revision Dialog */}
       {po && (

@@ -224,7 +224,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
       if (!currentItemUsage) {
         const estimate = estimatesMap.get(poItem.item_id);
-          const itemBillingCategory = billingCategoryMap.get(poItem.item_id) || "";
+          const itemBillingCategory = billingCategoryMap.get(poItem.item_id) || (poItem.category === "Additional Charges" ? "" : poItem.item_id?.startsWith("ITEM-") ? "" : "Billable");
         currentItemUsage = {
           uniqueKey: itemKey + `_item_${index}`,
           itemId: poItem.item_id,
@@ -520,7 +520,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
   const billingCategoryOptions = useMemo(() => {
     if (!allMaterialUsageItems) return [];
     const uniqueBillingCategories = new Set(allMaterialUsageItems.map(item => item.billingCategory || ""));
-    return Array.from(uniqueBillingCategories).filter(Boolean).sort().map(bc => ({ label: bc, value: bc }));
+    const hasEmpty = uniqueBillingCategories.has("");
+    const sorted = Array.from(uniqueBillingCategories).filter(Boolean).sort().map(bc => ({ label: bc, value: bc }));
+    if (hasEmpty) sorted.push({ label: "N/A", value: "N/A" });
+    return sorted;
   }, [allMaterialUsageItems]);
 
   return {

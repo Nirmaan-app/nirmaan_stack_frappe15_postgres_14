@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeCreateDoc } from "frappe-react-sdk";
+import { useCashflowVendors, useCashflowMaterialDeliveryPlans, useCashflowPO } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCreateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import {
     Dialog,
     DialogContent,
@@ -52,13 +53,12 @@ interface SelectedPlanData {
 
 export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }: FromMaterialPlanDialogProps) => {
     const { toast } = useToast();
-    const { createDoc } = useFrappeCreateDoc();
+    const { createCashflow } = useCreateCashflowPlan();
     const [step, setStep] = useState<"selection" | "review">("selection");
     const [searchTerm, setSearchTerm] = useState("");
     const [searchMode, setSearchMode] = useState<"po_id" | "items">("po_id");
     const [selectedPlanNames, setSelectedPlanNames] = useState<Set<string>>(new Set());
     const [reviewPlans, setReviewPlans] = useState<SelectedPlanData[]>([]);
-    const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
 
     const resetState = () => {
         setStep("selection");
@@ -68,21 +68,13 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
     };
 
     // Fetch Material Delivery Plans
-    const { data: materialPlans, isLoading: isLoadingPlans } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "critical_po_sub_category", "delivery_date", "mp_items", "po_type"],
-        filters: [["project", "=", projectId]],
-        orderBy: { field: "creation", order: "desc" },
-        limit: 0
-    });
+    const { data: materialPlans, isLoading: isLoadingPlans } = useCashflowMaterialDeliveryPlans(projectId);
 
     // Fetch Vendors for New PO selection
-    const { data: vendors } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name"],
-        limit: 0
-    });
+    const { data: vendors } = useCashflowVendors();
 
     const vendorOptions = useMemo(() => {
-        const ops = vendors?.map(v => ({ value: v.name, label: v.vendor_name })) || [];
+        const ops = vendors?.map((v: any) => ({ value: v.name, label: v.vendor_name })) || [];
         return [...ops, { label: "Others", value: "__others__" }];
     }, [vendors]);
 
@@ -194,7 +186,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
 
         try {
             for (const plan of reviewPlans) {
-                await createDoc("Cashflow Plan", {
+                await createCashflow({
                     project: projectId,
                     id_link: plan.po_link || "",
                     type: plan.po_type,
@@ -226,7 +218,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
             }
         }}>
             <DialogContent className="max-w-5xl p-0 bg-gray-50 flex flex-col h-[90vh]">
-                <div className="flex flex-col h-full w-full relative" ref={setPortalContainer}>
+                <div className="flex flex-col h-full w-full relative">
                 <DialogHeader className="p-6 pb-2 bg-white shrink-0">
                     <div className="flex justify-between items-center">
                         <div>
@@ -334,7 +326,6 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                     plan={plan} 
                                     index={idx}
                                     vendorOptions={vendorOptions}
-                                    portalContainer={portalContainer}
                                     onUpdate={(updates) => updateReviewPlan(idx, updates)}
                                     onRemove={() => {
                                         const newPlans = reviewPlans.filter((_, i) => i !== idx);
@@ -374,10 +365,10 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
     );
 };
 
-const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions, portalContainer }: { plan: SelectedPlanData, index: number, onUpdate: (updates: Partial<SelectedPlanData>) => void, onRemove: () => void, vendorOptions: any[], portalContainer: HTMLElement | null }) => {
+const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions }: { plan: SelectedPlanData, index: number, onUpdate: (updates: Partial<SelectedPlanData>) => void, onRemove: () => void, vendorOptions: any[] }) => {
     
     // Fetch vendor for Existing PO if po_link is present
-    const { data: poDoc } = useFrappeGetDoc("Procurement Orders", plan.po_link, (plan.po_type === "Existing PO" && !!plan.po_link) ? undefined : null);
+    const { data: poDoc } = useCashflowPO(plan.po_link, plan.po_type === "Existing PO" && !!plan.po_link);
 
     useEffect(() => {
         if (poDoc && poDoc.vendor && !plan.vendor) {

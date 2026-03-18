@@ -197,7 +197,7 @@ export default function ProcurementOrdersTesting() {
         enableRowSelection: true,
         urlSyncKey: urlSyncKey,
         defaultSort: 'creation desc', // Default sort order
-        additionalFilters: [["Procurement Orders", "status", "not in", ["Merged", "PO Amendment"]]] // Filter out merged POs
+        additionalFilters: [["Procurement Orders", "status", "not in", ["Merged"]]] // Filter out merged POs
     });
 
     // Handle Export (optional)

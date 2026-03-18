@@ -12,6 +12,7 @@ export const ITEM_LIST_FIELDS_TO_FETCH: (keyof ItemsType | 'name')[] = [
     'unit_name',
     'make_name',
     'category',
+    'billing_category',
     'creation',
     'item_status'
 ];

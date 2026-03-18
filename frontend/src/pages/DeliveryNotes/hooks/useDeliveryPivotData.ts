@@ -61,6 +61,7 @@ export function useDeliveryPivotData(
         isFullyDelivered: totalReceived >= item.quantity,
         isOverDelivered: totalReceived > item.quantity,
         comment: item.comment,
+        make: item.make,
       };
     });
 
