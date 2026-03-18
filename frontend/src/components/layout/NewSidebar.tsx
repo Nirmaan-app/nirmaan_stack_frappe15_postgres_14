@@ -542,7 +542,7 @@ export function NewSidebar() {
         {
           key: '/commission-tracker',
           icon: ClipboardMinus,
-          label: 'Commission Report',
+          label: 'Commission Report Tracker',
         },
       ]
       : []),
@@ -763,7 +763,7 @@ export function NewSidebar() {
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
-                    "Commission Report",
+                    "Commission Report Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",

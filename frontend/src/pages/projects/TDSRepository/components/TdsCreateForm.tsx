@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import ReactSelect from "react-select"; // Assuming react-select is used based on other files
+import ReactSelect from "react-select";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { Trash2, FileText, MessageSquare } from 'lucide-react';
 import { useTdsRepositoryItems, useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
 import { useCreateTdsItem, useDeleteTdsItem } from '../../data/tds/useTdsMutations';
@@ -396,13 +397,20 @@ if (selectedBoqLineItem.length > 300) {
                     {/* Item Name */}
                     <div className="space-y-2">
                          <Label className="text-sm font-semibold text-gray-700">Item Name <span className="text-red-500">*</span></Label>
-                         <ReactSelect
-                            options={itemOptions}
+                         <FuzzySearchSelect
+                            allOptions={itemOptions}
+                            tokenSearchConfig={{
+                                searchFields: ['label', 'value'],
+                                minSearchLength: 1,
+                                partialMatch: true,
+                                minTokenLength: 1,
+                                fieldWeights: { label: 2.0, value: 1.5 },
+                                minTokenMatches: 1,
+                            }}
                             value={selectedItemName ? { label: selectedItemName, value: selectedItemName } : null}
-                            onChange={(opt) => handleItemChange(opt?.value || null)}
-                            placeholder="Select Item Name"
-                            className="react-select-container"
-                            classNamePrefix="react-select"
+                            onChange={(opt) => handleItemChange((opt as { value: string } | null)?.value || null)}
+                            placeholder="Search Item Name..."
+                            isClearable
                             isLoading={!repoItems}
                          />
                     </div>
