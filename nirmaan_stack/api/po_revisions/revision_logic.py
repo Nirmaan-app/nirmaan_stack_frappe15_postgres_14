@@ -13,6 +13,40 @@ from nirmaan_stack.api.po_adjustments._payment_utils import (
     _reduce_payment_terms_lifo,
 )
 
+PO_REVISION_AUTO_APPROVAL_THRESHOLD = 5000.0
+
+
+def _should_auto_approve_revision(rev_doc):
+    """Returns True only if ALL three rules pass:
+    1. Single Impact — abs(diff) < threshold
+    2. Cumulative Impact — sum of prior approved diffs + current < threshold
+    3. Rate Change — no Revised/Replace item has a different rate
+    """
+    diff = flt(rev_doc.total_amount_difference)
+
+    # Rule 1: Single Impact
+    if abs(diff) >= PO_REVISION_AUTO_APPROVAL_THRESHOLD:
+        return False
+
+    # Rule 2: Cumulative Impact
+    approved_diffs = frappe.get_all(
+        "PO Revisions",
+        filters={"revised_po": rev_doc.revised_po, "status": "Approved"},
+        fields=["total_amount_difference"],
+    )
+    cumulative = sum(abs(flt(r.total_amount_difference)) for r in approved_diffs)
+    if (cumulative + abs(diff)) >= PO_REVISION_AUTO_APPROVAL_THRESHOLD:
+        return False
+
+    # Rule 3: Rate Change — no Revised/Replace item has different rate
+    for item in rev_doc.get("revision_items", []):
+        if item.item_type in ("Revised", "Replace"):
+            if flt(item.revision_rate) != flt(item.original_rate):
+                return False
+
+    return True
+
+
 @frappe.whitelist()
 def make_po_revisions(po_id, justification, revision_items, total_amount_difference):
     """
@@ -89,18 +123,39 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
 
         rev_po.insert(ignore_permissions=True)
 
-        # Emit socket event for revision creation
-        frappe.db.commit()
-        frappe.publish_realtime(
-            event="po:revision_created",
-            message={
-                "po_id": po_id,
-                "revision_id": rev_po.name,
-                "project": po.project,
-            },
-        )
+        # Auto-approval check
+        auto_approved = False
+        if _should_auto_approve_revision(rev_po):
+            on_approval_revision(rev_po.name, _internal=True)
+            frappe.db.set_value("PO Revisions", rev_po.name, {
+                "approved_by": "System",
+                "approval_date": frappe.utils.now_datetime(),
+            }, update_modified=False)
+            auto_approved = True
 
-        return rev_po.name
+        frappe.db.commit()
+
+        if auto_approved:
+            frappe.publish_realtime(
+                event="po:revision_approved",
+                message={
+                    "po_id": po_id,
+                    "revision_id": rev_po.name,
+                    "project": po.project,
+                    "auto_approved": True,
+                },
+            )
+        else:
+            frappe.publish_realtime(
+                event="po:revision_created",
+                message={
+                    "po_id": po_id,
+                    "revision_id": rev_po.name,
+                    "project": po.project,
+                },
+            )
+
+        return {"name": rev_po.name, "auto_approved": auto_approved}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Make PO Revisions API Error")
@@ -108,10 +163,13 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
 
 
 @frappe.whitelist()
-def on_approval_revision(revision_name):
+def on_approval_revision(revision_name, _internal=False):
     """
     Handles the actual application of changes to the Original PO and financials.
-    Triggered when the manager Approves the PO Revision.
+    Triggered when the manager Approves the PO Revision, or internally for auto-approval.
+
+    When _internal=True: skip commit/realtime (caller handles), skip approved_by (caller sets).
+    When _internal=False (manual): set approved_by to user's full_name.
 
     Flow:
     1. Sync item edits to original PO
@@ -150,19 +208,26 @@ def on_approval_revision(revision_name):
 
         # Step 4: Finalize Status
         revision_doc.status = "Approved"
+        if not _internal:
+            revision_doc.approved_by = (
+                frappe.db.get_value("User", frappe.session.user, "full_name")
+                or frappe.session.user
+            )
+            revision_doc.approval_date = frappe.utils.now_datetime()
         revision_doc.save(ignore_permissions=True)
 
-        # Emit socket event for revision approval
-        frappe.db.commit()
-        frappe.publish_realtime(
-            event="po:revision_approved",
-            message={
-                "po_id": revision_doc.revised_po,
-                "revision_id": revision_name,
-                "project": revision_doc.project,
-                "diff": diff,
-            },
-        )
+        if not _internal:
+            # Emit socket event for manual revision approval
+            frappe.db.commit()
+            frappe.publish_realtime(
+                event="po:revision_approved",
+                message={
+                    "po_id": revision_doc.revised_po,
+                    "revision_id": revision_name,
+                    "project": revision_doc.project,
+                    "diff": diff,
+                },
+            )
 
         return "Success"
 

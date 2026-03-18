@@ -15,6 +15,7 @@ export const PO_REVISION_FIELDS_TO_FETCH = [
     "vendor",
     "total_amount_difference",
     "status",
+    "approved_by",
 ];
 
 export const PO_REVISION_SEARCHABLE_FIELDS = [
@@ -97,5 +98,18 @@ export const getPORevisionColumns = ({
             </div>
         ),
         meta: { exportHeaderName: "Net Difference", exportValue: (row: any) => row.original.total_amount_difference || 0, isNumeric: true }
+    },
+    {
+        accessorKey: "approved_by",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
+        cell: ({ row }) => {
+            const val = row.original.approved_by;
+            if (!val) return <div className="text-slate-400">--</div>;
+            return val === "System"
+                ? <span className="text-teal-600 font-medium">System (Auto)</span>
+                : <span className="text-slate-700">{val}</span>;
+        },
+        filterFn: facetedFilterFn,
+        meta: { exportHeaderName: "Approved By", exportValue: (row: any) => row.approved_by === "System" ? "System (Auto)" : (row.approved_by || "") }
     }
 ];

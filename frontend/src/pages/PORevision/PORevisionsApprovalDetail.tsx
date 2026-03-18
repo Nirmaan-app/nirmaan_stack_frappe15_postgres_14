@@ -109,6 +109,11 @@ export default function PORevisionsApprovalDetail() {
                         <span className={`inline-flex px-2 py-0.5 text-[11px] font-semibold rounded-md shrink-0 ${statusBadge}`}>
                             {revisionDoc.status || "Draft"}
                         </span>
+                        {revisionDoc.status === "Approved" && revisionDoc.approved_by && (
+                            <span className="text-xs text-slate-500">
+                                {revisionDoc.approved_by === "System" ? "Auto-Approved" : `Approved by ${revisionDoc.approved_by}`}
+                            </span>
+                        )}
                         <span className="text-gray-300 hidden sm:inline">|</span>
                         <Link
                             to={`/purchase-orders/${revisionDoc.revised_po?.replaceAll("/", "&=")}?tab=${originalPO?.status || "Approved%20PO"}`}

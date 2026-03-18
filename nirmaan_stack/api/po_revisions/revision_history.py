@@ -33,6 +33,8 @@ def get_po_revision_history(po_id):
             "total_amount_difference",
             "revision_justification",
             "payment_return_details",
+            "approved_by",
+            "approval_date",
         ],
         order_by="creation desc",
     )
@@ -105,6 +107,8 @@ def get_po_revision_history(po_id):
             "revision_items": items,
             "original_total_incl_tax": round(original_total_incl_tax, 2),
             "revised_total_incl_tax": round(revised_total_incl_tax, 2),
+            "approved_by": rev.approved_by,
+            "approval_date": rev.approval_date,
         })
 
     return result

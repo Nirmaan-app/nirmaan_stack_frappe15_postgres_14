@@ -222,6 +222,13 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
                   >
                     {revision.status}
                   </Badge>
+                  {revision.approved_by && revision.status === "Approved" && (
+                    <span className="text-[10px] font-medium">
+                      {revision.approved_by === "System"
+                        ? <span className="text-teal-600">Auto-Approved</span>
+                        : <span className="text-slate-400">by {revision.approved_by}</span>}
+                    </span>
+                  )}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-0.5">
                   {revision.creation

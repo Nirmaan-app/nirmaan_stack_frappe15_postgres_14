@@ -207,9 +207,17 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
         total_amount_difference: difference.inclGst,
       });
 
-      const revName = res.message;
+      const result = res.message;
+      const revName = typeof result === "string" ? result : result?.name;
+      const autoApproved = typeof result === "object" && result?.auto_approved;
 
-      toast({ title: "Revision Created", description: `PO Revision ${revName} has been created successfully.`, variant: "success" });
+      toast({
+        title: autoApproved ? "Revision Auto-Approved" : "Revision Created",
+        description: autoApproved
+          ? `PO Revision ${revName} was automatically approved.`
+          : `PO Revision ${revName} has been created successfully.`,
+        variant: "success",
+      });
 
       if (onSuccess) {
         onSuccess(revName);

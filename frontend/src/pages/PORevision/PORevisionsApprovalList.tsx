@@ -122,6 +122,21 @@ export default function PORevisionsApprovalList() {
         enabled: true,
     });
 
+    const isApprovedTab = activeTab === "Approved";
+
+    const {
+        facetOptions: approvedByFacetOptions,
+        isLoading: isApprovedByFacetLoading,
+    } = useFacetValues({
+        doctype: DOCTYPE,
+        field: "approved_by",
+        currentFilters: columnFilters,
+        additionalFilters: statusFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: isApprovedTab,
+    });
+
     const facetOptionsConfig = useMemo(
         () => ({
             project: {
@@ -133,9 +148,16 @@ export default function PORevisionsApprovalList() {
                 title: "Vendor",
                 options: vendorFacetOptions,
                 isLoading: isVendorFacetLoading,
-            }
+            },
+            ...(isApprovedTab ? {
+                approved_by: {
+                    title: "Approved By",
+                    options: approvedByFacetOptions,
+                    isLoading: isApprovedByFacetLoading,
+                },
+            } : {}),
         }),
-        [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]
+        [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading, isApprovedTab, approvedByFacetOptions, isApprovedByFacetLoading]
     );
 
     const isLoadingOverall = isDataLoading || isProjectsLoading || isVendorsLoading;

@@ -24,14 +24,21 @@ export const useCreateRevision = () => {
     try {
       const result = await call(payload);
 
+      // Check if auto-approved to invalidate PO doc cache
+      const responseData = result?.message;
+      const isAutoApproved = typeof responseData === "object" && responseData?.auto_approved;
+
       try {
-        // Invalidate lock check so Warning banner refreshes
-        // Invalidate revision history so the history section on PO details refetches
-        await Promise.all([
+        const invalidations = [
           mutate(PO_REVISION_DOCTYPE), // Invalidate the main Approval List immediately
           mutate(poRevisionKeys.lockCheck(payload.po_id)),
           mutate(poRevisionKeys.revisionHistory(payload.po_id)),
-        ]);
+        ];
+        // Auto-approved revisions change PO items/status/payments — refetch PO doc
+        if (isAutoApproved) {
+          invalidations.push(mutate(["Procurement Orders", payload.po_id]));
+        }
+        await Promise.all(invalidations);
         invalidateSidebarCounts();
       } catch (invalidateError) {
         captureApiError({

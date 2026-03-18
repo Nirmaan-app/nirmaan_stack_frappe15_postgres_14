@@ -1,0 +1,100 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:rule_name",
+ "creation": "2026-03-18 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "rule_name",
+  "rule_key",
+  "enabled",
+  "section_break_desc",
+  "description",
+  "threshold_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "rule_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Rule Name",
+   "reqd": 1,
+   "set_only_once": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "rule_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Rule Key"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "section_break_desc",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "default": "0",
+   "fieldname": "threshold_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Threshold Value"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Auto Approval Rule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Admin Profile"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan PMO Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Procurement Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Accountant"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Project Lead"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -95,3 +95,4 @@ nirmaan_stack.patches.v3_0.remove_additional_charges_from_delivery_notes
 nirmaan_stack.patches.v3_0.rename_wld_rr_to_critical_room_elv
 
 nirmaan_stack.patches.v3_0.migrate_po_amendment_to_revision
+nirmaan_stack.patches.v3_0.backfill_po_revision_approved_by
