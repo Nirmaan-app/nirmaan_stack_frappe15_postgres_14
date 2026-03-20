@@ -1,10 +1,10 @@
 
 import React, { useMemo, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { LinkIcon, CirclePlus, Trash2, Loader2, ExternalLink, FilePenLine } from "lucide-react";
+import { CirclePlus, Trash2, Loader2, ExternalLink, FilePenLine } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { DataTable, SearchFieldOption } from "@/components/data-table/new-data-table";
+import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
-import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-
-// --- CONSTANTS ---
-const CHILD_TABLE_FIELD = 'drive_links';
+import {
+    useProjectDriveLinksDoc,
+    useProjectDriveLinksMutations,
+} from "@/pages/projects/data/tab/overview/useProjectDriveLinksApi";
 
 export interface ProjectDriveLinkDetail {
     name: string;
@@ -57,7 +57,7 @@ export const AddProjectDriveLinkDialog: React.FC<AddProjectDriveLinkDialogProps>
         drive_link: ''
     });
 
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    const { updateProjectDriveLinks, updateLoading } = useProjectDriveLinksMutations();
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { id, value } = e.target;
@@ -87,9 +87,7 @@ export const AddProjectDriveLinkDialog: React.FC<AddProjectDriveLinkDialogProps>
             
             const updatedLinks = [...currentLinks, newLink];
 
-            await updateDoc('Projects', projectName, {
-                [CHILD_TABLE_FIELD]: updatedLinks
-            });
+            await updateProjectDriveLinks(projectName, updatedLinks);
 
             toast({ title: "Success", description: "Drive File added successfully.", variant: "success" });
             setOpen(false);
@@ -165,7 +163,7 @@ export const EditProjectDriveLinkDialog: React.FC<EditProjectDriveLinkDialogProp
         drive_link: linkDetail.drive_link
     });
 
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    const { updateProjectDriveLinks, updateLoading } = useProjectDriveLinksMutations();
 
     // Reset form when linkDetail changes only if it's different
     React.useEffect(() => {
@@ -208,9 +206,7 @@ export const EditProjectDriveLinkDialog: React.FC<EditProjectDriveLinkDialogProp
                 : link
             );
 
-            await updateDoc('Projects', projectName, {
-                [CHILD_TABLE_FIELD]: updatedLinks
-            });
+            await updateProjectDriveLinks(projectName, updatedLinks);
 
             toast({ title: "Success", description: "Drive link updated successfully.", variant: "success" });
             onClose();
@@ -276,15 +272,13 @@ interface DeleteDriveLinkDialogProps {
 export const DeleteDriveLinkDialog: React.FC<DeleteDriveLinkDialogProps> = ({ 
     open, onClose, linkDetail, projectName, currentLinks, onSuccess 
 }) => {
-    const { updateDoc, loading: deleteLoading } = useFrappeUpdateDoc();
+    const { updateProjectDriveLinks, updateLoading: deleteLoading } = useProjectDriveLinksMutations();
 
     const handleDelete = async () => {
         try {
             const updatedLinks = currentLinks.filter(l => l.name !== linkDetail.name);
             
-            await updateDoc('Projects', projectName, {
-                [CHILD_TABLE_FIELD]: updatedLinks
-            });
+            await updateProjectDriveLinks(projectName, updatedLinks);
 
             toast({ title: "Success", description: "Drive File deleted successfully.", variant: "success" });
             onClose();
@@ -404,10 +398,10 @@ export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId, r
         data: projectData, 
         isLoading: projectLoading,
         mutate: refetchProject
-    } = useFrappeGetDoc<any>("Projects", projectId, { enabled: !!projectId });
+    } = useProjectDriveLinksDoc(projectId);
 
     const driveLinks = useMemo(() => {
-        return (projectData?.[CHILD_TABLE_FIELD] || []) as ProjectDriveLinkDetail[];
+        return (projectData?.drive_links || []) as ProjectDriveLinkDetail[];
     }, [projectData]);
 
     const clientData: ProjectDriveLinkTableRow[] = useMemo(() => {

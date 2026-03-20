@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -10,6 +9,7 @@ import { Projects, ProjectWorkHeaderEntry, ProjectZoneEntry } from "@/types/Nirm
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
+import { useProjectTrackingSetupApi } from "@/pages/projects/data/tab/work-report/useProjectTrackingSetupApi";
 
 const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s,]/g;
 const VALID_KEY_REGEX = /^[a-zA-Z0-9\s,]$/;
@@ -86,7 +86,7 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
     toBoolean,
     getLinkedWorkHeaderName,
 }) => {
-    const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
+    const { saveProgressTrackingSetup, updateDocLoading } = useProjectTrackingSetupApi();
 
     const [currentStep, setCurrentStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
@@ -275,7 +275,7 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
                 project_zones: zonesToSave,
             };
 
-            await updateDoc("Projects", projectData.name, payload);
+            await saveProgressTrackingSetup(projectData.name, payload);
             await onSuccess();
             toast({
                 title: "Success",

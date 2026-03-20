@@ -1,13 +1,14 @@
 // components/tabs/ProjectMaterialUsageTab.tsx (Full, Refactored File)
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFrappeGetCall } from 'frappe-react-sdk';
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { VirtualizedMaterialTable } from './VirtualizedMaterialTable';
 import { POWiseMaterialTable, POWiseMaterialTableHandle } from './POWiseMaterialTable';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { useMaterialUsageData } from '../hooks/useMaterialUsageData';
+import {
+  useMaterialUsageRemainingQuantities,
+} from '@/pages/projects/data/tab/material-usage/useProjectMaterialUsageApi';
 import { toast } from '@/components/ui/use-toast';
 import { exportToCsv } from '@/utils/exportToCsv';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { debounce } from 'lodash';
 import { Input } from '@/components/ui/input';
 import Fuse from 'fuse.js';
+import { useMaterialUsageData } from '../hooks/useMaterialUsageData';
 
 // =================================================================================
 // 1. TYPE DEFINITIONS
@@ -116,18 +118,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   } = useMaterialUsageData(projectId, projectPayments);
 
   // --- Remaining Quantities Data ---
-  const { data: remainingData } = useFrappeGetCall<{
-    message: {
-      report_date: string | null;
-      submitted_by: string | null;
-      submitted_by_full_name: string | null;
-      items: Record<string, { remaining_quantity: number | null; dn_quantity: number | null }>;
-    };
-  }>(
-    "nirmaan_stack.api.remaining_items_report.get_latest_remaining_quantities",
-    { project: projectId },
-    projectId ? `remaining_qty_${projectId}` : undefined
-  );
+  const { data: remainingData } = useMaterialUsageRemainingQuantities(projectId);
 
   const remainingReportDate = remainingData?.message?.report_date ?? null;
   const remainingSubmittedBy = remainingData?.message?.submitted_by_full_name ?? null;

@@ -10,12 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { toast } from "@/components/ui/use-toast";
-import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk";
 import { Loader2, FilePenLine, Trash2, Plus, Pencil, X } from "lucide-react";
 import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { formatDate } from "@/utils/FormatDate";
 import type { CustomerPODetail } from "./AddCustomerPODialog";
 import type { PaymentTerm } from "./AddCustomerPODialog";
+import { useCustomerPOActions } from "@/pages/projects/data/tab/financials/useCustomerPOApi";
 
 // Helper to safely parse payment terms from JSON string
 const parsePaymentTerms = (value: string | undefined | null): PaymentTerm[] => {
@@ -38,9 +38,6 @@ interface EditCustomerPODialogProps {
 }
 
 type LinkAttachmentChoice = "link" | "attachment";
-
-const UPDATE_API_METHOD =
-  "nirmaan_stack.api.projects.add_customer_po.update_customer_po_with_validation";
 
 export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
   projectName,
@@ -75,9 +72,12 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
     file: null,
   });
 
-  const { call: updatePO, loading: updateLoading } =
-    useFrappePostCall<{ message: any }>(UPDATE_API_METHOD);
-  const { upload, loading: uploadLoading } = useFrappeFileUpload();
+  const {
+    updateCustomerPO,
+    uploadCustomerPOAttachment,
+    updateLoading,
+    uploadLoading,
+  } = useCustomerPOActions();
 
   const totalLoading = updateLoading || uploadLoading;
   
@@ -154,12 +154,7 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
 
     if (linkOrAttachmentChoice === "attachment" && formData.file) {
       try {
-        const fileResponse = await upload(formData.file, {
-          isPrivate: true,  // Must be private to avoid S3 ACL issues
-          doctype: "Projects",
-          docname: projectName,
-          fieldname: "customer_po_attachment",
-        });
+        const fileResponse = await uploadCustomerPOAttachment(projectName, formData.file);
         finalAttachmentName = fileResponse.file_url;
       } catch (error: any) {
         toast({
@@ -187,10 +182,7 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
       customer_po_creation_date: formData.customer_po_creation_date,
     };
 
-    updatePO({
-      project_name: projectName,
-      updated_po_detail: updatedPODetail,
-    })
+    updateCustomerPO(projectName, updatedPODetail)
       .then(() => {
         toast({
           title: "Success",

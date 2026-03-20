@@ -1,7 +1,7 @@
 // src/pages/projects/ProjectWorkReportTab.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Projects, ProjectWorkHeaderEntry, ProjectZoneEntry } from "@/types/NirmaanStack/Projects";
-import { FrappeDoc, useFrappeUpdateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeDoc } from "frappe-react-sdk";
 import type { KeyedMutator } from "swr";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,17 +12,13 @@ import { Pencil, Check, ChevronDown, ChevronUp, Settings } from "lucide-react";
 
 import { SetupProgressTrackingDialog } from "./components/SetupProgressTrackingDialog";
 import { ProjectZoneEditSection } from "./components/projectZoneEditSection";
+import { useProjectWorkReportApi } from "./data/tab/work-report/useProjectWorkReportTabApi";
+import type { WorkHeaderDoc } from "./data/tab/work-report/useProjectWorkReportTabApi";
 
 interface ProjectWorkReportTabProps {
     projectData: Projects;
     project_mutate: KeyedMutator<FrappeDoc<Projects>>;
     current_role: string;
-}
-
-interface WorkHeaderDoc {
-    name: string;
-    work_package_link: string;
-    work_header_name: string;
 }
 
 interface LocalProjectWorkHeaderEntry {
@@ -53,7 +49,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 
     const isMilestoneTrackingEnabled = Boolean(projectData.enable_project_milestone_tracking);
 
-    const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
+    const { updateProjectDoc, updateDocLoading, allWorkHeadersResponse } = useProjectWorkReportApi();
 
     // Initialize selectedZone to first zone when project zones are available
     useEffect(() => {
@@ -66,13 +62,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
     }, [projectDataWithZones?.project_zones, selectedZone]);
 
     // Fetch all available Work Headers
-    const { data: allWorkHeaders, isLoading: allWorkHeadersLoading, error: allWorkHeadersError } = useFrappeGetDocList<WorkHeaderDoc>(
-        "Work Headers",
-        {
-            fields: ["name", "work_header_name", "work_package_link"],
-            limit: 0
-        }
-    );
+    const { data: allWorkHeaders, isLoading: allWorkHeadersLoading, error: allWorkHeadersError } = allWorkHeadersResponse;
 
     // Utility callbacks
     const toBoolean = useCallback((val: boolean | string | "True" | "False" | undefined | null): boolean => {
@@ -161,7 +151,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                     enabled: true,
                 }));
 
-            await updateDoc("Projects", projectData.name, {
+            await updateProjectDoc(projectData.name, {
                 project_work_header_entries: headersToSave,
             });
             await project_mutate();

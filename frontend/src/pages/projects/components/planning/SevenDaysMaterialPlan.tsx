@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { AddMaterialPlanForm } from "./AddMaterialPlanForm";
 import { EditMaterialPlanForm } from "./EditMaterialPlanForm";
 import { useToast } from "@/components/ui/use-toast";
+import { downloadProjectPrintFormatPdf } from "@/pages/projects/data/tab/planning/useProjectPlanningDownloadApi";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -154,38 +155,14 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
         e.stopPropagation();
         setIsDownloading(true);
         try {
-            const formatName = "Project Material Plan"; 
-            
-            const params = new URLSearchParams({
-                doctype: "Projects",
-                name: projectId,
-                format: formatName,
-                no_letterhead: "0",
-                _lang: "en",
+            await downloadProjectPrintFormatPdf({
+                projectId,
+                projectName: projectName || projectDoc?.project_name || projectId,
+                formatName: "Project Material Plan",
+                startDate: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
+                endDate: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
+                filePrefix: "MaterialPlan",
             });
-
-            if (startDate) {
-                params.append("start_date", format(startDate, "yyyy-MM-dd"));
-            }
-            if (endDate) {
-                params.append("end_date", format(endDate, "yyyy-MM-dd"));
-            }
-
-            const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-            
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Network response was not ok");
-        
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            const safeProjectName = (projectName || projectDoc?.project_name || projectId).replace(/ /g, "_");
-            link.download = `MaterialPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
         } catch (error) {
             console.error("Download failed:", error);
             toast({
