@@ -2,15 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import {
-  useFrappeGetDocList,
-  useFrappeGetDocCount,
-  useFrappePostCall,
-} from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import {
   CircleCheckBig,
-  CirclePlus,
   HardHat,
   OctagonMinus,
   ChevronDown,
@@ -48,10 +42,6 @@ import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
 import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
-import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 // import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
 
 // --- Config ---
@@ -62,9 +52,17 @@ import {
   getProjectStaticFilters,
 } from "./config/projectTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
-import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import {
+  useAllProjectsCount,
+  useProjectStatusCountCall,
+  useProjectsListExpenses,
+  useProjectsListInflows,
+  useProjectsListPayments,
+  useProjectsListPOData,
+  useProjectsListSRData,
+} from "./data/root/useProjectRootApi";
+import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
@@ -210,14 +208,8 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   const [statusCounts, setStatusCounts] = useState<ProjectStatusCount[]>([]);
 
-  const { call } = useFrappePostCall("frappe.client.get_count");
-
-  const { data: all_projects_count } = useFrappeGetDocCount(
-    "Projects",
-    undefined,
-    false,
-    "all_projects_count"
-  );
+  const { call } = useProjectStatusCountCall();
+  const { data: all_projects_count } = useAllProjectsCount();
 
   const statusOptions = useMemo(() => {
     const options = ["WIP", "Completed", "Halted", "Handover"];
@@ -275,70 +267,28 @@ export const Projects: React.FC<ProjectsProps> = ({
     data: poData,
     isLoading: poDataLoading,
     error: poDataError,
-  } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
-    {
-      fields: [
-        "name",
-        "project",
-        "status",
-        "amount",
-        "tax_amount",
-        "total_amount",
-        "invoice_data",
-        "amount_paid",
-        "po_amount_delivered",
-      ],
-      filters: [["status", "not in", ["Merged", "Inactive"]]],
-      limit: 100000,
-    },
-    "POs_For_ProjectsList"
-  );
+  } = useProjectsListPOData();
 
   const {
     data: srData,
     isLoading: srDataLoading,
     error: srDataError,
-  } = useFrappeGetDocList<ServiceRequests>(
-    "Service Requests",
-    {
-      fields: ["name", "project", "status", "service_order_list", "gst"],
-      filters: [["status", "=", "Approved"]],
-      limit: 100000,
-    },
-    "SRs_For_ProjectsList"
-  );
+  } = useProjectsListSRData();
   const {
     data: projectInflows,
     isLoading: projectInflowsLoading,
     error: projectInflowsError,
-  } = useFrappeGetDocList<ProjectInflows>(
-    "Project Inflows",
-    { fields: ["project", "amount"], limit: 100000 },
-    "Inflows_For_ProjectsList"
-  );
+  } = useProjectsListInflows();
   const {
     data: projectPayments,
     isLoading: projectPaymentsLoading,
     error: projectPaymentsError,
-  } = useFrappeGetDocList<ProjectPayments>(
-    "Project Payments",
-    {
-      fields: ["project", "amount", "status"],
-      filters: [["status", "=", "Paid"]],
-      limit: 100000,
-    },
-    "Payments_For_ProjectsList"
-  );
+  } = useProjectsListPayments();
   const {
     data: projectExpenses,
     isLoading: projectExpensesLoading,
     error: projectExpensesError,
-  } = useFrappeGetDocList<ProjectExpenses>(
-    "Project Expenses",
-    { fields: ["projects", "amount"], limit: 100000 },
-    "ProjectExpenses_For_ProjectsList"
-  );
+  } = useProjectsListExpenses();
 
   // --- Memoized Lookups & Pre-processing for Column Calculations ---
 

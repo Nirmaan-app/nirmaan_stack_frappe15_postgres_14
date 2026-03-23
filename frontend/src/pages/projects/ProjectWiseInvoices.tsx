@@ -3,15 +3,14 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
-import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
+import {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
-import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import { Info } from "lucide-react";
 import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useProjectWiseInvoicesApi } from "./data/tab/invoices/useProjectWiseInvoicesTabApi";
 
 interface InvoiceItem {
     // New Vendor Invoice fields
@@ -30,15 +29,6 @@ interface InvoiceItem {
     date?: string;
     updated_by?: string;
     procurement_order?: string;
-}
-
-interface InvoicesDataCallResponse {
-    message: {
-        invoice_entries: InvoiceItem[];
-        total_invoices: number;
-        total_amount: number;
-    },
-    status: number;
 }
 
 export const ProjectWiseInvoices: React.FC<{ projectId?: string }> = ({ projectId }) => {
@@ -72,13 +62,9 @@ export const ProjectWiseInvoices: React.FC<{ projectId?: string }> = ({ projectI
 //   console.log("invoiceData", invoiceData);
 
 const navigate = useNavigate();
-const {data: invoicesData, isLoading: invoicesDataLoading} = useFrappeGetCall<{message : InvoicesDataCallResponse}>("nirmaan_stack.api.projects.project_wise_invoice_data.generate_project_wise_invoice_data", {project_id: projectId}, projectId ? undefined : null)
-
-const {data : attachmentsData, isLoading: attachmentsDataLoading} = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
-    fields: ["name", "attachment"],
-    filters: [["project", "=", projectId]],
-    limit: 100
-}, projectId ? `Nirmaan Attachments ${projectId}` : null)
+const { invoicesResponse, attachmentsResponse } = useProjectWiseInvoicesApi(projectId);
+const {data: invoicesData, isLoading: invoicesDataLoading} = invoicesResponse;
+const {data : attachmentsData, isLoading: attachmentsDataLoading} = attachmentsResponse;
 
 const getAttachmentUrl = useMemo(() => memoize((id: string) => {
     const attachment = attachmentsData?.find((att) => att.name === id);

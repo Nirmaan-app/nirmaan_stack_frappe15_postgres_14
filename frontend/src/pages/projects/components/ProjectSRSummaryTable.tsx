@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 
@@ -24,16 +23,17 @@ import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
 import {
-  ServiceItemType,
   ServiceRequests,
 } from "@/types/NirmaanStack/ServiceRequests";
-import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList"; // Adjust path
 import { TailSpin } from "react-loader-spinner";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
+import {
+  useProjectSRAggregates,
+  useProjectSRSupportingData,
+} from "@/pages/projects/data/tab/summary/useProjectSRSummaryApi";
 
 // Fields to fetch for the SR Summary table list view
 export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (
@@ -100,12 +100,6 @@ interface ProjectSRSummaryTableProps {
   hideFinancialColumns?: boolean;
 }
 
-interface SRAggregates {
-  total_sr_value_inc_gst: number;
-  total_sr_value_excl_gst: number;
-  total_amount_paid_for_srs: number;
-}
-
 // --- Component ---
 export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
   projectId,
@@ -120,49 +114,12 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     [projectId]
   );
 
-  const [srAggregates, setSRAggregates] = useState<SRAggregates>({
-    total_sr_value_inc_gst: 0,
-    total_sr_value_excl_gst: 0,
-    total_amount_paid_for_srs: 0,
-  });
-
-  // --- Fetch Aggregates (Totals) ---
-  const {
-    call: fetchSRAggregates,
-    loading: aggregatesLoading,
-    error: aggregatesError,
-  } = useFrappePostCall<{ message: SRAggregates }>(
-    "nirmaan_stack.api.projects.project_aggregates.get_project_sr_summary_aggregates"
-  );
-
-  useEffect(() => {
-    if (projectId) {
-      fetchSRAggregates({ project_id: projectId })
-        .then((res) => setSRAggregates((prev) => ({ ...prev, ...res.message }))) // Merge with defaults
-        .catch((err) =>
-          console.error("Failed to fetch PR statuses data:", err)
-        );
-    } else {
-      // Reset counts if no projectId (e.g., if component can be shown for all projects)
-      setSRAggregates({
-        total_sr_value_inc_gst: 0,
-        total_sr_value_excl_gst: 0,
-        total_amount_paid_for_srs: 0,
-      });
-    }
-  }, [projectId, fetchSRAggregates]);
+  const { srAggregates, aggregatesLoading, aggregatesError } =
+    useProjectSRAggregates(projectId);
 
   // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
-  const { data: projects, isLoading: projectsLoading } =
-    useFrappeGetDocList<Projects>(
-      "Projects",
-      {
-        fields: ["name", "project_name"],
-        filters: projectId ? [["name", "=", projectId]] : [],
-        limit: projectId ? 1 : 1000,
-      },
-      `ProjectForSRSummary_${projectId || "all"}`
-    );
+  const { projectsResponse } = useProjectSRSupportingData(projectId);
+  const { data: projects, isLoading: projectsLoading } = projectsResponse;
   const {
     data: vendorsList,
     isLoading: vendorsLoading,

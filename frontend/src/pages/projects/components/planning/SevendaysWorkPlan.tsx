@@ -23,6 +23,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 import { EditMilestoneDialog } from "./EditMilestoneDialog";
+import { downloadProjectPrintFormatPdf } from "@/pages/projects/data/tab/planning/useProjectPlanningDownloadApi";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -807,44 +808,15 @@ export const SevendaysWorkPlan = ({
     const performDownload = async (downloadStartDate: Date | undefined, downloadEndDate: Date | undefined, zone: string | undefined) => {
         setIsDownloading(true);
         try {
-            const formatName = "Project Work Plan";
-
-            const params = new URLSearchParams({
-                doctype: "Projects",
-                name: projectId,
-                format: formatName,
-                no_letterhead: "0",
-                _lang: "en",
+            await downloadProjectPrintFormatPdf({
+                projectId,
+                projectName: projectName || projectId,
+                formatName: "Project Work Plan",
+                startDate: downloadStartDate ? format(downloadStartDate, "yyyy-MM-dd") : undefined,
+                endDate: downloadEndDate ? format(downloadEndDate, "yyyy-MM-dd") : undefined,
+                zone,
+                filePrefix: "WorkPlan",
             });
-
-            if (downloadStartDate) {
-                params.append("start_date", format(downloadStartDate, "yyyy-MM-dd"));
-            }
-            if (downloadEndDate) {
-                params.append("end_date", format(downloadEndDate, "yyyy-MM-dd"));
-            }
-            // Passing undefined or "All" to zone will export all zones (controlled by print format logic)
-            if (zone && zone !== "All") {
-                params.append("zone", zone);
-            }
-
-            const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Network response was not ok");
-
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-
-            const safeProjectName = (projectName || projectId).replace(/ /g, "_");
-            const zoneSuffix = (zone && zone !== "All") ? `_${zone.replace(/ /g, "_")}` : "_All_Zones";
-            link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
         } catch (error) {
             console.error("Download failed:", error);
             toast({
@@ -881,47 +853,20 @@ export const SevendaysWorkPlan = ({
     const handleBufferDownload = async (start: Date | undefined, end: Date | undefined, days: number | string, toStart: boolean, toEnd: boolean) => {
         setIsBufferDownloading(true);
         try {
-            const formatName = "Project Work Plan Buffered";
-
-            const params = new URLSearchParams({
-                doctype: "Projects",
-                name: projectId,
-                format: formatName,
-                no_letterhead: "0",
-                _lang: "en",
+            await downloadProjectPrintFormatPdf({
+                projectId,
+                projectName: projectName || projectId,
+                formatName: "Project Work Plan Buffered",
+                startDate: start ? format(start, "yyyy-MM-dd") : undefined,
+                endDate: end ? format(end, "yyyy-MM-dd") : undefined,
+                zone: bufferTargetZone,
+                filePrefix: "WorkPlan",
+                extraParams: {
+                    buffer_days: String(days),
+                    add_to_start: String(toStart),
+                    add_to_end: String(toEnd),
+                },
             });
-
-            if (start) params.append("start_date", format(start, "yyyy-MM-dd"));
-            if (end) params.append("end_date", format(end, "yyyy-MM-dd"));
-
-            // Use the stored target zone (from when dialog was opened)
-            if (bufferTargetZone && bufferTargetZone !== "All") {
-                params.append("zone", bufferTargetZone);
-            }
-
-            // Pass extra parameters for the buffered print format
-            params.append("buffer_days", String(days));
-            params.append("add_to_start", String(toStart));
-            params.append("add_to_end", String(toEnd));
-
-            const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Network response was not ok");
-
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-
-            const safeProjectName = (projectName || projectId).replace(/ /g, "_");
-            const zoneSuffix = (bufferTargetZone && bufferTargetZone !== "All") ? `_${bufferTargetZone.replace(/ /g, "_")}` : "_All_Zones";
-            link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
-
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
         } catch (error) {
             console.error("Buffer download failed:", error);
             toast({
