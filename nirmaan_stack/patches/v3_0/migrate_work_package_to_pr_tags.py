@@ -1,3 +1,17 @@
+"""
+PR Tag Migration Patch Flow:
+1. Setup: Queries 'PR Tag Headers' to map packages to headers and initializes tracking lists.
+2. PR Iteration: Loops through all Procurement Requests to migrate their 'work_package' field.
+   - If work_package has legacy text (e.g., 'Fire Fighting System'): Validates the text against headers, creates the tag row in 'PR Tag Child Table', and overwrites work_package to 'Normal'.
+   - If work_package is empty: Attempts fallback logic by inspecting the PR's first item in 'Procurement Request Item Detail'.
+     - Bypass: Skips tagging completely for 'Additional Charges'.
+     - Hardcoded Overrides: Forcibly maps orphaned 'DX System' (HVAC VRF/DX) and 'HVAC Hardware & Accessories' (HVAC Ancillary Work).
+     - Item Package: Derives tag directly from the item's 'procurement_package'.
+     - Category Mapping: Matches the item's category using the Project's specific 'Project Work Package Category Make' mappings.
+     * All item fallback methods (both successes and skips) result in setting the PR's work_package field to 'Custom'.
+3. Critical PR Tags: Aggregates all unique (Project, Header, Package) combinations in the whole system and syncs them to the 'Critical PR Tags' dashboard documents.
+4. Strict Rollback Guard: Prints a detailed summary of successful, skipped, and unmapped PRs. If even a **single PR** failed to map to a tag, it crashes deliberately to trigger a full database rollback, preventing partial data corruption. 
+"""
 import frappe
 import json
 
@@ -29,6 +43,10 @@ def _execute():
         "critical_tags_upserted": 0
     }
 
+    unmapped_details = []
+    additional_charges_skipped = []
+    category_migrated_prs = []
+
     # Project Mapping Cache: project_name -> {category: package}
     project_mappings = {}
 
@@ -47,60 +65,88 @@ def _execute():
         
         current_wp = pr_info.work_package
         tag_added = False
+        failure_reason = ""
         
         # 2. Standardization & Multi-Fallback Smart Tagging
         if current_wp not in ["Normal", "Custom"]:
             if current_wp: # Legacy value existed (Standardize to Normal)
-                if current_wp in pkg_to_header and current_wp not in existing_pkgs:
-                    _add_tag(pr_info.name, pkg_to_header[current_wp], current_wp)
-                    migration_results["main_wp_migrated"] += 1
+                if current_wp in pkg_to_header:
+                    if current_wp not in existing_pkgs:
+                        _add_tag(pr_info.name, pkg_to_header[current_wp], current_wp)
+                        migration_results["main_wp_migrated"] += 1
                     tag_added = True
+                else:
+                    failure_reason = f"Legacy value '{current_wp}' not found in PR Tag Headers setup"
                 
                 frappe.db.set_value("Procurement Requests", pr_info.name, "work_package", "Normal", update_modified=False)
             else: # Empty field -> Fallback steps
-                # Step 1: Item-based mapping
+                # Step 1 & 2: Item-based mapping
                 items = frappe.get_all("Procurement Request Item Detail", 
                                       filters={"parent": pr_info.name}, 
-                                      fields=["procurement_package"],
+                                      fields=["procurement_package", "category"],
                                       order_by="idx asc", limit=1)
+                
                 if items:
-                    pkg = items[0].procurement_package
-                    if pkg and pkg in pkg_to_header and pkg not in existing_pkgs:
-                        _add_tag(pr_info.name, pkg_to_header[pkg], pkg)
-                        migration_results["item_wp_migrated"] += 1
+                    item = items[0]
+                    pkg = item.get("procurement_package")
+                    cat = item.get("category")
+                    if cat == "Additional Charges":
+                        tag_added = True # Avoid failure logging
+                        additional_charges_skipped.append(f"{pr_info.name} ({cat})")
+                        frappe.db.set_value("Procurement Requests", pr_info.name, "work_package", "Custom", update_modified=False)
+                        continue
+                        
+                    if cat == "DX System":
+                        if "HVAC System" not in existing_pkgs:
+                            _add_tag(pr_info.name, "HVAC VRF/DX", "HVAC System")
+                            migration_results["item_wp_migrated"] += 1
                         tag_added = True
-
-                # Step 2: Category-based mapping (Fallback)
-                if not tag_added and pr_info.category_list:
-                    # Cache project mappings for speed
-                    if pr_info.project not in project_mappings:
-                        project_mappings[pr_info.project] = {}
-                        mappings = frappe.get_all("Project Work Package Category Make",
-                                                 filters={"parent": pr_info.project},
-                                                 fields=["category", "procurement_package"])
-                        for m in mappings:
-                            project_mappings[pr_info.project][m.category] = m.procurement_package
-                    
-                    try:
-                        categories = json.loads(pr_info.category_list)
-                        if isinstance(categories, list):
-                            for cat in categories:
-                                current_mappings = project_mappings.get(pr_info.project, {})
-                                pkg = current_mappings.get(cat)
-                                if pkg and pkg in pkg_to_header and pkg not in existing_pkgs:
-                                    _add_tag(pr_info.name, pkg_to_header[pkg], pkg)
+                    elif cat == "HVAC Hardware & Accessories":
+                        if "HVAC System" not in existing_pkgs:
+                            _add_tag(pr_info.name, "HVAC Ancillary Work", "HVAC System")
+                            migration_results["item_wp_migrated"] += 1
+                        tag_added = True
+                    elif pkg and pkg in pkg_to_header:
+                        if pkg not in existing_pkgs:
+                            _add_tag(pr_info.name, pkg_to_header[pkg], pkg)
+                            migration_results["item_wp_migrated"] += 1
+                        tag_added = True
+                    else:
+                        # Fallback to category mapping using the item's category
+                        if cat:
+                            if pr_info.project not in project_mappings:
+                                project_mappings[pr_info.project] = {}
+                                mappings = frappe.get_all("Project Work Package Category Make",
+                                                         filters={"parent": pr_info.project},
+                                                         fields=["category", "procurement_package"])
+                                for m in mappings:
+                                    project_mappings[pr_info.project][m.category] = m.procurement_package
+                                    
+                            cat_pkg = project_mappings.get(pr_info.project, {}).get(cat)
+                            
+                            if cat_pkg and cat_pkg in pkg_to_header:
+                                if cat_pkg not in existing_pkgs:
+                                    _add_tag(pr_info.name, pkg_to_header[cat_pkg], cat_pkg)
                                     migration_results["category_wp_migrated"] += 1
-                                    tag_added = True
-                                    break
-                    except Exception:
-                        pass
+                                category_migrated_prs.append(f"{pr_info.name} (via Category: {cat} -> {cat_pkg})")
+                                tag_added = True
+                            else:
+                                failure_reason = f"Item Category '{cat}' mapped to '{cat_pkg}' but not found in setup"
+                        else:
+                            failure_reason = "First item had no category and no procurement_package"
+                else:
+                    failure_reason = "No items found in PR"
                 
                 frappe.db.set_value("Procurement Requests", pr_info.name, "work_package", "Custom", update_modified=False)
         
-        if existing_tags:
+        if existing_tags and not tag_added:
             migration_results["already_tagged_skipped"] += 1
-        elif not tag_added and not current_wp:
+        elif not tag_added and current_wp not in ["Normal", "Custom"]:
             migration_results["no_mapping_found"] += 1
+            unmapped_details.append({
+                "pr": pr_info.name,
+                "reason": failure_reason
+            })
 
     # 3. Sync Critical PR Tags
     # Collect all unique (project, header, package) combinations from PRs
@@ -158,8 +204,6 @@ def _execute():
         
         migration_results["critical_tags_upserted"] += 1
 
-    frappe.db.commit()
-
     # Final Log Summary
     print("\n--- PR Tag Migration Summary ---")
     print(f"Total PRs scanned:          {migration_results['total_prs_found']}")
@@ -170,6 +214,34 @@ def _execute():
     print(f"No valid package found:     {migration_results['no_mapping_found']}")
     print(f"Critical Tags upserted:     {migration_results['critical_tags_upserted']}")
     print("--------------------------------\n")
+    
+    if additional_charges_skipped:
+        print("\n--- Skipped PRs (Expected to not have tags) ---")
+        for pr in additional_charges_skipped:
+            print(f"PR: {pr}")
+        print("--------------------------------\n")
+        
+    if category_migrated_prs:
+        print("\n--- Migrated via Category Fallback ---")
+        for pr in category_migrated_prs:
+            print(f"PR: {pr}")
+        print("--------------------------------\n")
+        
+    if unmapped_details:
+        print("\n--- Failed PR Tag Mappings ---")
+        for detail in unmapped_details:
+            print(f"PR: {detail['pr']} | Reason: {detail['reason']}")
+        print("--------------------------------\n")
+        
+        error_msg = (
+            f"Migration stopped! Found {len(unmapped_details)} PRs that could not be automatically mapped to tags. "
+            "All changes have been rolled back. Please check the terminal for the list of failed PRs, "
+            "manually add the missing PR Tag Headers, and then run the migration again."
+        )
+        frappe.throw(error_msg)
+
+    # Only commit if absolutely everything successfully mapped
+    frappe.db.commit()
 
 def _add_tag(parent_name, header, pkg):
     frappe.get_doc({
