@@ -13,6 +13,7 @@ export const commissionKeys = {
     trackerList: () => ['commission', 'tracker-list'] as const,
     trackerDoc: (trackerId: string) => ['commission', 'tracker-doc', trackerId] as const,
     masterData: () => ['commission', 'master-data'] as const,
+    projectAssignees: (projectId: string) => ['commission', 'project-assignees', projectId] as const,
     categoryList: (orderBy?: { field: string; order: 'asc' | 'desc' }) => 
         ['commission', 'category-list', orderBy?.field ?? null, orderBy?.order ?? null] as const,
     taskList: (orderBy?: { field: string; order: 'asc' | 'desc' }) => 

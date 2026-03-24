@@ -581,6 +581,15 @@ export function NewSidebar() {
           label: 'Cashflow Plan Tracker',
         },
       ]
+      : []),
+    ...(["Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
+      ? [
+        {
+          key: '/work-order-rate-card',
+          icon: ReceiptText,
+          label: 'Work Order Rate Card',
+        },
+      ]
       : [])
 
 
@@ -777,6 +786,7 @@ export function NewSidebar() {
                     "Customers",
                     "Products",
                     "TDS Approval",
+                    "Work Order Rate Card",
                     "Inventory"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)

@@ -158,3 +158,29 @@ export const useProjectZones = (projectId: string) => {
     });
     return response;
 };
+
+/**
+ * Fetch project assignees from Nirmaan User Permissions for a given project
+ */
+export const useCommissionProjectAssignees = (projectId: string) => {
+    const response = useFrappeGetDocList<{ user: string }>(
+        "Nirmaan User Permissions",
+        {
+            fields: ["user"],
+            limit: 0,
+            filters: [
+                ["for_value", "=", projectId],
+                ["allow", "=", "Projects"],
+            ],
+        },
+        projectId ? commissionKeys.projectAssignees(projectId) : null
+    );
+    useApiErrorLogger(response.error, {
+        hook: "useCommissionProjectAssignees",
+        api: "Get Doc List",
+        feature: "commission-report",
+        doctype: "Nirmaan User Permissions",
+        entity_id: projectId,
+    });
+    return response;
+};
