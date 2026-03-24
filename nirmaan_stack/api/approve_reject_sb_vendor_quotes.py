@@ -362,7 +362,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                         term_status = "Created"
                         if milestone.get('type') == "Credit" and milestone.get('due_date'):
                             if getdate(milestone.get('due_date')) <= today:
-                                term_status = "Scheduled"
+                                term_status = "Created"
                         po_doc.append("payment_terms", {"payment_type": milestone.get('type'), "label": milestone.get('name'), "percentage": milestone.get('percentage'), "amount": milestone.get('amount'), "due_date": milestone.get('due_date'), "term_status": term_status})
             for item_dict in items_list:
                 po_doc.append("items", item_dict)
