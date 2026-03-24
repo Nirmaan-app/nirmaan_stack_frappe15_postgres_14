@@ -629,11 +629,11 @@ export function NewSidebar() {
       ? [
         {
           key: '/work-order-rate-card',
-          icon: Tickets,
+          icon: ReceiptText,
           label: 'Work Order Rate Card',
         },
       ]
-      : []),
+      : [])
 
 
   ], [user_id, role]);
