@@ -23,11 +23,13 @@ def execute():
         raise e
 
 def _execute():
-    # 1. Map Tag Headers: tag_package -> pr_header
+    # 1. Map Tag Headers: tag_package -> [list of pr_headers]
     headers = frappe.get_all("PR Tag Headers", fields=["pr_header", "tag_package"])
-    pkg_to_header = {h.tag_package: h.pr_header for h in headers}
+    pkg_to_headers = {}
+    for h in headers:
+        pkg_to_headers.setdefault(h.tag_package, []).append(h.pr_header)
 
-    if not pkg_to_header:
+    if not pkg_to_headers:
         # If no headers configured, nothing to match against
         print("Migration: No PR Tag Headers found. Skipping.")
         return
@@ -57,11 +59,11 @@ def _execute():
     migration_results["total_prs_found"] = len(prs)
 
     for pr_info in prs:
-        # 1. Get existing tags to avoid duplicates
+        # 1. Get existing tags to avoid duplicates (track by header since one package can have many headers)
         existing_tags = frappe.get_all("PR Tag Child Table", 
                                       filters={"parent": pr_info.name}, 
-                                      fields=["tag_package"])
-        existing_pkgs = {t.tag_package for t in existing_tags}
+                                      fields=["tag_package", "tag_header"])
+        existing_headers = {t.tag_header for t in existing_tags}
         
         current_wp = pr_info.work_package
         tag_added = False
@@ -70,10 +72,11 @@ def _execute():
         # 2. Standardization & Multi-Fallback Smart Tagging
         if current_wp not in ["Normal", "Custom"]:
             if current_wp: # Legacy value existed (Standardize to Normal)
-                if current_wp in pkg_to_header:
-                    if current_wp not in existing_pkgs:
-                        _add_tag(pr_info.name, pkg_to_header[current_wp], current_wp)
-                        migration_results["main_wp_migrated"] += 1
+                if current_wp in pkg_to_headers:
+                    for hdr in pkg_to_headers[current_wp]:
+                        if hdr not in existing_headers:
+                            _add_tag(pr_info.name, hdr, current_wp)
+                            migration_results["main_wp_migrated"] += 1
                     tag_added = True
                 else:
                     failure_reason = f"Legacy value '{current_wp}' not found in PR Tag Headers setup"
@@ -96,20 +99,19 @@ def _execute():
                         frappe.db.set_value("Procurement Requests", pr_info.name, "work_package", "Custom", update_modified=False)
                         continue
                         
-                    if cat == "DX System":
-                        if "HVAC System" not in existing_pkgs:
-                            _add_tag(pr_info.name, "HVAC VRF/DX", "HVAC System")
-                            migration_results["item_wp_migrated"] += 1
+                    if cat in ["DX System", "HVAC Hardware & Accessories"]:
+                        # Add ALL HVAC headers for these special categories
+                        if "HVAC System" in pkg_to_headers:
+                            for hdr in pkg_to_headers["HVAC System"]:
+                                if hdr not in existing_headers:
+                                    _add_tag(pr_info.name, hdr, "HVAC System")
+                                    migration_results["item_wp_migrated"] += 1
                         tag_added = True
-                    elif cat == "HVAC Hardware & Accessories":
-                        if "HVAC System" not in existing_pkgs:
-                            _add_tag(pr_info.name, "HVAC Ancillary Work", "HVAC System")
-                            migration_results["item_wp_migrated"] += 1
-                        tag_added = True
-                    elif pkg and pkg in pkg_to_header:
-                        if pkg not in existing_pkgs:
-                            _add_tag(pr_info.name, pkg_to_header[pkg], pkg)
-                            migration_results["item_wp_migrated"] += 1
+                    elif pkg and pkg in pkg_to_headers:
+                        for hdr in pkg_to_headers[pkg]:
+                            if hdr not in existing_headers:
+                                _add_tag(pr_info.name, hdr, pkg)
+                                migration_results["item_wp_migrated"] += 1
                         tag_added = True
                     else:
                         # Fallback to category mapping using the item's category
@@ -124,10 +126,11 @@ def _execute():
                                     
                             cat_pkg = project_mappings.get(pr_info.project, {}).get(cat)
                             
-                            if cat_pkg and cat_pkg in pkg_to_header:
-                                if cat_pkg not in existing_pkgs:
-                                    _add_tag(pr_info.name, pkg_to_header[cat_pkg], cat_pkg)
-                                    migration_results["category_wp_migrated"] += 1
+                            if cat_pkg and cat_pkg in pkg_to_headers:
+                                for hdr in pkg_to_headers[cat_pkg]:
+                                    if hdr not in existing_headers:
+                                        _add_tag(pr_info.name, hdr, cat_pkg)
+                                        migration_results["category_wp_migrated"] += 1
                                 category_migrated_prs.append(f"{pr_info.name} (via Category: {cat} -> {cat_pkg})")
                                 tag_added = True
                             else:
