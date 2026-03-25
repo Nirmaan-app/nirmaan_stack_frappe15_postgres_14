@@ -18,11 +18,13 @@ import { getPRTagTableColumns } from "./PRTagTableColumns";
 interface PRCriticalTagsTableProps {
     tags: CriticalPRTag[];
     projectName: string;
+    projectId: string;
 }
 
 export const PRCriticalTagsTable: React.FC<PRCriticalTagsTableProps> = ({
     tags,
     projectName,
+    projectId,
 }) => {
     // DataTable state
     const [searchTerm, setSearchTerm] = useState("");
@@ -68,7 +70,7 @@ export const PRCriticalTagsTable: React.FC<PRCriticalTagsTableProps> = ({
     ];
 
     // Column definitions
-    const columns = useMemo(() => getPRTagTableColumns(), []);
+    const columns = useMemo(() => getPRTagTableColumns(projectId), [projectId]);
 
     // TanStack Table instance
     const table = useReactTable({

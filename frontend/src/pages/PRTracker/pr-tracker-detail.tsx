@@ -8,6 +8,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PRCriticalTagsList } from "./components/PRCriticalTagsList";
 import { PRCriticalTagsTable } from "./components/PRCriticalTagsTable";
+import { PRCriticalTagsSummary } from "./components/PRCriticalTagsSummary";
 import { CriticalPRTag } from "./types";
 
 const PRTrackerDetail: React.FC = () => {
@@ -106,6 +107,9 @@ const PRTrackerDetail: React.FC = () => {
                 </div>
             </div>
 
+            {/* Common Summary Section */}
+            <PRCriticalTagsSummary tags={tags || []} project={project} />
+
             {/* List or Table of critical PR tags */}
             {viewMode === "list" ? (
                 <PRCriticalTagsList
@@ -117,6 +121,7 @@ const PRTrackerDetail: React.FC = () => {
                 <PRCriticalTagsTable
                     tags={tags || []}
                     projectName={project.project_name}
+                    projectId={projectId!}
                 />
             )}
         </div>

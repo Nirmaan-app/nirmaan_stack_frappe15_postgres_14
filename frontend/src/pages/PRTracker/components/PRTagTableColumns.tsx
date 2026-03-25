@@ -20,7 +20,7 @@ const facetedFilterFn = (row: any, columnId: string, filterValue: string[]) => {
     return filterValue.includes(cellValue);
 };
 
-export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
+export const getPRTagTableColumns = (projectId: string): ColumnDef<CriticalPRTag>[] => {
     return [
         {
             accessorKey: "header",
@@ -57,8 +57,15 @@ export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
             size: 150,
         },
         {
-            id: "associated_prs",
-            header: () => <div className="text-center text-[10px]">Linked PRs</div>,
+            accessorKey: "associated_prs",
+            header: () => <div className="text-center w-full text-[10px] text-gray-500 uppercase font-bold tracking-wider">Linked PRs</div>,
+            accessorFn: (row) => {
+                const prsRaw = row.associated_prs;
+                const prs = typeof prsRaw === "string" 
+                    ? JSON.parse(prsRaw || '{"prs":[]}').prs 
+                    : prsRaw?.prs;
+                return prs?.length > 0 ? prs.map((pr: string) => `• ${pr}`).join("\n") : "";
+            },
             cell: ({ row }) => {
                 const prsRaw = row.original.associated_prs;
                 const prs = typeof prsRaw === "string" 
@@ -71,7 +78,7 @@ export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
                 }
 
                 return (
-                    <div className="flex justify-center">
+                    <div className="flex items-center justify-center w-full">
                     <Dialog>
                         <DialogTrigger asChild>
                             <Button
@@ -95,7 +102,7 @@ export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
                                 {prs.map((pr: string) => (
                                     <Link
                                         key={pr}
-                                        to={`/procurement-requests/${pr}?tab=Approve PR`}
+                                        to={`/projects/${projectId}/${pr}`}
                                         className="flex items-center gap-3 text-sm text-blue-600 hover:text-blue-800 py-2.5 px-3 rounded-md hover:bg-blue-50 border border-gray-100 transition-all font-medium"
                                     >
                                         <ExternalLink className="h-4 w-4 flex-shrink-0" />
@@ -108,7 +115,7 @@ export const getPRTagTableColumns = (): ColumnDef<CriticalPRTag>[] => {
                     </div>
                 );
             },
-            size: 100,
+            size: 150,
         }
     ];
 };
