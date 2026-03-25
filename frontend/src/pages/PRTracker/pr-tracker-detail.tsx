@@ -111,6 +111,7 @@ const PRTrackerDetail: React.FC = () => {
                 <PRCriticalTagsList
                     projectId={projectId!}
                     tags={tags || []}
+                    project={project}
                 />
             ) : (
                 <PRCriticalTagsTable

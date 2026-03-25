@@ -1,15 +1,9 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight, CheckCircle2 } from "lucide-react";
 import { ProjectWithCriticalPRStats } from "../types";
-import { getStatusStyle, getProgressColor } from "../utils";
+import { getProgressColor } from "../utils";
 
 interface PRProjectCardProps {
   project: ProjectWithCriticalPRStats;
@@ -20,10 +14,8 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
   project,
   onClick,
 }) => {
-  const { 
-    status_counts, 
-    total_tags, 
-    released_tags, 
+  const {
+    total_tags,
     project_name,
     total_enabled_packages,
     used_packages_count,
@@ -36,9 +28,6 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
     total_available_headers > 0 ? Math.round((used_headers_count / total_available_headers) * 100) : 0;
 
   const progressColor = getProgressColor(completionPercentage);
-
-  // Check completion status
-  const notReleasedCount = status_counts["Not Released"] || 0;
 
   return (
     <Card
@@ -72,73 +61,41 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
       <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-3">
         {/* Stats Summary */}
         <div className="grid grid-cols-2 gap-3 mb-3">
-           {/* Packages Stat */}
-           <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 flex flex-col justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-blue-600 font-bold">Packages</span>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                 <span className="text-lg font-bold text-blue-700 tabular-nums">{used_packages_count}</span>
-                 <span className="text-xs text-blue-400 font-medium">/ {total_enabled_packages}</span>
-              </div>
-              <span className="text-[9px] text-blue-500/80 font-medium mt-0.5">Used total</span>
-           </div>
-
-           {/* Headers Stat */}
-           <div className="bg-purple-50/50 p-2 rounded-lg border border-purple-100/50 flex flex-col justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-purple-600 font-bold">Headers</span>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                 <span className="text-lg font-bold text-purple-700 tabular-nums">{used_headers_count}</span>
-                 <span className="text-xs text-purple-400 font-medium">/ {total_available_headers}</span>
-              </div>
-              <span className="text-[9px] text-purple-500/80 font-medium mt-0.5">Used total</span>
-           </div>
-        </div>
-
-        {/* PR Count - Compact Single Line */}
-        <div className="flex items-center justify-between py-2 px-3 bg-gray-50/50 rounded-lg border border-gray-100/50 mb-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600" />
-            <span className="text-xs font-semibold text-gray-700">Total PRs Created</span>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xl font-bold tabular-nums text-blue-700">{total_prs}</span>
-            <span className="text-[10px] text-gray-400 font-medium italic">Tags</span>
-          </div>
-        </div>
-
-        {/* Status Breakdown */}
-        {total_tags > 0 ? (
-          notReleasedCount > 0 && (
-            <div className="flex-1">
-              <div className="grid grid-cols-2 gap-2">
-                <TooltipProvider>
-                  <Tooltip delayDuration={300}>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={`
-                          flex items-center justify-between px-2.5 py-1.5 rounded-md
-                          ${getStatusStyle("Not Released")}
-                          cursor-default
-                        `}
-                      >
-                        <span className="text-[11px] font-medium truncate pr-1">
-                          Not Released
-                        </span>
-                        <span className="text-xs font-bold tabular-nums">
-                          {notReleasedCount}
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      Not Released: {notReleasedCount} {notReleasedCount === 1 ? "tag" : "tags"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+          {/* Packages Stat */}
+          <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 flex flex-col justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-blue-600 font-bold">Packages</span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-lg font-bold text-blue-700 tabular-nums">{used_packages_count}</span>
+              <span className="text-xs text-blue-400 font-medium">/ {total_enabled_packages}</span>
             </div>
-          )
+            <span className="text-[9px] text-blue-500/80 font-medium mt-0.5">Used total</span>
+          </div>
+
+          {/* Headers Stat */}
+          <div className="bg-purple-50/50 p-2 rounded-lg border border-purple-100/50 flex flex-col justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-purple-600 font-bold">Headers</span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-lg font-bold text-purple-700 tabular-nums">{used_headers_count}</span>
+              <span className="text-xs text-purple-400 font-medium">/ {total_available_headers}</span>
+            </div>
+            <span className="text-[9px] text-purple-500/80 font-medium mt-0.5">Used total</span>
+          </div>
+        </div>
+
+        {total_tags > 0 ? (
+          <div className="flex items-center justify-between py-2 px-3 bg-gray-50/50 rounded-lg border border-gray-100/50 mb-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600" />
+              <span className="text-xs font-semibold text-gray-700">Total PRs Created</span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-bold tabular-nums text-blue-700">{total_prs}</span>
+              <span className="text-[10px] text-gray-400 font-medium italic">PRs</span>
+            </div>
+          </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center py-4">
-            <p className="text-xs text-gray-400 italic">No tags created yet</p>
+          <div className="flex-1 flex items-center justify-center py-2">
+            <p className="text-xs text-gray-400 italic">No PR Tags created yet</p>
           </div>
         )}
 
