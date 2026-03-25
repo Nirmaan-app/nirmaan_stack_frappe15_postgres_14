@@ -585,11 +585,19 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
       enabled: true,
     });
 
+  // --- Enriched Status Options with Counts for Facets ---
+  const enrichedStatusOptions = useMemo(() => {
+    return PR_SUMMARY_STATUS_OPTIONS.map((opt) => ({
+      ...opt,
+      label: `${opt.label} (${statusCounts[opt.value] || 0})`,
+    }));
+  }, [statusCounts]);
+
   // --- Faceted Filter Options ---
   const facetFilterOptions = useMemo(
     () => ({
       // Facet for the DERIVED status
-      derived_status: { title: "Status", options: PR_SUMMARY_STATUS_OPTIONS },
+      derived_status: { title: "Status", options: enrichedStatusOptions },
       owner: {
         title: "Created By",
         options: ownerFacetOptions,
@@ -601,7 +609,13 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         isLoading: isWpFacetLoading,
       },
     }),
-    [ownerFacetOptions, isOwnerFacetLoading, wpFacetOptions, isWpFacetLoading]
+    [
+      enrichedStatusOptions,
+      ownerFacetOptions,
+      isOwnerFacetLoading,
+      wpFacetOptions,
+      isWpFacetLoading,
+    ]
   );
 
   // --- Process fetched PR data to include derived status and total ---
@@ -646,13 +660,15 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   const combinedError =
     quoteError || poError || listError || statusCountsError || wpError;
 
-  if (combinedError && !pr_data_from_hook?.length) {
-    toast({
-      title: "Error loading PR Summary",
-      description: combinedError.message,
-      variant: "destructive",
-    });
-  }
+  useEffect(() => {
+    if (combinedError && !pr_data_from_hook?.length) {
+      toast({
+        title: "Error loading PR Summary",
+        description: combinedError.message,
+        variant: "destructive",
+      });
+    }
+  }, [combinedError, pr_data_from_hook?.length, toast]);
 
   return (
     <div className="space-y-4">
