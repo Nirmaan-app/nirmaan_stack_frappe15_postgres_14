@@ -26,7 +26,9 @@ import {
   CreditCard,
   Dices,
   Landmark, PencilRuler,
-  Warehouse
+  Warehouse,
+  FileChartLine,
+  Tickets
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -541,7 +543,7 @@ export function NewSidebar() {
       ? [
         {
           key: '/commission-tracker',
-          icon: ClipboardMinus,
+          icon: FileChartLine,
           label: 'Commission Report Tracker',
         },
       ]
@@ -586,7 +588,7 @@ export function NewSidebar() {
       ? [
         {
           key: '/work-order-rate-card',
-          icon: ReceiptText,
+          icon: Tickets,
           label: 'Work Order Rate Card',
         },
       ]

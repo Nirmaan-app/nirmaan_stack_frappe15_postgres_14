@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Layers,
+  FileBox,
+  Tickets,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
@@ -123,6 +125,24 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     linkTo: "/asset-management",
     Icon: Layers,
     dataCy: "admin-dashboard-assets-card",
+  },
+   {
+    id: "commission-packages",
+    title: "Commision Pacakges",
+    description: "Commision Pacakges",
+    doctype: "Commission Report Category",
+    linkTo: "/commission-packages",
+    Icon: FileBox,
+    dataCy: "admin-dashboard-commission-packages-card",
+  },
+  {
+    id: "work-order-rate-card",
+    title: "Work Order Rate Card",
+    description: "Work Order Rate Card",
+    doctype: "WO Service Category",
+    linkTo: "/work-order-rate-card",
+    Icon: Tickets,
+    dataCy: "admin-dashboard-work-order-rate-card",
   },
 ];
 
