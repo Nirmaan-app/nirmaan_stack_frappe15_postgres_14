@@ -294,20 +294,20 @@ export const ApprovePR: React.FC = () => {
           },
         },
       },
-      {
-        // Pr_work_Package
-        accessorKey: "name",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Header" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium truncate">
-             <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*/ />
-          </div>
-        ),
-        enableColumnFilter: true,
-        size: 150,
-      },
+      // {
+      //   // Pr_work_Package
+      //   accessorKey: "name",
+      //   header: ({ column }) => (
+      //     <DataTableColumnHeader column={column} title="Header" />
+      //   ),
+      //   cell: ({ row }) => (
+      //     <div className="font-medium truncate">
+      //        <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*//>
+      //     </div>
+      //   ),
+      //   enableColumnFilter: true,
+      //   size: 150,
+      // },
       {
         accessorKey: "category_list",
         header: ({ column }) => (

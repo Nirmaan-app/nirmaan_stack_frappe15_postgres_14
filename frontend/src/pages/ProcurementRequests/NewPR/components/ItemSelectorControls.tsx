@@ -260,39 +260,30 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex gap-8">
-          <div className="space-y-1">
-            <h3 className="max-sm:text-xs font-semibold text-gray-400">
-              Header Tags
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {selectedHeaderTags.map((tag, idx) => (
-                <span
-                  key={idx}
-                  className="px-2 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20"
-                >
-                  {tag.tag_header}
-                </span>
-              ))}
-            </div>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Headers Tags:</span>
+            {selectedHeaderTags.map((tag, idx) => (
+              <span
+                key={idx}
+                className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20 whitespace-nowrap"
+              >
+                {tag.tag_header}
+              </span>
+            ))}
           </div>
-
-          <div className="space-y-1">
-            <h3 className="max-sm:text-xs font-semibold text-gray-400">
-              Project Packages
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {allProjectPackages.map((pkg, idx) => (
-                <span
-                  key={idx}
-                  className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium border border-blue-200"
-                >
-                  {pkg}
-                </span>
-              ))}
-            </div>
-          </div>
+          {/* <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Packages:</span>
+            {allProjectPackages.map((pkg, idx) => (
+              <span
+                key={idx}
+                className="px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium border border-blue-200 whitespace-nowrap"
+              >
+                {pkg}
+              </span>
+            ))}
+          </div> */}
         </div>
 
         {allowWpEdit && (

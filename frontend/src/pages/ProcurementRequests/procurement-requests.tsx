@@ -142,14 +142,14 @@ const PRDataTableWrapper: React.FC<{
             additionalFilters: staticFilters,
         });
 
-        const { facetOptions: wpFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'work_package',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters,
-        });
+        // const { facetOptions: wpFacets } = useFacetValues({
+        //     doctype: DOCTYPE,
+        //     field: 'work_package',
+        //     currentFilters: columnFilters,
+        //     searchTerm: tableSearchTerm,
+        //     selectedSearchField: tableSelectedSearchField,
+        //     additionalFilters: staticFilters,
+        // });
 
         const { facetOptions: ownerFacets } = useFacetValues({
             doctype: DOCTYPE,
@@ -173,7 +173,7 @@ const PRDataTableWrapper: React.FC<{
         const combinedFacetOptions = {
             ...facetFilterOptions,
             project: { title: "Project", options: projectFacets },
-            work_package: { title: "Header", options: wpFacets },
+            // work_package: { title: "Header", options: wpFacets },
             owner: { title: "Created By", options: ownerFacets },
             workflow_state: tab === PR_TABS.ALL_PRS ? { title: "Status", options: statusFacets } : facetFilterOptions.workflow_state
         };
@@ -379,13 +379,13 @@ export const ProcurementRequests: React.FC = () => {
                 }
             }
         },
-        {
-            // Pr_work_Package
-            id: "header_tags",
-            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
-            cell: ({ row }) => <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*/ />,
-            enableColumnFilter: true, size: 150,
-        },
+        // {
+        //     // Pr_work_Package
+        //     id: "header_tags",
+        //     accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
+        //     cell: ({ row }) => <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*/ />,
+        //     enableColumnFilter: true, size: 150,
+        // },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
             cell: ({ row }) => {
@@ -470,7 +470,7 @@ export const ProcurementRequests: React.FC = () => {
     const facetFilterOptionsForDataTable = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
         workflow_state: { title: "Status", options: statusOptions },
-        work_package: { title: "Header", options: workPackageOptions },
+        // work_package: { title: "Header", options: workPackageOptions },
         owner: { title: "Created By", options: userOptions }
     }), [projectOptions, statusOptions, workPackageOptions, userOptions]); // Add new dependencies
 
