@@ -471,7 +471,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "tax": flt(item_in_source_sb.tax),
                     "status": "Pending", # New SB items are always Pending
                     "category": item_in_source_sb.category,
-                    "procurement_package": item_in_source_sb.procurement_package or parent_pr_work_package,
+                    "procurement_package": item_in_source_sb.procurement_package,
                     "comment": item_in_source_sb.comment, # Carry over comment
                     "make": item_in_source_sb.make,
                     "vendor": item_in_source_sb.vendor, # Carry over selected vendor
