@@ -18,7 +18,11 @@ export const PR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
         placeholder: "Search by Item Name in PRs...",
         default: true,
         is_json: true, // Signal to backend for special JSON search logic
-
+    },
+    {
+        value: "PR Tag Child Table.tag_header",
+        label: "PR Tags",
+        placeholder: "Search by PR Tags...",
     },
 ];
 

@@ -294,20 +294,24 @@ export const ApprovePR: React.FC = () => {
           },
         },
       },
-      // {
-      //   // Pr_work_Package
-      //   accessorKey: "name",
-      //   header: ({ column }) => (
-      //     <DataTableColumnHeader column={column} title="Header" />
-      //   ),
-      //   cell: ({ row }) => (
-      //     <div className="font-medium truncate">
-      //        <PRTagsCell prName={row.original.name} /*legacyPackage={row.original.work_package}*//>
-      //     </div>
-      //   ),
-      //   enableColumnFilter: true,
-      //   size: 150,
-      // },
+      {
+        // Pr_work_Package
+        id: "PR Tag Child Table.tag_header",
+        accessorKey: "pr_tag_list",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Header" />
+        ),
+        cell: ({ row }) => <PRTagsCell row={row} />,
+        enableColumnFilter: true,
+        size: 150,
+        meta: {
+          exportHeaderName: "Header Tags",
+          exportValue: (row: ProcurementRequest) => {
+            const tags = (row as any).pr_tag_list || [];
+            return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
+          },
+        },
+      },
       {
         accessorKey: "category_list",
         header: ({ column }) => (
@@ -324,10 +328,10 @@ export const ApprovePR: React.FC = () => {
             <div className="flex flex-wrap gap-1 items-start justify-start">
               {categoryItems.length > 0
                 ? categoryItems.map((obj) => (
-                    <Badge key={obj.name} variant="outline" className="text-xs">
-                      {obj.name}
-                    </Badge>
-                  ))
+                  <Badge key={obj.name} variant="outline" className="text-xs">
+                    {obj.name}
+                  </Badge>
+                ))
                 : "--"}
             </div>
           );
@@ -447,6 +451,7 @@ export const ApprovePR: React.FC = () => {
     defaultSort: "modified desc",
     enableRowSelection: false, // Enable for bulk actions
     additionalFilters: staticFilters, // Filter by workflow_state = Pending
+    apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
   });
 
   // --- Dynamic Facet Values ---
@@ -475,6 +480,17 @@ export const ApprovePR: React.FC = () => {
       enabled: true,
     }); */
 
+  const { facetOptions: tagFacetOptions, isLoading: isTagFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "tag_header",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      additionalFilters: staticFilters,
+      enabled: true,
+    });
+
   // --- (6) UPDATED: Faceted Filter Options ---
   const facetFilterOptions = useMemo(
     () => ({
@@ -483,12 +499,11 @@ export const ApprovePR: React.FC = () => {
         options: projectFacetOptions,
         isLoading: isProjectFacetLoading,
       },
-      /* // Pr_work_Package
-      work_package: {
-        title: "Package",
-        options: workPackageFacetOptions,
-        isLoading: isWPFacetLoading,
-      }, */
+      "PR Tag Child Table.tag_header": {
+        title: "Header",
+        options: tagFacetOptions.length > 0 ? tagFacetOptions : workPackageOptions,
+        isLoading: isTagFacetLoading,
+      },
       owner: { title: "Created By", options: userOptions },
     }),
     [
@@ -497,6 +512,9 @@ export const ApprovePR: React.FC = () => {
       /*workPackageFacetOptions,
       isWPFacetLoading,*/
       userOptions,
+      tagFacetOptions,
+      isTagFacetLoading,
+      workPackageOptions
     ]
   );
 
@@ -515,8 +533,8 @@ export const ApprovePR: React.FC = () => {
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {isLoading ? (
@@ -551,7 +569,7 @@ export const ApprovePR: React.FC = () => {
           isExporting={isExporting}
           exportFileName={`Approve_PR_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
-          // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
+        // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
         />
       )}
     </div>
