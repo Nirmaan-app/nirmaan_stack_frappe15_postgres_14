@@ -372,10 +372,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { toast } from "@/components/ui/use-toast";
-import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk"; 
 import { CirclePlus, Loader2, Trash2, Plus, Pencil } from "lucide-react";
 import React, { useCallback, useState, ChangeEvent, useMemo, useEffect } from "react";
 import { formatDate } from "@/utils/FormatDate";
+import { useCustomerPOActions } from "@/pages/projects/data/tab/financials/useCustomerPOApi";
 
 // Structured payment term type
 export interface PaymentTerm {
@@ -406,8 +406,6 @@ interface AddCustomerPODialogProps {
 // REMOVED 'none' to enforce selection
 type LinkAttachmentChoice = 'link' | 'attachment'; 
 
-// Define the custom Frappe method name
-const CUSTOM_API_METHOD = 'nirmaan_stack.api.projects.add_customer_po.add_customer_po_with_validation'; 
 export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projectName, refetchProjectData }) => {
     const [open, setOpen] = useState(false);
     
@@ -428,8 +426,12 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         customer_po_attachment: '', 
     });
 
-    const {  call: CustomerPoCreate, loading: callLoading } = useFrappePostCall<{ message: any }>(CUSTOM_API_METHOD); 
-    const { upload, loading: uploadLoading } = useFrappeFileUpload();
+    const {
+        createCustomerPO,
+        uploadCustomerPOAttachment,
+        createLoading: callLoading,
+        uploadLoading,
+    } = useCustomerPOActions();
     
     const updateLoading = callLoading || uploadLoading;
     
@@ -528,12 +530,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         // 1. Handle File Upload if an attachment is selected
         if (linkOrAttachmentChoice === 'attachment' && formData.file) {
             try {
-                const fileResponse = await upload(formData.file, {
-                    isPrivate: true,  // Must be private to avoid S3 ACL issues
-                    doctype: 'Projects',
-                    docname: projectName,
-                    fieldname: 'customer_po_attachment',
-                });
+                const fileResponse = await uploadCustomerPOAttachment(projectName, formData.file);
 
                 // Frappe file upload returns the file URL or file name in 'file_url'
                 finalAttachmentName = fileResponse.file_url;
@@ -562,10 +559,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         };
 
         // 3. Call Custom Frappe API for saving
-        CustomerPoCreate({
-            project_name: projectName,
-            new_po_detail: newPODetail
-        })
+        createCustomerPO(projectName, newPODetail)
         .then((data) => {
             if(data?.message?.status=="Duplicate"){
               toast({title:"Duplicate Po Number",description:"Failed to create Customer Po, Because We already have PO Number in our records. Create a New Po number for Creation.",variant:"destructive"});

@@ -201,7 +201,7 @@ export const useProjectFormDesignMasterData = () => {
     const response = useFrappeGetCall<DesignMasterDataResponse>(
         "nirmaan_stack.api.design_tracker.tracker_options.get_all_master_data",
         {},
-        "design-master-data-for-project-form" // preserving this static string since useFrappeGetCall parses it uniquely internally if SWR is used under the hood, but explicitly passed
+        projectFormKeys.designMasterData()
     );
 
     useApiErrorLogger(response.error, {

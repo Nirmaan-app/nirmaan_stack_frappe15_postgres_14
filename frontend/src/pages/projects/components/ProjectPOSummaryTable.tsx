@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 import { Info } from "lucide-react";
@@ -32,7 +31,6 @@ import { TailSpin } from "react-loader-spinner";
 // --- Hooks & Utils ---
 import {
   useServerDataTable,
-  AggregationConfig,
   GroupByConfig,
   SimpleAggregationConfig,
   CustomAggregationConfig,
@@ -47,16 +45,15 @@ import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // For paid amounts
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"; // For WP lookup
-import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
-import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { omit } from "lodash";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import {
+  useProjectPOAggregates,
+  useProjectPOSupportingData,
+} from "@/pages/projects/data/tab/summary/useProjectPOSummaryApi";
 import { useProjectAllCredits } from "../hooks/useProjectAllCredits";
 
 // Fields to fetch for the PO Summary table list view
@@ -146,25 +143,6 @@ interface ProjectPOSummaryTableProps {
   hideFinancialColumns?: boolean;
 }
 
-interface POAmountsDict {
-  [key: string]: {
-    total_incl_gst: number;
-    total_excl_gst: number;
-  };
-}
-
-interface POAggregates {
-  total_po_value_inc_gst: number;
-  total_po_value_excl_gst: number;
-  total_amount_paid_for_pos: number;
-  total_gst_on_items: number;
-  final_total_gst: number;
-}
-
-interface POAggregatesResponse extends POAggregates {
-  po_amounts_dict: POAmountsDict;
-}
-
 // =================== AGGREGATION CONFIG (MODIFIED) ===================
 const POS_AGGREGATES_CONFIG: (
   | SimpleAggregationConfig
@@ -245,47 +223,13 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
   if (!projectId) return "Project ID is required.";
 
-  // --- State for Aggregates Card ---
-  const [poAggregates, setPOAggregates] = useState<POAggregates | null>(null);
-  const [poAmountsDict, setPOAmountsDict] = useState<POAmountsDict | null>(
-    null
-  );
-
-  // --- API Call for Aggregated PO Totals ---
-  const {
-    call: fetchPOAggregates,
-    loading: aggregatesLoading,
-    error: aggregatesError,
-  } = useFrappePostCall<{ message: POAggregatesResponse }>(
-    "nirmaan_stack.api.projects.project_aggregates.get_project_po_summary_aggregates"
-  );
-
-  useEffect(() => {
-    // console.log("HEys");
-    if (projectId) {
-      fetchPOAggregates({ project_id: projectId })
-        .then((data) => {
-          setPOAggregates(omit(data.message, ["po_amounts_dict"]));
-          setPOAmountsDict(data.message.po_amounts_dict);
-        })
-        .catch((err) => console.error("Failed to fetch PO aggregates:", err));
-    } else {
-      setPOAggregates(null); // Reset if no projectId
-      setPOAmountsDict(null);
-    }
-  }, [projectId, fetchPOAggregates]);
+  const { poAggregates, poAmountsDict, aggregatesLoading, aggregatesError } =
+    useProjectPOAggregates(projectId);
 
   // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
-  const { data: projects, isLoading: projectsLoading } =
-    useFrappeGetDocList<Projects>(
-      "Projects",
-      {
-        fields: ["name", "project_name"],
-        filters: projectId ? [["name", "=", projectId]] : [],
-        limit: projectId ? 1 : 1000,
-      },
-      `ProjectForPOSummary_${projectId || "all"}`
-    );
+  const { projectsResponse, prResponse, projectPaymentsResponse } =
+    useProjectPOSupportingData(projectId);
+  const { data: projects, isLoading: projectsLoading } = projectsResponse;
 
   // --- Supporting Data for Columns (Vendor Names, PR for WP, Users) ---
   const {
@@ -294,19 +238,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     error: vendorsError,
   } = useVendorsList({ vendorTypes: ["Material", "Material & Service"] });
 
-  const {
-    data: pr_data,
-    isLoading: prDataLoading,
-    error: prDataError,
-  } = useFrappeGetDocList<ProcurementRequest>(
-    "Procurement Requests",
-    {
-      fields: ["name", "work_package"],
-      filters: projectId ? [["project", "=", projectId]] : [],
-      limit: 0,
-    },
-    !!projectId ? `PRsForPOSummary_${projectId || "all"}` : null
-  );
+  const { data: pr_data, isLoading: prDataLoading, error: prDataError } = prResponse;
 
   const {
     data: userList,
@@ -318,19 +250,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     data: projectPayments,
     isLoading: projectPaymentsLoading,
     error: projectPaymentsError,
-  } = useFrappeGetDocList<ProjectPayments>(
-    "Project Payments",
-    {
-      fields: ["document_name", "amount", "status"],
-      filters: [
-        ["document_type", "=", "Procurement Orders"],
-        ["status", "=", "Paid"],
-        ["project", "=", projectId],
-      ],
-      limit: 0,
-    },
-    !!projectId ? `PaidPaymentsForPOSummary_${projectId || "all"}` : null
-  );
+  } = projectPaymentsResponse;
 
   const { totals: creditTotals } = useProjectAllCredits(projectId);
 
@@ -341,13 +261,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   console.log("Credit Totals:", TotalPurchaseOverCredit);
   console.log("Credit Totals:", CreditDueAmount);
   console.log("Credit Totals:", CreditPaidAmount);
-
-  const vendorOptions = useMemo(
-    () =>
-      vendors?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) ||
-      [],
-    [vendors]
-  );
 
   // --- Memoized Lookups ---
   const getVendorName = useCallback(

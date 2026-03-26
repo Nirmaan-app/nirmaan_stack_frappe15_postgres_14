@@ -17,9 +17,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
 import {
   useFrappeDocTypeEventListener,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
   Building2,
@@ -74,11 +71,11 @@ import {
 } from "../../components/ui/select";
 import { Separator } from "../../components/ui/separator";
 import NewCustomer from "../customers/add-new-customer";
-import { ProjectQueryKeys } from "./queries";
-import { Customers } from "@/types/NirmaanStack/Customers";
-import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
-import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
-import { Address } from "@/types/NirmaanStack/Address";
+import {
+  useEditProjectFormApi,
+  useEditProjectFormCategories,
+  useEditProjectFormPincode,
+} from "@/pages/projects/data/tab/project-form/useEditProjectFormApi";
 
 import {MultiSelect} from "./components/multi-select"
 
@@ -272,53 +269,47 @@ interface EditProjectFormProps {
 export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
-  const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
-    "Projects",
-    projectId,
-    projectId ? ProjectQueryKeys.project(projectId) : null
-  );
+  const {
+    projectResponse,
+    procurementPackagesResponse,
+    customersResponse,
+    projectTypesResponse,
+    projectAddressResponse,
+    updateDoc,
+    loading,
+  } = useEditProjectFormApi(projectId);
+
+  const { data, mutate: projectMutate } = projectResponse;
 
   // console.log("projectData", data)
 
-  const {
-    data: procuremeent_packages_list,
-  } = useFrappeGetDocList<ProcurementPackages>("Procurement Packages", {
-    fields: ["work_package_name"],
-    filters: [["work_package_name", "not in", ["Tool & Equipments", "Services","Additional Charges"]]],
-    limit: 0,
-  });
+  const { data: procuremeent_packages_list } = procurementPackagesResponse;
 
   const {
     data: company,
     isLoading: company_isLoading,
     error: company_error,
     mutate: company_mutate,
-  } = useFrappeGetDocList<Customers>("Customers", {
-    fields: ["name", "company_name"],
-    limit: 0,
-  });
+  } = customersResponse;
 
   const {
     data: project_types,
     isLoading: project_types_isLoading,
     error: project_types_error,
     mutate: project_types_mutate,
-  } = useFrappeGetDocList<ProjectTypes>("Project Types", {
-    fields: ["name", "project_type_name"],
-    limit: 0,
-  });
+  } = projectTypesResponse;
 
   const {
     data: project_address,
     mutate: project_address_mutate,
-  } = useFrappeGetDoc<Address>("Address", data?.project_address, data?.project_address ? undefined : null);
+  } = projectAddressResponse;
 
   // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
   //     fields: ["*"],
   //     limit: 1000
   // });
 
-  useFrappeDocTypeEventListener("Project Types", async (d) => {
+  useFrappeDocTypeEventListener("Project Types", async () => {
     await project_types_mutate();
   });
 
@@ -407,11 +398,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     }
   }, [data, project_address, form.reset]);
 
-  const {
-    updateDoc: updateDoc,
-    loading: loading,
-  } = useFrappeUpdateDoc();
-
   const [city, setCity] = useState(project_address?.city || "");
   const [state, setState] = useState(project_address?.state || "");
   const [pincode, setPincode] = useState("");
@@ -433,9 +419,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     }
   }, [startDate, endDate]);
 
-  const {
-    data: pincode_data,
-  } = useFrappeGetDoc("Pincodes", pincode, pincode ? `Pincodes ${pincode}` : null);
+  const { data: pincode_data } = useEditProjectFormPincode(pincode);
 
   const debouncedFetch = useCallback((value: string) => {
     if (value.length >= 6) {
@@ -1266,11 +1250,7 @@ interface WorkPackageSelectionProps {
 }
 
 const WorkPackageSelection: React.FC<WorkPackageSelectionProps> = ({ form, wp_list }) => {
-  const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
-    fields: ["category_name", "work_package", "name"],
-    filters: [["work_package", "not in", ["Tool & Equipments", "Services"]]],
-    limit: 10000,
-  });
+  const { data: categoriesList, isLoading: categoriesListLoading } = useEditProjectFormCategories();
 
   type WorkPackageItem = {
     work_package_name: string;

@@ -5,10 +5,11 @@ import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
 import { X, Plus, Pencil, Check } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-import { FrappeDoc, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk";
 import type { KeyedMutator } from "swr";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { useProjectTrackingSetupApi } from "@/pages/projects/data/tab/work-report/useProjectTrackingSetupApi";
+import type { FrappeDoc } from "frappe-react-sdk";
 
 // Validation constants
 const ZONE_NAME_REGEX = /^[a-zA-Z0-9\s,]+$/;
@@ -188,10 +189,12 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
     const [renameDialogOpen, setRenameDialogOpen] = useState(false);
     const [zoneToRename, setZoneToRename] = useState<ProjectZoneEntry | null>(null);
 
-    const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-    const { call: RenameProjectZones, loading: renameLoading } = useFrappePostCall(
-        "nirmaan_stack.api.projects.rename_project_zones.rename_zone_and_cascade"
-    );
+    const {
+        updateProjectZones,
+        renameProjectZone,
+        updateDocLoading,
+        renameLoading,
+    } = useProjectTrackingSetupApi();
 
     // Sync local state with project data when not editing
     useEffect(() => {
@@ -240,9 +243,7 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
         if (isZoneSaveDisabled) return;
 
         try {
-            await updateDoc("Projects", projectData.name, {
-                project_zones: zonesToSave,
-            });
+            await updateProjectZones(projectData.name, zonesToSave);
             await project_mutate();
             toast({
                 title: "Success",
@@ -280,12 +281,7 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
     const handleRenameDirect = useCallback(
         async (projectName: string, frappeDocName: string, oldZoneName: string, newZoneName: string) => {
             try {
-                await RenameProjectZones({
-                    project_name: projectName,
-                    zone_doc_name: frappeDocName,
-                    old_zone_name: oldZoneName,
-                    new_zone_name: newZoneName,
-                });
+                await renameProjectZone(projectName, frappeDocName, oldZoneName, newZoneName);
 
                 const updatedZones = localProjectZones.map((zone) =>
                     zone.name === frappeDocName ? { ...zone, zone_name: newZoneName } : zone
@@ -311,7 +307,7 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
                 });
             }
         },
-        [localProjectZones, projectData.name, project_mutate, RenameProjectZones]
+        [localProjectZones, project_mutate, renameProjectZone]
     );
 
     const zonesToRender = isEditing ? localProjectZones : projectData.project_zones;

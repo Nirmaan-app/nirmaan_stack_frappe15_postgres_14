@@ -14,14 +14,16 @@ import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice"
 import { formatDate } from "@/utils/FormatDate"
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
 import { getTotalInflowAmount, getTotalProjectInvoiceAmount } from "@/utils/getAmounts"
 import { urlStateManager } from "@/utils/urlStateManager"
-import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
-import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
+import {
+  useProjectFinancialsTabData,
+} from "./data/tab/financials/useProjectFinancialsTabApi";
+import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
@@ -101,11 +103,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   [creditTerms]);
 
 
-  const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
-    fields: ["*"],
-    filters: [["project", "=", projectData?.name]],
-    limit: 1000
-  })
+  const { inflowsResponse, invoicesResponse } = useProjectFinancialsTabData(projectData?.name);
+  const { data: projectInflows, isLoading: projectInflowsLoading } = inflowsResponse;
 
   const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
 
@@ -113,11 +112,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   // console.log("totalInflowAmount", projectInflows)
 
-  const { data: projectInvoiceData, isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>("Project Invoices", {
-    fields: ["*"],
-    filters: [["project", "=", projectData?.name]],
-    limit: 1000
-  })
+  const { data: projectInvoiceData, isLoading: projectInvoicesLoading } = invoicesResponse;
 
 
   const totalProjectInvoiceAmount = useMemo(() => getTotalProjectInvoiceAmount(projectInvoiceData || []), [projectInvoiceData])

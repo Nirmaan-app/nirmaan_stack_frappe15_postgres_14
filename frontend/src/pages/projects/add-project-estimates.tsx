@@ -8,11 +8,10 @@ import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/P
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 import { ConfigProvider, Radio, Table } from "antd";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Trash } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import ReactSelect from 'react-select';
 import { Label, Pie, PieChart } from "recharts";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog";
@@ -27,6 +26,11 @@ import { toast } from "../../components/ui/use-toast";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { safeJsonParse } from "../DeliveryNotes/constants";
+import {
+    useProjectEstimatesMasterData,
+    useProjectEstimatesMutations,
+    useProjectEstimatesPageData,
+} from "@/pages/projects/data/tab/estimates/useProjectEstimatesApi";
 
 
 
@@ -51,12 +55,9 @@ const chartConfig = {
 
 const AddProjectEstimates = ({ projectTab = false }) => {
     const { projectId } = useParams()
-    const { data: project_data, isLoading: project_loading, error: project_error } = useFrappeGetDoc("Projects", projectId)
-    const { data: estimates_data, isLoading: estimates_loading, error: estimates_error, mutate: estimates_data_mutate } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
-        fields: ['*'],
-        filters: [["project", "=", projectId]],
-        limit: 10000
-    })
+    const { projectResponse, estimatesResponse } = useProjectEstimatesPageData(projectId)
+    const { data: project_data, isLoading: project_loading, error: project_error } = projectResponse
+    const { data: estimates_data, isLoading: estimates_loading, error: estimates_error, mutate: estimates_data_mutate } = estimatesResponse
     return (
         <div>
             {(project_loading || estimates_loading) && <Skeleton className="w-[30%] h-10" />}
@@ -100,9 +101,13 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
     const [editEstimation, setEditEstimation] = useState({})
     const [allWorkPackages, setAllWorkPackages] = useState(null)
 
-    const { createDoc, loading: create_loading } = useFrappeCreateDoc()
-    const { updateDoc, loading: update_loading } = useFrappeUpdateDoc()
-    const { deleteDoc, loading: delete_loading } = useFrappeDeleteDoc()
+    const {
+        createEstimate,
+        updateEstimate,
+        deleteEstimate,
+        createLoading: create_loading,
+        updateLoading: update_loading,
+    } = useProjectEstimatesMutations()
     const [deleteItem, setDeleteItem] = useState(null)
     const [serviceDesc, setServiceDesc] = useState(null)
     const [serviceUnit, setServiceUnit] = useState(null)
@@ -164,19 +169,9 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
             // updateURL({ eTab: value })
         }, [selectedPackage])
 
-    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = useFrappeGetDocList("Category",
-        {
-            fields: ['category_name', 'work_package', 'image_url', 'tax'],
-            orderBy: { field: 'category_name', order: 'asc' },
-            limit: 10000
-        });
-
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = useFrappeGetDocList("Items",
-        {
-            fields: ['name', 'item_name', 'make_name', 'unit_name', 'category', 'creation'],
-            orderBy: { field: 'creation', order: 'desc' },
-            limit: 100000
-        });
+    const { categoriesResponse, itemsResponse } = useProjectEstimatesMasterData();
+    const { data: category_list, isLoading: category_list_loading, error: category_list_error } = categoriesResponse;
+    const { data: item_list, isLoading: item_list_loading, error: item_list_error, mutate: item_list_mutate } = itemsResponse;
 
     useEffect(() => {
         if (category_list) {
@@ -464,7 +459,7 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
 
     const handleEditEstimate = async (id, item) => {
         try {
-            await updateDoc("Project Estimates", id, editEstimation)
+            await updateEstimate(id, editEstimation)
             await estimates_data_mutate()
 
             toast({
@@ -486,7 +481,7 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
     const handleDeleteEstimate = async (id, item) => {
         try {
             setDeleteItem(id)
-            await deleteDoc("Project Estimates", id)
+            await deleteEstimate(id)
             await estimates_data_mutate()
 
             toast({
@@ -518,7 +513,7 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
 
         try {
             setLoadingState(wp)
-            await createDoc("Project Estimates", {
+            await createEstimate({
                 project: project_data.name,
                 work_package: wp,
                 category: category,
@@ -579,7 +574,7 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
     const handleAlertSubmit = async () => {
         if (errorItem) {
             try {
-                await createDoc("Project Estimates", {
+                await createEstimate({
                     ...errorItem,
                     project: project_data.name,
                     rate_estimate: rateInput,
