@@ -1,5 +1,5 @@
 // frontend/src/pages/CommissionReport/hooks/useCommissionTrackerLogic.ts
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { toast } from '@/components/ui/use-toast';
 import {
     ProjectCommissionReportType,
@@ -7,7 +7,7 @@ import {
     User,
 } from '../types';
 import { useCommissionMasters } from './useCommissionMasters';
-import { useCommissionTrackerDoc } from '../data/useCommissionQueries';
+import { useCommissionProjectAssignees, useCommissionTrackerDoc } from '../data/useCommissionQueries';
 import { useUpdateCommissionTracker } from '../data/useCommissionMutations';
 
 interface UseCommissionTrackerLogicProps {
@@ -47,7 +47,25 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
         isLoading: mastersLoading,
         error: mastersError
     } = useCommissionMasters();
-    const usersList = rawUsersList || [];
+
+    const { data: projectAssignees, isLoading: projectAssigneesLoading, error: projectAssigneesError } = useCommissionProjectAssignees(
+        trackerDoc?.project || ""
+    );
+
+    const projectAssignedUsers = useMemo(
+        () => new Set((projectAssignees || []).map((assignee) => assignee.user)),
+        [projectAssignees]
+    );
+
+    const usersList = useMemo(
+        () => (rawUsersList || []).filter((user) => {
+            if (user.role_profile === "Nirmaan Project Manager Profile") {
+                return projectAssignedUsers.has(user.name);
+            }
+            return true;
+        }),
+        [rawUsersList, projectAssignedUsers]
+    );
 
     const { updateTracker } = useUpdateCommissionTracker();
 
@@ -153,8 +171,8 @@ export const useCommissionTrackerLogic = ({ trackerId }: UseCommissionTrackerLog
     }, [trackerDoc, updateTracker, refetchTracker]);
 
 
-    const isLoading = docLoading || mastersLoading;
-    const error = docError || mastersError;
+    const isLoading = docLoading || mastersLoading || projectAssigneesLoading;
+    const error = docError || mastersError || projectAssigneesError;
 
     return {
         trackerDoc,

@@ -26,7 +26,10 @@ import {
 interface DesignerOption {
     value: string;
     label: string;
+    userName: string;
     email: string;
+    roleLabel: string;
+    searchableLabel: string;
 }
 
 interface StatusOption {
@@ -75,7 +78,18 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     const { upload } = useFrappeFileUpload();
 
     const designerOptions: DesignerOption[] = useMemo(() =>
-        usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
+        usersList.map(u => {
+            const userName = u.full_name || u.name;
+            const roleLabel = u.role_profile?.split(" ").slice(1, 3).join(" ") || "";
+            return {
+                label: userName,
+                userName,
+                value: u.name,
+                email: u.email || '',
+                roleLabel,
+                searchableLabel: roleLabel ? `${userName} (${roleLabel})` : userName
+            };
+        })
     , [usersList]);
 
     // Initialize state when dialog opens
@@ -84,7 +98,14 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
             const designerDetails = parseDesignersFromField(task.assigned_designers);
             const initialDesigners = designerDetails.map(stored =>
                 designerOptions.find(opt => opt.value === stored.userId) ||
-                { label: stored.userName, value: stored.userId, email: stored.userEmail || '' }
+                {
+                    label: stored.userName,
+                    userName: stored.userName,
+                    value: stored.userId,
+                    email: stored.userEmail || '',
+                    roleLabel: "",
+                    searchableLabel: stored.userName
+                }
             ).filter((d): d is DesignerOption => !!d);
             setSelectedDesigners(initialDesigners);
 
@@ -221,7 +242,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
 
             const assignedDesignerDetails: AssignedDesignerDetail[] = selectedDesigners.map(d => ({
                 userId: d.value,
-                userName: d.label,
+                userName: d.userName,
                 userEmail: d.email,
             }));
 
@@ -301,16 +322,27 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                         />
                     </div>
 
-                    {/* Assigned Designer (Multi-Select) */}
+                    {/* Assign (Multi-Select) */}
                     <div className="space-y-1">
-                        <Label htmlFor="designer">Assign Designer(s)</Label>
+                        <Label htmlFor="designer">Assign</Label>
                         <ReactSelect
                             isMulti
                             value={selectedDesigners}
                             options={designerOptions}
                             onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
-                            placeholder="Select designers..."
+                            placeholder="Select assignees..."
                             classNamePrefix="react-select"
+                            formatOptionLabel={(option) => (
+                                <div>
+                                    {option.userName}
+                                    {option.roleLabel && (
+                                        <span className="text-red-700 font-light">
+                                            {" "}({option.roleLabel})
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            getOptionLabel={(option) => option.searchableLabel || option.userName}
                             isDisabled={isRestrictedMode}
                         />
                     </div>
