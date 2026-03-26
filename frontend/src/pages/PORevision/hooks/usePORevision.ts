@@ -8,6 +8,7 @@ import {
 } from "../types";
 import {
   useProcurementRequestForRevision,
+  useProjectForRevision,
   useRevisionCategories,
   useRevisionItems,
   useRevisionCategoryMakelist,
@@ -37,20 +38,20 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
 
   const afterSummary = useMemo<SummaryData>(() => {
     const totalExclGst = revisionItems.reduce((sum, item) => {
-        if (item.item_type === "Deleted") return sum;
-        const qty = item.quantity || 0;
-        const rate = item.quote || 0;
-        return sum + (qty * rate);
+      if (item.item_type === "Deleted") return sum;
+      const qty = item.quantity || 0;
+      const rate = item.quote || 0;
+      return sum + (qty * rate);
     }, 0);
 
     const totalInclGst = revisionItems.reduce((sum, item) => {
-        if (item.item_type === "Deleted") return sum;
-        const qty = item.quantity || 0;
-        const rate = item.quote || 0;
-        const tax = item.tax || 0;
-        const amount = qty * rate;
-        const total = amount + (amount * tax / 100);
-        return sum + total;
+      if (item.item_type === "Deleted") return sum;
+      const qty = item.quantity || 0;
+      const rate = item.quote || 0;
+      const tax = item.tax || 0;
+      const amount = qty * rate;
+      const total = amount + (amount * tax / 100);
+      return sum + total;
     }, 0);
 
     return { totalExclGst, totalInclGst };
@@ -78,23 +79,79 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
 
   // ─── Centralized Data Fetching ────────────────────────────
   const { data: prData } = useProcurementRequestForRevision(po?.procurement_request);
-  const workPackage = prData?.work_package;
+  const { data: projectDoc } = useProjectForRevision(po?.project);
 
-  const { data: categories } = useRevisionCategories(workPackage);
+  const allRelevantPackages = useMemo(() => {
+    const packages = new Set<string>();
+
+    if (projectDoc?.project_work_packages) {
+      const projectWPs = (typeof projectDoc.project_work_packages === 'string'
+        ? JSON.parse(projectDoc.project_work_packages)
+        : projectDoc.project_work_packages)?.work_packages ?? [];
+      projectWPs.forEach((wp: any) => {
+        if (wp.work_package_name) packages.add(wp.work_package_name);
+      });
+    }
+
+    if (prData?.work_package) packages.add(prData.work_package);
+
+    (prData?.pr_tag_list || []).forEach((tag: any) => {
+      if (tag.tag_package) packages.add(tag.tag_package);
+    });
+
+    (projectDoc?.project_wp_category_makes || []).forEach((item: any) => {
+      if (item.procurement_package) packages.add(item.procurement_package);
+    });
+
+    return Array.from(packages);
+  }, [prData?.work_package, prData?.pr_tag_list, projectDoc?.project_work_packages, projectDoc?.project_wp_category_makes]);
+
+  const { data: categories } = useRevisionCategories(allRelevantPackages);
   const categoryNames = useMemo(() => categories?.map(c => c.name) || [], [categories]);
 
-  const { data: itemsList } = useRevisionItems(workPackage, categoryNames);
-  const { data: categoryMakelist } = useRevisionCategoryMakelist(workPackage, categoryNames);
+  const { data: itemsList } = useRevisionItems(allRelevantPackages, categoryNames);
+  const { data: categoryMakelist } = useRevisionCategoryMakelist(allRelevantPackages, categoryNames);
 
   const itemOptions = useMemo(() => {
     if (!itemsList) return [];
+
+    const projectMakes = projectDoc?.project_wp_category_makes || [];
+    const allowedCategoriesFromProject = projectMakes.map((item: any) => item.category).filter(Boolean);
+    const allowedPackagesFromProject = projectMakes.map((item: any) => item.procurement_package).filter(Boolean);
+
+    const filteredItems = itemsList.filter(item => {
+      const category = categories?.find(cat => cat.name === item.category);
+      if (!category) return false;
+
+      const catName = category.category_name || category.name;
+      if (catName === "Tool & Equipments" || catName === "Additional Charges" || category.work_package === "Additional Charges" || category.work_package === "Tool & Equipments") return true;
+
+      if (allowedCategoriesFromProject.length > 0 || allowedPackagesFromProject.length > 0) {
+        const matchesCategory = allowedCategoriesFromProject.includes(item.category);
+        const matchesPackage = allowedPackagesFromProject.includes(category.work_package);
+        return matchesCategory || matchesPackage;
+      }
+
+      const prTags = prData?.pr_tag_list || [];
+      const allowedPackagesFromTags = prTags.length > 0
+        ? Array.from(new Set(prTags.map((t: any) => t.tag_package)))
+        : [];
+
+      if (allowedPackagesFromTags.length > 0) {
+        return allowedPackagesFromTags.includes(category.work_package) || category.work_package === "Tool & Equipments" || category.work_package === "Additional Charges";
+      }
+
+      return true;
+    });
+
     const categoryMap = new Map(categories?.map(c => [c.name, c]) || []);
     const categoryMakesMap = new Map<string, string[]>();
     categoryMakelist?.forEach(m => {
-        if (!categoryMakesMap.has(m.category)) categoryMakesMap.set(m.category, []);
-        categoryMakesMap.get(m.category)!.push(m.make);
+      if (!categoryMakesMap.has(m.category)) categoryMakesMap.set(m.category, []);
+      categoryMakesMap.get(m.category)!.push(m.make);
     });
-    return itemsList.map(item => ({
+
+    return filteredItems.map(item => ({
       label: item.item_name,
       value: item.name,
       item_id: item.name,
@@ -106,7 +163,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
       procurement_package: categoryMap.get(item.category)?.work_package || "",
       tax: parseFloat(categoryMap.get(item.category)?.tax || "0")
     }));
-  }, [itemsList, categories, categoryMakelist]);
+  }, [itemsList, categories, categoryMakelist, projectDoc?.project_wp_category_makes, prData?.pr_tag_list]);
 
   const { data: invoices } = useRevisionVendorInvoices(po?.name, open);
 
@@ -132,9 +189,9 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     const item = newItems[index];
 
     if (item.item_type === "Original") {
-       newItems[index] = { ...item, ...updates, item_type: updates.item_type || "Revised" };
+      newItems[index] = { ...item, ...updates, item_type: updates.item_type || "Revised" };
     } else {
-       newItems[index] = { ...item, ...updates };
+      newItems[index] = { ...item, ...updates };
     }
     setRevisionItems(newItems);
   };
@@ -146,15 +203,15 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     if (item.item_type === "Original" || item.item_type === "Revised") {
       newItems[index] = { ...item, item_type: "Deleted" };
     } else if (item.item_type === "Deleted") {
-       // Check if original existed
-       if (item.original_row_id) {
-           const original = po.items.find(i => i.name === item.original_row_id);
-           if (original) {
-               // Check if it was revised before being deleted
-               const isRevised = Object.keys(item).some(k => (item as any)[k] !== (original as any)[k] && k !== 'item_type');
-               newItems[index] = { ...original, item_type: isRevised ? "Revised" : "Original", original_row_id: original.name };
-           }
-       }
+      // Check if original existed
+      if (item.original_row_id) {
+        const original = po.items.find(i => i.name === item.original_row_id);
+        if (original) {
+          // Check if it was revised before being deleted
+          const isRevised = Object.keys(item).some(k => (item as any)[k] !== (original as any)[k] && k !== 'item_type');
+          newItems[index] = { ...original, item_type: isRevised ? "Revised" : "Original", original_row_id: original.name };
+        }
+      }
     } else {
       newItems.splice(index, 1);
     }

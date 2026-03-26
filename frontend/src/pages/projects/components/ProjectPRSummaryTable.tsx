@@ -59,9 +59,9 @@ export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
    
   },
   {
-    value: "work_package",
-    label: "Package",
-    placeholder: "Search by Package...",
+    value: "PR Tag Child Table.tag_header",
+    label: "PR Tags",
+    placeholder: "Search by PR Tags...",
   },
   {
     value: "order_list", // For item search within PR
@@ -348,21 +348,35 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         },
       },
       {
-        accessorKey: "work_package",
+        id: "PR Tag Child Table.tag_header",
+        accessorKey: "pr_tag_list",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Package" />
+          <DataTableColumnHeader column={column} title="PR Tags" />
         ),
-        cell: ({ row }) => (
-          <div className="font-medium truncate">
-            {row.getValue("work_package") || "Custom"}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const tags = (row.original as any).pr_tag_list || [];
+          
+          return (
+            <div className="flex flex-wrap gap-1">
+              {tags.length > 0 ? (
+                tags.map((tag: any, index: number) => (
+                  <Badge key={index} variant="outline" className="bg-white">
+                    {tag.tag_header}
+                  </Badge>
+                ))
+              ) : (
+                <div className="font-medium text-gray-500">Custom</div>
+              )}
+            </div>
+          );
+        },
         size: 150,
         enableColumnFilter: true,
         meta: {
-          exportHeaderName: "Package",
-          exportValue: (row: ProcurementRequest) => {
-            return row.work_package || "Custom";
+          exportHeaderName: "PR Tags",
+          exportValue: (row: any) => {
+             const tags = row.pr_tag_list || [];
+             return tags.map((t: any) => t.tag_header).join(", ") || "Custom";
           },
         },
       },
@@ -444,6 +458,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   } = useServerDataTable<ProcurementRequest>({
     // Fetches raw ProcurementRequest
     doctype: DOCTYPE,
+    apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
     columns: columns, // Columns will be defined based on ProcessedPR
     fetchFields: PR_SUMMARY_FIELDS_TO_FETCH,
     searchableFields: PR_SUMMARY_SEARCHABLE_FIELDS,
@@ -469,7 +484,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   const { facetOptions: wpFacetOptions, isLoading: isWpFacetLoading } =
     useFacetValues({
       doctype: DOCTYPE,
-      field: "work_package",
+      field: "tag_header",
       currentFilters: columnFilters,
       searchTerm,
       selectedSearchField,
@@ -477,23 +492,37 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
       enabled: true,
     });
 
+  // --- Enriched Status Options with Counts for Facets ---
+  const enrichedStatusOptions = useMemo(() => {
+    return PR_SUMMARY_STATUS_OPTIONS.map((opt) => ({
+      ...opt,
+      label: `${opt.label} (${statusCounts[opt.value] || 0})`,
+    }));
+  }, [statusCounts]);
+
   // --- Faceted Filter Options ---
   const facetFilterOptions = useMemo(
     () => ({
       // Facet for the DERIVED status
-      derived_status: { title: "Status", options: PR_SUMMARY_STATUS_OPTIONS },
+      derived_status: { title: "Status", options: enrichedStatusOptions },
       owner: {
         title: "Created By",
         options: ownerFacetOptions,
         isLoading: isOwnerFacetLoading,
       },
-      work_package: {
-        title: "Work Package",
+      "PR Tag Child Table.tag_header": {
+        title: "PR Tags",
         options: wpFacetOptions,
         isLoading: isWpFacetLoading,
       },
     }),
-    [ownerFacetOptions, isOwnerFacetLoading, wpFacetOptions, isWpFacetLoading]
+    [
+      enrichedStatusOptions,
+      ownerFacetOptions,
+      isOwnerFacetLoading,
+      wpFacetOptions,
+      isWpFacetLoading,
+    ]
   );
 
   // --- Process fetched PR data to include derived status and total ---
@@ -538,13 +567,15 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   const combinedError =
     quoteError || poError || listError || statusCountsError || wpError;
 
-  if (combinedError && !pr_data_from_hook?.length) {
-    toast({
-      title: "Error loading PR Summary",
-      description: combinedError.message,
-      variant: "destructive",
-    });
-  }
+  useEffect(() => {
+    if (combinedError && !pr_data_from_hook?.length) {
+      toast({
+        title: "Error loading PR Summary",
+        description: combinedError.message,
+        variant: "destructive",
+      });
+    }
+  }, [combinedError, pr_data_from_hook?.length, toast]);
 
   return (
     <div className="space-y-4">

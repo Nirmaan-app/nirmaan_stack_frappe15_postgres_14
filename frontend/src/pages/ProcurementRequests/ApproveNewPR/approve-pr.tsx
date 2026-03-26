@@ -52,6 +52,7 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
+import { PRTagsCell } from "../procurement-requests";
 const DOCTYPE = "Procurement Requests";
 const URL_SYNC_KEY = "pr_new_approve"; // Unique key for this specific table instance/view
 
@@ -174,11 +175,12 @@ export const ApprovePR: React.FC = () => {
   const prSearchableFields = useMemo(
     () =>
       PR_SEARCHABLE_FIELDS.concat([
+        /* // Pr_work_Package
         {
           value: "work_package",
           label: "Work Package",
           placeholder: "Search by Work Package...",
-        },
+        }, */
         {
           value: "owner",
           label: "Created By",
@@ -224,7 +226,10 @@ export const ApprovePR: React.FC = () => {
               >
                 {prId?.slice(-4)}
               </Link>
-              {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+              {/* // Pr_work_Package */}
+              {data.work_package?.toLowerCase() === "custom" && (
+                <Badge className="text-xs">Custom</Badge>
+              )}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
                   parentDoc={data}
@@ -290,23 +295,20 @@ export const ApprovePR: React.FC = () => {
         },
       },
       {
-        accessorKey: "work_package",
+        // Pr_work_Package
+        id: "PR Tag Child Table.tag_header",
+        accessorKey: "pr_tag_list",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Package" />
+          <DataTableColumnHeader column={column} title="Header" />
         ),
-        cell: ({ row }) => (
-          <div className="font-medium truncate">
-            {row.getValue("work_package") || "Custom"}
-          </div>
-        ),
+        cell: ({ row }) => <PRTagsCell row={row} />,
         enableColumnFilter: true,
         size: 150,
         meta: {
-          enableFacet: true,
-          facetTitle: "Work Package",
-          exportHeaderName: "Package",
+          exportHeaderName: "Header Tags",
           exportValue: (row: ProcurementRequest) => {
-            return row.work_package || "--";
+            const tags = (row as any).pr_tag_list || [];
+            return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
           },
         },
       },
@@ -326,10 +328,10 @@ export const ApprovePR: React.FC = () => {
             <div className="flex flex-wrap gap-1 items-start justify-start">
               {categoryItems.length > 0
                 ? categoryItems.map((obj) => (
-                    <Badge key={obj.name} variant="outline" className="text-xs">
-                      {obj.name}
-                    </Badge>
-                  ))
+                  <Badge key={obj.name} variant="outline" className="text-xs">
+                    {obj.name}
+                  </Badge>
+                ))
                 : "--"}
             </div>
           );
@@ -449,6 +451,7 @@ export const ApprovePR: React.FC = () => {
     defaultSort: "modified desc",
     enableRowSelection: false, // Enable for bulk actions
     additionalFilters: staticFilters, // Filter by workflow_state = Pending
+    apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
   });
 
   // --- Dynamic Facet Values ---
@@ -465,10 +468,22 @@ export const ApprovePR: React.FC = () => {
     enabled: true,
   });
 
+  /* // Pr_work_Package
   const { facetOptions: workPackageFacetOptions, isLoading: isWPFacetLoading } =
     useFacetValues({
       doctype: DOCTYPE,
       field: "work_package",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      additionalFilters: staticFilters,
+      enabled: true,
+    }); */
+
+  const { facetOptions: tagFacetOptions, isLoading: isTagFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "tag_header",
       currentFilters: columnFilters,
       searchTerm,
       selectedSearchField,
@@ -484,19 +499,22 @@ export const ApprovePR: React.FC = () => {
         options: projectFacetOptions,
         isLoading: isProjectFacetLoading,
       },
-      work_package: {
-        title: "Package",
-        options: workPackageFacetOptions,
-        isLoading: isWPFacetLoading,
+      "PR Tag Child Table.tag_header": {
+        title: "Header",
+        options: tagFacetOptions.length > 0 ? tagFacetOptions : workPackageOptions,
+        isLoading: isTagFacetLoading,
       },
       owner: { title: "Created By", options: userOptions },
     }),
     [
       projectFacetOptions,
       isProjectFacetLoading,
-      workPackageFacetOptions,
-      isWPFacetLoading,
+      /*workPackageFacetOptions,
+      isWPFacetLoading,*/
       userOptions,
+      tagFacetOptions,
+      isTagFacetLoading,
+      workPackageOptions
     ]
   );
 
@@ -515,8 +533,8 @@ export const ApprovePR: React.FC = () => {
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {isLoading ? (
@@ -551,7 +569,7 @@ export const ApprovePR: React.FC = () => {
           isExporting={isExporting}
           exportFileName={`Approve_PR_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
-          // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
+        // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
         />
       )}
     </div>

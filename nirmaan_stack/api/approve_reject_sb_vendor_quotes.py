@@ -350,7 +350,8 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
             po_doc.vendor_name = vendor_doc.vendor_name
             po_doc.vendor_address = vendor_doc.vendor_address
             po_doc.vendor_gst = vendor_doc.vendor_gst
-            if not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package"):
+            # Check if the work_package is explicitly "Custom"
+            if frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package") == "Custom":
                  po_doc.custom = "true"
             if vendor_name in payment_terms_by_vendor:
                 milestones = payment_terms_by_vendor[vendor_name]
@@ -361,7 +362,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                         term_status = "Created"
                         if milestone.get('type') == "Credit" and milestone.get('due_date'):
                             if getdate(milestone.get('due_date')) <= today:
-                                term_status = "Scheduled"
+                                term_status = "Created"
                         po_doc.append("payment_terms", {"payment_type": milestone.get('type'), "label": milestone.get('name'), "percentage": milestone.get('percentage'), "amount": milestone.get('amount'), "due_date": milestone.get('due_date'), "term_status": term_status})
             for item_dict in items_list:
                 po_doc.append("items", item_dict)
@@ -470,7 +471,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "tax": flt(item_in_source_sb.tax),
                     "status": "Pending", # New SB items are always Pending
                     "category": item_in_source_sb.category,
-                    "procurement_package": item_in_source_sb.procurement_package or parent_pr_work_package,
+                    "procurement_package": item_in_source_sb.procurement_package,
                     "comment": item_in_source_sb.comment, # Carry over comment
                     "make": item_in_source_sb.make,
                     "vendor": item_in_source_sb.vendor, # Carry over selected vendor

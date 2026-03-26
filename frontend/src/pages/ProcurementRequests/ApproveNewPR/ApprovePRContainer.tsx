@@ -58,17 +58,15 @@ export const ApprovePRContainer: React.FC = () => {
     );
 
     useFrappeDocumentEventListener("Procurement Requests", prId || '', (event) => {
-          console.log("Procurement Requests document updated (real-time):", event?.name);
-          toast({
-              title: "Document Updated",
-              description: `Procurement Requests ${event?.name} has been modified.`,
-          });
-          prMutate(); // Re-fetch this specific document
-        },
+        console.log("Procurement Requests document updated (real-time):", event?.name);
+        toast({
+            title: "Document Updated",
+            description: `Procurement Requests ${event?.name} has been modified.`,
+        });
+        prMutate(); // Re-fetch this specific document
+    },
         true // emitOpenCloseEventsOnMount (default)
-        );
-
-    const { make_list, makeListMutate, allMakeOptions, categoryMakelist, categoryMakeListMutate } = useRelatedPRData({ prDoc });
+    );
 
     // --- 2. Fetch Project Document (conditional) ---
     const projectQueryKey = prDoc?.project ? queryKeys.projects.doc(prDoc.project) : null;
@@ -78,15 +76,53 @@ export const ApprovePRContainer: React.FC = () => {
         projectQueryKey
     );
 
-    // --- 3. Fetch Related Data using Individual Hooks ---
-    const workPackage = useMemo(() => prDoc?.work_package, [prDoc]);
+    // --- 3. Derive All Relevant Packages ---
+    const allRelevantPackages = useMemo(() => {
+        const packages = new Set<string>();
+        
+        // 1. Add from project work packages (Master list)
+        if (projectDoc?.project_work_packages) {
+            const projectWPs = (typeof projectDoc.project_work_packages === 'string' 
+                ? JSON.parse(projectDoc.project_work_packages) 
+                : projectDoc.project_work_packages)?.work_packages ?? [];
+            projectWPs.forEach((wp: any) => {
+                if (wp.work_package_name) packages.add(wp.work_package_name);
+            });
+        }
+
+        // 2. Add current work package from PR (as fallback/safety)
+        if (prDoc?.work_package) packages.add(prDoc.work_package);
+        
+        // 3. Add from tags
+        (prDoc?.pr_tag_list || []).forEach(tag => {
+            if (tag.tag_package) packages.add(tag.tag_package);
+        });
+
+        // 4. Add from project category-make configuration (legacy/fallback)
+        (projectDoc?.project_wp_category_makes || []).forEach(item => {
+            if (item.procurement_package) packages.add(item.procurement_package);
+        });
+
+        return Array.from(packages);
+    }, [prDoc?.work_package, prDoc?.pr_tag_list, projectDoc?.project_work_packages, projectDoc?.project_wp_category_makes]);
+
+    // --- 4. Fetch Related Data ---
+    const { 
+        make_list, 
+        makeListMutate, 
+        allMakeOptions, 
+        categoryMakelist, 
+        categoryMakeListMutate 
+    } = useRelatedPRData({ prDoc, workPackages: allRelevantPackages });
+
     const prName = useMemo(() => prDoc?.name, [prDoc]);
+    const workPackage = useMemo(() => prDoc?.work_package, [prDoc]); // Keep for other hooks/props if needed
 
     // Fetch Users
     const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
 
-    // Fetch Categories (depends on workPackage)
-    const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useCategoryList({ workPackage });
+    // Fetch Categories (depends on allRelevantPackages)
+    const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useCategoryList({ workPackages: allRelevantPackages });
 
     // Derive category names for item fetching
     const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
@@ -325,6 +361,7 @@ export const ApprovePRContainer: React.FC = () => {
                 {...logicProps} // Spread all state and handlers from the logic hook
                 projectDoc={projectDoc}
                 categoryList={categoryList}
+                allRelevantPackages={allRelevantPackages}
                 // Draft-related props
                 hasDraft={draftManager.hasDraft}
                 lastSavedText={draftManager.lastSavedText}

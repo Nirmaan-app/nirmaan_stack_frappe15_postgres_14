@@ -1,0 +1,60 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:pr_header",
+ "creation": "2026-03-12 15:28:43.430075",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "tags_section",
+  "pr_header",
+  "tag_package"
+ ],
+ "fields": [
+  {
+   "fieldname": "tags_section",
+   "fieldtype": "Section Break",
+   "label": "Tags"
+  },
+  {
+   "fieldname": "pr_header",
+   "fieldtype": "Data",
+   "label": "PR Header",
+   "unique": 1
+  },
+  {
+   "fieldname": "tag_package",
+   "fieldtype": "Link",
+   "label": "Tag Package",
+   "options": "Procurement Packages"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-14 14:53:48.552477",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "PR Tag Headers",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

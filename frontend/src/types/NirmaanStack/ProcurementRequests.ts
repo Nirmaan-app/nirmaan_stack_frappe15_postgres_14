@@ -76,6 +76,12 @@ export interface ProcurementRequestItemDetail {
 }
 
 
+export interface PRTag {
+	name?: string;
+	tag_header: string;
+	tag_package: string;
+}
+
 export interface ProcurementRequest {
 	name: string
 	creation: string
@@ -90,7 +96,7 @@ export interface ProcurementRequest {
 	idx?: number
 	/**	Project : Link - Projects	*/
 	project: string
-	/**	Procurement Package : Link - Procurement Packages	*/
+	/**	Procurement Package : Data	*/
 	work_package?: string
 	/**	Procurement List : JSON	*/
 	procurement_list: {
@@ -112,6 +118,7 @@ export interface ProcurementRequest {
 	rfq_data: RFQData
 	workflow_state: string
 	order_list: ProcurementRequestItemDetail[]
+	pr_tag_list?: PRTag[];
 	custom?: string
 	estimated_value?: number; // Estimated value of the procurement request
 	target_value?: number;

@@ -47,8 +47,11 @@ def get_facet_values_impl(
         if not field_meta and not is_standard_field: frappe.throw(_("Invalid field '{0}' for DocType '{1}'").format(field, doctype))
         
         raw_filters = _parse_filters_input(filters, doctype)
+        # Filter out existing filters for the target field so we get all possible options
+        # We handle both plain field names and prefixed ones (like 'DocType.fieldname')
         filtered_filters = [f for f in raw_filters if not (
-            (len(f) == 3 and f[0] == field) or (len(f) == 4 and f[1] == field)
+            (len(f) == 3 and (f[0] == field or f[0].endswith(f".{field}"))) or 
+            (len(f) == 4 and (f[1] == field or f[1].endswith(f".{field}")))
         )]
         processed_filters = _process_filters_for_query(filtered_filters, doctype)
         

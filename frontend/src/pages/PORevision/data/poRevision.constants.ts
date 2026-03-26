@@ -10,6 +10,8 @@ export const poRevisionKeys = {
     ["po-revision", "history", poId] as const,
 
   // Context data (for the revision dialog)
+  project: (projectId: string) =>
+    ["po-revision", "project", projectId] as const,
   procurementRequest: (prId: string) =>
     ["po-revision", "pr", prId] as const,
   categories: (wp: string) => ["po-revision", "categories", wp] as const,

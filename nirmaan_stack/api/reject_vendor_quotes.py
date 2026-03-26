@@ -57,7 +57,7 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                         "quote": flt(item.get("quote")),
                         "unit": item.get("unit"),
                         "category": item.get("category"),
-                        "procurement_package": item.get("procurement_package") or pr_doc.work_package,
+                        "procurement_package": item.get("procurement_package"),
                         "status": "Pending",
                         "comment": item.get("comment"),
                         "make": item.get("make"),

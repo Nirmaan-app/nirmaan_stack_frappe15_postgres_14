@@ -3,6 +3,7 @@ import ReactSelect, {
   components,
   MenuListProps,
   SingleValue,
+  GroupBase,
 } from "react-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import {
   DialogDescription,
   DialogClose,
 } from "@/components/ui/dialog"; // Adjust path
-import { Pencil, CirclePlus } from "lucide-react";
+import { CirclePlus } from "lucide-react";
 import {
   CategoryMakesMap,
   CategorySelection,
@@ -64,7 +65,6 @@ export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
 const ItemCustomMenuList = (props: MenuListProps<ItemOption, false>) => {
   const { children } = props;
   const onAddItemClick = (props as any)?.onAddItemClick;
-  // const isNewItemsDisabled = (props as any)?.isNewItemsDisabled;
 
   return (
     <div>
@@ -76,7 +76,6 @@ const ItemCustomMenuList = (props: MenuListProps<ItemOption, false>) => {
             className="w-full rounded-md flex items-center justify-center gap-1 text-sm h-9 text-blue-600 hover:bg-blue-50"
             onClick={onAddItemClick}
             onTouchStart={onAddItemClick}
-            // disabled={isNewItemsDisabled} // Disable button based on prop
           >
             <CirclePlus className="mr-2 h-4 w-4" />
             Create/Request New Item
@@ -94,19 +93,23 @@ interface ItemSelectorControlsProps {
   selectedCategories: CategorySelection[];
   onAddItem: (
     itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">
-  ) => void; // isRequest removed, handled in hook
+  ) => void;
   onOpenNewItemDialog: () => void;
   allowWpEdit: boolean;
   onEditWP: () => void;
   disabled?: boolean;
   categoryList?: Category[];
   updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
-  makeList?: Makelist[]; // <<< Pass makeList for AddMakeComponent in dialog
+  makeList?: Makelist[];
   makeListMutate: () => Promise<any>;
-  categoryMakelist?: CategoryMakelist[]; // <<< Pass categoryMakelist for AddMakeComponent in dialog
+  categoryMakelist?: CategoryMakelist[];
   categoryMakeListMutate?: () => Promise<any>;
-  initialCategoryMakes: CategoryMakesMap; // <<< Add baseline makes map from store
+  initialCategoryMakes: CategoryMakesMap;
+  selectedHeaderTags: { tag_header: string; tag_package: string }[];
+  categoryToPackageMap: Record<string, string>;
   itemFuseOptions: IFuseOptions<ItemOption>;
+  procList: ProcurementRequestItem[];
+  allProjectPackages: string[];
 }
 
 export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
@@ -121,12 +124,16 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   disabled = false,
   categoryList,
   updateCategoryMakesInStore,
-  makeList, // <<< Receive makeList
+  makeList,
   makeListMutate,
   categoryMakelist,
   categoryMakeListMutate,
-  initialCategoryMakes, // <<< Receive baseline makes
+  initialCategoryMakes,
+  selectedHeaderTags,
+  categoryToPackageMap,
   itemFuseOptions,
+  procList,
+  allProjectPackages,
 }) => {
   // --- State ---
   const [curItem, setCurItem] = useState<SingleValue<ItemOption>>(null);
@@ -136,103 +143,42 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
   const userData = useUserData();
 
-  // const [resetFlag, setResetFlag] = useState(false);
-
-  // console.log("selectedCategories", selectedCategories)
-
   // --- Memos and Derived State ---
   const currentItemCategoryName = curItem?.category;
 
-  // --- *** FINAL REVISED LOGIC for availableMakeOptions *** ---
+  const filteredItemOptions = useMemo(() => {
+    const addedItemNames = new Set(procList.map(item => item.name));
+    return itemOptions.filter(opt => !addedItemNames.has(opt.value));
+  }, [itemOptions, procList]);
+
   const availableMakeOptions = useMemo(() => {
-    // --- Logging Start ---
-    console.log("--- ISC useMemo Start ---");
-    console.log("currentItemCategoryName:", currentItemCategoryName);
-    // console.log(
-    //   "selectedCategories (prop):",
-    //   JSON.stringify(selectedCategories)
-    // );
-    // console.log(
-    //   "initialCategoryMakes (prop):",
-    //   JSON.stringify(initialCategoryMakes)
-    // );
-    // --- Logging End ---
+    if (!currentItemCategoryName) return [];
 
-    if (!currentItemCategoryName) {
-      console.log("ISC useMemo: No category, returning []");
-      return [];
-    }
-
-    // Use a Set to automatically handle unique make names (values)
     const applicableMakeValues = new Set<string>();
 
-    // 1. Determine the BASE list (Initial Config OR Fallback)
     const initialMakes = initialCategoryMakes?.[currentItemCategoryName];
-    const hasInitialMakes =
-      Array.isArray(initialMakes) && initialMakes.length > 0;
+    const hasInitialMakes = Array.isArray(initialMakes) && initialMakes.length > 0;
 
     if (hasInitialMakes) {
-      // Use initial makes from the WP Project config as the base
-      // console.log(`ISC useMemo: Using initialMakes as base:`, initialMakes);
       initialMakes!.forEach((makeValue) => applicableMakeValues.add(makeValue));
     } else if (categoryMakelist) {
-      // Fallback to CategoryMakelist if initial makes are empty/not defined
-      console.log(
-        `ISC useMemo: Initial makes empty, using CategoryMakelist fallback as base.`
-      );
       categoryMakelist
-        .filter(
-          (entry) => entry.category === currentItemCategoryName && entry.make
-        )
-        .forEach((entry) => applicableMakeValues.add(entry.make!)); // Add makes from fallback
-    } else {
-      console.log(
-        `ISC useMemo: No initial makes and no categoryMakelist provided for base.`
-      );
+        .filter((entry) => entry.category === currentItemCategoryName && entry.make)
+        .forEach((entry) => applicableMakeValues.add(entry.make!));
     }
-    // console.log(
-    //   `ISC useMemo: Makes after base determination:`,
-    //   Array.from(applicableMakeValues)
-    // );
 
-    // 2. ADD makes from Session/procList (selectedCategories)
-    // Ensure makes used in items or explicitly added this session (via Manage Makes)
-    // are *always* included in the available options.
-    // const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
-    // if (derivedCategoryDetails?.makes && Array.isArray(derivedCategoryDetails.makes)) {
-    //     console.log(`ISC useMemo: Adding makes from selectedCategories:`, derivedCategoryDetails.makes);
-    //     derivedCategoryDetails.makes.forEach(makeValue => applicableMakeValues.add(makeValue));
-    // } else {
-    //     console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
-    // }
-
-    // console.log(
-    //   `ISC useMemo: Final applicable make values set:`,
-    //   Array.from(applicableMakeValues)
-    // );
-
-    // 3. Filter allMakeOptions based on the final applicable set of make values
     let potentialMakeOptions = allMakeOptions.filter((opt) =>
       applicableMakeValues.has(opt.value)
     );
 
-    // 4. Sort the final list alphabetically by label for consistent display
     potentialMakeOptions.sort((a, b) => a.label.localeCompare(b.label));
-
-    // console.log(
-    //   "ISC useMemo: Final potentialMakeOptions (before return):",
-    //   JSON.stringify(potentialMakeOptions)
-    // );
-    console.log("--- ISC useMemo End ---");
     return potentialMakeOptions;
   }, [
     currentItemCategoryName,
-    selectedCategories, // Derived makes from store (items + session adds)
-    initialCategoryMakes, // Baseline makes from project WP config
-    allMakeOptions, // The complete list of make options
-    categoryMakelist, // Fallback list if initial is empty
+    initialCategoryMakes,
+    allMakeOptions,
+    categoryMakelist,
   ]);
-  // --- End FINAL REVISED LOGIC ---
 
   const isNewItemsCreationDisabledForCategory = useMemo(() => {
     if (!curItem?.category || !categoryList) return false;
@@ -255,7 +201,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
       setCurComment("");
     },
     []
-  ); // No dependencies needed if it only sets state
+  );
 
   const handleAddItemClick = useCallback(() => {
     if (!curItem || !curQuantity || parseNumber(curQuantity) <= 0) {
@@ -271,12 +217,13 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
       tax: curItem.tax,
       make: curMake?.value || undefined,
       comment: curComment.trim() || undefined,
+      work_package: categoryToPackageMap[curItem.category] || (selectedHeaderTags.length > 0 ? selectedHeaderTags[0].tag_package : selectedWP),
     });
     setCurItem(null);
     setCurMake(null);
     setCurQuantity("");
     setCurComment("");
-  }, [curItem, curQuantity, curMake, curComment, onAddItem]); // Dependencies needed
+  }, [curItem, curQuantity, curMake, curComment, onAddItem, selectedHeaderTags, selectedWP]);
 
   const handleOpenManageMakesDialog = useCallback(() => {
     if (!curItem?.category) {
@@ -284,29 +231,27 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
       return;
     }
     setIsManageMakesDialogOpen(true);
-  }, [curItem]); // Dependency needed
+  }, [curItem]);
 
   const handleMakesManaged = useCallback(
     (newlyAssociatedMakes: MakeOption[]) => {
       if (!currentItemCategoryName) return;
-      let makeToSelectAfterwards: MakeOption | null = null; // To auto-select the first added make
+      let makeToSelectAfterwards: MakeOption | null = null;
       newlyAssociatedMakes.forEach((make) => {
         updateCategoryMakesInStore(currentItemCategoryName, make.value);
         if (!makeToSelectAfterwards) {
-          // Keep track of the first one added
           makeToSelectAfterwards = make;
         }
       });
 
       setIsManageMakesDialogOpen(false);
 
-      // Auto-select the first newly added make if available
       if (makeToSelectAfterwards) {
         const fullOption = allMakeOptions.find(
           (opt) => opt.value === makeToSelectAfterwards!.value
         );
         if (fullOption) {
-          setCurMake(fullOption); // Update local state
+          setCurMake(fullOption);
         }
       }
     },
@@ -315,19 +260,32 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Work Package Display (No changes) */}
-      <div className="flex items-center justify-between">
-        {/* Left-side content */}
-        <div className="space-y-1">
-          <h3 className="max-sm:text-xs font-semibold text-gray-400">
-            Package
-          </h3>
-
-          {/* The package name stays here */}
-          <p className="font-semibold max-sm:text-sm">{selectedWP}</p>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Headers Tags:</span>
+            {selectedHeaderTags.map((tag, idx) => (
+              <span
+                key={idx}
+                className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20 whitespace-nowrap"
+              >
+                {tag.tag_header}
+              </span>
+            ))}
+          </div>
+          {/* <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Packages:</span>
+            {allProjectPackages.map((pkg, idx) => (
+              <span
+                key={idx}
+                className="px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium border border-blue-200 whitespace-nowrap"
+              >
+                {pkg}
+              </span>
+            ))}
+          </div> */}
         </div>
 
-        {/* Right-side content - The Reset button is moved here */}
         {allowWpEdit && (
           <Dialog>
             <DialogTrigger asChild>
@@ -356,7 +314,6 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         )}
       </div>
 
-      {/* --- Item Selector --- */}
       <div>
         <Label
           htmlFor="item-select"
@@ -368,51 +325,41 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
           inputId="item-select"
           placeholder={"Select or Create/Request Item..."}
           value={curItem}
-          allOptions={itemOptions}
+          allOptions={filteredItemOptions}
           fuseOptions={itemFuseOptions}
-          onChange={handleItemChange}
+          onChange={handleItemChange as any}
           isDisabled={disabled}
           isClearable
-          customMenuListComponent={ItemCustomMenuList} // Pass your custom menu
+          customMenuListComponent={ItemCustomMenuList as any}
           customMenuListProps={{
-            // Props for your custom menu
             onAddItemClick: onOpenNewItemDialog,
-            isNewItemsDisabled: isNewItemsCreationDisabledForCategory, // Pass the disabled state
-          }}
+            isNewItemsDisabled: isNewItemsCreationDisabledForCategory,
+          } as any}
         />
       </div>
 
-      {/* --- Row for Make / Qty / Unit --- */}
-      {/* --- Row for Make / Qty / Unit (Horizontal, wraps, baseline aligned) --- */}
       <div className="flex flex-row items-baseline gap-2 sm:gap-4">
-        {/* Make Selector (Flexible width) */}
         <div className="w-2/3">
-          {" "}
-          {/* Allow grow/shrink, base width ~160px */}
           <Label
             htmlFor="make-select"
             className="block text-sm font-medium text-gray-700 mb-1"
           >
             Make<sup className="text-red-500">*</sup>
           </Label>
-          <ReactSelect
+          <ReactSelect<MakeOption, false, GroupBase<MakeOption>>
             inputId="make-select"
-            placeholder={!curItem ? "NA" : "Select Make..."} // Changed placeholder slightly
+            placeholder={!curItem ? "NA" : "Select Make..."}
             value={curMake}
             isDisabled={disabled || !curItem}
             options={availableMakeOptions}
             onChange={(selectedOption) => setCurMake(selectedOption)}
-            onManageMakesClick={handleOpenManageMakesDialog}
-            components={{ MenuList: CustomMakeMenuList }} // Use CustomMakeMenuList for Make
-            // selectProps={{ customProps: makeSelectCustomProps }}
+            {...({ onManageMakesClick: handleOpenManageMakesDialog } as any)}
+            components={{ MenuList: CustomMakeMenuList as any }}
             isClearable
           />
         </div>
 
-        {/* Unit Display (Fixed base width) */}
         <div className="w-1/6">
-          {" "}
-          {/* Fixed base width ~80px */}
           <Label className="block text-sm font-medium text-gray-700 mb-1">
             Unit
           </Label>
@@ -424,10 +371,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
           />
         </div>
 
-        {/* Qty Input (Fixed base width) */}
         <div className="w-1/6">
-          {" "}
-          {/* Fixed base width ~96px */}
           <Label
             htmlFor="quantity-input"
             className="block text-sm font-medium text-gray-700 mb-1"
@@ -447,7 +391,6 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         </div>
       </div>
 
-      {/* --- Comment Input (Full Width) --- */}
       <div>
         <Label
           htmlFor="comment-input"
@@ -465,7 +408,6 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         />
       </div>
 
-      {/* --- Add Item Button (Full Width) --- */}
       <Button
         onClick={handleAddItemClick}
         disabled={
@@ -481,7 +423,6 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
         Add to Cart
       </Button>
 
-      {/* --- Manage Makes Dialog Instance --- */}
       {currentItemCategoryName && (
         <ManageCategoryMakesDialog
           isOpen={isManageMakesDialogOpen}
@@ -489,15 +430,14 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
           categoryName={currentItemCategoryName}
           associatedMakes={
             selectedCategories.find((c) => c.name === currentItemCategoryName)
-              ?.makes ?? // Check derived state first
-            initialCategoryMakes[currentItemCategoryName] ?? // Fallback to initial state
-            [] // Default to empty array
+              ?.makes ??
+            initialCategoryMakes[currentItemCategoryName] ??
+            []
           }
-          // allMakeOptions={allMakeOptions}
           onMakesAssociated={handleMakesManaged}
-          makeList={makeList} // Pass makeList down
+          makeList={makeList}
           makeListMutate={makeListMutate}
-          categoryMakelist={categoryMakelist} // Pass categoryMakelist down
+          categoryMakelist={categoryMakelist}
           categoryMakeListMutate={categoryMakeListMutate}
         />
       )}

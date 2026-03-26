@@ -20,7 +20,7 @@ interface ConfirmationDialogProps {
 }
 
 export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
-    isOpen, onClose, actionType, prName, onConfirm, isLoading, universalComment,totalItemsCount, 
+    isOpen, onClose, actionType, prName, onConfirm, isLoading, universalComment, totalItemsCount,
     handleUniversalCommentChange
 }) => {
     if (!actionType) return null; // Don't render if action type isn't set
@@ -36,22 +36,22 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>{title}</AlertDialogTitle>
-                    <AlertDialogDescription>{totalItemsCount <= 1?"Cannot delete the last item in a PR":description}</AlertDialogDescription>
+                    <AlertDialogDescription>{totalItemsCount <= 1 ? "Cannot delete the last item in a PR" : description}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div>
-                <textarea
-                    className="w-full p-2 border rounded-md min-h-[80px]"
-                    placeholder={`Optional: Add a comment before ${actionType === 'approve' ? 'approving' : 'rejecting'}...`}
-                    value={universalComment}
-                    onChange={handleUniversalCommentChange}
-                />
+                    <textarea
+                        className="w-full p-2 border rounded-md min-h-[80px]"
+                        placeholder={`Optional: Add a comment before ${actionType === 'approve' ? 'approving' : 'rejecting'}...`}
+                        value={universalComment}
+                        onChange={handleUniversalCommentChange}
+                    />
                 </div>
                 {/* Optional: Add area to display final comment if needed */}
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={onClose} disabled={isLoading}>Cancel</AlertDialogCancel>
                     <Button
                         onClick={onConfirm}
-                        disabled={totalItemsCount <= 1}    
+                        disabled={totalItemsCount <= 1}
                         variant={isApproving ? 'default' : 'destructive'}
                     >
                         {isLoading

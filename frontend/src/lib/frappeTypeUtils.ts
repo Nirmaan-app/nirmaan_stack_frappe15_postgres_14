@@ -6,15 +6,34 @@ import { DateFilterValue } from '@/components/data-table/data-table-date-filter'
 export function convertTanstackFiltersToFrappe(
     tanstackFilters: ColumnFiltersState | undefined,
     doctype?: string // Optional doctype for prefixing if needed later
-): Array<[string, string, any] | string> {
+): Array<[string, string, string, any] | [string, string, any] | string> {
     if (!tanstackFilters || tanstackFilters.length === 0) {
         return []; // Return empty array if no filters
     }
 
-    const frappeFilters: Array<[string, string, any]> = [];
+    const frappeFilters: Array<[string, string, string, any] | [string, string, any]> = [];
 
     tanstackFilters.forEach(filter => {
         const { id: columnId, value } = filter;
+
+        let targetDoctype = doctype;
+        let targetField = columnId;
+
+        // --- NEW: Handle dot notation for child table filters (e.g. "PR Tag Child Table.tag_package") ---
+        if (columnId.includes('.')) {
+            const parts = columnId.split('.');
+            if (parts.length === 2) {
+                targetDoctype = parts[0];
+                targetField = parts[1];
+            }
+        }
+
+        const buildFilter = (op: string, val: any): [string, string, string, any] | [string, string, any] => {
+            if (targetDoctype && targetDoctype !== doctype) {
+                return [targetDoctype, targetField, op, val];
+            }
+            return [targetField, op, val];
+        };
 
         // --- NEW: Handle Date Filter Objects ---
         if (typeof value === 'object' && value !== null && 'operator' in value && 'value' in value) {
@@ -24,30 +43,30 @@ export function convertTanstackFiltersToFrappe(
             if (dateFilter.value !== null && dateFilter.value !== undefined) {
                  if (frappeOperator === 'IsNot' && typeof dateFilter.value === 'string') {
                     // Convert 'IsNot' to '!=' for Frappe
-                    frappeFilters.push([columnId, 'IsNot', dateFilter.value]);
+                    frappeFilters.push(buildFilter('IsNot', dateFilter.value));
                  } else if (frappeOperator === 'Is' && typeof dateFilter.value === 'string') {
                     // Convert 'Is' to '='
-                     frappeFilters.push([columnId, 'Is', dateFilter.value]);
+                     frappeFilters.push(buildFilter('Is', dateFilter.value));
                  } else if (frappeOperator === 'Timespan' && typeof dateFilter.value === 'string') {
                      // Pass "Timespan" operator and value directly to backend for processing
-                     frappeFilters.push([columnId, 'Timespan', dateFilter.value]);
+                     frappeFilters.push(buildFilter('Timespan', dateFilter.value));
                  } else if (frappeOperator === 'Between' && Array.isArray(dateFilter.value) && dateFilter.value.length === 2) {
                      // Pass "Between" with the array value
-                     frappeFilters.push([columnId, 'Between', dateFilter.value]);
+                     frappeFilters.push(buildFilter('Between', dateFilter.value));
                  } else if (['<=', '>='].includes(frappeOperator) && typeof dateFilter.value === 'string') {
                      // Pass operators like "<=", ">=" directly
-                     frappeFilters.push([columnId, frappeOperator, dateFilter.value]);
+                     frappeFilters.push(buildFilter(frappeOperator, dateFilter.value));
                  }
                  // Add other operator mappings if needed
             }
         }
         // --- Handle Faceted Filter (Array) ---
         else if (Array.isArray(value) && value.length > 0) {
-            frappeFilters.push([columnId, 'in', value]);
+            frappeFilters.push(buildFilter('in', value));
         }
         // --- Handle Simple String Filter (Optional - if you have basic text column filters) ---
         else if (typeof value === 'string' && value.trim() !== '') {
-            frappeFilters.push([columnId, 'like', `%${value}%`]);
+            frappeFilters.push(buildFilter('like', `%${value}%`));
         }
     });
 

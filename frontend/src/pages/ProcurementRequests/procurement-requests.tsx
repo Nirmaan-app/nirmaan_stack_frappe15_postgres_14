@@ -1,7 +1,7 @@
 import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
 
 // --- Tab Configuration ---
@@ -49,6 +49,7 @@ import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import { HeaderHoverCard } from "@/components/helpers/HeaderHoverCard";
 import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
@@ -61,6 +62,23 @@ const SentBackRequest = React.lazy(() => import("@/pages/Sent Back Requests/sent
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
 const URL_SYNC_KEY_BASE = 'pr'; // Base key for URL params for this page
+
+export const PRTagsCell: React.FC<{ row: any }> = ({ row }) => {
+    const tags = (row.original as any).pr_tag_list || [];
+    return (
+        <div className="flex flex-wrap gap-1 items-start justify-start">
+            {tags.length > 0 ? (
+                tags.map((tag: any, index: number) => (
+                    <Badge key={index} variant="outline" className="text-xs bg-white">
+                        {tag.tag_header}
+                    </Badge>
+                ))
+            ) : (
+                <div className="font-medium text-gray-500 text-xs">Custom</div>
+            )}
+        </div>
+    );
+};
 
 
 const PRDataTableWrapper: React.FC<{
@@ -122,6 +140,7 @@ const PRDataTableWrapper: React.FC<{
             defaultSort: 'modified desc',
             enableRowSelection: false, // Enable selection for delete
             additionalFilters: staticFilters,
+            apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
         });
 
         const { facetOptions: projectFacets } = useFacetValues({
@@ -133,14 +152,14 @@ const PRDataTableWrapper: React.FC<{
             additionalFilters: staticFilters,
         });
 
-        const { facetOptions: wpFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'work_package',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters,
-        });
+        // const { facetOptions: wpFacets } = useFacetValues({
+        //     doctype: DOCTYPE,
+        //     field: 'work_package',
+        //     currentFilters: columnFilters,
+        //     searchTerm: tableSearchTerm,
+        //     selectedSearchField: tableSelectedSearchField,
+        //     additionalFilters: staticFilters,
+        // });
 
         const { facetOptions: ownerFacets } = useFacetValues({
             doctype: DOCTYPE,
@@ -161,13 +180,23 @@ const PRDataTableWrapper: React.FC<{
             enabled: tab === PR_TABS.ALL_PRS
         });
 
-        const combinedFacetOptions = {
+        const { facetOptions: tagFacets } = useFacetValues({
+            doctype: DOCTYPE,
+            field: 'tag_header',
+            currentFilters: columnFilters,
+            searchTerm: tableSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            additionalFilters: staticFilters,
+        });
+
+        const facetOptionsToDataTable = useMemo(() => ({
             ...facetFilterOptions,
-            project: { title: "Project", options: projectFacets },
-            work_package: { title: "Package", options: wpFacets },
-            owner: { title: "Created By", options: ownerFacets },
-            workflow_state: tab === PR_TABS.ALL_PRS ? { title: "Status", options: statusFacets } : facetFilterOptions.workflow_state
-        };
+            project: { ...facetFilterOptions.project, options: projectFacets },
+            owner: { ...facetFilterOptions.owner, options: ownerFacets },
+            workflow_state: { ...facetFilterOptions.workflow_state, options: statusFacets },
+            "PR Tag Child Table.tag_header": { ...facetFilterOptions["PR Tag Child Table.tag_header"], options: tagFacets }
+        }), [facetFilterOptions, projectFacets, ownerFacets, statusFacets, tagFacets]);
+
 
         return (
             <DataTable<ProcurementRequest>
@@ -181,7 +210,7 @@ const PRDataTableWrapper: React.FC<{
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={tableSearchTerm}
                 onSearchTermChange={setSearchTerm}
-                facetFilterOptions={combinedFacetOptions}
+                facetFilterOptions={facetOptionsToDataTable}
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
@@ -326,7 +355,8 @@ export const ProcurementRequests: React.FC = () => {
                         ) : (
                             <p>{prId?.slice(-4)}</p>
                         )}
-                        {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+                        {/* // Pr_work_Package - Relying on work_package field */}
+                        {data.work_package?.toLowerCase() === "custom" && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
                                 parentDoc={data}
@@ -370,9 +400,18 @@ export const ProcurementRequests: React.FC = () => {
             }
         },
         {
-            accessorKey: "work_package", header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
-            cell: ({ row }) => <div className="font-medium truncate">{row.getValue("work_package") || "--"}</div>,
+            // Pr_work_Package
+            id: "PR Tag Child Table.tag_header",
+            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
+            cell: ({ row }) => <PRTagsCell row={row} />,
             enableColumnFilter: true, size: 150,
+            meta: {
+                exportHeaderName: "Header Tags",
+                exportValue: (row: ProcurementRequest) => {
+                    const tags = (row as any).pr_tag_list || [];
+                    return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
+                }
+            }
         },
         {
             accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
@@ -458,7 +497,7 @@ export const ProcurementRequests: React.FC = () => {
     const facetFilterOptionsForDataTable = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
         workflow_state: { title: "Status", options: statusOptions },
-        work_package: { title: "Package", options: workPackageOptions },
+        "PR Tag Child Table.tag_header": { title: "Header", options: workPackageOptions },
         owner: { title: "Created By", options: userOptions }
     }), [projectOptions, statusOptions, workPackageOptions, userOptions]); // Add new dependencies
 

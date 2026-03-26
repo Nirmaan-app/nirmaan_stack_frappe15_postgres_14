@@ -144,8 +144,13 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
         // Step 4: Filter allMakeOptions and map/mark
         const finalOptions = allMakeOptions
             .filter(option => {
-                const isIncluded = globalCategoryMakesSet.has(option?.value);
-                // console.log(`Step 4a: Filtering option: { label: '${option?.label}', value: '${option?.value}' } -> Included by global set? ${isIncluded}`);
+                const isIncluded = 
+                    globalCategoryMakesSet.has(option?.value) || 
+                    globalCategoryMakesSet.has(option?.label) ||
+                    projectSpecificMakesSet.has(option?.value) ||
+                    projectSpecificMakesSet.has(option?.label);
+                
+                // console.log(`Step 4a: Filtering option: { label: '${option?.label}', value: '${option?.value}' } -> Included: ${isIncluded}`);
                 return isIncluded;
             })
             .map(option => {

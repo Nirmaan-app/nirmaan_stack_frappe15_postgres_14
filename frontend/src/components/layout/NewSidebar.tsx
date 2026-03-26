@@ -25,8 +25,8 @@ import {
   Banknote,
   CreditCard,
   Dices,
-  Landmark, PencilRuler,
-  Warehouse,
+  Landmark, PencilRuler, SquareStack,
+  Warehouse, ClipboardList,
   FileChartLine,
   Tickets
 } from "lucide-react";
@@ -205,6 +205,7 @@ export function NewSidebar() {
             { key: "/vendors", label: "Vendors" },
             { key: "/customers", label: "Customers" },
             { key: "/product-packages", label: "Product Packages" },
+            { key: "/pr-header-packages", label: "PR Header Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
             { key: "/commission-packages", label: "Commission Packages" },
@@ -605,6 +606,7 @@ export function NewSidebar() {
     "vendors",
     "customers",
     "product-packages",
+    "pr-header-packages",
     "milestone-packages",
     "design-packages",
     "tds-repository",
@@ -638,6 +640,7 @@ export function NewSidebar() {
     'reports',
     'design-tracker',
     'critical-po-tracker',
+    'pr-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
@@ -657,7 +660,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -677,6 +680,7 @@ export function NewSidebar() {
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
+    '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
@@ -775,6 +779,7 @@ export function NewSidebar() {
                     "Reports",
                     "Design Tracker",
                     "Commission Report Tracker",
+                    "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",

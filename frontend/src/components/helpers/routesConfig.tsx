@@ -72,6 +72,7 @@ import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
+import { PRHeaderTagMaster } from "@/components/PRHeaderTagMaster";
 // --- End component imports ---
 
 // NEW COMMISSION REPORT PAGES
@@ -101,6 +102,10 @@ import MaterialPlanTrackerDetail from "@/pages/MaterialPlanTracker/material-plan
 //Cashflow Plan Tracker
 import CashflowPlanTrackerList from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-list";
 import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-detail";
+
+//PR Tracker
+import { PRTrackerList } from "@/pages/PRTracker";
+import PRTrackerDetail from "@/pages/PRTracker/pr-tracker-detail";
 
 import InventoryItemWisePage from "@/pages/inventory/InventoryItemWisePage";
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
@@ -424,6 +429,22 @@ export const appRoutes: RouteObject[] = [
           // --- END: CASHFLOW PLAN TRACKER SECTION ---
           // ======================================================
 
+          // ======================================================
+          // --- START: PR TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "pr-tracker",
+            children: [
+              // List View (e.g., /pr-tracker)
+              { index: true, element: <PRTrackerList /> },
+              // Detail View (e.g., /pr-tracker/PROJ-0001)
+              { path: ":projectId", element: <PRTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: PR TRACKER SECTION ---
+          // ======================================================
+
           // --- Projects Section ---
           {
             path: "projects",
@@ -639,6 +660,7 @@ export const appRoutes: RouteObject[] = [
           { path: "product-packages", element: <ProcurementPackages /> },
           // {path:"milestones-packages",element:}
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
+          { path: "pr-header-packages", element: <PRHeaderTagMaster /> },
           { path: "design-packages", element: <DesignPackages /> },
           { path: "commission-packages", element: <CommissionPackages /> },
           { path: "work-order-rate-card", element: <WOServicePackages /> },

@@ -76,7 +76,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
         # --- STEP 4: CREATE THE PURCHASE ORDERS (ONE PER VENDOR) ---
         latest_po_name = None
         created_po_names = []
-        is_pr_custom = not pr_doc.work_package
+        is_pr_custom = pr_doc.work_package == "Custom"
 
         # --- PRE-FETCH ATTACHMENT FOR CUSTOM PR ---
         pr_attachment = None

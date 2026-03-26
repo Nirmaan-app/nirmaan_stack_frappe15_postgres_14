@@ -1,0 +1,82 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-13 12:46:21.790192",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project",
+  "header",
+  "section_break_gahe",
+  "projectname",
+  "package",
+  "associated_prs"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fetch_from": "project.project_name",
+   "fieldname": "projectname",
+   "fieldtype": "Data",
+   "label": "ProjectName"
+  },
+  {
+   "fieldname": "header",
+   "fieldtype": "Data",
+   "label": "Header",
+   "options": "PR Tag Headers"
+  },
+  {
+   "fieldname": "package",
+   "fieldtype": "Data",
+   "label": "Package"
+  },
+  {
+   "fieldname": "section_break_gahe",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "associated_prs",
+   "fieldtype": "JSON",
+   "label": "Associated PRs"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-13 16:52:25.409455",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Critical PR Tags",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

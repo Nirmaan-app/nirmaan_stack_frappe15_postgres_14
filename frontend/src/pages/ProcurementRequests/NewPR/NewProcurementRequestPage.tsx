@@ -32,99 +32,77 @@ import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 type PageState = 'loading' | 'wp-selection' | 'item-selection' | 'error';
 
-// Helper function to safely parse JSON and extract makes map
-export const extractMakesFromChildTableForWP = (project: Projects | undefined, selectedWorkPackageName: string): CategoryMakesMap => {
-
+// Helper function to safely parse JSON and extract makes map for multiple packages
+export const extractMakesFromChildTableForMultipleWPs = (project: Projects | undefined, selectedPackages: string[]): CategoryMakesMap => {
     const makesMap: CategoryMakesMap = {};
-    if (!project?.project_wp_category_makes || !selectedWorkPackageName) {
+    if (!project?.project_wp_category_makes || selectedPackages.length === 0) {
         return makesMap;
     }
 
     project.project_wp_category_makes.forEach((itemLink) => {
-        // itemLink is a row from the 'project_wp_category_makes' child table
-        if (itemLink.procurement_package === selectedWorkPackageName) {
+        if (selectedPackages.includes(itemLink.procurement_package)) {
             if (!makesMap[itemLink.category]) {
                 makesMap[itemLink.category] = [];
             }
-            // Only add the make if it's present and not already in the list for that category
             if (itemLink.make && !makesMap[itemLink.category].includes(itemLink.make)) {
                 makesMap[itemLink.category].push(itemLink.make);
             }
         }
     });
-    // Sort makes within each category for consistency
+
     for (const category in makesMap) {
         makesMap[category].sort();
     }
     return makesMap;
+};
 
+// Helper function to extract category-to-package mapping for selected packages
+export const extractCategoryToPackageMap = (project: Projects | undefined, selectedPackages: string[]): Record<string, string> => {
+    const pkgMap: Record<string, string> = {};
+    if (!project?.project_wp_category_makes || selectedPackages.length === 0) {
+        return pkgMap;
+    }
+    project.project_wp_category_makes.forEach((itemLink) => {
+        if (selectedPackages.includes(itemLink.procurement_package)) {
+            pkgMap[itemLink.category] = itemLink.procurement_package;
+        }
+    });
+    return pkgMap;
 };
 
 const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boolean }> = ({ resolve = false, edit = false }) => {
     const { projectId, prId } = useParams<{ projectId: string; prId?: string }>();
     const mode = edit ? 'edit' : resolve ? 'resolve' : 'create';
-    // const navigate = useNavigate();
 
-    // Local state for UI flow and dialogs
     const [page, setPage] = useState<PageState>('loading');
     const [showNewItemDialog, setShowNewItemDialog] = useState(false);
     const [itemToEdit, setItemToEdit] = useState<ProcurementRequestItem | null>(null);
 
-    // --- Store Initialization --- 
     const setStoreComment = useProcurementRequestStore(state => state.setNewPRComment);
     const initializeStore = useProcurementRequestStore(state => state.initialize);
-    const wpFromStore = useProcurementRequestStore(state => state.selectedWP);
+    const selectedHeaderTagsFromStore = useProcurementRequestStore(state => state.selectedHeaderTags);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
-    // const resetStore = useProcurementRequestStore(state => state.resetStore); // Get if needed for cleanup
 
     const initialCategoryMakes = useProcurementRequestStore(state => state.initialCategoryMakes)
-
     const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useProcurementRequest(prId)
 
-
-    // Fetch existing PR data only if in edit/resolve mode
-    // const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useFrappeGetDoc<ProcurementRequest>(
-    //     "Procurement Requests",
-    //     prId!,
-    //     !!prId && (mode === 'edit' || mode === 'resolve') ? undefined : null
-    //     // Correct options syntax for conditional fetching
-    //     // { enabled: !!prId && (mode === 'edit' || mode === 'resolve') }
-    // );
-
-    // if(existingPRData && ((mode === "edit" && existingPRData?.workflow_state !== "Draft") || (mode === "resolve" && existingPRData?.workflow_state !== "Rejected"))) {
-    //     navigate(`/prs&milestones/procurement-requests/${existingPRData?.name}`)
-    // }
-
-    const { emitDocOpen } = useFrappeDocumentEventListener("Procurment Requests", prId!, (event) => {
+    const { emitDocOpen } = useFrappeDocumentEventListener("Procurment Requests", prId!, () => {
         if (prId) {
             existingPRDataMutate();
-            console.log("Procurement Request document updated (real-time):", event);
-            toast({
-                title: "Document Updated",
-                description: `Procurement Request ${event.name} has been modified.`,
-            });
+            toast({ title: "Document Updated", description: `Procurement Request ${prId} has been modified.` });
         }
-    },
-        false
-    )
+    }, false)
 
     useEffect(() => {
-        if (prId) {
-            emitDocOpen();
-        }
+        if (prId) emitDocOpen();
     }, [prId, emitDocOpen]);
 
+    const { project, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate, categoryMakelist, categoryMakeListMutate } = useProcurementRequestData();
 
-    // --- Data Hooks ---
-    // Fetch project data FIRST or ensure it's available for initialization
-    const { project, wpList, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate, categoryMakelist, categoryMakeListMutate } = useProcurementRequestData();
-
-    // Effect to initialize or re-initialize the store
     useEffect(() => {
         if (mode === "create" && !projectId) return;
 
         if ((mode === 'edit' || mode === 'resolve') && !prId) {
-            console.error("Edit/Resolve mode requires a prId!");
             setPage('error');
             return;
         }
@@ -136,65 +114,58 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
         let initialDataForStore: {
             workPackage: string,
-            procList: ProcurementRequestItem[], // Frontend item structure
-            categories: CategorySelection[] // Your existing type for selectedCategories
+            selectedHeaderTags: { tag_header: string; tag_package: string }[],
+            procList: ProcurementRequestItem[],
+            categories: CategorySelection[]
         } | undefined = undefined;
-        let initialWpMakesMap: CategoryMakesMap = {};
+        let combinedMakesMap: CategoryMakesMap = {};
 
         if ((mode === 'edit' || mode === 'resolve') && existingPRData) {
             const transformedProcList: ProcurementRequestItem[] = (existingPRData.order_list || []).map(
                 (backendItem: BackendPRItemDetail): ProcurementRequestItem => ({
-                    uniqueId: backendItem.name, // Use Frappe's child row name as uniqueId
-                    name: backendItem.item_id,       // Map backend item_id to frontend name
-                    item: backendItem.item_name,     // Map backend item_name to frontend item
+                    uniqueId: backendItem.name,
+                    name: backendItem.item_id,
+                    item: backendItem.item_name,
                     unit: backendItem.unit,
                     quantity: backendItem.quantity,
                     category: backendItem.category,
-                    work_package: backendItem.procurement_package!, // Map backend procurement_package
-                    make: backendItem.make || undefined, // Ensure undefined if null/empty
-                    status: backendItem.status as ProcurementRequestItem['status'], // Ensure type assertion
-                    tax: backendItem.tax ?? 0, // Default tax to 0 if undefined; your frontend type expects number
+                    work_package: backendItem.procurement_package!,
+                    make: backendItem.make || undefined,
+                    status: backendItem.status as ProcurementRequestItem['status'],
+                    tax: backendItem.tax ?? 0,
                     comment: backendItem.comment || undefined,
                 })
             );
 
-            // For 'categories', the existingPRData.category_list (JSON) would still be used
-            // as we haven't migrated that one yet.
-            //  let parsedCatList: Category[] = [];
-            //  try {
-            //      const catListRaw = existingPRData.category_list;
-            //      parsedCatList = (typeof catListRaw === "string" ? JSON.parse(catListRaw || '{"list":[]}') : catListRaw)?.list || [];
-            //  } catch (e) {
-            //      console.error("Failed to parse existing PR category_list data:", e);
-            //  }
-            // Note: The store's selectedCategories are derived, so initialPrData.categories is less critical here
-            // The main thing is having the procList to derive from.
-
             initialDataForStore = {
-                workPackage: existingPRData.work_package || '',
+                // Pr_work_Package
+                // workPackage: existingPRData.work_package || '',
+                // @ts-ignore - pr_tag_list might not be in the generated types yet
+                selectedHeaderTags: (existingPRData.pr_tag_list || []).map(tag => ({
+                    tag_header: tag.tag_header,
+                    tag_package: tag.tag_package
+                })),
                 procList: transformedProcList,
-                categories: [], // selectedCategories will be derived by the store from procList and makes
+                categories: [],
             };
 
-            if (initialDataForStore.workPackage && project) {
-                initialWpMakesMap = extractMakesFromChildTableForWP(project, initialDataForStore.workPackage);
+            if (initialDataForStore.selectedHeaderTags.length > 0 && project) {
+                const packages = initialDataForStore.selectedHeaderTags.map(h => h.tag_package);
+                combinedMakesMap = extractMakesFromChildTableForMultipleWPs(project, packages);
             }
         }
-        const projId = mode === "create" ? projectId : existingPRData?.project
-
-        initializeStore(mode, projId, prId, initialWpMakesMap, initialDataForStore);
+        const projId = mode === "create" ? projectId : existingPRData?.project;
+        initializeStore(mode, projId, prId, combinedMakesMap, initialDataForStore);
 
     }, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project]);
 
-
-    // --- Hooks ---
     const {
         selectedWP,
         procList, selectedCategories, undoStack, newPRComment,
-        selectWorkPackage,
-        addOrUpdateItem, // This is for ADDING new items/requests
-        updateItemInList, // <-- GET THE UPDATE FUNCTION
-        deleteItemFromList, // <-- GET THE DELETE FUNCTION
+        selectHeaders,
+        addOrUpdateItem,
+        updateItemInList,
+        deleteItemFromList,
         undoLastDelete,
         setComment,
         handleFuzzySearch,
@@ -209,79 +180,49 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
     const { submitNewPR, resolveOrUpdatePR, cancelDraftPR, isSubmitting } = useSubmitProcurementRequest();
 
-    // --- Page State Logic ---
     useEffect(() => {
-        // Wait for store init AND data loading
         if (!isStoreInitialized || dataLoading) {
             setPage('loading');
         } else if (dataError) {
             setPage('error');
-        } else if (!wpFromStore) {
+        } else if (selectedHeaderTagsFromStore.length === 0) {
             setPage('wp-selection');
         } else {
             setPage('item-selection');
         }
-    }, [isStoreInitialized, dataLoading, wpFromStore, dataError]);
+    }, [isStoreInitialized, dataLoading, selectedHeaderTagsFromStore, dataError]);
 
-    const uniqueProcurementPackageDisplayNames = useMemo(() => {
-        // Ensure project exists and project.project_wp_category_makes is an array
-        if (!project || !Array.isArray(project.project_wp_category_makes)) {
-            return [];
+    const handleHeadersSelect = useCallback((headers: { tag_header: string; tag_package: string }[]) => {
+        if (!project && headers.length > 0) {
+            toast({ title: "Error", description: "Project data not available to fetch makes.", variant: "destructive" });
+            return;
         }
 
-        // The wpNameMap was initialized but not used to map display names.
-        // If item.procurement_package IS the display name, the map isn't needed here.
-        // If there's another field for display name, this map would need to be populated.
-        // const wpNameMap = new Map<string, string>(); 
-
-        const uniqueWPDocNames = new Set<string>();
-        project.project_wp_category_makes.forEach(item => {
-            // Skip empty procurement_package
-            // Add a check for item integrity as well, if items can be malformed
-            if (item && typeof item === 'object' && item.procurement_package && item.procurement_package !== "Additional Charges" && item.procurement_package !== "Tool & Equipments") {
-                uniqueWPDocNames.add(item.procurement_package);
-            }
-        });
-
-        // uniqueWPDocNames.add("Tool & Equipments"); // Ensure "Tool & Equipments" is always included
-
-        return Array.from(uniqueWPDocNames)
-        // .map(docName => wpNameMap.get(docName) || docName) // This part effectively did nothing as wpNameMap was empty
-
-
-    }, [project]);
-
-
-    // --- Handler for WP Selection (to derive makes) ---
-    const handleWorkPackageSelect = useCallback((wpName: string) => {
-        if (!project && wpName) { // Check wpName too, if clearing WP, project might not be needed
-            console.error("Project data not loaded, cannot select WP makes");
-            // If wpName is empty (clearing selection), we might not need project here.
-            // But to get makes for a *new* WP, project is needed.
-            if (wpName) {
-                toast({ title: "Error", description: "Project data not available to fetch makes.", variant: "destructive" });
-                return;
-            }
+        let combinedMakesMap: CategoryMakesMap = {};
+        if (headers.length > 0 && project) {
+            const packages = headers.map(h => h.tag_package);
+            combinedMakesMap = extractMakesFromChildTableForMultipleWPs(project, packages);
         }
 
-        let wpMakesForStore: CategoryMakesMap = {};
-        if (wpName && project) { // Only extract makes if a WP is selected and project data exists
-            wpMakesForStore = extractMakesFromChildTableForWP(project, wpName);
-        }
+        selectHeaders(headers, combinedMakesMap);
 
-        // selectWorkPackage (from useProcurementRequestForm) expects (wpName, wpSpecificMakes)
-        selectWorkPackage(wpName, wpMakesForStore);
-
-        // Page state might change based on wpName (if it's set or cleared)
-        if (!wpName) {
-            setPage('wp-selection'); // Go back to WP selection if cleared
+        if (headers.length === 0) {
+            setPage('wp-selection');
         } else {
-            setPage('item-selection'); // Proceed if a WP is selected
+            setPage('item-selection');
         }
 
-    }, [project, selectWorkPackage, setPage, toast]); // Added toast and setPage
+    }, [project, selectHeaders, setPage]);
 
-    // --- Render Logic ---
+    const handleSubmitWithComment = async (finalCommentFromDialog: string) => {
+        setStoreComment(finalCommentFromDialog);
+        if (mode === 'create') {
+            await submitNewPR(finalCommentFromDialog);
+        } else {
+            await resolveOrUpdatePR(finalCommentFromDialog);
+        }
+    }
+
     if (page === 'loading') {
         return <LoadingFallback />
     }
@@ -290,31 +231,16 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
         return <AlertDestructive error={dataError} />
     }
 
-    const handleSubmitWithComment = async (finalCommentFromDialog: string) => {
-        // Optionally, update the store here if you still want the store to hold the
-        // comment that was *actually* submitted.
-        setStoreComment(finalCommentFromDialog); // Update Zustand store
-
-        if (mode === 'create') {
-            await submitNewPR(finalCommentFromDialog);
-        } else {
-            await resolveOrUpdatePR(finalCommentFromDialog);
-        }
-    }
-
-
-// console.log("uniqueProcurementPackageDisplayNames",wpList,uniqueProcurementPackageDisplayNames)
-
     return (
         <div className="flex-1 space-y-4 px-4 py-4">
             {page === 'wp-selection' && (
                 <WorkPackageSelector
-                    wpList={wpList?.filter((item) => uniqueProcurementPackageDisplayNames.includes(item.work_package_name || ''))} // Use the unique names
-                    onSelectWP={handleWorkPackageSelect} // <<< Use the new handler
+                    onSelectHeaders={handleHeadersSelect}
+                    project={project}
                 />
             )}
 
-            {page === 'item-selection' && wpFromStore && (
+            {page === 'item-selection' && selectedHeaderTagsFromStore.length > 0 && (
                 <>
                     {mode === 'edit' && (
                         <Alert variant="warning" className="mb-4">
@@ -334,25 +260,26 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                     <ItemSelectorControls
                         initialCategoryMakes={initialCategoryMakes}
                         selectedWP={selectedWP}
-                        // catOptions={catOptions}
+                        selectedHeaderTags={selectedHeaderTagsFromStore}
+                        categoryToPackageMap={extractCategoryToPackageMap(project, selectedHeaderTagsFromStore.map(h => h.tag_package))}
                         itemOptions={itemOptions}
-                        allMakeOptions={allMakeOptions} // Pass all makes
-                        selectedCategories={selectedCategories} // Pass selected 
-                        // categories state
-                        onAddItem={addOrUpdateItem} // For adding new items/requests
+                        allMakeOptions={allMakeOptions}
+                        selectedCategories={selectedCategories}
+                        onAddItem={addOrUpdateItem}
                         onOpenNewItemDialog={() => setShowNewItemDialog(true)}
                         allowWpEdit={mode === 'create'}
                         onEditWP={() => {
-                            // Use the handler to reset, which will also clear makes map
-                            handleWorkPackageSelect('');
+                            handleHeadersSelect([]);
                         }}
                         disabled={isSubmitting}
-                        categoryList={categoryList} // Pass full category list
+                        categoryList={categoryList}
                         updateCategoryMakesInStore={updateCategoryMakes}
                         makeListMutate={makeListMutate}
-                        categoryMakelist={categoryMakelist} // Pass if needed by dialog
+                        categoryMakelist={categoryMakelist}
                         categoryMakeListMutate={categoryMakeListMutate}
                         itemFuseOptions={itemFuseOptions}
+                        procList={procList}
+                        allProjectPackages={Array.from(new Set(project?.project_wp_category_makes?.map(m => m.procurement_package) || []))}
                     />
 
                     <div className="flex flex-col justify-between min-h-[48vh]">
@@ -360,10 +287,10 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                             <OrderListDisplay
                                 procList={procList}
                                 selectedCategories={selectedCategories}
-                                onEditItem={(item: ProcurementRequestItem) => setItemToEdit(item)} // Opens Edit Dialog
-                                onDeleteItem={deleteItemFromList} // Directly pass store delete action
+                                onEditItem={(item: ProcurementRequestItem) => setItemToEdit(item)}
+                                onDeleteItem={deleteItemFromList}
                                 canUndo={undoStack.length > 0}
-                                onUndoDelete={undoLastDelete} // Directly pass store undo action
+                                onUndoDelete={undoLastDelete}
                             />
                         </div>
 
@@ -371,20 +298,13 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                             {(mode === 'resolve' || mode === 'edit') && prId && (
                                 <PreviousComments prId={prId} mode={mode} />
                             )}
-                            {/* <textarea
-                                className="w-full border rounded-lg p-2 min-h-[60px] mt-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary"
-                                placeholder={`${mode === 'resolve' ? "Resolving Comments (Optional)..." : mode === 'edit' ? "Update Comments (Optional)..." : "Comments (Optional)..."}`}
-                                value={newPRComment}
-                                onChange={(e) => setComment(e.target.value)}
-                                disabled={isSubmitting}
-                            /> */}
                             <ActionButtons
                                 mode={mode}
                                 onSubmit={handleSubmitWithComment}
                                 isSubmitting={isSubmitting}
-                                disabled={procList.length === 0 || isSubmitting} // Also disable if submitting
+                                disabled={procList.length === 0 || isSubmitting}
                                 comment={newPRComment}
-                                onCommentChange={setComment} // Allow comment edit in dialog
+                                onCommentChange={setComment}
                             />
                         </div>
                     </div>
@@ -396,10 +316,10 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 isOpen={showNewItemDialog}
                 onOpenChange={setShowNewItemDialog}
                 categories={categoryList || []}
-                workPackage={wpFromStore} // Pass current WP for display
-                onSubmit={addOrUpdateItem} // Use the hook's function for adding new/request
+                selectedHeaderTags={selectedHeaderTagsFromStore}
+                categoryToPackageMap={extractCategoryToPackageMap(project, selectedHeaderTagsFromStore.map(h => h.tag_package))}
+                onSubmit={addOrUpdateItem}
                 fuzzySearch={handleFuzzySearch}
-                itemList={itemList}
                 itemMutate={itemMutate}
             />
 
@@ -407,26 +327,22 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 isOpen={!!itemToEdit}
                 onOpenChange={(isOpen: boolean) => { if (!isOpen) setItemToEdit(null); }}
                 itemToEdit={itemToEdit}
-                categories={categoryList || []} // Already passing
+                categories={categoryList || []}
                 onSubmitUpdate={updateItemInList}
                 onDeleteItem={deleteItemFromList}
-                // --- Pass Make-related Props ---
                 allMakeOptions={allMakeOptions}
                 initialCategoryMakes={initialCategoryMakes}
-                selectedCategories={selectedCategories} // Pass current derived categories
+                selectedCategories={selectedCategories}
                 updateCategoryMakesInStore={updateCategoryMakes}
                 makeList={makeList}
                 makeListMutate={makeListMutate}
-                categoryMakelist={categoryMakelist} // Pass if needed by dialog
-                categoryMakeListMutate={categoryMakeListMutate} // Pass if needed by dialog
-            // --- End Make-related Props ---
-
+                categoryMakelist={categoryMakelist}
+                categoryMakeListMutate={categoryMakeListMutate}
             />
         </div>
     );
 };
 
-// Wrap the component with Error Boundary
 export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boolean }> = (props) => {
     const { projectId, prId } = useParams<{ projectId: string; prId?: string }>();
 

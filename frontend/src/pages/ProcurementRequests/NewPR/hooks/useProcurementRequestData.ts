@@ -13,6 +13,8 @@ interface UseProcurementRequestDataResult {
     project?: Projects;
     wpList?: ProcurementPackages[];
     categoryList?: Category[];
+    projectCategoryList?: Category[];
+    filteredCategoryList?: Category[];
     itemList?: Items[];
     // usersList?: NirmaanUsers[];
     itemOptions: { label: string; value: string; unit: string; category: string; tax: number }[];
@@ -30,9 +32,8 @@ interface UseProcurementRequestDataResult {
 export const useProcurementRequestData = (): UseProcurementRequestDataResult => {
     // Get projectId and selectedWP from the store
     const projectId = useProcurementRequestStore(state => state.projectId);
-    const selectedWP = useProcurementRequestStore(state => state.selectedWP);
-
-    console.log("selectedWP",selectedWP)
+    const selectedHeaderTags = useProcurementRequestStore(state => state.selectedHeaderTags);
+    const selectedPackages = useMemo(() => selectedHeaderTags.map(h => h.tag_package), [selectedHeaderTags]);
 
     // Fetch Project Details
     const { data: project, error: projectError } = useFrappeGetDoc<Projects>(
@@ -40,6 +41,11 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         projectId!, // Assert non-null as it should be set by initialization
         !!projectId ? undefined : null, // Only fetch if projectId is set
     );
+
+    const allProjectPackages = useMemo(() => {
+        if (!project?.project_wp_category_makes) return [];
+        return Array.from(new Set(project.project_wp_category_makes.map(m => m.procurement_package)));
+    }, [project]);
 
     // Fetch Work Packages
     const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
@@ -51,15 +57,15 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         "All_Work_Packages"
     );
 
-    // Fetch Categories based on selectedWP
+    // We fetch all categories associated with the project's packages to satisfy "full category of this Project"
     const { data: category_list, isLoading: catLoading, error: catError } = useFrappeGetDocList<Category>(
         "Category", {
             fields: ["category_name", "work_package", "image_url", "tax", "new_items", "name"],
-            filters: selectedWP ? [["work_package", "in", [selectedWP,"Tool & Equipments"]]] : [], // Only filter if WP selected
+            filters: allProjectPackages.length > 0 ? [["work_package", "in", [...allProjectPackages, "Tool & Equipments"]]] : [],
             orderBy: { field: "category_name", order: "asc" },
             limit: 0,
         },
-        !!selectedWP ? undefined : null // Only fetch if selectedWP is set
+        allProjectPackages.length > 0 ? undefined : null
     );
 
     // Fetch Items based on fetched categories
@@ -127,6 +133,15 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
     }, [item_list, category_list]); // Use category_list dependency
 
 
+    const filteredCategoryList = useMemo(() => {
+        if (!category_list) return [];
+        if (selectedPackages.length === 0) return [];
+        return category_list.filter(cat => 
+            (cat.work_package && selectedPackages.includes(cat.work_package)) || 
+            cat.work_package === "Tool & Equipments"
+        );
+    }, [category_list, selectedPackages]);
+
     // Update isLoading and error aggregation
     const isLoading = wpLoading || catLoading || itemLoading || makeLoading || categoryMakeListLoading || (!project && !!projectId);
     const error = wpError || catError || itemError || projectError || makeError || categoryMakeListError;
@@ -135,6 +150,8 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         project,
         wpList: wp_list,
         categoryList: category_list,
+        projectCategoryList: category_list, // In this case they are the same now as we filter by allProjectPackages
+        filteredCategoryList,
         itemList: item_list,
         // usersList,
         itemOptions,
