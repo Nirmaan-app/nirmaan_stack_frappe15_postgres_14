@@ -37,7 +37,6 @@ import {
 import NewCustomer from "@/pages/customers/add-new-customer";
 import ProjectTypeForm from "@/components/project-type-form";
 import { ProjectFormValues } from "../schema";
-import { gstOptions } from "../constants";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 
 interface ProjectDetailsStepProps {
@@ -60,6 +59,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
         customersError,
         projectTypesLoading,
         projectTypesError,
+        gstOptions,
     } = formData;
 
     // Watch customer field to show conditional message

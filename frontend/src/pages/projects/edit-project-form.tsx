@@ -80,7 +80,7 @@ import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
 import { Address } from "@/types/NirmaanStack/Address";
 
-import {MultiSelect} from "./components/multi-select"
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 
 // 1.a Create Form Schema accordingly
@@ -164,8 +164,8 @@ const projectFormSchema = z.object({
       gst: z.string(),
     }))
   }),
-   carpet_area: z.coerce.number().nonnegative().optional(),
-  
+  carpet_area: z.coerce.number().nonnegative().optional(),
+
 });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -182,18 +182,6 @@ interface SelectOption {
 //     work_package: string;
 // }
 
-const allGstOptions = [
-  { location: "Bengaluru", gst: "29ABFCS9095N1Z9" },
-  { location: "Gurugram", gst: "06ABFCS9095N1ZH" },
-  { location: "Noida", gst: "09ABFCS9095N1ZB" }, // Include Noida if it's a valid option
-];
-
-// Prepare options for the MultiSelect component
-// MultiSelect expects { label: string, value: string } for options
-const multiSelectGstOptions = allGstOptions.map(option => ({
-  label: `${option.location} (${option.gst})`,
-  value: option.location, // The unique identifier for the MultiSelect
-}));
 
 
 
@@ -284,7 +272,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     data: procuremeent_packages_list,
   } = useFrappeGetDocList<ProcurementPackages>("Procurement Packages", {
     fields: ["work_package_name"],
-    filters: [["work_package_name", "not in", ["Tool & Equipments", "Services","Additional Charges"]]],
+    filters: [["work_package_name", "not in", ["Tool & Equipments", "Services", "Additional Charges"]]],
     limit: 0,
   });
 
@@ -308,10 +296,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     limit: 0,
   });
 
-  const {
-    data: project_address,
-    mutate: project_address_mutate,
-  } = useFrappeGetDoc<Address>("Address", data?.project_address, data?.project_address ? undefined : null);
+  const { data: project_address, mutate: project_address_mutate } = useFrappeGetDoc<Address>("Address", data?.project_address, data?.project_address ? undefined : null);
+
+
+  const { gstOptions } = useGstOptions();
+
 
   // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
   //     fields: ["*"],
@@ -355,7 +344,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             }
           ]
         },
-      carpet_area: data?.carpet_area || "",  
+      carpet_area: data?.carpet_area || "",
       project_scopes: data?.project_scopes
         ? JSON.parse(data?.project_scopes)
         : {
@@ -392,7 +381,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
           work_packages: transformedWpConfigForForm,
         },
         project_gst_number: data?.project_gst_number ? (typeof data.project_gst_number === 'string' ? JSON.parse(data.project_gst_number) : data.project_gst_number) : { list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] },
-        carpet_area: data?.carpet_area || "", 
+        carpet_area: data?.carpet_area || "",
         project_scopes: data?.project_scopes ? (typeof data.project_scopes === 'string' ? JSON.parse(data.project_scopes) : data.project_scopes) : { scopes: [] },
 
       });
@@ -558,17 +547,17 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         await updateDoc("Address", data.project_address, changedAddressValues);
       }
 
-      
+
       const gstList = values.project_gst_number?.list; // Use optional chaining for safety
 
-    if (!gstList || gstList.length === 0) {
+      if (!gstList || gstList.length === 0) {
         toast({
-            title: "Failed!",
-            description: "At least one Nirmaan GST location must be selected for update.",
-            variant: "destructive"
+          title: "Failed!",
+          description: "At least one Nirmaan GST location must be selected for update.",
+          variant: "destructive"
         });
         return; // Prevent update if validation fails
-    }
+      }
 
       // --- Prepare Project Update Payload ---
       const projectUpdatePayload: Partial<ProjectsType> & { name: string } = {
@@ -874,83 +863,81 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             />
 
 
-<FormField
-  control={form.control}
-  name="project_gst_number" // Form expects { list: [{ location, gst }] }
-  render={({ field }) => {
-    // 1. Extract the currently selected location's name (the single value we need for the Select component).
-    // This correctly displays the default/current selection if the list has one item.
-    const currentValue = field.value?.list?.[0]?.location || "";
+            <FormField
+              control={form.control}
+              name="project_gst_number" // Form expects { list: [{ location, gst }] }
+              render={({ field }) => {
+                // 1. Extract the currently selected location's name (the single value we need for the Select component).
+                // This correctly displays the default/current selection if the list has one item.
+                const currentValue = field.value?.list?.[0]?.location || "";
 
-    return (
-      <FormItem className="md:flex md:items-start gap-4">
-        {/* Preserving the md:w-1/4 md:pt-2.5 shrink-0 from your last provided component */}
-        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-        {/* Preserving the flex-1 from your last provided component */}
-        <div className="flex-1">
-          <Select
-            onValueChange={(selectedLocationName: string) => {
-              // 2. Find the full GST object for the selected location name
-              const foundOption = allGstOptions.find(opt => opt.location === selectedLocationName);
+                return (
+                  <FormItem className="md:flex md:items-start gap-4">
+                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                    <div className="flex-1">
+                      <Select
+                        onValueChange={(selectedLocationName: string) => {
+                          // 2. Find the full GST object for the selected location name
+                          const foundOption = gstOptions.find(opt => opt.location === selectedLocationName);
 
-              // 3. Update the form field with a new list containing only the selected item.
-              if (foundOption) {
-                  // Set the form value to { list: [the_selected_object] }
-                  field.onChange({ list: [foundOption] });
-              } else {
-                  // Handle case where user might deselect or an unexpected value occurs
-                  field.onChange({ list: [] });
-              }
-            }}
-            value={currentValue}
-            disabled={field.disabled}
-          >
-            <SelectTrigger className="w-full">
-              {/* Display the selected location name or the placeholder */}
-              <SelectValue placeholder="Select Nirmaan GST" />
-            </SelectTrigger>
-            <SelectContent>
-              {/* Map all available options */}
-              {allGstOptions.map((option) => (
-                <SelectItem key={option.location} value={option.location}>
-                  {/* Display both location and GST for user clarity */}
-                  {option.location} - {option.gst} 
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FormMessage />
-        </div>
-      </FormItem>
-    );
-  }}
-/>
+                          // 3. Update the form field with a new list containing only the selected item.
+                          if (foundOption) {
+                            // Set the form value to { list: [the_selected_object] }
+                            field.onChange({ list: [foundOption] });
+                          } else {
+                            // Handle case where user might deselect or an unexpected value occurs
+                            field.onChange({ list: [] });
+                          }
+                        }}
+                        value={currentValue}
+                        disabled={field.disabled}
+                      >
+                        <SelectTrigger className="w-full">
+                          {/* Display the selected location name or the placeholder */}
+                          <SelectValue placeholder="Select Nirmaan GST" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Map all available options */}
+                          {gstOptions.map((option) => (
+                            <SelectItem key={option.location} value={option.location}>
+                              {/* Display both location and GST for user clarity */}
+                              {option.location} - {option.gst}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </div>
+                  </FormItem>
+                );
+              }}
+            />
 
-<FormField
-  control={form.control}
-  name="carpet_area"
-  render={({ field }) => {
-    return (
-      <FormItem className="md:flex md:items-start gap-4">
-        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-            Carpet Area (Sqft)
-        </FormLabel>
-        <div className="flex-1">
-            <FormControl>
-                <Input
-                    type="number"
-                    placeholder="Enter Area"
-                    {...field}
-                />
-            </FormControl>
-            <FormMessage />
-        </div>
-      </FormItem>
-    );
-  }}
-/>
+            <FormField
+              control={form.control}
+              name="carpet_area"
+              render={({ field }) => {
+                return (
+                  <FormItem className="md:flex md:items-start gap-4">
+                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
+                      Carpet Area (Sqft)
+                    </FormLabel>
+                    <div className="flex-1">
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Enter Area"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </div>
+                  </FormItem>
+                );
+              }}
+            />
 
-{/* <FormField
+            {/* <FormField
   control={form.control}
   name="project_gst_number" // Ensure this matches your form's schema for an array of objects
   render={({ field }) => {

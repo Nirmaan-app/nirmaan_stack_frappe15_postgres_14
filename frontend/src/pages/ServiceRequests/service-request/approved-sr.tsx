@@ -46,6 +46,7 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SRAmendSheet } from "../sr-form/amend";
 import { useUserData } from "@/hooks/useUserData";
+import { useGstOptions } from "@/hooks/useGstOptions";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
@@ -67,6 +68,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     const params = useParams();
     const { role, user_id } = useUserData()
+
+    const { gstOptions, isLoading: isGstLoading } = useGstOptions();
 
     const isPMUser = role === "Nirmaan Project Manager Profile"
     const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile"
@@ -804,23 +807,16 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     Nirmaan GST for Billing
                                                     <sup className="text-sm text-red-600">*</sup>
                                                 </h3>
-                                                {project &&
-                                                    JSON.parse(project?.project_gst_number as unknown as string)?.list
-                                                        ?.length > 0 && (
+                                                {gstOptions?.length > 0 && (
                                                         <>
                                                             <Select
                                                                 value={selectedGST?.gst}
                                                                 defaultValue={orderData?.project_gst}
                                                                 onValueChange={(selectedOption) => {
-                                                                    const gstArr = JSON.parse(
-                                                                        project?.project_gst_number as unknown as string
-                                                                    )?.list;
-                                                                    setSelectedGST(
-                                                                        gstArr.find(
-                                                                            (item: { gst: string; location: string }) =>
-                                                                                item.gst === selectedOption
-                                                                        )
-                                                                    );
+                                                                    const selected = gstOptions.find(opt => opt.gst === selectedOption);
+                                                                    if (selected) {
+                                                                        setSelectedGST({ gst: selected.gst, location: selected.location });
+                                                                    }
                                                                 }}
                                                             >
                                                                 <SelectTrigger
@@ -832,11 +828,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                     <SelectValue placeholder="Select Project GST" />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
-                                                                    {JSON.parse(
-                                                                        project?.project_gst_number as unknown as string
-                                                                    )?.list?.map((option: { gst: string; location: string }) => (
+                                                                    {gstOptions.map((option) => (
                                                                         <SelectItem
-                                                                            key={option.location}
+                                                                            key={option.gst}
                                                                             value={option.gst}
                                                                         >
                                                                             {option.location}
@@ -923,16 +917,13 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <CardContent>
                             <div className="flex flex-col gap-2 items-start mt-4">
                                 <Label className="font-bold">Nirmaan GST for Billing</Label>
-                                {orderData?.project_gst ? (
+                                 {orderData?.project_gst ? (
                                     <span className="text-sm text-gray-900">
                                         {(() => {
-                                            try {
-                                                const gstList = JSON.parse((project?.project_gst_number as unknown as string) || '{"list":[]}')?.list || [];
-                                                const match = gstList.find((item: any) => item.gst === orderData.project_gst);
-                                                return match ? `${match.location} (${match.gst})` : orderData.project_gst;
-                                            } catch {
-                                                return orderData.project_gst;
-                                            }
+                                            const match = gstOptions?.find((item) => item.gst === orderData.project_gst);
+                                            if (match) return `${match.location} (${match.gst})`;
+                                            if (isGstLoading) return "Loading...";
+                                            return orderData.project_gst;
                                         })()}
                                     </span>
                                 ) : (
