@@ -37,6 +37,8 @@ export default function CommissionReportList() {
 
     const { role, user_id } = useUserData();
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+    const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
     const hasHideAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Project Manager Profile" || user_id === "Administrator" || role === "Administrator";
 
     const onClick = useCallback((value: string) => {
@@ -365,7 +367,7 @@ export default function CommissionReportList() {
                     <TaskWiseTable
                         refetchList={refetchList}
                         user_id={user_id}
-                        isDesignExecutive={isDesignExecutive}
+                        isDesignExecutive={isRestrictedAssigneeRole}
                         statusFilter={activeStatusTab}
                     />
                     </div>

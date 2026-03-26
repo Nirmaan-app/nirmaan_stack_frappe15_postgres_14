@@ -42,7 +42,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useFrappeGetDoc } from "frappe-react-sdk";
+import Cookies from "js-cookie";
 
 // --- Types ---
 export interface WOServiceCategory {
@@ -87,6 +88,15 @@ type ItemFormValues = z.infer<typeof itemFormSchema>;
 // =========================================================================
 
 export const WOServicePackagesMaster: React.FC = () => {
+    const user_id = Cookies.get("user_id") || "";
+    const { data: userData } = useFrappeGetDoc<any>(
+        "Nirmaan Users",
+        user_id,
+        user_id === "Administrator" ? null : undefined
+    );
+    const role = userData?.role_profile;
+    const isViewOnly = ["Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+
     const {
         data: categories,
         isLoading: catLoading,
@@ -144,7 +154,7 @@ export const WOServicePackagesMaster: React.FC = () => {
                                 Configure WO service categories and their items (with unit and rate)
                             </p>
                         </div>
-                        <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />
+                        {!isViewOnly && <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />}
                     </div>
                 </div>
             </div>
@@ -157,7 +167,7 @@ export const WOServicePackagesMaster: React.FC = () => {
                         </div>
                         <h3 className="text-lg font-medium text-slate-900 mb-1">No WO Service Categories</h3>
                         <p className="text-sm text-slate-500 mb-4">Create your first category to get started.</p>
-                        <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />
+                        {!isViewOnly && <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />}
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -169,6 +179,7 @@ export const WOServicePackagesMaster: React.FC = () => {
                                 mutateCategories={mutateCategories}
                                 mutateItems={mutateItems}
                                 workPackages={workPackages || []}
+                                isViewOnly={isViewOnly}
                             />
                         ))}
                     </div>
@@ -807,9 +818,10 @@ interface CategoryCardProps {
     items: WOServiceItem[];
     mutateCategories: () => Promise<any>;
     mutateItems: () => Promise<any>;
+    isViewOnly?: boolean;
 }
 
-const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }> = ({ category, items, mutateCategories, mutateItems, workPackages }) => {
+const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }> = ({ category, items, mutateCategories, mutateItems, workPackages, isViewOnly }) => {
     const linkedWorkPackage = category.work_package
         ? workPackages.find((wp) => wp.name === category.work_package)
         : null;
@@ -835,6 +847,7 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                         </p>
                     </div>
                 </div>
+                {!isViewOnly && (
                 <div className="flex items-center gap-1">
                     <EditCategoryDialog
                         category={category}
@@ -844,6 +857,7 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                     />
                     <CreateItemDialog categoryId={category.name} mutate={mutateItems} />
                 </div>
+                )}
             </div>
 
             <div className="border-t border-slate-100">
@@ -867,9 +881,11 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                                     Rate
                                 </TableHead>
 
+                                {!isViewOnly && (
                                 <TableHead className="w-24 text-right text-slate-500 font-medium text-xs uppercase tracking-wider">
                                     Actions
                                 </TableHead>
+                                )}
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -896,12 +912,14 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                                         )}
                                     </TableCell>
 
+                                    {!isViewOnly && (
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-1">
                                             <EditItemDialog item={item} mutate={mutateItems} />
                                             <DeleteItemDialog item={item} mutate={mutateItems} />
                                         </div>
                                     </TableCell>
+                                    )}
                                 </TableRow>
                             ))}
                         </TableBody>

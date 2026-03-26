@@ -41,16 +41,7 @@ import {
   Menu,
   MenuProps
 } from "antd";
-import {
-  FrappeDoc,
-  useFrappeDocumentEventListener,
-  useFrappeGetCall,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappePostCall,
-  useFrappeUpdateDoc,
-  useFrappeCreateDoc
-} from "frappe-react-sdk";
+import { FrappeDoc } from "frappe-react-sdk";
 import {
   ArrowRightLeft,
   ChevronsUpDown,
@@ -104,7 +95,15 @@ import { TDSRepositoryTab } from "./TDSRepository/TDSRepositoryTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
-import { ProjectQueryKeys } from "./queries";
+import {
+  ProjectPOItemDataItem,
+  useProjectCustomerRealtime,
+  useProjectDocRealtime,
+  useProjectPOSummaryCall,
+  useProjectViewFinancialData,
+  useProjectViewMeta,
+  useProjectViewMutations,
+} from "./data/root/useProjectRootApi";
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -134,21 +133,7 @@ const projectStatuses = [
   },
 ];
 
-export interface po_item_data_item {
-  po_number: string
-  vendor_id: string
-  vendor_name: string
-  creation: string
-  item_id: string
-  quote: number
-  quantity: number
-  received_quantity: number
-  category: string
-  tax: number
-  unit: string
-  item_name: string
-  work_package: string
-}
+export type po_item_data_item = ProjectPOItemDataItem;
 
 export interface FilterParameters {
   fields?: string[]
@@ -164,41 +149,29 @@ const Project: React.FC = () => {
 
   if (!projectId) return <div>No Project ID Provided</div>
 
-  const { data, isLoading, mutate: project_mutate } = useFrappeGetDoc<Projects>("Projects", projectId, projectId ? ProjectQueryKeys.project(projectId) : null);
-
-  useFrappeDocumentEventListener("Projects", projectId, (event) => {
-    console.log("Project document updated (real-time):", event);
-    toast({
-      title: "Document Updated",
-      description: `Project ${event.name} has been modified.`,
-    });
-    project_mutate();
-  },
-    true // emitOpenCloseEventsOnMount
+  const { data, isLoading, mutate: project_mutate } = useProjectDocRealtime(
+    projectId,
+    (event) => {
+      console.log("Project document updated (real-time):", event);
+      toast({
+        title: "Document Updated",
+        description: `Project ${event.name} has been modified.`,
+      });
+    }
   );
 
-  const { data: projectCustomer, isLoading: projectCustomerLoading, mutate: projectCustomerMutate } = useFrappeGetDoc<Customers>("Customers", data?.customer, data?.customer ? ProjectQueryKeys.customer(data?.customer) : null);
-
-  useFrappeDocumentEventListener("Customers", data?.customer!, (event) => {
+  const {
+    data: projectCustomer,
+    isLoading: projectCustomerLoading,
+  } = useProjectCustomerRealtime(data?.customer, (event) => {
     console.log("Customer document updated (real-time):", event);
     toast({
       title: "Document Updated",
       description: `Customer ${event.name} has been modified.`,
     });
-    projectCustomerMutate();
-  },
-    true // emitOpenCloseEventsOnMount
-  );
+  });
 
-  const { data: po_item_data, isLoading: po_item_loading } = useFrappeGetCall<{
-    message: {
-      po_items: po_item_data_item[],
-      custom_items: po_item_data_item[]
-    }
-  }>(
-    "nirmaan_stack.api.procurement_orders.generate_po_summary",
-    { project_id: projectId }
-  );
+  const { data: po_item_data, isLoading: po_item_loading } = useProjectPOSummaryCall(projectId);
 
   if (isLoading || projectCustomerLoading || po_item_loading) {
     return <LoadingFallback />
@@ -280,28 +253,16 @@ type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TA
 
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
-  const { data: designTrackerList, mutate: mutateDesignTrackerList } = useFrappeGetDocList("Project Design Tracker", {
-    fields: ["name"],
-    filters: [["project", "=", projectId]],
-    limit: 1
-  });
-
-  const { data: commissionReportList, mutate: mutateCommissionReportList } = useFrappeGetDocList("Project Commission Report", {
-    fields: ["name"],
-    filters: [["project", "=", projectId]],
-    limit: 1
-  }, projectId ? undefined : null);
-
-  const { data: commissionMasterData } = useFrappeGetCall<any>(
-    "nirmaan_stack.api.commission_report.tracker_options.get_all_master_data",
-    {},
-    "commission_report_tracker_master_data"
-  );
+  const {
+    designTrackerResponse,
+    commissionReportResponse,
+    commissionMasterDataResponse,
+  } = useProjectViewMeta(projectId);
 
 
 
-  const designTrackerId = designTrackerList?.[0]?.name;
-  const commissionReportId = commissionReportList?.[0]?.name;
+  const designTrackerId = designTrackerResponse.data?.[0]?.name;
+  const commissionReportId = commissionReportResponse.data?.[0]?.name;
 
   // console.log("modified-call", po_item_data)
 
@@ -311,11 +272,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
-  const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-  const { createDoc: createCommissionReportDoc, loading: createCommissionReportLoading } = useFrappeCreateDoc();
-  const { call: generateHandoverTasks, loading: handoverTasksLoading } = useFrappePostCall<{ message: { status: string; tasks_created?: number; task_count?: number; message: string } }>(
-    "nirmaan_stack.api.design_tracker.generate_handover_tasks.generate_handover_tasks"
-  );
+  const {
+    updateDoc,
+    updateDocLoading,
+    createDoc: createCommissionReportDoc,
+    createDocLoading: createCommissionReportLoading,
+    generateHandoverTasks,
+    handoverTasksLoading,
+  } = useProjectViewMutations();
   // const [statusCounts, setStatusCounts] = useState<{ [key: string]: number }>({ "New PR": 0, "Open PR": 0, "Approved PO": 0 });
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
@@ -745,65 +709,25 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // );
 
   const {
-    data: project_estimates,
-  } = useFrappeGetDocList<ProjectEstimatesType>("Project Estimates", {
-    fields: ["work_package", "quantity_estimate", "rate_estimate", "name"],
-    filters: [["project", "=", projectId]],
-    limit: 0,
-  }, projectId ? ProjectQueryKeys.estimates({ fields: ["work_package", "quantity_estimate", "rate_estimate", "name"], filters: [["project", "=", projectId]], limit: 0 }) : null);
+    projectEstimatesResponse,
+    projectPaymentsResponse,
+    projectExpensesResponse,
+    procurementRequestsResponse,
+    procurementOrdersResponse,
+    approvedServiceRequestsResponse,
+  } = useProjectViewFinancialData(projectId);
 
-  const { data: projectPayments, isLoading: projectPaymentsLoading } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["document_type", "amount", "document_name", "status", "name"],
-    filters: [['project', '=', projectId], ['status', '=', 'Paid']],
-    limit: 0
-  })
-
-  // --- (Indicator) NEW: Fetch Project Expenses for this specific project ---
-  const { data: projectExpenses, isLoading: projectExpensesLoading } = useFrappeGetDocList<ProjectExpenses>("Project Expenses", {
-    fields: ["name", "amount"], // Only need amount for calculation
-    filters: [['projects', '=', projectId]],
-    limit: 0
-  });
-
-  // const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-  //   fields: ["*"],
-  //   limit: 1000,
-  // }, 'Nirmaan Users');
-
-  const { data: pr_data, isLoading: prData_loading } = useFrappeGetDocList<ProcurementRequest>(
-    "Procurement Requests",
-    {
-      fields: ["name", "work_package"],
-      filters: [["project", "=", `${projectId}`]],
-      limit: 0,
-    },
-    projectId ? `Procurement Requests ${projectId}` : null
-  );
-
-  const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
-    "Procurement Orders",
-    {
-      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data", "po_amount_delivered", "amount_paid"] as const,
-      filters: [
-        ["project", "=", projectId],
-        ["status", "not in", ["Merged", "Inactive"]],
-      ], // removed ["status", "!=", "PO Approved"] for now
-      limit: 0,
-      orderBy: { field: "creation", order: "desc" },
-    }
-  );
-
-
-  // console.log("ProjectOverView DATA", po_data)
-
-  const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-    fields: ["gst", "name", "service_order_list"],
-    filters: [
-      ["status", "=", "Approved"],
-      ["project", "=", projectId],
-    ],
-    limit: 0,
-  });
+  const project_estimates = projectEstimatesResponse.data;
+  const projectPayments = projectPaymentsResponse.data;
+  const projectPaymentsLoading = projectPaymentsResponse.isLoading;
+  const projectExpenses = projectExpensesResponse.data;
+  const projectExpensesLoading = projectExpensesResponse.isLoading;
+  const pr_data = procurementRequestsResponse.data;
+  const prData_loading = procurementRequestsResponse.isLoading;
+  const po_data = procurementOrdersResponse.data;
+  const po_loading = procurementOrdersResponse.isLoading;
+  const approvedServiceRequestsData = approvedServiceRequestsResponse.data;
+  const approvedServiceRequestsDataLoading = approvedServiceRequestsResponse.isLoading;
 
   // const { data: vendorsList } = useFrappeGetDocList<Vendors>("Vendors", {
   //   fields: ["vendor_name", "vendor_type"],
@@ -1214,7 +1138,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           try {
             const result = await generateHandoverTasks({ project_id: projectId });
             const tasksCreated = result?.message?.tasks_created ?? result?.message?.task_count ?? 0;
-            await mutateDesignTrackerList();
+            await designTrackerResponse.mutate();
             toast({
               title: "Success!",
               description: `Status changed to Handover. ${tasksCreated} handover task${tasksCreated !== 1 ? "s" : ""} generated.`,
@@ -1258,8 +1182,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             const zoneNames = configuredProjectZones.length > 0 ? configuredProjectZones : ["Default"];
             const zoneChildRows = zoneNames.map((zone) => ({ tracker_zone: zone }));
 
-            const masterCategories = Array.isArray(commissionMasterData?.message?.categories)
-              ? commissionMasterData.message.categories
+            const masterCategories = Array.isArray(commissionMasterDataResponse.data?.message?.categories)
+              ? commissionMasterDataResponse.data.message.categories
               : [];
 
             const selectedProjectWorkPackages = (() => {
@@ -1364,7 +1288,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               commission_report_task: commissionTasks,
             });
 
-            await mutateCommissionReportList();
+            await commissionReportResponse.mutate();
             notes.push(`Commission report created${commissionTasks.length ? ` with ${commissionTasks.length} task${commissionTasks.length !== 1 ? "s" : ""}` : ""}.`);
           }
         } catch (commissionError: any) {
@@ -1451,7 +1375,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             projectName={data.project_name}
             onTrackerCreated={() => {
               // Refetch the design tracker list to get the newly created tracker
-              mutateDesignTrackerList();
+              designTrackerResponse.mutate();
             }}
           />
         );
@@ -1463,7 +1387,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             projectId={projectId}
             projectName={data.project_name}
             onTrackerCreated={() => {
-              mutateCommissionReportList();
+              commissionReportResponse.mutate();
             }}
           />
         );

@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 
@@ -11,7 +10,6 @@ import {
   SearchFieldOption,
 } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { SimpleFacetedFilter } from "./SimpleFacetedFilter";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,18 +27,17 @@ import { parseNumber } from "@/utils/parseNumber";
 // --- Types ---
 import {
   ProcurementRequest,
-  Category,
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
-import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
-import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
-import { USER_ROLE_PROFILE_OPTIONS } from "@/pages/users/users";
+import {
+  useProjectPRStatusSummary,
+  useProjectPRSupportingData,
+} from "@/pages/projects/data/tab/summary/useProjectPRSummaryApi";
 
 const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | "name")[] = [
   "name",
@@ -100,81 +97,22 @@ interface ProjectPRSummaryTableProps {
 //     estimated_total_value: number | "N/A";
 // }
 
-interface PRStatusCounts {
-  "New PR": number;
-  "Open PR": number;
-  "Approved PO": number;
-  "Deleted PR": number;
-  [key: string]: number;
-}
-
-interface PRStatusDataResponse {
-  status_counts: PRStatusCounts;
-  pr_statuses: { [key: string]: string };
-}
-
 export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   projectId,
 }) => {
   const { toast } = useToast();
 
-  const [statusCounts, setStatusCounts] = useState<PRStatusCounts>({
-    "New PR": 0,
-    "Open PR": 0,
-    "Approved PO": 0,
-    "Deleted PR": 0,
-  });
-  const [prStatuses, setPrStatuses] = useState<{ [key: string]: string }>({});
-
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
-
-  // --- Supporting Data Fetches ---
-
-  // --- API Call for Aggregated Status Counts ---
   const {
-    call: fetchPrStatusesData,
-    loading: statusCountsLoading,
-    error: statusCountsError,
-  } = useFrappePostCall<{ message: PRStatusDataResponse }>(
-    "nirmaan_stack.api.projects.project_aggregates.get_project_pr_status_counts"
-  );
-
-  useEffect(() => {
-    if (projectId) {
-      fetchPrStatusesData({ project_id: projectId })
-        .then((res) => {
-          setStatusCounts((prev) => ({
-            ...prev,
-            ...res.message.status_counts,
-          }));
-          setPrStatuses((prev) => ({ ...prev, ...res.message.pr_statuses }));
-        }) // Merge with defaults
-        .catch((err) =>
-          console.error("Failed to fetch PR statuses data:", err)
-        );
-    } else {
-      // Reset counts if no projectId (e.g., if component can be shown for all projects)
-      setStatusCounts({
-        "New PR": 0,
-        "Open PR": 0,
-        "Approved PO": 0,
-        "Deleted PR": 0,
-      });
-      setPrStatuses({});
-    }
-  }, [projectId, fetchPrStatusesData]);
+    statusCounts,
+    prStatuses,
+    statusCountsLoading,
+    statusCountsError,
+  } = useProjectPRStatusSummary(projectId);
 
   // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
-  const { data: projects, isLoading: projectsLoading } =
-    useFrappeGetDocList<Projects>(
-      "Projects",
-      {
-        fields: ["name", "project_name"],
-        filters: projectId ? [["name", "=", projectId]] : [],
-        limit: projectId ? 1 : 1000,
-      },
-      `ProjectForPRSummary_${projectId || "all"}`
-    );
+  const { projectsResponse, poResponse, quotesResponse, packagesResponse } =
+    useProjectPRSupportingData(projectId);
+  const { data: projects, isLoading: projectsLoading } = projectsResponse;
 
   const getProjectName = useCallback(
     memoize(
@@ -185,24 +123,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   );
 
   // Fetch POs related to the current project for status and total calculations
-  const {
-    data: po_data,
-    isLoading: poDataLoading,
-    error: poError,
-  } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
-    {
-      fields: [
-        "name",
-        "procurement_request",
-        "status",
-        "`tabPurchase Order Item`.total_amount",
-      ],
-      filters: projectId ? [["project", "=", projectId]] : [],
-      limit: 10000,
-    },
-    !!projectId ? `POsForPRSummary_${projectId}` : null
-  );
+  const { data: po_data, isLoading: poDataLoading, error: poError } = poResponse;
 
   // console.log("po_data", po_data)
 
@@ -211,26 +132,13 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     data: quote_data,
     isLoading: quoteDataLoading,
     error: quoteError,
-  } = useFrappeGetDocList<ApprovedQuotations>(
-    "Approved Quotations",
-    { fields: ["item_id", "quote", "modified"], limit: 100000 }, // Fetch necessary fields
-    // Consider adding project filter here if quotes are project-specific and it improves performance
-    "AllQuotesForPRSummary"
-  );
+  } = quotesResponse;
 
   const {
     data: wp_list,
     isLoading: wpLoading,
     error: wpError,
-  } = useFrappeGetDocList<ProcurementPackages>(
-    "Procurement Packages",
-    {
-      fields: ["work_package_name"],
-      orderBy: { field: "work_package_name", order: "asc" },
-      limit: 0,
-    },
-    "All_Work_Packages"
-  );
+  } = packagesResponse;
 
   const { data: userList, isLoading: userListLoading } = useUsersList();
 
@@ -530,7 +438,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
       getPREstimatedTotal,
       quote_data,
       po_data,
-      statusFilter,
     ]
   );
 

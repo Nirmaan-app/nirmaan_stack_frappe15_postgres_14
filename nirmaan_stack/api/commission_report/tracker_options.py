@@ -33,8 +33,10 @@ def get_all_master_data():
     
     # 2. Fetch Users
     allowed_profiles = [
-        "Nirmaan Design Executive Profile","Nirmaan Design Lead Profile"
-    ] # Need to verify if these roles change for commission
+        "Nirmaan Design Executive Profile",
+        "Nirmaan Project Manager Profile",
+        "Nirmaan Design Lead Profile",
+    ] # Commission assignee options
 
     users = frappe.get_list(
         "Nirmaan Users", 

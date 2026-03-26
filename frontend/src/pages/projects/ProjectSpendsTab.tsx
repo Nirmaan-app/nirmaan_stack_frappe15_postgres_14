@@ -1,14 +1,12 @@
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectEstimates } from "@/types/NirmaanStack/ProjectEstimates";
-import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { parseNumber } from "@/utils/parseNumber";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { Radio } from "antd";
-import { useFrappeGetDocList } from "frappe-react-sdk";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from "uuid";
+import { useProjectSpendsTabData } from "./data/tab/spends/useProjectSpendsTabApi";
 
 
 interface ProjectSpendsTabProps {
@@ -57,24 +55,12 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
     return unsubscribe; // Cleanup subscription
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
-  const { data: project_estimates, isLoading: project_estimates_loading } = useFrappeGetDocList<ProjectEstimates>("Project Estimates", {
-    fields: ["quantity_estimate", "rate_estimate", "category", "name", "work_package", "item", "item_name"],
-    filters: [["project", "=", projectId]],
-    limit: 0,
-  },
-    projectId ? undefined : null
-  );
-
-  const { data: approvedServiceRequestsData, isLoading: approvedServiceRequestsDataLoading } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-    fields: ["service_order_list", "name"],
-    filters: [
-      ["status", "=", "Approved"],
-      ["project", "=", projectId],
-    ],
-    limit: 0,
-  },
-    projectId ? undefined : null
-  );
+  const { projectEstimatesResponse, approvedServiceRequestsResponse } = useProjectSpendsTabData(projectId);
+  const { data: project_estimates, isLoading: project_estimates_loading } = projectEstimatesResponse;
+  const {
+    data: approvedServiceRequestsData,
+    isLoading: approvedServiceRequestsDataLoading,
+  } = approvedServiceRequestsResponse;
 
   const segregatedServiceOrderData = useMemo(() => {
     if (!approvedServiceRequestsData) return [];

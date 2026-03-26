@@ -457,8 +457,6 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { useServerDataTable } from "@/hooks/useServerDataTable"; 
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { AddCustomerPODialog, CustomerPODetail } from "./AddCustomerPODialog"; 
-// Import useFrappePostCall and the dialog components for the delete dialog
-import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk"; 
 import { parseNumber } from "@/utils/parseNumber"; 
 import { formatDate } from "@/utils/FormatDate";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -475,7 +473,10 @@ import {
 } from "@/components/ui/dialog"; // Import dialog components
 
 import { useUserData } from "@/hooks/useUserData";
-import { ProjectQueryKeys } from "../queries";
+import {
+    useCustomerPOActions,
+    useCustomerPOProjectDoc,
+} from "@/pages/projects/data/tab/financials/useCustomerPOApi";
 
 
 // --- CONSTANTS ---
@@ -495,7 +496,6 @@ export const CUSTOMER_PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "customer_po_number", label: "PO Number", default: true },
 ];
 export const CUSTOMER_PO_DATE_COLUMNS: string[] = ["creation", "customer_po_creation_date"];
-const CUSTOM_API_DELETE_METHOD =  "nirmaan_stack.api.projects.add_customer_po.delete_customer_po";
 // --- END CONSTANTS ---
 
 // Data structure for the table rows
@@ -529,7 +529,7 @@ export const DeleteCustomerPODialog: React.FC<DeleteCustomerPODialogProps> = ({
     refetchProjectData 
 }) => {
     
-    const { call: CustomerPoDelete, loading: deleteLoading } = useFrappePostCall<{ message: string }>(CUSTOM_API_DELETE_METHOD); 
+    const { deleteCustomerPO, deleteLoading } = useCustomerPOActions();
     
     const handleDelete = async () => {
         if (!projectName || !poDetail.name) {
@@ -539,10 +539,7 @@ export const DeleteCustomerPODialog: React.FC<DeleteCustomerPODialogProps> = ({
 
         try {
             // Call the backend API
-            await CustomerPoDelete({
-                project_name: projectName, // Parent DocName
-                po_doc_name: poDetail.name // Child Row DocName
-            });
+            await deleteCustomerPO(projectName, poDetail.name);
 
             toast({ title: "Success", description: `Customer PO ${poDetail.customer_po_number} deleted successfully.`, variant: "success" });
             
@@ -881,11 +878,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         data: projectDataForDialog, 
         mutate: projectMutateForDialog,
         isLoading: projectDocLoading
-    } = useFrappeGetDoc<any>(
-        "Projects", 
-        projectId,
-        projectId ? ProjectQueryKeys.project(projectId) : null
-    );
+    } = useCustomerPOProjectDoc(projectId);
     
     // Ensure we have an array, even if undefined
     const poListForDialog: CustomerPOTableRow[] = useMemo(() => {
@@ -955,7 +948,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         // --- Client-Side Configuration ---
         clientData: poListForDialog,
         clientTotalCount: poListForDialog.length,
-        shouldCache: false, // Rely on useFrappeGetDoc's cache
+        shouldCache: false, // Rely on project document cache
         initialState: {
             columnVisibility: {
                 "customer_po_link": false,

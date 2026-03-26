@@ -10,6 +10,7 @@ export const cashflowPlanKeys = {
         ["cashflow-plan", projectId, Array.isArray(category) ? category.join(',') : category, startDate || "all", endDate || "all"] as const,
     vendors: () => ["cashflow-plan", "vendors"] as const,
     materialPlans: (projectId: string) => ["cashflow-plan", "material-plans", projectId] as const,
+    materialPlansSummary: (projectId: string) => ["cashflow-plan", "material-plans-summary", projectId] as const,
     projectDoc: (projectId: string) => ["cashflow-plan", "projects", projectId] as const,
     poDoc: (poId: string) => ["cashflow-plan", "procurement-orders", poId] as const,
 };
@@ -174,7 +175,7 @@ export const useCashflowMaterialDeliveryPlans = (projectId: string) => {
         filters: projectId ? [["project", "=", projectId]] : [],
         orderBy: { field: "creation", order: "desc" },
         limit: 0
-    }, "Material Delivery Plan" + projectId);
+    }, projectId ? cashflowPlanKeys.materialPlansSummary(projectId) : null);
 
     useApiErrorLogger(error, {
         hook: "useCashflowMaterialDeliveryPlans",
