@@ -19,6 +19,10 @@ export const useGstOptions = () => {
         return gstList?.map((item) => ({
             location: item.gst_name,
             gst: item.gstin,
+            address: `${item.address || ""}, ${item.city || ""} - ${item.pincode || ""}, ${item.state || ""}`.replace(/,\s*,/g, ",").replace(/^,\s*/, "").replace(/,\s*$/, ""),
+            city: item.city,
+            state: item.state,
+            pincode: item.pincode,
         })) || [];
     }, [gstList]);
 

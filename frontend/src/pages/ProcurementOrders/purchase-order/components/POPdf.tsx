@@ -801,6 +801,8 @@ import { AddressView } from "@/components/address-view";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
+import { useGstOptions } from "@/hooks/useGstOptions";
+
 interface POPdfProps {
   po: ProcurementOrder | null;
   orderData?: PurchaseOrderItem[];
@@ -811,18 +813,8 @@ interface POPdfProps {
   togglePoPdfSheet: () => void;
 }
 
-// REMOVED: pdfjs worker config
-// pdfjsLib.GlobalWorkerOptions.workerSrc =
-//   "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-
-const gstAddressMap = {
-  "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
-  "06ABFCS9095N1ZH": "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram - 122002, Haryana",
-  "09ABFCS9095N1ZB": "MR1, Plot no. 21 & 21A, AltF 142 Noida, Sector 142, Noida - 201305, Uttar Pradesh"
-}
-
 // Header Component for reuse
-const POHeader: React.FC<{ po: ProcurementOrder; showVendorInfo?: boolean }> = ({ po, showVendorInfo = true }) => (
+const POHeader: React.FC<{ po: ProcurementOrder; showVendorInfo?: boolean; resolvedAddress: string }> = ({ po, showVendorInfo = true, resolvedAddress }) => (
   <thead className="border-b border-black">
     <tr>
       <th colSpan={7}>
@@ -852,8 +844,7 @@ const POHeader: React.FC<{ po: ProcurementOrder; showVendorInfo?: boolean }> = (
 
         <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
           <div className="text-xs text-gray-600 font-normal">
-            {gstAddressMap[po?.project_gst]}
-
+            {resolvedAddress}
           </div>
           <div className="text-xs text-gray-600 font-normal">
             GST: {po?.project_gst || "N/A"}
@@ -1039,6 +1030,17 @@ export const POPdf: React.FC<POPdfProps> = ({
   if (!po) return <div>No PO ID Provided</div>;
   const componentRef = useRef<HTMLDivElement>(null);
   const { role } = useUserData();
+  const { gstOptions } = useGstOptions();
+
+  const resolvedAddress = useMemo(() => {
+    // 1. Try to find by PO's project_gst
+    const match = gstOptions.find(opt => opt.gst === po?.project_gst);
+    if (match?.address) return match.address;
+
+    // 2. Fallback to Bengaluru
+    const bengaluru = gstOptions.find(opt => opt.location === "Bengaluru");
+    return bengaluru?.address || "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka";
+  }, [gstOptions, po?.project_gst]);
 
   // Dynamic page height calculation (approximate print page height in pixels)
   const PAGE_HEIGHT = 1000; // Adjust based on your print settings
@@ -1348,7 +1350,7 @@ export const POPdf: React.FC<POPdfProps> = ({
               <div key={pageIndex} className={pageIndex > 0 ? "page-break" : ""}>
                 <div className="overflow-x-auto p-4">
                   <table className="min-w-full table-fixed divide-gray-200">
-                    <POHeader po={po} showVendorInfo={pageIndex === 0} />
+                    <POHeader po={po} showVendorInfo={pageIndex === 0} resolvedAddress={resolvedAddress} />
                     <tbody className="bg-white divide-y divide-gray-200">
                       {pageItems.map((item, itemIndex) => {
                         // Calculate global index across all pages
@@ -1586,7 +1588,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 
                         <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
                           <div className="text-xs text-gray-600 font-normal">
-                            {gstAddressMap[po?.project_gst]}
+                            {resolvedAddress}
                           </div>
                           <div className="text-xs text-gray-600 font-normal">
                             GST: {po?.project_gst || "N/A"}
