@@ -76,14 +76,19 @@ class ProjectPayments(Document):
 		"""
         Triggered when a document is 'Cancelled' (deleted).
         We only need to recalculate if the deleted payment was 'Paid'.
+        During on_trash the record still exists in DB, so exclude it from the sum.
         """
 		if self.status == "Paid":
-			self.update_parent_amount_paid()
+			self.update_parent_amount_paid(exclude_name=self.name)
 
-	def update_parent_amount_paid(self):
+	def update_parent_amount_paid(self, exclude_name=None):
 		"""
         Calculates and updates the 'amount_paid' on the parent document using
         the recommended ORM method (frappe.get_all).
+
+        Args:
+            exclude_name: If provided, exclude this payment record from the sum.
+                Used during on_trash when the record still exists in DB.
         """
 		if not self.document_type or not self.document_name:
 			return
@@ -92,13 +97,16 @@ class ProjectPayments(Document):
         # frappe.get_all is the ORM equivalent of a SELECT statement.
         # It's efficient because it fetches only the 'amount' field for all
         # matching documents in one database trip.
+		filters = {
+			"document_type": self.document_type,
+			"document_name": self.document_name,
+			"status": "Paid"
+		}
+		if exclude_name:
+			filters["name"] = ["!=", exclude_name]
 		paid_payments = frappe.get_all(
             "Project Payments",
-            filters={
-                "document_type": self.document_type,
-                "document_name": self.document_name,
-                "status": "Paid"
-            },
+            filters=filters,
             fields=["amount"]  # Specify only the field we need
         )
 		# print(f"DEBUGGPS: Fetched {len(paid_payments)} paid payments for {self.document_type} {self.document_name}")

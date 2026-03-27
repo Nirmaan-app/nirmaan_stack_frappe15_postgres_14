@@ -5,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { useVendorHoldGuard } from "@/hooks/useVendorHoldGuard";
 import {
   Tooltip,
   TooltipContent,
@@ -875,6 +876,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
   const { role } = useUserData();
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(PO?.project);
+  const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(PO?.vendor);
+  const isVendorHoldBlocked = isVendorOnHold && PO?.status === "PO Approved";
   const {
     call: CreatePPApi,
     loading: CreatePPApiLoading,
@@ -964,6 +967,10 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const handleConfirmRequestPayment = async () => {
     if (isCEOHold) {
       showBlockedToast();
+      return;
+    }
+    if (isVendorHoldBlocked) {
+      showVendorBlockedToast();
       return;
     }
     if (!termToRequest) return;
@@ -1071,7 +1078,13 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                   variant="outline"
                   size="sm"
                   className="h-7 px-3 text-xs"
-                  onClick={() => setEditTermsOpen(true)}
+                  onClick={() => {
+                    if (isVendorHoldBlocked) {
+                      showVendorBlockedToast();
+                      return;
+                    }
+                    setEditTermsOpen(true);
+                  }}
                   disabled={isLocked}
                   title={isLocked ? "PO payments are locked due to a pending Revision or Adjustment." : ""}
                 >

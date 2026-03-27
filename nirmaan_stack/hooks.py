@@ -244,25 +244,11 @@ scheduler_events = {
 		"nirmaan_stack.populate_target_rates.populate_target_rates_by_unit",
         "nirmaan_stack.tasks.item_status_update.update_item_status"
 	],
-   
-  
-# 	"hourly": [
-# 		"nirmaan_stack.tasks.hourly"
-# 	],
-
-# 	"weekly": [
-# 		"nirmaan_stack.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"nirmaan_stack.tasks.monthly"
-# 	],
-    #  "cron": {
-    #     "12 15 * * *": [
-    #         "nirmaan_stack.tasks.item_status_update.update_item_status"
-    #     ],
-       
-       
-    #  }
+	"cron": {
+		"30 4 * * *": [
+			"nirmaan_stack.tasks.vendor_credit_update.update_all_vendor_credits"
+		]
+	}
 }
 
 # Testing

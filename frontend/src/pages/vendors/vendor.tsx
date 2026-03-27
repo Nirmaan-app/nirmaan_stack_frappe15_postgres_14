@@ -14,6 +14,8 @@ import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
+import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
+import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
 
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
 const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
@@ -124,6 +126,13 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                             vendorAddress={vendorAddress}
                             allCategories={allCategories}
                         />
+                        {vendor?.vendor_status === "On-Hold" && (
+                            <VendorHoldBanner
+                                vendorName={vendor.vendor_name}
+                                availableCredit={vendor.available_credit}
+                            />
+                        )}
+                        <VendorCreditManagementCard vendor={vendor} mutateVendor={mutateVendor} />
                         <VendorBankDetailsCard vendor={vendor} mutateVendor={mutateVendor} />
                     </div>
                 );

@@ -40,4 +40,35 @@ export interface Vendors{
 	ifsc? : string
 	bank_name?: string
 	bank_branch?: string
+	/**	Vendor Status : Select	*/
+	vendor_status?: "Active" | "On-Hold"
+	/**	Credit Limit : Currency	*/
+	credit_limit?: number
+	/**	Credit Used : Currency	*/
+	credit_used?: number
+	/**	Available Credit : Currency	*/
+	available_credit?: number
+	/**	Credit Ledger : Table	*/
+	credit_ledger?: VendorCreditLedger[]
+	/** Invoice Balance : Currency */
+	invoice_balance?: number
+	/** Payment Balance : Currency */
+	payment_balance?: number
+	/** PO Amount Balance : Currency */
+	po_amount_balance?: number
+	/** SR Amount Balance : Currency */
+	sr_amount_balance?: number
+}
+
+export interface VendorCreditLedger {
+	name: string
+	entry_type: string
+	po_id?: string
+	project?: string
+	delta_amount?: number
+	credit_used_after?: number
+	available_credit_after?: number
+	timestamp?: string
+	description?: string
+	triggered_by?: string
 }

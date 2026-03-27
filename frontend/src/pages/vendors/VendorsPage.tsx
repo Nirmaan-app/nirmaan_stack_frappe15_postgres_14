@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { useCallback, useMemo } from "react";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -16,8 +16,10 @@ import { Ellipsis } from "lucide-react";
 
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { useVendorHoldVendors } from "@/hooks/useVendorHoldVendors";
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
+import { VENDOR_HOLD_ROW_CLASSES } from "@/utils/vendorHoldRowStyles";
 
 import {
   VENDOR_DOCTYPE,
@@ -27,16 +29,14 @@ import {
 } from "./vendors.constants";
 import { VendorsOverallSummaryCard } from "./components/VendorsOverallSummaryCard"; // Optional component
 
-interface VendorTypeCount {
-  type: string;
-  count: number | undefined;
-  isLoading: boolean;
-}
-
 export default function VendorsPage() {
   // --- Data fetching handled by hooks ---
+  const { onHoldVendorIds } = useVendorHoldVendors();
 
-  // --- Data fetching handled by hooks ---
+  const getRowClassName = useCallback((row: Row<VendorsType>) => {
+    if (onHoldVendorIds.has(row.original.name)) return VENDOR_HOLD_ROW_CLASSES;
+    return undefined;
+  }, [onHoldVendorIds]);
 
   const columns = useMemo<ColumnDef<VendorsType>[]>(
     () => [
@@ -106,6 +106,31 @@ export default function VendorsPage() {
           <Badge variant="outline">{row.getValue("vendor_type")}</Badge>
         ),
         size: 180,
+        enableColumnFilter: true,
+      },
+      {
+        accessorKey: "vendor_status",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => {
+          const status = row.getValue("vendor_status") as string;
+          const isOnHold = status === "On-Hold";
+          return (
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs font-medium",
+                isOnHold
+                  ? "bg-amber-50 text-amber-700 border-amber-300"
+                  : "bg-green-50 text-green-700 border-green-300"
+              )}
+            >
+              {status || "Active"}
+            </Badge>
+          );
+        },
+        size: 120,
         enableColumnFilter: true,
       },
       {
@@ -228,6 +253,18 @@ export default function VendorsPage() {
     enabled: true,
   });
 
+  const {
+    facetOptions: vendorStatusFacetOptions,
+    isLoading: isVendorStatusFacetLoading,
+  } = useFacetValues({
+    doctype: VENDOR_DOCTYPE,
+    field: "vendor_status",
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    enabled: true,
+  });
+
   const facetFilterOptions = useMemo(
     () => ({
       vendor_type: {
@@ -235,8 +272,13 @@ export default function VendorsPage() {
         options: vendorTypeFacetOptions,
         isLoading: isVendorTypeFacetLoading,
       },
+      vendor_status: {
+        title: "Status",
+        options: vendorStatusFacetOptions,
+        isLoading: isVendorStatusFacetLoading,
+      },
     }),
-    [vendorTypeFacetOptions, isVendorTypeFacetLoading]
+    [vendorTypeFacetOptions, isVendorTypeFacetLoading, vendorStatusFacetOptions, isVendorStatusFacetLoading]
   );
 
   return (
@@ -271,6 +313,7 @@ export default function VendorsPage() {
         isExporting={isExporting}
         exportFileName={`vendors_list`}
         showRowSelection={false}
+        getRowClassName={getRowClassName}
       />
     </div>
   );

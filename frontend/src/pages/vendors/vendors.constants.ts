@@ -17,6 +17,10 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
     'vendor_state',
     'vendor_category',// JSON field: { categories: string[] }
     'vendor_gst',
+    'vendor_status',
+    'credit_limit',
+    'credit_used',
+    'available_credit',
 ];
 
 export const VENDOR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -31,6 +35,11 @@ export const VENDOR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 export const VENDOR_DATE_COLUMNS: string[] = ["creation", "modified"];
+
+export const VENDOR_STATUS_OPTIONS = [
+    { label: "Active", value: "Active" },
+    { label: "On-Hold", value: "On-Hold" },
+];
 
 export const VENDOR_TYPE_OPTIONS = [
     { label: "Material", value: "Material" },

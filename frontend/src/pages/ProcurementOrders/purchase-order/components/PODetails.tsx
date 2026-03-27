@@ -88,6 +88,8 @@ import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import SITEURL from "@/constants/siteURL";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
+import { useVendorHoldGuard } from "@/hooks/useVendorHoldGuard";
+import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
@@ -141,6 +143,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(po?.project);
+  const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast, availableCredit } = useVendorHoldGuard(po?.vendor);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
   const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } =
@@ -287,6 +290,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleDispatchPO = async () => {
+    if (isVendorHoldBlocked) {
+      showVendorBlockedToast();
+      return;
+    }
     if (isCEOHold) {
       showBlockedToast();
       return;
@@ -398,6 +405,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const handleRevertPO = async () => {
     if (isCEOHold) {
       showBlockedToast();
+      return;
+    }
+    if (isVendorHoldBlocked) {
+      showVendorBlockedToast();
       return;
     }
     if (isItemLocked) {
@@ -551,6 +562,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
     }
   };
 
+  const isVendorHoldBlocked = isVendorOnHold && po?.status === "PO Approved";
+
   const PoPaymentTermsValidationSafe = poPayments?.some(
     (term) => term.status === "Requested" || term.status === "Approved"
   ) || false;
@@ -558,6 +571,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
   return (
     <div>
       {isCEOHold && <CEOHoldBanner className="mb-4" />}
+      {isVendorOnHold && (
+        <VendorHoldBanner vendorName={po?.vendor_name} availableCredit={availableCredit} className="mb-4" />
+      )}
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
         {/* ═══════════════════════════════════════════════════════════════════
             SECTION 1: HEADER - Title with validation warning
@@ -760,7 +776,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setOpenRevisionDialog(true)}
+                        onClick={() => {
+                          if (isVendorHoldBlocked) {
+                            showVendorBlockedToast();
+                            return;
+                          }
+                          setOpenRevisionDialog(true);
+                        }}
                         className="h-8 px-2.5 border-primary text-primary shrink-0"
                       >
                         <FilePenLine className="h-3.5 w-3.5 sm:mr-1.5" />
@@ -774,7 +796,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
               {/* Adjust Payments Button */}
               {po?.name && onAdjustPayments && !accountsPage && !estimatesViewing &&
                 ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
-                  <POAdjustmentButton poId={po.name} onClick={onAdjustPayments} />
+                  <POAdjustmentButton poId={po.name} onClick={() => {
+                    if (isVendorHoldBlocked) {
+                      showVendorBlockedToast();
+                      return;
+                    }
+                    onAdjustPayments();
+                  }} />
                 )}
 
               {/* Revert Button */}

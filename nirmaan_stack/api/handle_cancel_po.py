@@ -1,5 +1,6 @@
 import frappe
 import json
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 @frappe.whitelist()
 def handle_cancel_po(po_id: str, comment: str = None):
@@ -99,8 +100,12 @@ def handle_cancel_po(po_id: str, comment: str = None):
                 "subject": "PO Cancelled", "comment_by": frappe.session.user
             }).insert(ignore_permissions=True)
         
+        # Vendor credit recalculation after PO cancellation
+        if po_doc.vendor:
+            recalculate_vendor_credit(po_doc.vendor, "PO Cancelled", po_id=po_doc.name, project=po_doc.project)
+
         frappe.db.commit()
-        
+
         message = f"PO {po_id} cancelled successfully."
         if sent_back_doc_name:
             message += f" New Sent Back document {sent_back_doc_name} created for {len(regular_items_to_send_back)} item(s)."
