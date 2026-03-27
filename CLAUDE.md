@@ -38,6 +38,30 @@ bench build                # Rebuild assets
 bench run-tests --app nirmaan_stack  # Run tests
 ```
 
+### Ad-hoc Database Queries (from host)
+
+The `bench` CLI doesn't work on the host (click version mismatch). Use this pattern instead:
+
+```bash
+# Write script → copy into container → execute with venv Python
+cat > /tmp/query.py <<'PYEOF'
+import os
+os.chdir('/workspace/development/frappe-bench/sites')
+import frappe
+frappe.init(site='localhost')
+frappe.connect()
+
+# ... your queries ...
+
+frappe.destroy()
+PYEOF
+
+docker cp /tmp/query.py frappe_docker_devcontainer-frappe-1:/tmp/query.py
+docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/query.py
+```
+
+**Critical:** The `os.chdir` to `sites/` is required before `frappe.init()` — without it, site lookup fails.
+
 ---
 
 ## Directory Structure

@@ -99,3 +99,4 @@ nirmaan_stack.patches.v3_0.migrate_work_package_to_pr_tags #9
 nirmaan_stack.patches.v3_0.add_vendor_credit_fields #v3
 nirmaan_stack.patches.v3_0.migrate_project_gst
 nirmaan_stack.patches.v3_0.migrate_project_invoices_gst
+nirmaan_stack.patches.v3_0.recalculate_po_amount_delivered_with_ac

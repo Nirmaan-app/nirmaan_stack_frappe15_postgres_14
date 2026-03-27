@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useEffect, useCallback, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
@@ -56,7 +56,7 @@ export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     value: "name",
     label: "PR ID",
     placeholder: "Search by PR ID...",
-   
+
   },
   {
     value: "PR Tag Child Table.tag_header",
@@ -326,10 +326,10 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
                 derived_status === "New PR"
                   ? "secondary"
                   : derived_status === "Open PR"
-                  ? "yellow"
-                  : derived_status === "Approved PO"
-                  ? "green"
-                  : "default"
+                    ? "yellow"
+                    : derived_status === "Approved PO"
+                      ? "green"
+                      : "default"
               }
             >
               {derived_status}
@@ -355,7 +355,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         ),
         cell: ({ row }) => {
           const tags = (row.original as any).pr_tag_list || [];
-          
+
           return (
             <div className="flex flex-wrap gap-1">
               {tags.length > 0 ? (
@@ -375,8 +375,8 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         meta: {
           exportHeaderName: "PR Tags",
           exportValue: (row: any) => {
-             const tags = row.pr_tag_list || [];
-             return tags.map((t: any) => t.tag_header).join(", ") || "Custom";
+            const tags = row.pr_tag_list || [];
+            return tags.map((t: any) => t.tag_header).join(", ") || "Custom";
           },
         },
       },
