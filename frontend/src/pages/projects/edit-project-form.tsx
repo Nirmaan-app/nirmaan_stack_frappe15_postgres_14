@@ -158,12 +158,7 @@ const projectFormSchema = z.object({
       })
     ),
   }),
-  project_gst_number: z.object({
-    list: z.array(z.object({
-      location: z.string(),
-      gst: z.string(),
-    }))
-  }),
+  project_gst: z.string().min(1, { message: "Project GST is required" }),
   carpet_area: z.coerce.number().nonnegative().optional(),
 
 });
@@ -334,16 +329,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       project_work_packages: {
         work_packages: formatWorkPackagesForForm(data),
       },
-      project_gst_number: data?.project_gst_number
-        ? (typeof data?.project_gst_number === "string" ? JSON.parse(data?.project_gst_number) : data?.project_gst_number)
-        : {
-          list: [
-            {
-              location: "Bengaluru",
-              gst: "29ABFCS9095N1Z9",
-            }
-          ]
-        },
+      project_gst: data?.project_gst || "29ABFCS9095N1Z9",
       carpet_area: data?.carpet_area || "",
       project_scopes: data?.project_scopes
         ? JSON.parse(data?.project_scopes)
@@ -380,7 +366,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_work_packages: {
           work_packages: transformedWpConfigForForm,
         },
-        project_gst_number: data?.project_gst_number ? (typeof data.project_gst_number === 'string' ? JSON.parse(data.project_gst_number) : data.project_gst_number) : { list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] },
+        project_gst: data?.project_gst || "29ABFCS9095N1Z9",
         carpet_area: data?.carpet_area || "",
         project_scopes: data?.project_scopes ? (typeof data.project_scopes === 'string' ? JSON.parse(data.project_scopes) : data.project_scopes) : { scopes: [] },
 
@@ -548,17 +534,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       }
 
 
-      const gstList = values.project_gst_number?.list; // Use optional chaining for safety
-
-      if (!gstList || gstList.length === 0) {
-        toast({
-          title: "Failed!",
-          description: "At least one Nirmaan GST location must be selected for update.",
-          variant: "destructive"
-        });
-        return; // Prevent update if validation fails
-      }
-
       // --- Prepare Project Update Payload ---
       const projectUpdatePayload: Partial<ProjectsType> & { name: string } = {
         project_name: values.project_name,
@@ -567,7 +542,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_value: parseNumber(values.project_value).toString(), // Frappe might expect string for Data/Currency
         project_value_gst: parseNumber(values.project_value_gst).toString(),
         // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
-        project_gst_number: typeof values.project_gst_number === 'string' ? values.project_gst_number : JSON.stringify(values.project_gst_number),
         project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
         carpet_area: values.carpet_area,
 
@@ -577,6 +551,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         // If you need to update them directly on Project, ensure they are not read-only.
         project_city: city,
         project_state: state,
+        project_gst: values.project_gst,
 
         // NEW: Assign the transformed child table data
         project_wp_category_makes: backendWPCategoryMakes,
@@ -593,7 +568,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       //   customer: values.customer,
       //   project_type: values.project_type,
       //   project_value: parseNumber(values.project_value),
-      //   project_gst_number: values.project_gst_number,
       //   project_start_date: formatted_start_date,
       //   project_end_date: formatted_end_date,
       //   project_city: city,
@@ -865,52 +839,31 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
             <FormField
               control={form.control}
-              name="project_gst_number" // Form expects { list: [{ location, gst }] }
-              render={({ field }) => {
-                // 1. Extract the currently selected location's name (the single value we need for the Select component).
-                // This correctly displays the default/current selection if the list has one item.
-                const currentValue = field.value?.list?.[0]?.location || "";
-
-                return (
-                  <FormItem className="md:flex md:items-start gap-4">
-                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                    <div className="flex-1">
-                      <Select
-                        onValueChange={(selectedLocationName: string) => {
-                          // 2. Find the full GST object for the selected location name
-                          const foundOption = gstOptions.find(opt => opt.location === selectedLocationName);
-
-                          // 3. Update the form field with a new list containing only the selected item.
-                          if (foundOption) {
-                            // Set the form value to { list: [the_selected_object] }
-                            field.onChange({ list: [foundOption] });
-                          } else {
-                            // Handle case where user might deselect or an unexpected value occurs
-                            field.onChange({ list: [] });
-                          }
-                        }}
-                        value={currentValue}
-                        disabled={field.disabled}
-                      >
-                        <SelectTrigger className="w-full">
-                          {/* Display the selected location name or the placeholder */}
+              name="project_gst"
+              render={({ field }) => (
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
+                    Nirmaan GST for Billing<sup className="text-sm text-red-600">*</sup>
+                  </FormLabel>
+                  <div className="flex-1">
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
                           <SelectValue placeholder="Select Nirmaan GST" />
                         </SelectTrigger>
-                        <SelectContent>
-                          {/* Map all available options */}
-                          {gstOptions.map((option) => (
-                            <SelectItem key={option.location} value={option.location}>
-                              {/* Display both location and GST for user clarity */}
-                              {option.location} - {option.gst}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </div>
-                  </FormItem>
-                );
-              }}
+                      </FormControl>
+                      <SelectContent>
+                        {gstOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.location} - {option.gst}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </div>
+                </FormItem>
+              )}
             />
 
             <FormField
@@ -939,7 +892,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
             {/* <FormField
   control={form.control}
-  name="project_gst_number" // Ensure this matches your form's schema for an array of objects
   render={({ field }) => {
     // Extract currently selected location names from the form field's value.
     // field.value is expected to be { list: [{ location: string, gst: string }, ...] }

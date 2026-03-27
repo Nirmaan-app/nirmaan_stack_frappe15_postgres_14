@@ -214,12 +214,10 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
     const { gstOptions } = useGstOptions();
 
     const { resolvedAddress, resolvedGst } = useMemo(() => {
-        // 1. Try to get GST from project record
-        const projectGstList = procurement_project?.project_gst_number?.list || [];
-        const firstProjectGst = projectGstList[0]?.gst;
-
-        if (firstProjectGst) {
-            const match = gstOptions.find(opt => opt.gst === firstProjectGst);
+        // 1. Try to get GST from project record (New Link Field)
+        const projectGstName = procurement_project?.project_gst;
+        if (projectGstName) {
+            const match = gstOptions.find(opt => opt.value === projectGstName);
             if (match?.address) {
                 return {
                     resolvedAddress: match.address,

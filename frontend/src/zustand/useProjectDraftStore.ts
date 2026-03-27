@@ -52,9 +52,7 @@ export interface ProjectDraftFormValues {
       work_package: string;
     }>;
   };
-  project_gst_number: {
-    list: Array<{ location: string; gst: string }>;
-  };
+  project_gst?: string;
   carpet_area?: number;
   // Daily Progress Report Setup
   daily_progress_setup?: {

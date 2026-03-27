@@ -41,6 +41,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerPODialog";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import { ProjectDriveLink } from "./components/ProjectDriveLink";
+import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 
 
@@ -64,6 +65,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   const { role } = useUserData();
   const navigate = useNavigate();
   const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
+  const { gstOptions } = useGstOptions();
 
   const [selectedUser, setSelectedUser] = useState<string | undefined>();
   const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
@@ -386,14 +388,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               </p>
             </CardDescription> */}
             <CardDescription className="space-y-2 md:text-end">
-              <span>Nirmaan GST(s) for billing</span>
-              <ul className="list-disc list-inside space-y-1">
-                {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
-                  <li key={item?.location}>
-                    <span className="font-bold">{item?.location}</span>
-                  </li>
-                ))}
-              </ul>
+              <span>Nirmaan GST for billing</span>
+              <p className="font-bold text-black">
+                {projectData?.project_gst 
+                  ? `${gstOptions.find(opt => opt.value === projectData.project_gst)?.location || "--"} - ${projectData.project_gst}`
+                  : "--"}
+              </p>
             </CardDescription>
           </div>
         </CardContent>

@@ -1146,10 +1146,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                 <span className="font-semibold text-gray-800">GST: </span>
                 <span className="text-gray-600">
                   {PO.project_gst
-                    ? gstOptions.find((g) => g.gst === PO.project_gst)?.location ||
-                    (poProject && poProject.project_gst_number
-                      ? (typeof poProject.project_gst_number === 'string' ? JSON.parse(poProject.project_gst_number).list : poProject.project_gst_number.list).find((g) => g.gst === PO.project_gst)?.location
-                      : "Not Set")
+                    ? gstOptions.find((g) => g.gst === PO.project_gst)?.location || "Not Set"
                     : "Not Set"}
                 </span>
               </p>

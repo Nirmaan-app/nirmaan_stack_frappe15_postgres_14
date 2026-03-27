@@ -76,7 +76,7 @@ interface ProjectData {
   project_type?: string;
   project_value?: string;
   project_value_gst?: string;
-  project_gst_number?: string;
+  project_gst?: string;
   project_start_date?: string;
   project_end_date?: string;
   project_address?: string;
@@ -3411,7 +3411,6 @@ export const MilestoneTab = () => {
 //   project_type?: string;
 //   project_value?: string;
 //   project_value_gst?: string;
-//   project_gst_number?: string;
 //   project_start_date?: string;
 //   project_end_date?: string;
 //   project_address?: string;
