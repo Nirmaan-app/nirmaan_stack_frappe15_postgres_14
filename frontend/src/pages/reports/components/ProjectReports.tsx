@@ -42,6 +42,7 @@ import { InflowReportTable } from "./InflowReportTable";
 import { OutflowReportTable } from "./outflowReportTable";
 import { NonProjectExpensesPage } from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import { ProjectProgressReports } from "./ProjectProgressReports";
+import { ProjectGSTReport } from "./ProjectGSTReport";
 
 const InventoryReport = lazy(() => import('./InventoryReport'));
 
@@ -641,6 +642,10 @@ export default function ProjectReports() {
 
   if (selectedReportType === "Inventory Report") {
     return <InventoryReport />;
+  }
+
+  if (selectedReportType === "Project GST") {
+    return <ProjectGSTReport />;
   }
 
   // Default to Cash Sheet report if it's selected or if no specific project report is chosen
