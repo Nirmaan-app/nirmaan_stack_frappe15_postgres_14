@@ -127,6 +127,8 @@ const ITRDetail = lazy(() => import("@/pages/InternalTransferMemos/ITRDetail"));
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
+// Document Search
+const DocumentSearch = lazy(() => import("@/pages/DocumentSearch/DocumentSearch"));
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -750,6 +752,9 @@ export const appRoutes: RouteObject[] = [
           // ======================================================
           // --- END: WAREHOUSE SECTION ---
           // ======================================================
+          // --- DOCUMENT SEARCH ---
+          // ======================================================
+          { path: "document-search", element: <Suspense fallback={<div>Loading...</div>}><DocumentSearch /></Suspense> },
 
         ],
       },
