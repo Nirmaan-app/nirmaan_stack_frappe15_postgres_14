@@ -89,6 +89,7 @@ nirmaan_stack/
 8. **Child table filtering:** `frappe.get_all()` and `useFrappeGetDocList` filter at PARENT document level. If ANY child row matches, ALL child rows from that parent are returned. For row-level filtering on child tables (e.g., "only show payment terms with status=Due"), use custom SQL APIs with JOINs. See `api/credits/get_credits_list.py` for the pattern.
 9. **CEO Hold authorization:** The `ceo_hold_by` field on Projects tracks who set CEO Hold. Backend validation in `integrations/controllers/projects.py` (`validate` method) restricts setting/unsetting CEO Hold to `nitesh@nirmaan.app` only — not role-based.
 10. **PO Adjustments system:** Payment reconciliation decoupled from PO Revisions. `api/po_adjustments/` module with `_payment_utils.py` (shared) and `adjustment_logic.py` (manual resolution). `PO Adjustments` doctype (POADJ-.po_id.) tracks double-entry accounting entries. `from_adjustment` flag on Project Payments skips hooks. Revision approval auto-creates/updates adjustment doc.
+11. **Vendor Credit Management:** `api/vendor_credit.py` tracks vendor credit exposure. `recalculate_vendor_credit()` called from 9 hooks (DN, payments, PO cancel/delete/merge, revision, adjustment) — updates metrics but does NOT change `vendor_status`. Daily cron (`tasks/vendor_credit_update.py`, 10 AM IST) is the sole authority for auto-setting On-Hold status. `Vendor Credit Ledger` child table on Vendors tracks all credit events.
 
 ---
 
@@ -151,6 +152,7 @@ For detailed context, read these files when working on related tasks:
 | **Service Requests** | `.claude/context/domain/service-requests.md` | Work Orders, finalization |
 | **Projects** | `.claude/context/domain/projects.md` | Status lifecycle, effects |
 | **Users** | `.claude/context/domain/users.md` | User management |
+| **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` | Vendor credit, hold status, PO blocking |
 
 **Full index:** `.claude/context/_index.md`
 
