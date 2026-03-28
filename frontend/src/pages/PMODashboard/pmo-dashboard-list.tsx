@@ -1,0 +1,516 @@
+import React, { useMemo, useState, useCallback } from "react";
+import { useFrappePostCall } from "frappe-react-sdk";
+import { useNavigate } from "react-router-dom";
+import { TailSpin } from "react-loader-spinner";
+import { ArrowLeft, Search, EyeOff, Eye, ArrowUpRight, Filter, Check, ChevronDown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ProgressCircle } from "@/components/ui/ProgressCircle";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+
+interface CategorySummary {
+  total: number;
+  done: number;
+}
+
+interface PMOProject {
+  name: string;
+  project_name: string;
+  project_city: string;
+  project_state: string;
+  status: string;
+  total_tasks: number;
+  completed_tasks: number;
+  pending_tasks: number;
+  progress: number;
+  categories: Record<string, CategorySummary>;
+}
+
+const CATEGORY_ORDER = [
+  "Communication",
+  "Material Planning",
+  "Execution Planning",
+  "Handover",
+];
+
+const formatCategoryName = (cat: string) => {
+  return cat
+    .toLowerCase()
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
+const CATEGORY_COLORS: Record<
+  string,
+  { bg: string; text: string; countText: string }
+> = {
+  Communication: {
+    bg: "bg-gray-50/80 border border-gray-100",
+    text: "text-gray-500",
+    countText: "text-gray-700",
+  },
+  "Material Planning": {
+    bg: "bg-amber-50/80 border border-amber-100",
+    text: "text-amber-700",
+    countText: "text-amber-900",
+  },
+  "Execution Planning": {
+    bg: "bg-blue-50/80 border border-blue-100",
+    text: "text-blue-700",
+    countText: "text-blue-900",
+  },
+  Handover: {
+    bg: "bg-green-50/80 border border-green-100",
+    text: "text-green-700",
+    countText: "text-green-900",
+  },
+};
+
+const getCategoryColor = (catName: string) =>
+  CATEGORY_COLORS[catName] || {
+    bg: "bg-gray-50/80 border border-gray-100",
+    text: "text-gray-500",
+    countText: "text-gray-700",
+  };
+
+const PMODashboardList: React.FC = () => {
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
+  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
+  const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
+
+  const { call, loading } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.get_pmo_projects"
+  );
+
+  const [projects, setProjects] = React.useState<PMOProject[]>([]);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    call({}).then((res: any) => {
+      setProjects(res?.message || []);
+      setLoaded(true);
+    });
+  }, []);
+
+  const toggleHide = useCallback((projectName: string) => {
+    setHiddenProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectName)) {
+        next.delete(projectName);
+      } else {
+        next.add(projectName);
+      }
+      return next;
+    });
+  }, []);
+
+  // Derive unique project names for filter dropdown
+  const projectFilterOptions = useMemo(() => {
+    if (!projects) return [];
+    const names = projects.map((p) => p.project_name).filter(Boolean);
+    return Array.from(new Set(names)).sort();
+  }, [projects]);
+
+  const filteredProjects = useMemo(() => {
+    let list = projects;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.project_name?.toLowerCase().includes(q) ||
+          p.name?.toLowerCase().includes(q)
+      );
+    }
+    if (selectedProjectFilters.length > 0) {
+      list = list.filter((p) => selectedProjectFilters.includes(p.project_name));
+    }
+    return list;
+  }, [projects, searchQuery, selectedProjectFilters]);
+
+  const activeProjects = useMemo(() => filteredProjects.filter((p) => !hiddenProjects.has(p.name)), [filteredProjects, hiddenProjects]);
+  const hiddenProjectsList = useMemo(() => filteredProjects.filter((p) => hiddenProjects.has(p.name)), [filteredProjects, hiddenProjects]);
+
+  if (loading && !loaded) {
+    return (
+      <div className="flex justify-center items-center h-[60vh]">
+        <TailSpin width={40} height={40} color="#dc2626" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 md:space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-1 mb-2">
+        <ArrowLeft
+          className="h-5 w-5 cursor-pointer text-gray-500 hover:text-gray-700"
+          onClick={() => navigate(-1)}
+        />
+        <span className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+          PMO DASHBOARD
+        </span>
+      </div>
+
+      <div className="mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+          PMO Dashboard
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Track task progress and status across all active projects
+        </p>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+          <Input
+            placeholder="Search by project name or ID..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-10 border-gray-300 focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        {/* Filter Button */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2 h-10 border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+            >
+              <Filter className="h-4 w-4" />
+              <span className="hidden sm:inline">Filter</span>
+              {selectedProjectFilters.length > 0 && (
+                <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 bg-primary text-white text-xs">
+                  {selectedProjectFilters.length}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[280px] p-0" align="end">
+            <Command>
+              <CommandInput placeholder="Search projects..." className="h-9" />
+              <CommandList>
+                <CommandEmpty>No project found.</CommandEmpty>
+                <CommandGroup>
+                  {projectFilterOptions.map((option) => {
+                    const isSelected = selectedProjectFilters.includes(option);
+                    return (
+                      <CommandItem
+                        key={option}
+                        onSelect={() => {
+                          if (isSelected) {
+                            setSelectedProjectFilters((prev) => prev.filter((p) => p !== option));
+                          } else {
+                            setSelectedProjectFilters((prev) => [...prev, option]);
+                          }
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className={`flex h-4 w-4 items-center justify-center rounded-sm border transition-colors ${
+                            isSelected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-primary/20 opacity-50"
+                          }`}>
+                            <Check className={isSelected ? "h-3 w-3 text-white" : "h-3 w-3 opacity-0"} />
+                          </div>
+                          <span>{option}</span>
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+              {selectedProjectFilters.length > 0 && (
+                <div className="p-2 border-t text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
+                    onClick={() => setSelectedProjectFilters([])}
+                  >
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+            </Command>
+          </PopoverContent>
+        </Popover>
+
+      </div>
+
+      {/* Active Filters Display */}
+      {selectedProjectFilters.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4 items-center">
+          <span className="text-sm text-gray-500 mr-2">Filters:</span>
+          {selectedProjectFilters.map((filter) => (
+            <Badge
+              key={filter}
+              variant="secondary"
+              className="bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1.5 px-3 border border-primary/20"
+            >
+              <span className="truncate max-w-[200px]">{filter}</span>
+              <button
+                onClick={() => setSelectedProjectFilters((prev) => prev.filter((p) => p !== filter))}
+                className="rounded-full hover:bg-primary/20 p-0.5"
+              >
+                ×
+                <span className="sr-only">Remove filter</span>
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Project Cards Grid */}
+      {activeProjects.length === 0 && hiddenProjectsList.length === 0 ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <h3 className="text-lg font-medium text-gray-900 mb-1">
+            No Projects Found
+          </h3>
+          <p className="text-sm text-gray-500">
+            {searchQuery
+              ? "No projects match your search."
+              : "No active projects with PMO tasks."}
+          </p>
+        </div>
+      ) : (
+        <>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {activeProjects.map((project) => {
+            const orderedCategories = Object.entries(project.categories || {}).sort(
+              ([a], [b]) => {
+                const aName = formatCategoryName(a);
+                const bName = formatCategoryName(b);
+                const aIdx = CATEGORY_ORDER.indexOf(aName);
+                const bIdx = CATEGORY_ORDER.indexOf(bName);
+                const safeAIdx = aIdx === -1 ? CATEGORY_ORDER.length : aIdx;
+                const safeBIdx = bIdx === -1 ? CATEGORY_ORDER.length : bIdx;
+                return safeAIdx - safeBIdx;
+              }
+            );
+
+            const progressColor =
+              project.progress >= 75
+                ? "text-green-600"
+                : project.progress >= 30
+                  ? "text-amber-500"
+                  : "text-gray-500";
+
+            return (
+              <div
+                key={project.name}
+                onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
+                className={`
+                  group flex flex-col justify-between
+                  border bg-white rounded-xl
+                  transition-all duration-300 ease-in-out
+                  hover:shadow-md hover:border-blue-400
+                  cursor-pointer h-full min-h-[220px]
+                  border-gray-200
+                `}
+              >
+                <div className="p-4 flex flex-col h-full relative">
+                  {/* Card Header */}
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1 flex flex-col gap-1 pr-2">
+                      <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
+                        {project.project_name || project.name}
+                      </h3>
+                    </div>
+                    <ProgressCircle
+                      value={project.progress}
+                      className={`size-[38px] flex-shrink-0 ${progressColor}`}
+                      textSizeClassName="text-[10px]"
+                    />
+                  </div>
+
+                  <div className="mt-auto">
+                    {/* Category Grid - 2x2 layout */}
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                      {orderedCategories.map(([cat, summary]) => {
+                        const formattedCat = formatCategoryName(cat);
+                        const color = getCategoryColor(formattedCat);
+                        return (
+                          <div
+                            key={cat}
+                            className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-md ${color.bg}`}
+                          >
+                            <span className={`font-medium truncate mr-1 ${color.text}`}>
+                              {formattedCat}
+                            </span>
+                            <span className={`font-semibold whitespace-nowrap ${color.countText}`}>
+                              {summary.done}/{summary.total}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Card Footer */}
+                    <div className="border-t border-gray-100 pt-3 mt-auto">
+                      <div className="flex justify-between items-center text-xs font-medium">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleHide(project.name);
+                          }}
+                          className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
+                        >
+                          <EyeOff className="h-3 w-3" />
+                          Hide
+                        </button>
+                        <div className="flex items-center gap-1 text-red-500 hover:text-red-600 transition-colors group/link">
+                          <span>View Details</span>
+                          <ArrowUpRight className="w-3.5 h-3.5 group-hover/link:-translate-y-[2px] group-hover/link:translate-x-[2px] transition-transform" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Hidden Projects Section */}
+        {hiddenProjectsList.length > 0 && (
+          <Collapsible
+            open={isHiddenSectionOpen}
+            onOpenChange={setIsHiddenSectionOpen}
+            className="mt-4 pb-8"
+          >
+            <CollapsibleTrigger asChild>
+              <button className="flex items-center gap-2 w-full px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
+                <EyeOff className="h-4 w-4 text-orange-600" />
+                <span className="text-sm font-medium text-orange-700">
+                  Hidden Projects
+                </span>
+                <Badge
+                  variant="secondary"
+                  className="px-2 py-0.5 text-xs bg-orange-200 text-orange-800 border-0"
+                >
+                  {hiddenProjectsList.length}
+                </Badge>
+                <ChevronDown
+                  className={`h-4 w-4 text-orange-600 ml-auto transition-transform duration-200 ${
+                    isHiddenSectionOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {hiddenProjectsList.map((project) => {
+                  const orderedCategories = Object.entries(project.categories || {}).sort(
+                    ([a], [b]) => {
+                      const aName = formatCategoryName(a);
+                      const bName = formatCategoryName(b);
+                      const aIdx = CATEGORY_ORDER.indexOf(aName);
+                      const bIdx = CATEGORY_ORDER.indexOf(bName);
+                      const safeAIdx = aIdx === -1 ? CATEGORY_ORDER.length : aIdx;
+                      const safeBIdx = bIdx === -1 ? CATEGORY_ORDER.length : bIdx;
+                      return safeAIdx - safeBIdx;
+                    }
+                  );
+
+                  const progressColor =
+                    project.progress >= 75
+                      ? "text-green-600"
+                      : project.progress >= 30
+                        ? "text-amber-500"
+                        : "text-gray-500";
+
+                  return (
+                    <div
+                      key={project.name}
+                      onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
+                      className="group flex flex-col justify-between border border-orange-300 bg-orange-50/30 rounded-xl transition-all duration-300 ease-in-out hover:shadow-md hover:border-blue-400 cursor-pointer h-full min-h-[220px]"
+                    >
+                      <div className="p-4 flex flex-col h-full relative">
+                        {/* Card Header */}
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex-1 flex flex-col gap-1 pr-2">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0 w-fit bg-orange-100 text-orange-700 border-orange-300"
+                            >
+                              <EyeOff className="h-2.5 w-2.5 mr-1" />
+                              Hidden
+                            </Badge>
+                            <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
+                              {project.project_name || project.name}
+                            </h3>
+                          </div>
+                          <ProgressCircle
+                            value={project.progress}
+                            className={`size-[38px] flex-shrink-0 ${progressColor}`}
+                            textSizeClassName="text-[10px]"
+                          />
+                        </div>
+
+                        <div className="mt-auto">
+                          {/* Category Grid - 2x2 layout */}
+                          <div className="grid grid-cols-2 gap-2 mb-4">
+                            {orderedCategories.map(([cat, summary]) => {
+                              const formattedCat = formatCategoryName(cat);
+                              const color = getCategoryColor(formattedCat);
+                              return (
+                                <div
+                                  key={cat}
+                                  className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-md ${color.bg}`}
+                                >
+                                  <span className={`font-medium truncate mr-1 ${color.text}`}>
+                                    {formattedCat}
+                                  </span>
+                                  <span className={`font-semibold whitespace-nowrap ${color.countText}`}>
+                                    {summary.done}/{summary.total}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Card Footer */}
+                          <div className="border-t border-gray-100 pt-3 mt-auto">
+                            <div className="flex justify-between items-center text-xs font-medium">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleHide(project.name);
+                                }}
+                                className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
+                              >
+                                <Eye className="h-3 w-3" />
+                                Unhide
+                              </button>
+                              <div className="flex items-center gap-1 text-red-500 hover:text-red-600 transition-colors group/link">
+                                <span>View Details</span>
+                                <ArrowUpRight className="w-3.5 h-3.5 group-hover/link:-translate-y-[2px] group-hover/link:translate-x-[2px] transition-transform" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default PMODashboardList;

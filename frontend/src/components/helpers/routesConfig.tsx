@@ -85,6 +85,11 @@ import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-des
 import { DesignPackages } from "../design-packages";
 import { CommissionPackages } from "../commission-packages";
 import { WOServicePackages } from "../wo-service-packages";
+import { PMOPackages } from "../pmo-packages";
+
+// PMO Dashboard
+import PMODashboardList from "@/pages/PMODashboard/pmo-dashboard-list";
+import PMOProjectDetail from "@/pages/PMODashboard/pmo-project-detail";
 import { CriticalPOCategories } from "../layout/critical-po-categories";
 
 //Critical PO Tracker
@@ -666,6 +671,21 @@ export const appRoutes: RouteObject[] = [
           { path: "work-order-rate-card", element: <WOServicePackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
+          { path: "pmo-packages", element: <PMOPackages /> },
+
+          // ======================================================
+          // --- START: PMO DASHBOARD SECTION ---
+          // ======================================================
+          {
+            path: "pmo-dashboard",
+            children: [
+              { index: true, element: <PMODashboardList /> },
+              { path: ":projectId", element: <PMOProjectDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: PMO DASHBOARD SECTION ---
+          // ======================================================
           { path: "help-repository", element: <HelpRepositoryPage /> },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
