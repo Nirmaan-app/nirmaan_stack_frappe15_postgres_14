@@ -23,7 +23,7 @@ export interface ProjectGSTRow {
     months: Record<string, MonthlyGST>;
 }
 
-export const useProjectGSTData = () => {
+export const useProjectGSTData = (selectedGST?: string) => {
     // 1. Fetch Projects
     const projectsOptions = useMemo(() => ({
         fields: ["name", "project_name"] as (keyof Projects)[],
@@ -36,16 +36,46 @@ export const useProjectGSTData = () => {
     // 2. Fetch Vendor Invoices (Approved)
     const vendorInvoicesOptions = useMemo(() => ({
         filters: [["status", "=", "Approved"]] as any,
-        fields: ["project", "invoice_date", "invoice_amount"] as (keyof VendorInvoice)[],
+        fields: ["project", "invoice_date", "invoice_amount", "document_type", "document_name"] as (keyof VendorInvoice)[],
         limit: 0
     }), []);
 
     const { data: vendorInvoices, isLoading: isLoadingVendorInvoices } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", vendorInvoicesOptions);
 
+    // 2.1 Fetch Procurement Orders for GST Mapping
+    const poOptions = useMemo(() => ({
+        fields: ["name", "project_gst"] as any,
+        limit: 0
+    }), []);
+    const { data: procurementOrders, isLoading: isLoadingPOs } = useFrappeGetDocList<any>("Procurement Orders", poOptions);
+
+    // 2.2 Fetch Service Requests for GST Mapping
+    const srOptions = useMemo(() => ({
+        fields: ["name", "project_gst"] as any,
+        limit: 0
+    }), []);
+    const { data: serviceRequests, isLoading: isLoadingSRs } = useFrappeGetDocList<any>("Service Requests", srOptions);
+
+    const poGstMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        (procurementOrders || []).forEach(po => {
+            if (po.name && po.project_gst) map[po.name] = po.project_gst;
+        });
+        return map;
+    }, [procurementOrders]);
+
+    const srGstMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        (serviceRequests || []).forEach(sr => {
+            if (sr.name && sr.project_gst) map[sr.name] = sr.project_gst;
+        });
+        return map;
+    }, [serviceRequests]);
+
     // 3. Fetch Project Invoices (Submitted)
     const projectInvoicesOptions = useMemo(() => ({
 
-        fields: ["project", "invoice_date", "amount"] as (keyof ProjectInvoice)[],
+        fields: ["project", "invoice_date", "amount", "project_gst"] as (keyof ProjectInvoice)[],
         limit: 0
     }), []);
 
@@ -78,30 +108,51 @@ export const useProjectGSTData = () => {
     const reportData = useMemo(() => {
         if (!projects) return [];
 
+        // Pre-filter invoices by GST to reduce work in the main loop
+        const filteredVendorInvoices = (vendorInvoices || []).filter(vi => {
+            if (!selectedGST || selectedGST === "all") return true;
+            const sourceGst = vi.document_type === "Procurement Orders" 
+                ? poGstMap[vi.document_name] 
+                : (vi.document_type === "Service Requests" ? srGstMap[vi.document_name] : null);
+            return sourceGst === selectedGST;
+        });
+
+        const filteredProjectInvoices = (projectInvoices || []).filter(pi => {
+            if (!selectedGST || selectedGST === "all") return true;
+            return pi.project_gst === selectedGST;
+        });
+
+        // Pre-group invoices by project and month for O(1) lookup
+        const vendorGroups: Record<string, Record<string, VendorInvoice[]>> = {};
+        filteredVendorInvoices.forEach(vi => {
+            if (!vi.project || !vi.invoice_date) return;
+            const monthId = vi.invoice_date.substring(0, 7); // "yyyy-MM"
+            if (!vendorGroups[vi.project]) vendorGroups[vi.project] = {};
+            if (!vendorGroups[vi.project][monthId]) vendorGroups[vi.project][monthId] = [];
+            vendorGroups[vi.project][monthId].push(vi);
+        });
+
+        const projectGroups: Record<string, Record<string, ProjectInvoice[]>> = {};
+        filteredProjectInvoices.forEach(pi => {
+            if (!pi.project || !pi.invoice_date) return;
+            const monthId = pi.invoice_date.substring(0, 7); // "yyyy-MM"
+            if (!projectGroups[pi.project]) projectGroups[pi.project] = {};
+            if (!projectGroups[pi.project][monthId]) projectGroups[pi.project][monthId] = [];
+            projectGroups[pi.project][monthId].push(pi);
+        });
+
         return projects.map((project) => {
             const monthlyData: Record<string, MonthlyGST> = {};
 
             months.forEach((month) => {
-                const monthStart = startOfMonth(parseISO(`${month.id}-01`));
-                const monthEnd = endOfMonth(monthStart);
+                const monthVendorInvoices = vendorGroups[project.name]?.[month.id] || [];
+                const monthClientInvoices = projectGroups[project.name]?.[month.id] || [];
 
-                // Filter Vendor Invoices for this project and month
-                const projectVendorInvoices = (vendorInvoices || []).filter((vi) =>
-                    vi.project === project.name &&
-                    isWithinInterval(parseISO(vi.invoice_date), { start: monthStart, end: monthEnd })
-                );
-
-                const vendorTotalIncl = projectVendorInvoices.reduce((sum, vi) => sum + parseNumber(vi.invoice_amount), 0);
+                const vendorTotalIncl = monthVendorInvoices.reduce((sum, vi) => sum + parseNumber(vi.invoice_amount), 0);
                 const vendorTotalExcl = vendorTotalIncl / 1.18;
                 const vendorTotalGst = vendorTotalIncl - vendorTotalExcl;
 
-                // Filter Project Invoices for this project and month
-                const projectClientInvoices = (projectInvoices || []).filter((pi) =>
-                    pi.project === project.name &&
-                    isWithinInterval(parseISO(pi.invoice_date), { start: monthStart, end: monthEnd })
-                );
-
-                const clientTotalIncl = projectClientInvoices.reduce((sum, pi) => sum + parseNumber(pi.amount), 0);
+                const clientTotalIncl = monthClientInvoices.reduce((sum, pi) => sum + parseNumber(pi.amount), 0);
                 const clientTotalExcl = clientTotalIncl / 1.18;
                 const clientTotalGst = clientTotalIncl - clientTotalExcl;
 
@@ -117,7 +168,7 @@ export const useProjectGSTData = () => {
                 months: monthlyData
             } as ProjectGSTRow;
         });
-    }, [projects, vendorInvoices, projectInvoices, months]);
+    }, [projects, vendorInvoices, projectInvoices, months, selectedGST, poGstMap, srGstMap]);
 
     // 6. Calculate Totals for Footer
     const totals = useMemo(() => {
@@ -151,6 +202,6 @@ export const useProjectGSTData = () => {
         months,
         reportData,
         totals,
-        isLoading: isLoadingProjects || isLoadingVendorInvoices || isLoadingProjectInvoices
+        isLoading: isLoadingProjects || isLoadingVendorInvoices || isLoadingProjectInvoices || isLoadingPOs || isLoadingSRs
     };
 };

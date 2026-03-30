@@ -10,6 +10,7 @@ export interface ProjectInvoice {
   // --- Linked Documents ---
   customer: string; // The `name` of the Customer document
   project: string;  // The `name` of the Project document
+  project_gst?: string; // Link to Project GST
 
   // --- Attachments ---
   // This field might be null or not present if there's no attachment.

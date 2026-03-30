@@ -1,12 +1,16 @@
-import React from "react";
+import React, { useState } from "react";
 import { useProjectGSTData } from "../hooks/useProjectGSTData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 export const ProjectGSTReport: React.FC = () => {
-    const { months, reportData, totals, isLoading } = useProjectGSTData();
+    const [selectedGST, setSelectedGST] = useState<string>("");
+    const { months, reportData, totals, isLoading } = useProjectGSTData(selectedGST);
+    const { gstOptions, isLoading: isLoadingGstOptions } = useGstOptions();
 
-    if (isLoading) {
+    if (isLoading || isLoadingGstOptions) {
         return <LoadingFallback />;
     }
 
@@ -16,6 +20,26 @@ export const ProjectGSTReport: React.FC = () => {
 
     return (
         <div className="p-4 bg-white min-h-screen">
+            {/* Options Selection Row */}
+            <div className="mb-4 flex items-center gap-4">
+                <div className="w-64">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Select Project GST</label>
+                    <Select value={selectedGST} onValueChange={setSelectedGST}>
+                        <SelectTrigger className="bg-white border-slate-200">
+                            <SelectValue placeholder="All GST Locations" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All GST Locations</SelectItem>
+                            {gstOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.location || opt.value}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+
             {/* Main Table Container */}
             <div className="relative rounded-lg border border-slate-200 shadow-sm overflow-hidden bg-white">
                 <div className="overflow-x-auto overflow-y-auto max-h-[80vh]">
