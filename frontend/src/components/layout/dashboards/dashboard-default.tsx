@@ -14,6 +14,7 @@ import {
   Layers,
   FileBox,
   Tickets,
+  SquareStack,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
@@ -143,6 +144,15 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     linkTo: "/work-order-rate-card",
     Icon: Tickets,
     dataCy: "admin-dashboard-work-order-rate-card",
+  },
+  {
+    id: "pmo-packages",
+    title: "PMO Packages",
+    description: "PMO Packages",
+    doctype: "PMO Task Category",
+    linkTo: "/pmo-packages",
+    Icon: SquareStack,
+    dataCy: "admin-dashboard-pmo-packages-card",
   },
 ];
 

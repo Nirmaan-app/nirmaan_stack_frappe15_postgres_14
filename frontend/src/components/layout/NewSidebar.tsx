@@ -191,6 +191,15 @@ export function NewSidebar() {
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ? [
+      {
+        key: '/pmo-dashboard',
+        icon: SquareStack,
+        label: 'PMO Dashboard',
+      },
+    ]
+    : []),
     ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
       ? [
         {
@@ -592,15 +601,6 @@ export function NewSidebar() {
           key: '/work-order-rate-card',
           icon: Tickets,
           label: 'Work Order Rate Card',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
-      ? [
-        {
-          key: '/pmo-dashboard',
-          icon: SquareStack,
-          label: 'PMO Dashboard',
         },
       ]
       : []),
