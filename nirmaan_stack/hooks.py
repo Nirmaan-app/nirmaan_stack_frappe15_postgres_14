@@ -363,6 +363,7 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
+    "Project GST"
     # "Pincodes"
 ]
 
