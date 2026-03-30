@@ -356,7 +356,9 @@ fixtures = [
     "Commission Report Tasks",
     "Auto Approval Rule",
     "PR Tag Headers",
-    "Project GST"
+    "Project GST",
+    "PMO Task Category",
+    "PMO Task Master"
     # "Pincodes"
 ]
 
