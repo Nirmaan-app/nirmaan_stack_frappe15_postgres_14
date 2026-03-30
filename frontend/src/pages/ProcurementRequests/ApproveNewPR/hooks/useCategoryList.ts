@@ -1,5 +1,5 @@
 import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
-import { Category } from "../types";
+import { MasterCategory as Category } from "../types";
 import { getCategoryListOptions, queryKeys } from "@/config/queryKeys";
 
 interface UseCategoryListProps {

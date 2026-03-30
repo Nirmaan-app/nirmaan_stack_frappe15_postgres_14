@@ -18,7 +18,6 @@ import {
     ItemOption, NewItemState, EditItemState, RequestItemState, FuzzyMatch, User, Item, Comment,
     MasterCategory, // Use MasterCategory for the list of all categories
     Project,
-    GlobalCategory,
     PRCategory,
 } from '../types';
 import { KeyedMutator } from 'swr'
@@ -26,11 +25,10 @@ import { parseNumber } from '@/utils/parseNumber';
 import { Items } from '@/types/NirmaanStack/Items';
 import { MakeOption } from '../../NewPR/types';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
-import { extractMakesFromChildTableForMultipleWPs } from '../../NewPR/NewProcurementRequestPage';
+// REMOVED: extractMakesFromChildTableForMultipleWPs import - categories now derived via displayedCategoriesWithMakes
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import the type
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
-import { DraftItem, DraftCategory } from '@/zustand/useApproveNewPRDraftStore';
-import { parseCategoryList } from '@/utils/safeJsonParse';
+import { DraftItem } from '@/zustand/useApproveNewPRDraftStore';
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 /* ─────────────────────────────────────────────────────────────
@@ -48,13 +46,11 @@ export interface DraftManagerMethods {
     deleteItem: (itemName: string) => DraftItem | null;
     undoDelete: () => void;
     updateOrderList: (items: DraftItem[]) => void;
-    updateCategoryList: (categories: DraftCategory[]) => void;
-    getDataForSubmission: () => { orderList: DraftItem[], categoryList: DraftCategory[] };
+    getDataForSubmission: () => { orderList: DraftItem[] };
     clearDraftAfterSubmit: () => void;
     setUniversalComment: (comment: string) => void;
     // Data from draft manager (when using draft-first)
     orderList?: DraftItem[];
-    categoryList?: DraftCategory[];
     universalComment?: string;
     undoStack?: DraftItem[];
     // Whether draft manager has been initialized with data
@@ -269,16 +265,7 @@ export const useApprovePRLogic = ({
         return prDoc?.order_list ?? orderData?.order_list ?? [];
     }, [useDraftFirst, draftManager?.isInitialized, draftManager?.orderList, orderData?.order_list, prDoc?.order_list]);
 
-    const currentCategoryList = useMemo((): PRCategory[] => {
-        // Same logic as currentOrderList - only use draft if it has actual data
-        const draftCategoryHasData = draftManager?.categoryList && draftManager.categoryList.length > 0;
-
-        if (useDraftFirst && draftManager?.isInitialized && draftCategoryHasData) {
-            return draftManager.categoryList as PRCategory[];
-        }
-        // Fallback chain: prDoc.category_list (server data) -> orderData (local state)
-        return prDoc?.category_list?.list ?? orderData?.category_list?.list ?? [];
-    }, [useDraftFirst, draftManager?.isInitialized, draftManager?.categoryList, orderData?.category_list?.list, prDoc?.category_list?.list]);
+    // REMOVED: currentCategoryList memo - categories are now derived from items via displayedCategoriesWithMakes
 
     const currentUndoStack = useMemo((): PRItemUIData[] => {
         if (useDraftFirst && draftManager?.isInitialized && draftManager?.undoStack) {
@@ -357,9 +344,38 @@ export const useApprovePRLogic = ({
     // }, [orderData?.order_list, orderData?.work_package, projectDoc, categoryList]); // allCategories is needed
 
     const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
-        // Use currentCategoryList which handles draft-first vs legacy
-        return currentCategoryList;
-    }, [currentCategoryList]);
+        // Derive categories from items instead of maintaining separate category_list state
+        const catMap = new Map<string, PRCategory>();
+        currentOrderList.forEach(item => {
+            const key = `${item.category}::${item.status || 'Pending'}`;
+            if (!catMap.has(key)) {
+                // Try to get makes from project configuration
+                let makes: string[] = [];
+                if (item.status !== 'Request' && projectDoc?.project_wp_category_makes) {
+                    try {
+                        const wpData = typeof projectDoc.project_wp_category_makes === 'string'
+                            ? JSON.parse(projectDoc.project_wp_category_makes)
+                            : projectDoc.project_wp_category_makes;
+                        const relevant_wps = wpData?.filter(
+                            (wp: { procurement_package?: string; category?: string; make?: string }) =>
+                                wp.procurement_package === item.procurement_package && wp.category === item.category
+                        ) || [];
+                        makes = relevant_wps
+                            .map((wp: { make?: string }) => wp?.make)
+                            .filter((make: string | undefined) => !!make) || [];
+                    } catch (e) {
+                        console.error("Error deriving makes for category:", e);
+                    }
+                }
+                catMap.set(key, {
+                    name: item.category,
+                    status: item.status || 'Pending',
+                    makes: makes.length > 0 ? makes : undefined,
+                });
+            }
+        });
+        return Array.from(catMap.values());
+    }, [currentOrderList, projectDoc?.project_wp_category_makes]);
 
     // Replace old category derivations with ones based on displayedCategoriesWithMakes
     const addedCategoriesForDisplay = useMemo(() =>
@@ -387,10 +403,6 @@ export const useApprovePRLogic = ({
                 ? prDoc.order_list.map(item => ({ ...item })) // Shallow copy to avoid direct mutation
                 : [];
 
-            // Initialize category_list based on items if not directly available or if it needs regeneration
-            // For now, assuming prDoc.category_list (JSON) is still the source for initial makes display if available
-            const initialCategoryListForState: GlobalCategory[] = parseCategoryList<GlobalCategory>(prDoc.category_list);
-
             setOrderData({
                 // Spread all other properties from prDoc
                 ...(prDoc as any), // Cast to any if Omit causes issues, ensure all fields are there
@@ -405,7 +417,6 @@ export const useApprovePRLogic = ({
                 work_package: prDoc.work_package,
 
                 order_list: initialOrderList, // Use the new field
-                category_list: { list: initialCategoryListForState }, // Keep old structure for now if used
             });
         }
     }, [prDoc, orderData]); // Add orderData to prevent re-init if already set
@@ -436,79 +447,8 @@ export const useApprovePRLogic = ({
     //     }
     // }, [prDoc, orderData, toast]);
 
-    useEffect(() => {
-        // Only run if orderData is initialized
-        if (!orderData) {
-            return;
-        }
-
-        const currentProcurementList = orderData.order_list;
-        const derivedCategories: PRCategory[] = [];
-
-        currentProcurementList.forEach((item) => {
-            // Find category based on name AND status
-            const existingCategory = derivedCategories.find(
-                (category) => category.name === item.category && category.status === item.status
-            );
-
-            if (!existingCategory) {
-                // let makes: string[] = [];
-                let makes: string[] = orderData?.category_list?.list?.find(cat => cat.name === item.category)?.makes || [];
-                // Calculate makes if project data is available (use optional chaining)
-                if (makes?.length === 0 && item.status !== 'Request' && projectDoc?.project_wp_category_makes) { // Example: Calc makes only for non-requested, adjust if needed
-                    try {
-                        // Use optional chaining and nullish coalescing for safety
-                        // const wpData = typeof projectDoc.project_work_packages === 'string' ? JSON.parse(projectDoc.project_work_packages) : projectDoc.project_work_packages;
-                        // makes = wpData?.work_packages
-                        //     ?.flatMap((wp: any) => wp.category_list?.list || [])
-                        //     ?.find((cat: any) => cat?.name === item.category)
-                        //     ?.makes || [];
-                        const wpData = typeof projectDoc.project_wp_category_makes === 'string' ? JSON.parse(projectDoc.project_wp_category_makes) : projectDoc.project_wp_category_makes;
-
-                        const relevant_wps = wpData?.filter((wp: { procurement_package?: string; category?: string; make?: string }) => wp.procurement_package === item.procurement_package && wp.category === item.category) || [];
-
-                        makes = relevant_wps.map((wp: { make?: string }) => wp?.make)?.filter((make: string | undefined) => !!make) || []
-                    } catch (e) {
-                        console.error("Error parsing makes in useEffect:", e);
-                        // Decide how to handle parse error, maybe log or default to empty makes
-                        makes = [];
-                    }
-                }
-
-                derivedCategories.push({
-                    name: item.category,
-                    status: item.status,
-                    makes: makes.length > 0 ? makes : undefined, // Add makes only if they exist
-                });
-            }
-        });
-
-        // Deduplicate just in case (though the logic above should handle it)
-        const uniqueDerivedCategories = derivedCategories.filter((category, index, self) =>
-            index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
-        );
-
-
-        // Only update state if the derived list is different from the current one
-        // This prevents infinite loops if compares shallowly (deep compare might be needed if makes object references change)
-        if (JSON.stringify(uniqueDerivedCategories) !== JSON.stringify(orderData.category_list.list)) {
-            console.log("Updating derived categories..."); // For debugging
-            setOrderData((prevState) => {
-                // Need to check if prevState is null OR if the procurement list itself changed concurrently
-                if (!prevState || prevState.order_list !== currentProcurementList) {
-                    console.warn("Skipping category update due to concurrent procurement_list change or null state.");
-                    return prevState; // Avoid inconsistent state update
-                }
-                return {
-                    ...prevState, // Keep all other properties
-                    // procurement_list: prevState.procurement_list, // Keep the existing procurement list
-                    category_list: { list: uniqueDerivedCategories }, // Update only the category list
-                };
-            });
-        }
-
-        // DEPENDENCIES: Run when orderData.procurement_list changes OR when projectDoc becomes available/changes
-    }, [orderData?.order_list, projectDoc]); // orderData is needed for the comparison check
+    // REMOVED: useEffect that re-derived category_list from order_list (mutation point 1)
+    // Categories are now derived via displayedCategoriesWithMakes useMemo above
 
     const toggleNewItemsCard = useCallback(() => {
         setShowNewItemsCard(prev => !prev);
@@ -596,39 +536,7 @@ export const useApprovePRLogic = ({
             // Add item via draft manager (auto-saves to localStorage, NOT to DB)
             draftManager.addItem(draftItem);
 
-            // Update category list if needed
-            let categoryNeedsUpdate = false;
-            // CRITICAL: Empty array [] is truthy, so we must check length explicitly
-            const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
-                ? draftManager.categoryList
-                : orderData.category_list.list;
-            const updatedCategoryList = currentCategoryList.map(cat => {
-                if (cat.name === newItemForOrderList.category && selectedMake) {
-                    const makes = Array.isArray(cat.makes) ? cat.makes : [];
-                    if (!makes.includes(selectedMake)) {
-                        categoryNeedsUpdate = true;
-                        return { ...cat, makes: [...makes, selectedMake] };
-                    }
-                }
-                return cat;
-            });
-
-            const categoryExists = currentCategoryList.some(c => c.name === newItemForOrderList.category && c.status === newItemForOrderList.status);
-            if (!categoryExists) {
-                categoryNeedsUpdate = true;
-                const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [orderData?.work_package || ""]);
-                const baselineMakes = initialMakesMap[newItemForOrderList.category] || [];
-                const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
-                updatedCategoryList.push({
-                    name: newItemForOrderList.category,
-                    status: newItemForOrderList.status,
-                    makes: newCategoryMakes.length > 0 ? newCategoryMakes : undefined,
-                });
-            }
-
-            if (categoryNeedsUpdate) {
-                draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
-            }
+            // REMOVED: category_list update (mutation point 2) - categories derived from items
 
             // Reset form
             setCurrentItemOption(null);
@@ -651,38 +559,12 @@ export const useApprovePRLogic = ({
         // This is the list we intend to save to the backend
         const updatedList = [...currentList, newItemForOrderList as PRItemUIData];
 
-        // --- IMPORTANT: Update Category List with Makes if necessary ---
-        let categoryNeedsUpdate = false;
-        const updatedCategoryList = orderData.category_list.list.map(cat => {
-            if (cat.name === newItemForOrderList.category && selectedMake) {
-                const makes = Array.isArray(cat.makes) ? cat.makes : [];
-                if (!makes.includes(selectedMake)) {
-                    categoryNeedsUpdate = true;
-                    return { ...cat, makes: [...makes, selectedMake] };
-                }
-            }
-            return cat;
-        });
-
-        // If the category didn't exist at all in the derived list, add it now.
-        const categoryExists = orderData.category_list.list.some(c => c.name === newItemForOrderList.category && c.status === newItemForOrderList.status);
-        if (!categoryExists) {
-            categoryNeedsUpdate = true;
-            const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [orderData?.work_package || ""]);
-            const baselineMakes = initialMakesMap[newItemForOrderList.category] || [];
-            const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
-            updatedCategoryList.push({
-                name: newItemForOrderList.category,
-                status: newItemForOrderList.status,
-                makes: newCategoryMakes.length > 0 ? newCategoryMakes : undefined,
-            });
-        }
+        // REMOVED: category_list mutation in legacy branch - categories derived from items
 
         try {
             // --- 1. Persist changes to the backend ---
             await updateDoc("Procurement Requests", orderData.name, {
                 order_list: updatedList,
-                ...(categoryNeedsUpdate && { category_list: { list: updatedCategoryList } })
             });
 
             // --- 2. Update local state upon successful save ---
@@ -691,7 +573,6 @@ export const useApprovePRLogic = ({
                 return {
                     ...prev,
                     order_list: updatedList,
-                    ...(categoryNeedsUpdate && { category_list: { list: updatedCategoryList } })
                 }
             });
 
@@ -730,50 +611,9 @@ export const useApprovePRLogic = ({
         setEditItem(prev => prev ? { ...prev, [field]: value } : null);
     }, []);
 
-    // --- **NEW LOCAL HANDLER for updating makes in orderData** ---
-    const handleLocalCategoryMakesUpdate = useCallback((categoryName: string, newMake: string) => {
-        console.log(`Hook: Updating LOCAL makes for ${categoryName}, adding ${newMake}`);
-        setOrderData(prevOrderData => {
-            if (!prevOrderData) return null; // Should not happen if called correctly
-
-            let categoryFound = false;
-            let needsUpdate = false;
-
-            const updatedCategoryList = prevOrderData?.category_list?.list.map(cat => {
-                if (cat.name === categoryName) {
-                    categoryFound = true;
-                    const makes = Array.isArray(cat.makes) ? cat.makes : [];
-                    if (!makes.includes(newMake)) {
-                        needsUpdate = true;
-                        return { ...cat, makes: [...makes, newMake] };
-                    }
-                }
-                return cat;
-            });
-
-            // If category wasn't found in the *local* list, add it
-            if (!categoryFound) {
-                // Need to get baseline makes again if category is truly new to this PR session
-                const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [prevOrderData?.work_package || ""]);
-                const baselineMakes = initialMakesMap[categoryName] || [];
-                updatedCategoryList.push({
-                    name: categoryName,
-                    // Determine appropriate status - maybe find from an item? Or default?
-                    status: prevOrderData.order_list.find(i => i.category === categoryName)?.status || 'Pending',
-                    makes: Array.from(new Set([...baselineMakes, newMake]))
-                });
-                needsUpdate = true;
-            }
-
-            if (needsUpdate) {
-                return {
-                    ...prevOrderData,
-                    category_list: { list: updatedCategoryList }
-                };
-            }
-            return prevOrderData; // No change needed
-        });
-    }, [projectDoc]); // projectDoc needed for fallback baseline makes
+    // REMOVED: handleLocalCategoryMakesUpdate (mutation point 3)
+    // ManageCategoryMakesDialog writes to global Category Makelist directly
+    // Categories with makes are now derived from items + project config via displayedCategoriesWithMakes
 
 
 
@@ -815,7 +655,6 @@ export const useApprovePRLogic = ({
 
         await updateDoc("Procurement Requests", orderData.name, {
             order_list: updatedList,
-            category_list: orderData.category_list,
         });
 
         setIsEditItemDialogOpen(false);
@@ -973,32 +812,10 @@ export const useApprovePRLogic = ({
 
         // --- DRAFT-FIRST APPROACH ---
         if (useDraftFirst && draftManager) {
-            // Get current lists BEFORE deletion (to avoid async state issues)
-            const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
-                ? draftManager.categoryList
-                : orderData.category_list.list;
-            const currentOrderList = (draftManager.orderList && draftManager.orderList.length > 0)
-                ? draftManager.orderList.filter(i => !i._isDeleted)
-                : orderData.order_list;
-
             // Delete the Request item (they don't go to undo stack since they were never approved)
             draftManager.deleteItem(itemToReject.name!);
 
-            // Compute remaining items manually (don't rely on async state update)
-            const remainingItems = currentOrderList.filter(item => item.name !== itemToReject.name);
-
-            // Check if other Request items exist in this category
-            const otherRequestsInCategory = remainingItems.some(
-                item => item.category === itemToReject.category && item.status === 'Request'
-            );
-
-            // If no other Request items in this category, remove the "Request" category entry
-            if (!otherRequestsInCategory) {
-                const updatedCategoryList = currentCategoryList.filter(
-                    cat => !(cat.name === itemToReject.category && cat.status === 'Request')
-                );
-                draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
-            }
+            // REMOVED: category_list update (mutation point 6) - categories derived from items
 
             toast({
                 title: "Request Rejected",
@@ -1190,15 +1007,6 @@ export const useApprovePRLogic = ({
 
             // --- DRAFT-FIRST APPROACH ---
             if (useDraftFirst && draftManager) {
-                // Get current lists BEFORE deletion (to avoid async state issues)
-                // CRITICAL: Empty array [] is truthy, so we must check length explicitly
-                const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
-                    ? draftManager.categoryList
-                    : orderData.category_list.list;
-                const currentOrderListBeforeDelete = (draftManager.orderList && draftManager.orderList.length > 0)
-                    ? draftManager.orderList.filter(i => !i._isDeleted)
-                    : orderData.order_list;
-
                 // 1. Delete the original Request item
                 draftManager.deleteItem(requestItem.name);
 
@@ -1217,40 +1025,7 @@ export const useApprovePRLogic = ({
                 };
                 draftManager.addItem(newDraftItem);
 
-                // 3. Update category list
-                let updatedCategoryList = [...currentCategoryList];
-
-                // Ensure the category for the new item exists with 'Pending' status
-                const newItemsCategoryExistsAsPending = updatedCategoryList.some(
-                    cat => cat.name === newDraftItem.category && cat.status === 'Pending'
-                );
-                if (!newItemsCategoryExistsAsPending) {
-                    const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [workPackage || ""]);
-                    const baselineMakes = initialMakesMap[newDraftItem.category] || [];
-                    updatedCategoryList.push({
-                        name: newDraftItem.category,
-                        status: 'Pending',
-                        makes: baselineMakes.length > 0 ? baselineMakes : undefined,
-                    });
-                }
-
-                // Check if the category of the original requested item is still needed
-                // Compute order list after deletion manually (don't rely on async state update)
-                const originalCategoryName = requestItem.category;
-                const orderListAfterDelete = currentOrderListBeforeDelete.filter(
-                    item => item.name !== requestItem.name
-                );
-                const otherItemsInOriginalCategory = orderListAfterDelete.some(
-                    item => item.category === originalCategoryName && item.status === 'Request'
-                );
-
-                if (!otherItemsInOriginalCategory) {
-                    updatedCategoryList = updatedCategoryList.filter(
-                        cat => !(cat.name === originalCategoryName && cat.status === 'Request')
-                    );
-                }
-
-                draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
+                // REMOVED: category_list update (mutation point 4) - categories derived from items
 
                 toast({ title: "Success", description: `Item "${createdItemDoc.item_name}" created and added. Changes will be saved when you approve.`, variant: "success" });
                 setIsRequestItemDialogOpen(false);
@@ -1278,31 +1053,7 @@ export const useApprovePRLogic = ({
                 return listItem;
             });
 
-            // Prepare Updated Category List
-            const newCategories: PRCategory[] = [];
-            updatedProcurementList.forEach((item) => {
-                const existingCategory = newCategories.find(
-                    (category) => category.name === item.category && category.status === item.status
-                );
-                if (!existingCategory) {
-                    let makes = orderData?.category_list?.list?.find(c => c.name === item.category)?.makes || [];
-                    if (makes?.length === 0 && item.status === "Pending" && projectDoc?.project_work_packages) {
-                        try {
-                            const wpData = typeof projectDoc.project_wp_category_makes === 'string' ? JSON.parse(projectDoc.project_wp_category_makes) : projectDoc.project_wp_category_makes;
-                            const relevant_wps = wpData?.filter((wp: { procurement_package?: string; category?: string; make?: string }) => wp.procurement_package === item.procurement_package && wp.category === item.category) || [];
-                            makes = relevant_wps.map((wp: { make?: string }) => wp?.make)?.filter((make: string | undefined) => !!make) || []
-                        } catch (e) { console.error("Error parsing makes in handleApproveRequestedItemAsNew:", e); }
-                    }
-                    newCategories.push({
-                        name: item.category,
-                        status: item.status,
-                        makes: makes.length > 0 ? makes : undefined
-                    });
-                }
-            });
-            const uniqueNewCategories = newCategories.filter((category, index, self) =>
-                index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
-            );
+            // REMOVED: category_list mutation in legacy handleApproveRequestedItemAsNew - categories derived from items
 
             // Update Local State
             setOrderData((prevState) => {
@@ -1310,14 +1061,12 @@ export const useApprovePRLogic = ({
                 return {
                     ...prevState,
                     order_list: updatedProcurementList,
-                    category_list: { list: uniqueNewCategories },
                 };
             });
 
             // Update Database
             await updateDoc("Procurement Requests", orderData.name, {
                 order_list: updatedProcurementList,
-                category_list: { list: uniqueNewCategories },
             });
 
             await prMutate();
@@ -1351,14 +1100,11 @@ export const useApprovePRLogic = ({
         }
 
         // CRITICAL: Empty array [] is truthy, so we must check length explicitly
-        const currentOrderList = useDraftFirst && draftManager?.orderList && draftManager.orderList.length > 0
+        const currentOrderListForMatch = useDraftFirst && draftManager?.orderList && draftManager.orderList.length > 0
             ? draftManager.orderList.filter(i => !i._isDeleted)
             : orderData.order_list;
-        const currentCategoryList = useDraftFirst && draftManager?.categoryList && draftManager.categoryList.length > 0
-            ? draftManager.categoryList
-            : orderData.category_list.list;
 
-        const isDuplicate = currentOrderList.some(item => item.item_id === match.name && item.name !== originalRequest.name);
+        const isDuplicate = currentOrderListForMatch.some(item => item.item_id === match.name && item.name !== originalRequest.name);
         if (isDuplicate) {
             toast({ title: "Duplicate Item", description: `"${match.item_name}" is already in the list.`, variant: "destructive" });
             return;
@@ -1384,41 +1130,7 @@ export const useApprovePRLogic = ({
             };
             draftManager.addItem(newDraftItem);
 
-            // 3. Update category list
-            let updatedCategoryList = [...currentCategoryList];
-
-            // Ensure the category for the new item exists with 'Pending' status
-            const newItemsCategoryExistsAsPending = updatedCategoryList.some(
-                cat => cat.name === newDraftItem.category && cat.status === 'Pending'
-            );
-            if (!newItemsCategoryExistsAsPending) {
-                const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [workPackage || ""]);
-                const baselineMakes = initialMakesMap[newDraftItem.category] || [];
-                updatedCategoryList.push({
-                    name: newDraftItem.category,
-                    status: 'Pending',
-                    makes: baselineMakes.length > 0 ? baselineMakes : undefined,
-                });
-            }
-
-            // Check if the category of the original requested item is still needed
-            const originalCategoryName = originalRequest.category;
-            // Compute order list after deletion manually (don't rely on async state update)
-            // We already have currentOrderList from earlier - use it to compute remaining items
-            const orderListAfterDelete = currentOrderList.filter(
-                item => item.name !== originalRequest.name
-            );
-            const otherItemsInOriginalCategory = orderListAfterDelete.some(
-                item => item.category === originalCategoryName && item.status === 'Request'
-            );
-
-            if (!otherItemsInOriginalCategory) {
-                updatedCategoryList = updatedCategoryList.filter(
-                    cat => !(cat.name === originalCategoryName && cat.status === 'Request')
-                );
-            }
-
-            draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
+            // REMOVED: category_list update (mutation point 5) - categories derived from items
 
             toast({
                 title: "Success",
@@ -1449,45 +1161,16 @@ export const useApprovePRLogic = ({
 
         // Create the updated order list
         // First, remove the original 'Request' item.
-        let updatedOrderList = currentOrderList.filter(item => item.name !== originalRequest.name);
+        let updatedOrderList = currentOrderListForMatch.filter(item => item.name !== originalRequest.name);
         // Then, add the new matching item.
         updatedOrderList.push(itemToAdd as PRItemUIData);
 
-        // Surgically update the category list
-        let updatedCategoryList = [...currentCategoryList];
+        // REMOVED: category_list mutation in legacy handleAddMatchingItem - categories derived from items
 
-        // Ensure the category for the NEWLY ADDED item exists with 'Pending' status.
-        const newItemsCategoryExistsAsPending = updatedCategoryList.some(
-            cat => cat.name === itemToAdd.category && cat.status === 'Pending'
-        );
-        if (!newItemsCategoryExistsAsPending) {
-            const initialMakesMap = extractMakesFromChildTableForMultipleWPs(projectDoc, [workPackage || ""]);
-            const baselineMakes = initialMakesMap[itemToAdd.category] || [];
-            updatedCategoryList.push({
-                name: itemToAdd.category,
-                status: 'Pending',
-                makes: baselineMakes.length > 0 ? baselineMakes : undefined,
-            });
-        }
-
-        // Check if the category of the ORIGINAL REQUESTED item is still needed.
-        const originalCategoryName = originalRequest.category;
-        const otherItemsInOriginalCategory = updatedOrderList.some(
-            item => item.category === originalCategoryName && item.status === 'Request'
-        );
-
-        // If no other items with 'Request' status exist in that category, remove its 'Request' entry.
-        if (!otherItemsInOriginalCategory) {
-            updatedCategoryList = updatedCategoryList.filter(
-                cat => !(cat.name === originalCategoryName && cat.status === 'Request')
-            );
-        }
-
-        // Update the main state ONCE with both updated lists
+        // Update the main state with the updated order list
         setOrderData(prev => prev ? {
             ...prev,
             order_list: updatedOrderList as PRItemUIData[],
-            category_list: { list: updatedCategoryList as PRCategory[] }
         } : null);
 
         // Close dialog and show success message
@@ -1571,20 +1254,20 @@ export const useApprovePRLogic = ({
         try {
             // Get the data to submit (from draft manager if using draft-first, otherwise from orderData)
             let orderListToSubmit: any[];
-            let categoryListToSubmit: any;
             let commentToSave: string;
 
             if (useDraftFirst && draftManager) {
                 // Get finalized data from draft manager
                 const submissionData = draftManager.getDataForSubmission();
                 orderListToSubmit = submissionData.orderList;
-                categoryListToSubmit = { list: submissionData.categoryList };
                 commentToSave = draftManager.universalComment || '';
             } else {
                 orderListToSubmit = orderData.order_list;
-                categoryListToSubmit = orderData.category_list;
                 commentToSave = universalComment;
             }
+
+            // Derive category_list from items at submission time (no longer stored as mutable state)
+            const categoryListToSubmit = { list: displayedCategoriesWithMakes };
 
             // Transform items for backend submission
             const payloadOrderList = orderListToSubmit.map(item => {
@@ -1662,7 +1345,7 @@ export const useApprovePRLogic = ({
             });
             setIsConfirmActionDialogOpen(false);
         }
-    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager, isCEOHold, showBlockedToast]);
+    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager, isCEOHold, showBlockedToast, displayedCategoriesWithMakes]);
 
 
     const handleOpenDeletePRDialog = useCallback(() => {
@@ -1777,7 +1460,7 @@ export const useApprovePRLogic = ({
         handleDeletePR,
         navigateBackToList,
 
-        handleLocalCategoryMakesUpdate, // <<< Return the new local handler
+        // REMOVED: handleLocalCategoryMakesUpdate - categories now derived from items
 
         // Dialog Visibility Setters
         setIsNewItemDialogOpen,
@@ -1794,7 +1477,6 @@ export const useApprovePRLogic = ({
         requestedCategoriesForDisplay,
         displayedCategoriesWithMakes,
         currentOrderList, // Expose the unified order list
-        currentCategoryList, // Expose the unified category list
 
         // Helpers/Derived Data
         getFullName,

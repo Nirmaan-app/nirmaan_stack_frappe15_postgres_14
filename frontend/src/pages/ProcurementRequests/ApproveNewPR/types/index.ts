@@ -1,5 +1,5 @@
 import { Items } from "@/types/NirmaanStack/Items";
-import { ProcurementRequest, ProcurementItemBase, ProcurementRequestItemDetail, Category as GlobalCategory } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, ProcurementItemBase, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
@@ -9,7 +9,6 @@ import { Category as MasterCategory} from "@/types/NirmaanStack/Category";
 
 // Renaming for clarity within this feature's context
 
-export type { GlobalCategory }
 export interface PRCategory {
     name: string;
     makes?: string[];

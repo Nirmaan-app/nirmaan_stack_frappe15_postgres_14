@@ -38,6 +38,7 @@ export interface DraftItem extends DraftItemFlags {
 
 /**
  * Draft category structure
+ * @deprecated Categories are now derived from items. Kept for draft migration compatibility.
  */
 export interface DraftCategory {
   name: string;
@@ -56,7 +57,6 @@ export interface ApproveNewPRDraft {
 
   // Main data
   orderList: DraftItem[];
-  categoryList: DraftCategory[];
   universalComment: string;
 
   // Undo functionality
@@ -66,6 +66,9 @@ export interface ApproveNewPRDraft {
   lastSavedAt: string | null;
   createdAt: string;
   serverModifiedAt: string; // To detect if PR changed on server since draft was created
+
+  // Version for migration
+  draftVersion: number;
 }
 
 /**
@@ -121,12 +124,12 @@ export const useApproveNewPRDraftStore = create<ApproveNewPRDraftStore>()(
           projectId: '',
           workPackage: '',
           orderList: [],
-          categoryList: [],
           universalComment: '',
           undoStack: [],
           createdAt: now,
           serverModifiedAt: '',
           lastSavedAt: now,
+          draftVersion: 2,
         };
 
         // Merge: defaults <- existing <- new data <- timestamp
@@ -203,10 +206,17 @@ export const useApproveNewPRDraftStore = create<ApproveNewPRDraftStore>()(
     {
       name: 'nirmaan-approve-pr-drafts',
       storage: createJSONStorage(() => localStorage),
-      // Clean up expired drafts on rehydration
+      // Clean up expired drafts and migrate old versions on rehydration
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.clearExpiredDrafts();
+          // Clear drafts with old version (before category_list elimination)
+          const drafts = state.getAllDrafts();
+          for (const [prId, draft] of Object.entries(drafts)) {
+            if (!draft.draftVersion || draft.draftVersion < 2) {
+              state.removeDraft(prId);
+            }
+          }
         }
       },
     }

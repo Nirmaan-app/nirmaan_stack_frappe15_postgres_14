@@ -8,7 +8,7 @@ import { PRDocType } from './types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
-import { parseCategoryList } from '@/utils/safeJsonParse';
+// REMOVED: parseCategoryList import - category_list no longer maintained as state
 
 // Import the new individual hooks
 import { useUsersList } from './hooks/useUsersList';
@@ -143,23 +143,18 @@ export const ApprovePRContainer: React.FC = () => {
         orderListLength: prDoc?.order_list?.length ?? 0,
     });
 
-    // Derive parsed category list during render (following rerender-derived-state-no-effect)
-    const parsedCategoryList = parseCategoryList(prDoc?.category_list);
-
     // IMPORTANT: Memoize serverData to prevent infinite re-renders
     // Without useMemo, a new object is created on every render, causing useEffect loops
     const serverDataForDraft = useMemo(() => {
         const data = {
             orderList: prDoc?.order_list || [],
-            categoryList: parsedCategoryList,
             modifiedAt: prDoc?.modified || '',
         };
         log('serverDataForDraft memoized:', {
             orderListLength: data.orderList.length,
-            categoryListLength: data.categoryList.length,
         });
         return data;
-    }, [prDoc?.order_list, parsedCategoryList, prDoc?.modified]);
+    }, [prDoc?.order_list, prDoc?.modified]);
 
     const draftManager = useApproveNewPRDraftManager({
         prId: prDoc?.name || '',
@@ -195,12 +190,10 @@ export const ApprovePRContainer: React.FC = () => {
             deleteItem: draftManager.deleteItem,
             undoDelete: draftManager.undoDelete,
             updateOrderList: draftManager.updateOrderList,
-            updateCategoryList: draftManager.updateCategoryList,
             getDataForSubmission: draftManager.getDataForSubmission,
             clearDraftAfterSubmit: draftManager.clearDraftAfterSubmit,
             setUniversalComment: draftManager.setUniversalComment,
             orderList: draftManager.orderList,
-            categoryList: draftManager.categoryList,
             universalComment: draftManager.universalComment,
             undoStack: draftManager.undoStack,
             isInitialized: draftManager.isInitialized,
@@ -213,12 +206,10 @@ export const ApprovePRContainer: React.FC = () => {
         draftManager.deleteItem,
         draftManager.undoDelete,
         draftManager.updateOrderList,
-        draftManager.updateCategoryList,
         draftManager.getDataForSubmission,
         draftManager.clearDraftAfterSubmit,
         draftManager.setUniversalComment,
         draftManager.orderList,
-        draftManager.categoryList,
         draftManager.universalComment,
         draftManager.undoStack,
         draftManager.isInitialized,

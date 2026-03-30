@@ -4,10 +4,9 @@ import { toast } from '@/components/ui/use-toast';
 import {
   useApproveNewPRDraftStore,
   DraftItem,
-  DraftCategory,
   ApproveNewPRDraft,
 } from '@/zustand/useApproveNewPRDraftStore';
-import { PRItemUIData, PRCategory } from '@/pages/ProcurementRequests/ApproveNewPR/types';
+import { PRItemUIData } from '@/pages/ProcurementRequests/ApproveNewPR/types';
 
 /* ─────────────────────────────────────────────────────────────
    INTERFACE DEFINITIONS
@@ -19,7 +18,6 @@ export interface UseApproveNewPRDraftManagerParams {
   workPackage: string;
   serverData: {
     orderList: PRItemUIData[];
-    categoryList: PRCategory[];
     modifiedAt: string;
   };
   enabled?: boolean;
@@ -35,7 +33,6 @@ export interface UseApproveNewPRDraftManagerReturn {
 
   // Data (from draft or initial server data)
   orderList: DraftItem[];
-  categoryList: DraftCategory[];
   universalComment: string;
   undoStack: DraftItem[];
 
@@ -46,7 +43,6 @@ export interface UseApproveNewPRDraftManagerReturn {
   undoDelete: () => void;
   setUniversalComment: (comment: string) => void;
   updateOrderList: (items: DraftItem[]) => void;  // Bulk update
-  updateCategoryList: (categories: DraftCategory[]) => void;
 
   // Draft lifecycle
   saveDraftNow: () => void;  // Force immediate save
@@ -61,7 +57,7 @@ export interface UseApproveNewPRDraftManagerReturn {
   setShowCancelDialog: (show: boolean) => void;
 
   // For final submission
-  getDataForSubmission: () => { orderList: DraftItem[], categoryList: DraftCategory[] };
+  getDataForSubmission: () => { orderList: DraftItem[] };
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -109,14 +105,7 @@ const toDraftItem = (item: PRItemUIData): DraftItem => ({
   _originalComment: item.comment,
 });
 
-/**
- * Convert PRCategory to DraftCategory format
- */
-const toDraftCategory = (cat: PRCategory): DraftCategory => ({
-  name: cat.name,
-  makes: cat.makes,
-  status: cat.status,
-});
+// REMOVED: toDraftCategory - categories now derived from items
 
 /* ─────────────────────────────────────────────────────────────
    HOOK IMPLEMENTATION
@@ -142,7 +131,6 @@ export function useApproveNewPRDraftManager({
 
   // Local state - working copies of the data
   const [orderList, setOrderList] = useState<DraftItem[]>([]);
-  const [categoryList, setCategoryList] = useState<DraftCategory[]>([]);
   const [universalComment, setUniversalCommentState] = useState<string>('');
   const [undoStack, setUndoStack] = useState<DraftItem[]>([]);
 
@@ -204,12 +192,12 @@ export function useApproveNewPRDraftManager({
       projectId,
       workPackage,
       orderList,
-      categoryList,
       universalComment,
       undoStack,
       lastSavedAt: new Date().toISOString(),
       createdAt: getDraft(prId)?.createdAt || new Date().toISOString(),
       serverModifiedAt: serverData.modifiedAt,
+      draftVersion: 2,
     };
 
     setDraft(prId, draftData);
@@ -222,7 +210,6 @@ export function useApproveNewPRDraftManager({
     projectId,
     workPackage,
     orderList,
-    categoryList,
     universalComment,
     undoStack,
     serverData.modifiedAt,
@@ -282,15 +269,13 @@ export function useApproveNewPRDraftManager({
     }
 
     const draftOrderList = serverData.orderList.map(toDraftItem);
-    const draftCategoryList = serverData.categoryList.map(toDraftCategory);
 
     setOrderList(draftOrderList);
-    setCategoryList(draftCategoryList);
     setUniversalCommentState('');
     setUndoStack([]);
     setIsUsingDraft(false);
     setIsInitialized(true);
-  }, [serverData.orderList, serverData.categoryList]);
+  }, [serverData.orderList]);
 
   /* ─────────────────────────────────────────────────────────────
      CHECK FOR EXISTING DRAFT ON MOUNT
@@ -381,12 +366,10 @@ export function useApproveNewPRDraftManager({
 
     // Initialize the data
     const draftOrderList = serverData.orderList.map(toDraftItem);
-    const draftCategoryList = serverData.categoryList.map(toDraftCategory);
 
     setOrderList(draftOrderList);
-    setCategoryList(draftCategoryList);
     setIsInitialized(true);
-  }, [serverData.orderList, serverData.categoryList, isUsingDraft, draftsDisabled]);
+  }, [serverData.orderList, isUsingDraft, draftsDisabled]);
 
   /* ─────────────────────────────────────────────────────────────
      MUTATION FUNCTIONS
@@ -477,10 +460,7 @@ export function useApproveNewPRDraftManager({
     triggerDebouncedSave();
   }, [triggerDebouncedSave]);
 
-  const updateCategoryList = useCallback((categories: DraftCategory[]) => {
-    setCategoryList(categories);
-    triggerDebouncedSave();
-  }, [triggerDebouncedSave]);
+  // REMOVED: updateCategoryList - categories now derived from items
 
   /* ─────────────────────────────────────────────────────────────
      DRAFT LIFECYCLE FUNCTIONS
@@ -516,7 +496,6 @@ export function useApproveNewPRDraftManager({
 
     // Load draft data into local state
     setOrderList(existingDraft.orderList);
-    setCategoryList(existingDraft.categoryList);
     setUniversalCommentState(existingDraft.universalComment);
     setUndoStack(existingDraft.undoStack);
     setIsUsingDraft(true);
@@ -576,9 +555,8 @@ export function useApproveNewPRDraftManager({
   const getDataForSubmission = useCallback(() => {
     return {
       orderList: orderList.filter((item) => !item._isDeleted),
-      categoryList,
     };
-  }, [orderList, categoryList]);
+  }, [orderList]);
 
   /* ─────────────────────────────────────────────────────────────
      CLEANUP ON UNMOUNT
@@ -610,7 +588,6 @@ export function useApproveNewPRDraftManager({
 
       // Data
       orderList,
-      categoryList,
       universalComment,
       undoStack,
 
@@ -621,7 +598,6 @@ export function useApproveNewPRDraftManager({
       undoDelete,
       setUniversalComment,
       updateOrderList,
-      updateCategoryList,
 
       // Draft lifecycle
       saveDraftNow,
@@ -645,7 +621,6 @@ export function useApproveNewPRDraftManager({
       hasUnsavedChanges,
       isInitialized,
       orderList,
-      categoryList,
       universalComment,
       undoStack,
       addItem,
@@ -654,7 +629,6 @@ export function useApproveNewPRDraftManager({
       undoDelete,
       setUniversalComment,
       updateOrderList,
-      updateCategoryList,
       saveDraftNow,
       resumeDraft,
       discardDraft,
