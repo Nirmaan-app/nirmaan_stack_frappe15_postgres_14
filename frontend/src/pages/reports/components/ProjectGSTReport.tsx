@@ -67,7 +67,7 @@ export const ProjectGSTReport: React.FC = () => {
                                             Client Invoices
                                         </th>
                                         <th className={`text-slate-900 p-2 text-center font-bold border-b border-r-2 border-slate-200 uppercase italic ${month.bg} transform translate-z-0`}>
-                                            GST Pay
+                                            GST PAYABLE
                                         </th>
                                     </React.Fragment>
                                 ))}
@@ -82,7 +82,7 @@ export const ProjectGSTReport: React.FC = () => {
                                         <th className={`text-slate-400 px-3 py-1 text-center font-medium border-b border-r border-slate-100/50 ${month.bg} transform translate-z-0`}>Incl</th>
                                         <th className={`text-slate-400 px-3 py-1 text-center font-medium border-b border-r border-slate-100/50 ${month.bg} transform translate-z-0`}>Excl</th>
                                         <th className={`text-emerald-500 px-3 py-1 text-center font-bold border-b border-r-2 border-slate-100/50 ${month.bg} transform translate-z-0`}>GST</th>
-                                        <th className={`text-slate-900 px-3 py-1 text-center font-black border-b border-r-2 border-slate-100 ${month.bg} transform translate-z-0`}>VI -CI</th>
+                                        <th className={`text-slate-900 px-3 py-1 text-center font-black border-b border-r-2 border-slate-100 ${month.bg} transform translate-z-0`}>CI -VI</th>
                                     </React.Fragment>
                                 ))}
                             </tr>

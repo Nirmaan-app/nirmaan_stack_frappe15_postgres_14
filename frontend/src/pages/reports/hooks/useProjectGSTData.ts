@@ -159,7 +159,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
                 monthlyData[month.name] = {
                     vendor: { incl: vendorTotalIncl, excl: vendorTotalExcl, gst: vendorTotalGst },
                     client: { incl: clientTotalIncl, excl: clientTotalExcl, gst: clientTotalGst },
-                    gstPay: vendorTotalGst - clientTotalGst
+                    gstPay: clientTotalGst - vendorTotalGst
                 };
             });
 
@@ -191,7 +191,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
             result[month.name] = {
                 vendor: { incl: vIncl, excl: vExcl, gst: vGst },
                 client: { incl: cIncl, excl: cExcl, gst: cGst },
-                gstPay: vGst - cGst
+                gstPay: cGst - vGst
             };
         });
 
