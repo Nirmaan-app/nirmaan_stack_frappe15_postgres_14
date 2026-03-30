@@ -165,14 +165,8 @@ def create_project_with_address(values: dict):
         project_doc.carpet_area = frappe.utils.flt(values.get("carpet_area"))
 
         
-        # Assuming project_gst_number is still a JSON field as per your Projects.json
-        project_gst_number_data = values.get("project_gst_number")
-        if isinstance(project_gst_number_data, dict) and "list" in project_gst_number_data:
-            project_doc.project_gst_number = project_gst_number_data # Store the dict
-        elif isinstance(project_gst_number_data, list): # If frontend sends just the list
-             project_doc.project_gst_number = {"list": project_gst_number_data}
-        else:
-            project_doc.project_gst_number = None # Or an empty dict: {"list": []}
+        # Set the project_gst Link field
+        project_doc.project_gst = values.get("project_gst")
             
         project_doc.project_start_date = formatted_start_date
         project_doc.project_end_date = formatted_end_date

@@ -12,6 +12,7 @@ import { FolderPlus, MessageCircleMore } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { getCategoryListFromDocument, getItemListFromDocument, ProgressDocumentType } from '../types'
+import { useGstOptions } from '@/hooks/useGstOptions';
 
 interface GenerateRFQDialogProps {
     orderData: ProgressDocumentType;
@@ -210,6 +211,28 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
         return rfqItems;
     }, [orderData, selectedItems]);
 
+    const { gstOptions } = useGstOptions();
+
+    const { resolvedAddress, resolvedGst } = useMemo(() => {
+        // 1. Try to get GST from project record (New Link Field)
+        const projectGstName = procurement_project?.project_gst;
+        if (projectGstName) {
+            const match = gstOptions.find(opt => opt.value === projectGstName);
+            if (match?.address) {
+                return {
+                    resolvedAddress: match.address,
+                    resolvedGst: match.gst
+                };
+            }
+        }
+
+        // 2. Fallback to Bengaluru
+        const bengaluru = gstOptions.find(opt => opt.location === "Bengaluru");
+        return {
+            resolvedAddress: bengaluru?.address || "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
+            resolvedGst: bengaluru?.gst || "29ABFCS9095N1Z9"
+        };
+    }, [gstOptions, procurement_project]);
 
     return (
         <div className='hidden'>
@@ -231,8 +254,8 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
                                 <th colSpan={5} className="p-0">
                                     <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
                                         <div className="flex justify-between">
-                                            <div className="text-xs text-gray-500 font-normal">1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka</div>
-                                            <div className="text-xs text-gray-500 font-normal">GST: 29ABFCS9095N1Z9</div>
+                                            <div className="text-xs text-gray-500 font-normal">{resolvedAddress}</div>
+                                            <div className="text-xs text-gray-500 font-normal">GST: {resolvedGst}</div>
                                         </div>
                                     </div>
                                 </th>

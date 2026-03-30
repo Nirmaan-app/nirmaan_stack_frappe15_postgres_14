@@ -50,11 +50,6 @@ export interface ProjectZoneEntry {
 
 
 
-export interface ProjectGSTNumber {
-	location: string;
-	gst: string;
-}
-
 
 export interface Projects {
 	name: string
@@ -107,10 +102,8 @@ export interface Projects {
 	subdivisions?: string
 	/**	Subdivision List : JSON	*/
 	subdivision_list?: any
-	/**	Project GST : JSON	*/
-	project_gst_number?: {
-		list: ProjectGSTNumber[]
-	}
+	/**	Project GST : Link - Project GST	*/
+	project_gst?: string
 	project_value?: string
 
 	project_value_gst?: string

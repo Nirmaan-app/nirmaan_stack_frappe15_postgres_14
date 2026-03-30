@@ -9,7 +9,12 @@ import { toast } from "@/components/ui/use-toast";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappeGetDocList } from "frappe-react-sdk";
+import { useGstOptions } from "@/hooks/useGstOptions";
+import { Projects } from "@/types/NirmaanStack/Projects";
+import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertCircle } from "lucide-react";
 import React, { useCallback, useState, useEffect, useContext } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { KeyedMutator } from 'swr';
@@ -33,7 +38,8 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
         invoice_no: "",
         amount: "",
         date: "",
-        project: ProjectId || ""
+        project: ProjectId || "",
+        project_gst: ""
     });
 
     const [invoiceData, setInvoiceData] = useState(getInitialState());
@@ -43,19 +49,30 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
 
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
+    const { data: projects } = useFrappeGetDocList<Projects>(
+        "Projects",
+        getProjectListOptions({ fields: ["name", "project_gst"] }) as any,
+        queryKeys.projects.list()
+    );
+    const { gstOptions, isLoading: gstOptionsLoading } = useGstOptions();
+
     // Effect to reset the form state when the dialog is closed
     useEffect(() => {
         if (!newProjectInvoiceDialog) {
             setInvoiceData(getInitialState());
             setSelectedAttachment(null);
+        } else if (ProjectId && projects) {
+            const project = projects.find(p => p.name === ProjectId);
+            if (project) {
+                setInvoiceData(prev => ({ ...prev, project_gst: project.project_gst || "" }));
+            }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [newProjectInvoiceDialog, ProjectId]); // Reset if ProjectId changes while dialog is open
+    }, [newProjectInvoiceDialog, ProjectId, projects]);
 
     const handleSubmitInvoice = useCallback(async (event?: React.FormEvent) => {
         if (event) event.preventDefault(); // Prevent default form submission
 
-        if (!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.project) {
+        if (!invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.project || !invoiceData.project_gst) {
             toast({ title: "Validation Error", description: "Please fill all required fields.", variant: "destructive" });
             return;
         }
@@ -76,7 +93,8 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
                 amount: parseNumber(invoiceData.amount),
                 invoice_date: invoiceData.date,
                 attachment: uploadedFile.file_url,
-                project: invoiceData.project || ProjectId
+                project: invoiceData.project || ProjectId,
+                project_gst: invoiceData.project_gst
             };
 
             await createDoc("Project Invoices", newInvoicePayload);
@@ -112,10 +130,10 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
         toggleNewProjectInvoiceDialog,
     ]);
 
-    const isLoading = uploadLoading || createDocLoading;
+    const isLoading = uploadLoading || createDocLoading || gstOptionsLoading;
 
     // Derived state to check if the form is valid for submission
-    const isFormInvalid = !invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !selectedAttachment;
+    const isFormInvalid = !invoiceData.date || !invoiceData.invoice_no || !invoiceData.amount || !selectedAttachment || !invoiceData.project || !invoiceData.project_gst;
 
     const handleChange = (selectedItem: any) => {
         setSelectedProject(selectedItem ? selectedItem.value : null);
@@ -124,13 +142,16 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
                 "selectedProject",
                 JSON.stringify(selectedItem.value)
             );
+            const project = projects?.find(p => p.name === selectedItem.value);
             setInvoiceData(prev => ({
                 ...prev,
-                project: selectedItem ? selectedItem.value : ""
+                project: selectedItem.value,
+                project_gst: project?.project_gst || ""
             }));
 
         } else {
             sessionStorage.removeItem("selectedProject");
+            setInvoiceData(prev => ({ ...prev, project: "", project_gst: "" }));
         }
     };
     return (
@@ -205,6 +226,34 @@ export function ProjectInvoiceDialog({ listMutate, ProjectId }: ProjectInvoiceDi
                                 className="sm:col-span-2"
                                 disabled={isLoading}
                             />
+                        </div>
+
+                        {/* GST Selection Field */}
+                        <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-3 sm:items-center sm:gap-4">
+                            <Label htmlFor="project_gst" className="sm:text-left">
+                                Project GST<sup className="text-red-500 ml-1">*</sup>:
+                            </Label>
+                            <div className="sm:col-span-2">
+                                <Select 
+                                    value={invoiceData.project_gst} 
+                                    onValueChange={(val) => setInvoiceData(prev => ({ ...prev, project_gst: val }))}
+                                    disabled={isLoading}
+                                >
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Select GST Location" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {gstOptions.map((opt) => (
+                                            <SelectItem key={opt.value} value={opt.value}>
+                                                <div className="flex flex-col text-left">
+                                                    <span className="font-medium">{opt.location}</span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">{opt.gst}</span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                     </div>
 

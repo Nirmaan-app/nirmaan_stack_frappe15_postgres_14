@@ -14,6 +14,7 @@ import {
     WorkPackageType,
     DesignCategory,
 } from "@/pages/projects/data/project-form/useProjectFormQueries";
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 export interface SelectOption {
     label: string;
@@ -104,6 +105,9 @@ export const useProjectFormData = () => {
         error: criticalPOCategoriesError
     } = useProjectFormCriticalPOCategories();
 
+    // Project GSTs
+    const { gstOptions, isLoading: gstLoading, error: gstError } = useGstOptions();
+
     // Listen for project type changes
     useFrappeDocTypeEventListener("Project Types", async () => {
         await projectTypesMutate();
@@ -173,7 +177,7 @@ export const useProjectFormData = () => {
     })) || [];
 
     // Loading states
-    const isLoading = workPackagesLoading || customersLoading || projectTypesLoading || usersLoading;
+    const isLoading = workPackagesLoading || customersLoading || projectTypesLoading || usersLoading || gstLoading;
     const isPackageDataLoading = categoriesLoading || categoryMakeListLoading;
     const isWorkHeadersLoading = workHeadersLoading;
     const isDesignCategoriesLoading = designCategoriesLoading;
@@ -198,6 +202,7 @@ export const useProjectFormData = () => {
         designLeadOptions,
         procurementLeadOptions,
         accountantOptions,
+        gstOptions,
 
         // Pincode
         pincodeData,
@@ -225,6 +230,7 @@ export const useProjectFormData = () => {
         workHeadersError,
         designCategoriesError,
         criticalPOCategoriesError,
+        gstError,
     };
 };
 

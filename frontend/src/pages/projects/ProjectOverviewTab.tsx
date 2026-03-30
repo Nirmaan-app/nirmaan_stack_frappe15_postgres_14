@@ -31,6 +31,7 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import { ProjectDriveLink } from "./components/ProjectDriveLink";
+import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
 
@@ -61,6 +62,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
     projectTypeResponse,
     projectAssigneesResponse,
   } = useProjectOverviewApi(projectData?.name, projectData?.project_type);
+  const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
+  const { gstOptions } = useGstOptions();
 
   const [selectedUser, setSelectedUser] = useState<string | undefined>();
   const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
@@ -253,7 +256,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           <CardTitle>
             <div className="flex justify-between items-center">
               <p className="text-2xl">Project Details</p>
-              
+
               <div className="flex flex-col md:flex-row items-center gap-2 w-full md:w-auto">
                 {role !== "Nirmaan Accountant Profile" && (
                   <Button onClick={() => navigate("add-estimates")} className="w-full md:w-auto">
@@ -370,14 +373,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               </p>
             </CardDescription> */}
             <CardDescription className="space-y-2 md:text-end">
-              <span>Nirmaan GST(s) for billing</span>
-              <ul className="list-disc list-inside space-y-1">
-                {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
-                  <li key={item?.location}>
-                    <span className="font-bold">{item?.location}</span>
-                  </li>
-                ))}
-              </ul>
+              <span>Nirmaan GST for billing</span>
+              <p className="font-bold text-black">
+                {projectData?.project_gst
+                  ? `${gstOptions.find(opt => opt.value === projectData.project_gst)?.location || "--"} - ${projectData.project_gst}`
+                  : "--"}
+              </p>
             </CardDescription>
           </div>
         </CardContent>
@@ -525,7 +526,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       <Card>
         <ProjectDriveLink projectId={projectData.name} role={role} />
       </Card>
-      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name}/>
+      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name} />
     </div>
   )
 }

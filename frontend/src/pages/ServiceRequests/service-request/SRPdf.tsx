@@ -5,6 +5,8 @@ import { Printer, Download } from 'lucide-react';
 import { AddressView } from "@/components/address-view";
 
 
+import { useGstOptions } from "@/hooks/useGstOptions";
+
 interface SRPdfProps {
   srPdfSheet: boolean;
   toggleSrPdfSheet: () => void;
@@ -23,20 +25,23 @@ interface SRPdfProps {
   // AddressView: React.ComponentType<{ id: string }>;
 }
 
-const gstAddressMap = {
-  "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
-  "06ABFCS9095N1ZH": "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram - 122002, Haryana",
-  "09ABFCS9095N1ZB": "MR1, Plot no. 21 & 21A, AltF 142 Noida, Sector 142, Noida - 201305, Uttar Pradesh"
-}
-
 // Header Component for reuse
-const SRHeader: React.FC<{ orderData: any; service_vendor: any; project: any; logo: string; showVendorInfo?: boolean; gstEnabled: boolean }> = ({ 
+const SRHeader: React.FC<{ 
+  orderData: any; 
+  service_vendor: any; 
+  project: any; 
+  logo: string; 
+  showVendorInfo?: boolean; 
+  gstEnabled: boolean;
+  resolvedAddress: string;
+}> = ({ 
   orderData, 
   service_vendor, 
   project, 
   logo, 
   showVendorInfo = true,
-  gstEnabled 
+  gstEnabled,
+  resolvedAddress
 }) => (
   <thead className="border-b border-black">
     <tr>
@@ -56,11 +61,7 @@ const SRHeader: React.FC<{ orderData: any; service_vendor: any; project: any; lo
 
         <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
           <div className="text-xs text-gray-600 font-normal">
-            {gstAddressMap[orderData?.project_gst]}
-              {/* ? orderData?.project_gst === "29ABFCS9095N1Z9"
-                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
-                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
-              : "Please set company GST number in order to display the Address!"} */}
+            {resolvedAddress}
           </div>
           <div className="text-xs text-gray-600 font-normal">
             GST: {orderData?.project_gst || "N/A"}
@@ -157,13 +158,24 @@ const SRPdf: React.FC<SRPdfProps> = ({
   logo,
   Seal,
   formatToIndianRupee,
-  parseNumber,
-  AddressView
+  parseNumber
 }) => {
   // Dynamic page height calculation
   const PAGE_HEIGHT = 1000;
   const HEADER_HEIGHT = 200;
   const AVAILABLE_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT;
+
+  const { gstOptions } = useGstOptions();
+
+  const resolvedAddress = useMemo(() => {
+    // 1. Try to find by orderData's project_gst
+    const match = gstOptions.find(opt => opt.gst === orderData?.project_gst);
+    if (match?.address) return match.address;
+
+    // 2. Fallback to Bengaluru
+    const bengaluru = gstOptions.find(opt => opt.location === "Bengaluru");
+    return bengaluru?.address || "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka";
+  }, [gstOptions, orderData?.project_gst]);
 
   const [isDownloading, setIsDownloading] = React.useState(false);
 
@@ -292,6 +304,7 @@ const SRPdf: React.FC<SRPdfProps> = ({
                       logo={logo} 
                       showVendorInfo={pageIndex === 0}
                       gstEnabled={gstEnabled}
+                      resolvedAddress={resolvedAddress}
                     />
                     <tbody className={`bg-white`}>
                       {pageItems.map((item, itemIndex) => {
@@ -386,11 +399,7 @@ const SRPdf: React.FC<SRPdfProps> = ({
 
                         <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
                           <div className="text-xs text-gray-600 font-normal">
-                            {orderData?.project_gst
-                              ? orderData?.project_gst === "29ABFCS9095N1Z9"
-                                ? "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka"
-                                : "7th Floor, MR1, ALTF Global Business Park Cowarking Space, Mehrauli Gurugram Rd, Tower D, Sikanderpur, Gurugram, Haryana - 122002"
-                              : "Please set company GST number in order to display the Address!"}
+                            {resolvedAddress}
                           </div>
                           <div className="text-xs text-gray-600 font-normal">
                             GST: {orderData?.project_gst || "N/A"}

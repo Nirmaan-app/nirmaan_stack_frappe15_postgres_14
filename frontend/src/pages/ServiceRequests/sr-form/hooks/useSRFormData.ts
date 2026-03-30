@@ -3,6 +3,7 @@ import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 /* ─────────────────────────────────────────────────────────────
    INTERFACE DEFINITIONS
@@ -134,32 +135,7 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
     /* ─────────────────────────────────────────────────────────
        EXTRACT PROJECT GST OPTIONS
        ───────────────────────────────────────────────────────── */
-    const projectGSTOptions = useMemo<ProjectGSTOption[]>(() => {
-        if (!project?.project_gst_number) return [];
-
-        try {
-            let gstData = project.project_gst_number;
-
-            // Handle string (JSON stored as text)
-            if (typeof gstData === "string") {
-                gstData = JSON.parse(gstData);
-            }
-
-            // Extract list from the object structure
-            const gstList = gstData?.list;
-
-            if (Array.isArray(gstList)) {
-                return gstList.map((item: { location: string; gst: string }) => ({
-                    location: item.location,
-                    gst: item.gst,
-                }));
-            }
-        } catch (e) {
-            console.error("Failed to parse project_gst_number:", e);
-        }
-
-        return [];
-    }, [project?.project_gst_number]);
+    const { gstOptions: projectGSTOptions } = useGstOptions();
 
     /* ─────────────────────────────────────────────────────────
        AUTO-SELECT GST IF SINGLE OPTION
