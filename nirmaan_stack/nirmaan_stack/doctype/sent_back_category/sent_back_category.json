@@ -70,6 +70,7 @@
   {
    "fieldname": "category_list",
    "fieldtype": "JSON",
+   "hidden": 1,
    "label": "Category List",
    "options": "Category"
   },

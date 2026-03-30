@@ -40,7 +40,6 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
 
         # procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
         order_list = pr_doc.get("order_list", [])
-        category_list = frappe.parse_json(pr_doc.category_list).get('list', [])
         payment_terms = frappe.parse_json(pr_doc.payment_terms or '{}').get('list', {})
 
         # RFQ data handling
@@ -123,19 +122,6 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # Create Sent Back Category if there are delayed items
         sent_back_doc_name = None
         if delayed_items_details:
-            new_categories = []
-            delayed_item_categories = set(item.get("category") for item in delayed_items_details)
-            # Rebuild category list based only on *delayed* items
-            # for item in delayed_items_details:
-            #     if not any(cat["name"] == item["category"] for cat in new_categories):
-            #         makes = next((cat.get("makes", []) for cat in category_list if cat["name"] == item["category"]), [])
-            #         new_categories.append({"name": item["category"], "makes": makes})
-            for cat_name in delayed_item_categories:
-                # Find original makes for this category from the PR's category_list_json_pr
-                original_cat_info = next((c for c in category_list if c.get("name") == cat_name), None)
-                makes_for_sbc_cat = original_cat_info.get("makes", []) if original_cat_info else []
-                new_categories.append({"name": cat_name, "makes": makes_for_sbc_cat})
-
 
             # new_send_back = {
             #     "procurement_request": pr_id,
@@ -151,8 +137,6 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
             sent_back_doc.procurement_request = pr_id
             sent_back_doc.project = pr_doc.project
             sent_back_doc.type = "Delayed"
-            # Assuming SBC's category_list and rfq_data are still JSON
-            sent_back_doc.category_list = json.dumps({"list": new_categories})
             sent_back_doc.rfq_data = json.dumps({
                 "selectedVendors": selected_vendors, # Carry over selected vendors for RFQ context
                 "details": new_rfq_details

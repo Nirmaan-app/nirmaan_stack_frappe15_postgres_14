@@ -403,13 +403,11 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         rfq_data_sb = frappe.parse_json(sb_doc.rfq_data or '{}')
         selected_vendors_sb = rfq_data_sb.get("selectedVendors", [])
         rfq_details_sb = rfq_data_sb.get("details", {})
-        category_list_sb = frappe.parse_json(sb_doc.category_list or '{}').get("list", [])
 
 
         print(f"Selected Items for creating new sent back: {selected_items}")
 
         items_for_new_sb_doc = []
-        categories_for_new_sb_doc = []
         rfq_details_for_new_sb_doc = {}
 
         parent_pr_work_package = frappe.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
@@ -441,13 +439,6 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "vendor": item_in_source_sb.vendor, # Carry over selected vendor
                 })
 
-                # Build category list for the new SB doc
-                if not any(cat_dict.get("name") == item_in_source_sb.category for cat_dict in categories_for_new_sb_doc):
-                    # Find original makes for this category from the source SB's category_list
-                    source_category_info = next((cat_dict for cat_dict in category_list_sb if cat_dict.get("name") == item_in_source_sb.category), None)
-                    makes_for_category = source_category_info.get("makes", []) if source_category_info else []
-                    categories_for_new_sb_doc.append({"name": item_in_source_sb.category, "makes": makes_for_category})
-
                 # Copy RFQ details for this item to the new SB doc's RFQ data
                 if selected_item_id in rfq_details_sb:
                     rfq_details_for_new_sb_doc[selected_item_id] = rfq_details_sb[selected_item_id]
@@ -464,7 +455,6 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
             new_sent_back_doc = frappe.new_doc("Sent Back Category")
             new_sent_back_doc.procurement_request = sb_doc.procurement_request
             new_sent_back_doc.project = sb_doc.project
-            new_sent_back_doc.category_list = json.dumps({"list": categories_for_new_sb_doc}) # Still JSON
             new_sent_back_doc.type = "Rejected" # Or based on context
             new_sent_back_doc.rfq_data = json.dumps({"selectedVendors": selected_vendors_sb, "details": rfq_details_for_new_sb_doc}) # Still JSON
 
