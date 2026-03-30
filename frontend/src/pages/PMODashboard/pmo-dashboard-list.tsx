@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
 import { ArrowLeft, Search, EyeOff, Eye, ArrowUpRight, Filter, Check, ChevronDown } from "lucide-react";
@@ -29,12 +29,7 @@ interface PMOProject {
   categories: Record<string, CategorySummary>;
 }
 
-const CATEGORY_ORDER = [
-  "Communication",
-  "Material Planning",
-  "Execution Planning",
-  "Handover",
-];
+
 
 const formatCategoryName = (cat: string) => {
   return cat
@@ -44,38 +39,37 @@ const formatCategoryName = (cat: string) => {
     .join(" ");
 };
 
-const CATEGORY_COLORS: Record<
-  string,
-  { bg: string; text: string; countText: string }
-> = {
-  Communication: {
+const STYLE_PALETTE = [
+  {
     bg: "bg-gray-50/80 border border-gray-100",
     text: "text-gray-500",
     countText: "text-gray-700",
   },
-  "Material Planning": {
+  {
     bg: "bg-amber-50/80 border border-amber-100",
     text: "text-amber-700",
     countText: "text-amber-900",
   },
-  "Execution Planning": {
+  {
     bg: "bg-blue-50/80 border border-blue-100",
     text: "text-blue-700",
     countText: "text-blue-900",
   },
-  Handover: {
+  {
     bg: "bg-green-50/80 border border-green-100",
     text: "text-green-700",
     countText: "text-green-900",
   },
+];
+
+const DEFAULT_STYLE = {
+  bg: "bg-slate-50/80 border border-slate-100",
+  text: "text-slate-500",
+  countText: "text-slate-700",
 };
 
-const getCategoryColor = (catName: string) =>
-  CATEGORY_COLORS[catName] || {
-    bg: "bg-gray-50/80 border border-gray-100",
-    text: "text-gray-500",
-    countText: "text-gray-700",
-  };
+
+
 
 const PMODashboardList: React.FC = () => {
   const navigate = useNavigate();
@@ -83,6 +77,38 @@ const PMODashboardList: React.FC = () => {
   const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
   const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
   const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
+
+  const { data: masterCategories } = useFrappeGetDocList("PMO Task Category", {
+    fields: ["category_name"],
+    orderBy: { field: "category_name", order: "asc" },
+  });
+
+  const sortedMasterNames = useMemo(() => {
+    return (masterCategories || []).map((c) => c.category_name);
+  }, [masterCategories]);
+
+  // Map category names to their style indices
+  const categoryStyleMap = useMemo(() => {
+    const map = new Map<string, number>();
+    sortedMasterNames.forEach((name, idx) => {
+      map.set(name, idx);
+    });
+    return map;
+  }, [sortedMasterNames]);
+
+  const getStyleForCategory = useCallback((catName: string) => {
+    const idx = categoryStyleMap.get(catName);
+    if (idx === undefined) return DEFAULT_STYLE;
+    return STYLE_PALETTE[idx % STYLE_PALETTE.length];
+  }, [categoryStyleMap]);
+
+  const sortCategories = useCallback((cats: [string, any][]) => {
+    return [...cats].sort(([a], [b]) => {
+      const idxA = categoryStyleMap.get(a) ?? 999;
+      const idxB = categoryStyleMap.get(b) ?? 999;
+      return idxA - idxB;
+    });
+  }, [categoryStyleMap]);
 
   const { call, loading } = useFrappePostCall(
     "nirmaan_stack.api.pmo_dashboard.get_pmo_projects"
@@ -286,24 +312,14 @@ const PMODashboardList: React.FC = () => {
         <>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeProjects.map((project) => {
-            const orderedCategories = Object.entries(project.categories || {}).sort(
-              ([a], [b]) => {
-                const aName = formatCategoryName(a);
-                const bName = formatCategoryName(b);
-                const aIdx = CATEGORY_ORDER.indexOf(aName);
-                const bIdx = CATEGORY_ORDER.indexOf(bName);
-                const safeAIdx = aIdx === -1 ? CATEGORY_ORDER.length : aIdx;
-                const safeBIdx = bIdx === -1 ? CATEGORY_ORDER.length : bIdx;
-                return safeAIdx - safeBIdx;
-              }
-            );
+            const orderedCategories = sortCategories(Object.entries(project.categories || {}));
 
             const progressColor =
               project.progress >= 75
                 ? "text-green-600"
                 : project.progress >= 30
                   ? "text-amber-500"
-                  : "text-gray-500";
+                  : "text-red-500";
 
             return (
               <div
@@ -337,8 +353,8 @@ const PMODashboardList: React.FC = () => {
                     {/* Category Grid - 2x2 layout */}
                     <div className="grid grid-cols-2 gap-2 mb-4">
                       {orderedCategories.map(([cat, summary]) => {
+                        const color = getStyleForCategory(cat);
                         const formattedCat = formatCategoryName(cat);
-                        const color = getCategoryColor(formattedCat);
                         return (
                           <div
                             key={cat}
@@ -410,17 +426,7 @@ const PMODashboardList: React.FC = () => {
             <CollapsibleContent>
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {hiddenProjectsList.map((project) => {
-                  const orderedCategories = Object.entries(project.categories || {}).sort(
-                    ([a], [b]) => {
-                      const aName = formatCategoryName(a);
-                      const bName = formatCategoryName(b);
-                      const aIdx = CATEGORY_ORDER.indexOf(aName);
-                      const bIdx = CATEGORY_ORDER.indexOf(bName);
-                      const safeAIdx = aIdx === -1 ? CATEGORY_ORDER.length : aIdx;
-                      const safeBIdx = bIdx === -1 ? CATEGORY_ORDER.length : bIdx;
-                      return safeAIdx - safeBIdx;
-                    }
-                  );
+                  const orderedCategories = sortCategories(Object.entries(project.categories || {}));
 
                   const progressColor =
                     project.progress >= 75
@@ -461,8 +467,8 @@ const PMODashboardList: React.FC = () => {
                           {/* Category Grid - 2x2 layout */}
                           <div className="grid grid-cols-2 gap-2 mb-4">
                             {orderedCategories.map(([cat, summary]) => {
+                              const color = getStyleForCategory(cat);
                               const formattedCat = formatCategoryName(cat);
-                              const color = getCategoryColor(formattedCat);
                               return (
                                 <div
                                   key={cat}
