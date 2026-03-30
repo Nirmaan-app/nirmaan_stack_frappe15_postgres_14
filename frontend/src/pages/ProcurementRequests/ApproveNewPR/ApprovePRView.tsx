@@ -129,7 +129,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         // Additional Props
         projectDoc,
         makeList,
-        itemFuseOptions,
+        itemTokenSearchConfig,
 
         // Draft props
         hasDraft = false,
@@ -333,7 +333,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 makeList={makeList}
                 projectWpCategoryMakes={projectDoc?.project_wp_category_makes}
                 relevantPackages={allRelevantPackages}
-                itemFuseOptions={itemFuseOptions}
+                itemTokenSearchConfig={itemTokenSearchConfig}
             // --- End Make Props ---
             />
 

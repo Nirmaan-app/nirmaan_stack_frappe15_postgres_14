@@ -11,11 +11,8 @@ import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
 // REMOVED: parseCategoryList import - category_list no longer maintained as state
 
 // Import the new individual hooks
-import { useUsersList } from './hooks/useUsersList';
-import { useCategoryList } from './hooks/useCategoryList';
-import { useItemList } from './hooks/useItemList';
-import { usePRComments } from './hooks/usePRComments';
 import { useRelatedPRData } from './hooks/useRelatedPRData';
+import { useItemList } from './hooks/useItemList';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { toast } from '@/components/ui/use-toast';
 
@@ -106,32 +103,24 @@ export const ApprovePRContainer: React.FC = () => {
         return Array.from(packages);
     }, [prDoc?.work_package, prDoc?.pr_tag_list, projectDoc?.project_work_packages, projectDoc?.project_wp_category_makes]);
 
-    // --- 4. Fetch Related Data ---
-    const { 
-        make_list, 
-        makeListMutate, 
-        allMakeOptions, 
-        categoryMakelist, 
-        categoryMakeListMutate 
+    // --- 4. Fetch Related Data (items, categories, users, comments via useItemCatalog) ---
+    const {
+        itemOptions: catalogItemOptions,
+        categoryList,
+        itemMutate,
+        categoryMakeListMutate,
+        usersList,
+        universalComments,
+        isLoading: relatedDataLoading,
+        error: relatedDataError,
     } = useRelatedPRData({ prDoc, workPackages: allRelevantPackages });
 
     const prName = useMemo(() => prDoc?.name, [prDoc]);
     const workPackage = useMemo(() => prDoc?.work_package, [prDoc]); // Keep for other hooks/props if needed
 
-    // Fetch Users
-    const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
-
-    // Fetch Categories (depends on allRelevantPackages)
-    const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useCategoryList({ workPackages: allRelevantPackages });
-
-    // Derive category names for item fetching
-    const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
-
-    // Fetch Items (depends on categoryNames)
-    const { data: itemList, isLoading: itemsLoading, error: itemsError, mutate: itemMutate } = useItemList({ categoryNames });
-
-    // Fetch Comments (depends on prName)
-    const { data: universalComments, isLoading: commentsLoading, error: commentsError } = usePRComments({ prName });
+    // Fetch raw Items for fuseInstance (fuzzy matching in New/Request Item dialogs)
+    const categoryNamesForItemFetch = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
+    const { data: itemList } = useItemList({ categoryNames: categoryNamesForItemFetch });
 
     // --- 4. Initialize Draft Manager Hook ---
     // Converts server data to draft format and manages local edits with auto-save
@@ -222,14 +211,14 @@ export const ApprovePRContainer: React.FC = () => {
         projectDoc,
         usersList: usersList || [], // Provide default empty array
         categoryList: categoryList || [], // Provide default empty array
-        itemList: itemList || [],       // Provide default empty array
+        catalogItemOptions: catalogItemOptions || [], // Pre-built from useItemCatalog
+        itemList: itemList || [],       // Raw items for fuseInstance (fuzzy matching)
         comments: universalComments || [], // Provide default empty array
         itemMutate: itemMutate!, // Assert mutate is available when needed
         prMutate: prMutate!,     // Assert mutate is available when needed
-        allMakeOptions,
-        makeList: make_list,
-        makeListMutate,
-        categoryMakelist: categoryMakelist,
+        allMakeOptions: [], // Makes now handled by useMakeOptions inside AddItemForm
+        makeList: undefined,
+        makeListMutate: async () => {},
         categoryMakeListMutate,
         // Pass draft manager for draft-first editing approach
         // Only enable draft-first when PR is in Pending state and draft manager is initialized
@@ -237,10 +226,10 @@ export const ApprovePRContainer: React.FC = () => {
     });
 
     // --- Combined Loading State ---
-    const isDataLoading = prLoading || projectLoading || usersLoading || categoriesLoading || itemsLoading || commentsLoading;
+    const isDataLoading = prLoading || projectLoading || relatedDataLoading;
 
     // --- Combined Error State ---
-    const error = prError || projectError || usersError || categoriesError || itemsError || commentsError;
+    const error = prError || projectError || relatedDataError;
 
     // --- Handle cancel/back navigation ---
     const handleCancelNavigation = useCallback(() => {

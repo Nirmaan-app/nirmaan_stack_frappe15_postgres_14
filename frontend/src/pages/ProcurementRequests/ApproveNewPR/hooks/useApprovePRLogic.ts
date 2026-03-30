@@ -7,7 +7,8 @@ import {
     useSWRConfig,
     FrappeDoc, // Keep for potential global cache invalidation if needed outside feature
 } from 'frappe-react-sdk';
-import Fuse, { IFuseOptions } from 'fuse.js';
+import Fuse from 'fuse.js';
+import { ItemCatalogOption, ITEM_TOKEN_SEARCH_CONFIG } from '@/hooks/useItemCatalog';
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
@@ -63,9 +64,11 @@ interface UseApprovePRLogicProps {
     projectDoc?: Project; // Pass the fetched project data
     usersList?: User[];
     categoryList?: MasterCategory[];
+    /** Pre-built item options from useItemCatalog (used for item dropdown) */
+    catalogItemOptions?: ItemCatalogOption[];
     itemList?: Item[];
     comments?: Comment[];
-    itemMutate: KeyedMutator<Items[]>; // Function to refetch items
+    itemMutate: KeyedMutator<Items[]> | (() => Promise<any>); // Function to refetch items
     prMutate: KeyedMutator<FrappeDoc<PRDocType>>; // Function to refetch PR
     // Make related data from container (keep these)
     allMakeOptions: MakeOption[];
@@ -85,6 +88,7 @@ export const useApprovePRLogic = ({
     projectDoc,
     usersList = [],
     categoryList = [],
+    catalogItemOptions = [],
     itemList = [],
     comments = [],
     itemMutate,
@@ -146,63 +150,42 @@ export const useApprovePRLogic = ({
     const [isConfirmActionDialogOpen, setIsConfirmActionDialogOpen] = useState(false);
 
 
-    // --- Fuse.js Configuration for Item Selection ---
-    const itemFuseOptions: IFuseOptions<ItemOption> = useMemo(() => ({
-        keys: ['label', 'value', 'category'], // Search on item label (name), value (ID), and category
-        threshold: 0.3,
-        includeScore: false,
-        // Example: Give more weight to the item label (name)
-        // keys: [
-        //   { name: 'label', weight: 0.7 },
-        //   { name: 'value', weight: 0.2 },
-        //   { name: 'category', weight: 0.1 }
-        // ]
-    }), []);
+    // Token search config for FuzzySearchSelect (replaces Fuse.js options)
+    const itemTokenSearchConfig = ITEM_TOKEN_SEARCH_CONFIG;
 
     // --- Memoized Derived Data ---
-    const itemOptions = useMemo((): ItemOption[] => {
+    // Filter catalogItemOptions (from useItemCatalog) based on project/tag constraints
+    const itemOptions = useMemo((): ItemCatalogOption[] => {
+        if (!catalogItemOptions.length) return [];
+
         const projectMakes = projectDoc?.project_wp_category_makes || [];
         const allowedCategoriesFromProject = projectMakes.map((item: any) => item.category).filter(Boolean);
         const allowedPackagesFromProject = projectMakes.map((item: any) => item.procurement_package).filter(Boolean);
 
-        return itemList
-            .filter(item => {
-                const category = categoryList.find(cat => cat.name === item.category);
-                if (!category) return false;
+        return catalogItemOptions.filter(opt => {
+            // Always allow "Tool & Equipments"
+            if (opt.procurement_package === "Tool & Equipments") return true;
 
-                // Always allow "Tool & Equipments"
-                if (category.category_name === "Tool & Equipments") return true;
+            // Priority 1: Use project document configuration if available
+            if (allowedCategoriesFromProject.length > 0 || allowedPackagesFromProject.length > 0) {
+                const matchesCategory = allowedCategoriesFromProject.includes(opt.category);
+                const matchesPackage = allowedPackagesFromProject.includes(opt.procurement_package);
+                return matchesCategory || matchesPackage;
+            }
 
-                // Priority 1: Use project document configuration if available
-                if (allowedCategoriesFromProject.length > 0 || allowedPackagesFromProject.length > 0) {
-                    const matchesCategory = allowedCategoriesFromProject.includes(item.category);
-                    const matchesPackage = allowedPackagesFromProject.includes(category.work_package);
-                    return matchesCategory || matchesPackage;
-                }
+            // Priority 2: Fallback to work package tags if project doc has no makes (legacy support)
+            const prTags = prDoc?.pr_tag_list || [];
+            const allowedPackagesFromTags = prTags.length > 0
+                ? Array.from(new Set(prTags.map((t: any) => t.tag_package)))
+                : [];
 
-                // Priority 2: Fallback to work package tags if project doc has no makes (legacy support)
-                const prTags = prDoc?.pr_tag_list || [];
-                const allowedPackagesFromTags = prTags.length > 0 
-                    ? Array.from(new Set(prTags.map((t: any) => t.tag_package)))
-                    : [];
+            if (allowedPackagesFromTags.length > 0) {
+                return allowedPackagesFromTags.includes(opt.procurement_package) || opt.procurement_package === "Tool & Equipments";
+            }
 
-                if (allowedPackagesFromTags.length > 0) {
-                    return allowedPackagesFromTags.includes(category.work_package) || category.work_package === "Tool & Equipments";
-                }
-
-                return true;
-            })
-            .map(item => {
-                const category = categoryList.find(cat => cat.name === item.category);
-                return {
-                    value: item.name, // Use item docname as value
-                    label: item.item_name,
-                    unit: item.unit_name,
-                    category: item.category, // Category docname
-                    tax: parseNumber(category?.tax ?? "0"),
-                };
-            });
-    }, [itemList, categoryList, prDoc?.pr_tag_list, projectDoc?.project_wp_category_makes]);
+            return true;
+        });
+    }, [catalogItemOptions, prDoc?.pr_tag_list, projectDoc?.project_wp_category_makes]);
 
     const managersIdList = useMemo(() =>
         usersList
@@ -1487,7 +1470,7 @@ export const useApprovePRLogic = ({
         makeListMutate,
         categoryMakelist,
         categoryMakeListMutate,
-        itemFuseOptions,
+        itemTokenSearchConfig,
 
         // CEO Hold
         isCEOHold,

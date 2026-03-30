@@ -11,8 +11,7 @@ import { MakeOption, CategoryMakesMap } from '../../NewPR/types';
 import { Makelist } from '@/types/NirmaanStack/Makelist';
 import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategoryMakesDialog';
 import { CustomMakeMenuList } from '../../NewPR/components/ItemSelectorControls';
-import { FuzzySearchSelect } from '@/components/ui/fuzzy-search-select';
-import { IFuseOptions } from 'fuse.js';
+import { FuzzySearchSelect, TokenSearchConfig } from '@/components/ui/fuzzy-search-select';
 import { useMakeOptions } from '@/hooks/useMakeOptions';
 import { ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 
@@ -39,7 +38,7 @@ interface AddItemFormProps {
     makeList?: Makelist[];
     projectWpCategoryMakes: ProjectWPCategoryMake[] | undefined;
     relevantPackages: string[];
-    itemFuseOptions: IFuseOptions<ItemOption>;
+    itemTokenSearchConfig: TokenSearchConfig;
     // --- End Make Props ---
 }
 
@@ -65,7 +64,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
         makeList,
         projectWpCategoryMakes,
         relevantPackages,
-        itemFuseOptions
+        itemTokenSearchConfig
     } = props;
     // --- State for Makes ---
     const [currentMakeOption, setCurrentMakeOption] = useState<MakeOption | null>(null);
@@ -183,7 +182,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
                                     placeholder="Search or select a product..."
                                     value={currentItemOption}
                                     allOptions={itemOptions}
-                                    fuseOptions={itemFuseOptions}
+                                    tokenSearchConfig={itemTokenSearchConfig}
                                     // options={itemOptions}
                                     onChange={(selected) => setCurrentItemOption(selected as ItemOption)}
                                     isClearable
