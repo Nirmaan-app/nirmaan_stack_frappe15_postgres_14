@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TailSpin } from 'react-loader-spinner';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,8 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 import { CEOHoldBanner } from '@/components/ui/ceo-hold-banner';
+import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { Projects } from '@/types/NirmaanStack/Projects';
 
 export const ProcurementProgressContainer: React.FC = () => {
     const { prId: prIdFromParams } = useParams<{ prId?: string }>();
@@ -39,6 +41,40 @@ export const ProcurementProgressContainer: React.FC = () => {
 
     // CEO Hold check - must be called unconditionally before any early returns
     const { isCEOHold } = useCEOHoldGuard(initialDoc?.project);
+
+    // Fetch project doc for project_wp_category_makes (qualified makes per package/category)
+    const { data: projectDoc } = useFrappeGetDoc<Projects>(
+        "Projects",
+        initialDoc?.project,
+        initialDoc?.project ? undefined : null // swrKey: undefined = auto, null = skip
+    );
+
+    // Compute relevant packages from the current document
+    const relevantPackages = useMemo(() => {
+        if (!initialDoc) return [];
+
+        // PR: extract unique tag_package values from pr_tag_list
+        if ('pr_tag_list' in initialDoc && Array.isArray(initialDoc.pr_tag_list) && initialDoc.pr_tag_list.length > 0) {
+            return [...new Set(initialDoc.pr_tag_list.map((tag) => tag.tag_package))];
+        }
+
+        // SB or PR without tags: extract unique procurement_package from order_list items
+        if (initialDoc.order_list && initialDoc.order_list.length > 0) {
+            const packages = initialDoc.order_list
+                .map((item) => item.procurement_package)
+                .filter((pkg): pkg is string => Boolean(pkg));
+            if (packages.length > 0) {
+                return [...new Set(packages)];
+            }
+        }
+
+        // Fallback: extract all unique packages from project_wp_category_makes
+        if (projectDoc?.project_wp_category_makes && projectDoc.project_wp_category_makes.length > 0) {
+            return [...new Set(projectDoc.project_wp_category_makes.map((m) => m.procurement_package))];
+        }
+
+        return [];
+    }, [initialDoc, projectDoc?.project_wp_category_makes]);
 
     if (!docId) {
         return <div className="flex items-center justify-center h-[90vh]">Error: Document ID is missing.</div>;
@@ -139,7 +175,11 @@ export const ProcurementProgressContainer: React.FC = () => {
     return (
         <>
             {isCEOHold && <CEOHoldBanner className="mb-4" />}
-            <ProcurementProgressView {...logicProps} />
+            <ProcurementProgressView
+                {...logicProps}
+                projectWpCategoryMakes={projectDoc?.project_wp_category_makes}
+                relevantPackages={relevantPackages}
+            />
         </>
     );
 };

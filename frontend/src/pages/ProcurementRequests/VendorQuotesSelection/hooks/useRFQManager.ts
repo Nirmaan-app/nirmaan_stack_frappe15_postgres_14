@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RFQData } from '../types'; // Adjust path
-import { VendorOption, ProgressDocument, getItemListFromDocument, getCategoryListFromDocument } from '../types'; // Local feature types
+import { VendorOption, ProgressDocument, getItemListFromDocument } from '../types'; // Local feature types
 import { usePersistentState } from './usePersistentState'; // Your hook
 import {ChargeItem} from "../types";
 import { ChargeType } from "../components/AddVendorChargesDialog";
@@ -27,8 +27,6 @@ export const useRFQFormManager = (
             }
 
             const items = getItemListFromDocument(docToSet); // Returns ProgressItem[]
-            // Assuming category_list is still JSON and its structure is consistent
-            const categoryMap = new Map(getCategoryListFromDocument(docToSet).map(cat => [cat.name, cat.makes || []]));
 
             // Initialize RFQ data from document if draft is empty
             const isDraftEmpty = (!rfqFormData.selectedVendors?.length && Object.keys(rfqFormData.details || {}).length === 0);
@@ -46,16 +44,9 @@ export const useRFQFormManager = (
                         newDetails[itemId] = {
                             initialMake: item.make, // from ProgressItem
                             vendorQuotes: {},
-                            makes: categoryMap.get(item.category) ?? [], // Makes from category_list JSON
                         };
                         detailsChanged = true;
                     } else {
-                        const currentMakesInDraft = newDetails[itemId].makes;
-                        const latestCategoryMakes = categoryMap.get(item.category) ?? [];
-                        if (JSON.stringify(currentMakesInDraft) !== JSON.stringify(latestCategoryMakes)) {
-                            newDetails[itemId].makes = latestCategoryMakes;
-                            detailsChanged = true;
-                        }
                         // Sync initialMake if it changed in the source document item
                         if (newDetails[itemId].initialMake !== item.make) {
                             newDetails[itemId].initialMake = item.make;

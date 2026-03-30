@@ -1,4 +1,4 @@
-import React ,{useMemo} from 'react';
+import React from 'react';
 import { SelectVendorQuotesTable } from './SelectVendorQuotesTable';
 import { AddVendorsDialog } from './components/AddVendorsDialog';
 import { RevertPRDialog } from './components/RevertPRDialog';
@@ -12,11 +12,15 @@ import { Button } from '@/components/ui/button';
 import { CirclePlus, Info, Undo2 } from 'lucide-react';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { ProcurementProgressLogicReturn } from './types';
+import { ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 
 import {VendorChargesTable} from "./components/VendorChargesTable";
 
-// Props are the entire return type of the logic hook
-type ProcurementProgressViewProps = ProcurementProgressLogicReturn;
+// Props are the entire return type of the logic hook plus project makes data
+type ProcurementProgressViewProps = ProcurementProgressLogicReturn & {
+    projectWpCategoryMakes?: ProjectWPCategoryMake[];
+    relevantPackages?: string[];
+};
 
 export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = ({
     mode,
@@ -58,6 +62,8 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     toggleRevertDialog,
     toggleVendorSheet,
     updateCurrentDocumentStateItemList, // For SelectVendorQuotesTable
+    projectWpCategoryMakes,
+    relevantPackages,
 }) => {
 
 
@@ -137,7 +143,11 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                             </>
 
                             )}
-                        <GenerateRFQDialog orderData={currentDocument} /> {/* Assuming GenerateRFQDialog can handle PR or SBC */}
+                        <GenerateRFQDialog
+                            orderData={currentDocument}
+                            projectWpCategoryMakes={projectWpCategoryMakes}
+                            relevantPackages={relevantPackages}
+                        /> {/* Assuming GenerateRFQDialog can handle PR or SBC */}
                     </div>
                 </div>
 
@@ -157,6 +167,8 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     onDeleteVendorFromRFQ={handleDeleteVendorFromRFQ}
                     //isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
                     updateCurrentDocumentItemList={updateCurrentDocumentStateItemList} // Pass the updater
+                    projectWpCategoryMakes={projectWpCategoryMakes}
+                    relevantPackages={relevantPackages}
                 />
                  {/* --- THIS IS THE EXACT PLACE TO ADD THE NEW COMPONENT --- */}
         <VendorChargesTable

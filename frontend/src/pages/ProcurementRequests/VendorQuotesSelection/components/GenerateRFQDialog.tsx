@@ -3,24 +3,27 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Category, ProcurementItem, ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
-import { Projects } from '@/types/NirmaanStack/Projects';
+import { useMakeOptions } from '@/hooks/useMakeOptions';
+import { Projects, ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 import { formatDate } from '@/utils/FormatDate';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
-import memoize from 'lodash/memoize';
 import { FolderPlus, MessageCircleMore } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactSelect from 'react-select';
 import { useReactToPrint } from 'react-to-print';
-import { getCategoryListFromDocument, getItemListFromDocument, ProgressDocumentType } from '../types'
+import { getItemListFromDocument, ProgressDocument, ProgressItem } from '../types'
 import { useGstOptions } from '@/hooks/useGstOptions';
 
 interface GenerateRFQDialogProps {
-    orderData: ProgressDocumentType;
+    orderData: ProgressDocument;
+    projectWpCategoryMakes?: ProjectWPCategoryMake[];
+    relevantPackages?: string[];
 }
 
-const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
+const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData, projectWpCategoryMakes, relevantPackages }) => {
     const [open, setOpen] = useState(false);
     const [selectedItemsForRfq, setSelectedItemsForRfq] = useState<{ [category: string]: string[] }>({});
+    const [selectedMakesForRfq, setSelectedMakesForRfq] = useState<Record<string, string>>({});
 
     const componentRef = useRef<HTMLDivElement>(null);
 
@@ -33,7 +36,14 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
 
     // Use helper functions to get item and category lists
     const currentItemList = useMemo(() => getItemListFromDocument(orderData), [orderData]);
-    const currentCategoryList = useMemo(() => getCategoryListFromDocument(orderData), [orderData]);
+    const currentCategoryList = useMemo(() => {
+        const seen = new Set<string>();
+        return currentItemList.filter(item => {
+            if (seen.has(item.category)) return false;
+            seen.add(item.category);
+            return true;
+        }).map(item => ({ name: item.category }));
+    }, [currentItemList]);
 
     const handleItemSelection = useCallback((categoryName: string, itemName: string) => {
         setSelectedItemsForRfq((prevSelected) => {
@@ -100,6 +110,27 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
     }, [currentItemList, selectedItemsForRfq]);
 
 
+    // Initialize default makes from item data when dialog opens
+    useEffect(() => {
+        if (open && currentItemList.length > 0) {
+            setSelectedMakesForRfq((prev) => {
+                const updated = { ...prev };
+                let changed = false;
+                currentItemList.forEach((item) => {
+                    if (!(item.name in updated)) {
+                        updated[item.name] = item.make || "";
+                        changed = true;
+                    }
+                });
+                return changed ? updated : prev;
+            });
+        }
+    }, [open, currentItemList]);
+
+    const handleMakeChangeForRfq = useCallback((itemName: string, make: string) => {
+        setSelectedMakesForRfq((prev) => ({ ...prev, [itemName]: make }));
+    }, []);
+
     const totalItemsInDocument = currentItemList.length;
     const totalSelectedItems = Object.values(selectedItemsForRfq).flat().length;
     const areAllItemsSelected = totalItemsInDocument > 0 && totalSelectedItems === totalItemsInDocument;
@@ -113,7 +144,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                     Generate RFQ
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+            <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className='text-center text-primary'>Generate RFQ for {orderData?.name}</DialogTitle>
                     <DialogDescription className="text-center text-sm">
@@ -153,18 +184,16 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                                     </div>
                                     <ul className="ml-4 space-y-1.5">
                                         {itemsInThisCategory.map((item) => (
-                                            <li key={item.name} className="flex items-center border-b border-dashed border-gray-200 pb-1.5 last:border-b-0 last:pb-0">
-                                                <Checkbox
-                                                    id={`item-rfq-${item.name}`}
-                                                    checked={isItemSelected(category.name, item.name)}
-                                                    onCheckedChange={() => handleItemSelection(category.name, item.name)}
-                                                />
-                                                <Label htmlFor={`item-rfq-${item.name}`} className="ml-2 text-xs font-normal cursor-pointer">
-                                                    {item.item_name}
-                                                    {item.make && <span className="text-muted-foreground text-xs italic"> - {item.make}</span>}
-                                                    <span className="text-muted-foreground text-xs"> ({item.quantity} {item.unit})</span>
-                                                </Label>
-                                            </li>
+                                            <RFQItemRow
+                                                key={item.name}
+                                                item={item}
+                                                checked={isItemSelected(category.name, item.name)}
+                                                onCheck={() => handleItemSelection(category.name, item.name)}
+                                                selectedMake={selectedMakesForRfq[item.name] ?? item.make ?? ""}
+                                                onMakeChange={(make) => handleMakeChangeForRfq(item.name, make)}
+                                                projectWpCategoryMakes={projectWpCategoryMakes}
+                                                relevantPackages={relevantPackages ?? []}
+                                            />
                                         ))}
                                     </ul>
                                 </div>
@@ -182,7 +211,7 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
                     </Button>
                 </DialogFooter>
                 {/* RFQPDf is hidden and used by react-to-print */}
-                <RFQPDf componentRef={componentRef} selectedItems={selectedItemsForRfq} orderData={orderData} procurement_project={procurement_project} />
+                <RFQPDf componentRef={componentRef} selectedItems={selectedItemsForRfq} orderData={orderData} procurement_project={procurement_project} selectedMakes={selectedMakesForRfq} />
             </DialogContent>
         </Dialog>
     );
@@ -192,15 +221,16 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData }) => {
 interface RFQPdfProps {
     componentRef: React.RefObject<HTMLDivElement>;
     selectedItems: { [category: string]: string[] };
-    orderData: ProgressDocumentType | undefined;
+    orderData: ProgressDocument | undefined;
     procurement_project: Projects | undefined;
+    selectedMakes: Record<string, string>;
 }
 
-const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData, procurement_project }) => {
+const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData, procurement_project, selectedMakes }) => {
     const itemListForPdf = useMemo(() => {
         if (!orderData) return [];
         const itemsFromDoc = getItemListFromDocument(orderData);
-        const rfqItems: Array<ProcurementItem | SentBackItem> = [];
+        const rfqItems: ProgressItem[] = [];
         Object.keys(selectedItems).forEach((categoryName) => {
             const itemsInCategorySelected = selectedItems[categoryName];
             const itemsFromSource = itemsFromDoc.filter(
@@ -290,24 +320,27 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
                             </tr>
                         </thead>
                         <tbody>
-                            {itemListForPdf.map((i, index) => ( // Iterate over itemListForPdf
-                                <tr key={`pdf-item-${i.name}-${index}`}> {/* More unique key */}
-                                    <td className="px-6 py-2 text-xs"> {/* Smaller font for PDF table */}
-                                        {i.item_name}
-                                        {i.make && <div className="text-xxs font-normal">{` - ${i.make}`}</div>} {/* text-xxs if you have it */}
-                                        {i.comment && (
-                                            <div className="flex gap-1 items-start p-0.5 mt-0.5">
-                                                <MessageCircleMore className="w-3 h-3 flex-shrink-0" />
-                                                <div className="text-xxs text-gray-500">{i.comment}</div>
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td className="px-2 py-2 text-xs whitespace-nowrap">{i.category}</td>
-                                    <td className="px-2 py-2 text-xs whitespace-nowrap">{i.unit}</td>
-                                    <td className="px-2 py-2 text-xs whitespace-nowrap">{i.quantity}</td>
-                                    <td className="px-2 py-2 text-sm whitespace-nowrap">-</td> {/* Rate excl. GST - empty as per example */}
-                                </tr>
-                            ))}
+                            {itemListForPdf.map((i, index) => {
+                                const displayMake = selectedMakes[i.name] ?? i.make;
+                                return (
+                                    <tr key={`pdf-item-${i.name}-${index}`}>
+                                        <td className="px-6 py-2 text-xs">
+                                            {i.item_name}
+                                            {displayMake && <div className="text-xxs font-normal">{` - ${displayMake}`}</div>}
+                                            {i.comment && (
+                                                <div className="flex gap-1 items-start p-0.5 mt-0.5">
+                                                    <MessageCircleMore className="w-3 h-3 flex-shrink-0" />
+                                                    <div className="text-xxs text-gray-500">{i.comment}</div>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td className="px-2 py-2 text-xs whitespace-nowrap">{i.category}</td>
+                                        <td className="px-2 py-2 text-xs whitespace-nowrap">{i.unit}</td>
+                                        <td className="px-2 py-2 text-xs whitespace-nowrap">{i.quantity}</td>
+                                        <td className="px-2 py-2 text-sm whitespace-nowrap">-</td> {/* Rate excl. GST - empty as per example */}
+                                    </tr>
+                                );
+                            })}
                             {itemListForPdf.length === 0 && <tr><td colSpan={5} className="text-center p-4">No items selected for RFQ.</td></tr>}
                         </tbody>
                     </table>
@@ -323,5 +356,69 @@ const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData,
         </div>
     )
 }
+
+// Sub-component per item row — calls useMakeOptions for the item's category
+interface RFQItemRowProps {
+    item: ProgressItem;
+    checked: boolean;
+    onCheck: () => void;
+    selectedMake: string;
+    onMakeChange: (make: string) => void;
+    projectWpCategoryMakes?: ProjectWPCategoryMake[];
+    relevantPackages: string[];
+}
+
+const RFQItemRow: React.FC<RFQItemRowProps> = ({
+    item,
+    checked,
+    onCheck,
+    selectedMake,
+    onMakeChange,
+    projectWpCategoryMakes,
+    relevantPackages,
+}) => {
+    const { makeOptions, isLoading } = useMakeOptions({
+        categoryName: item.category,
+        projectWpCategoryMakes,
+        relevantPackages,
+    });
+
+    const selectedOption = useMemo(
+        () => makeOptions.find((o) => o.value === selectedMake) ?? null,
+        [makeOptions, selectedMake]
+    );
+
+    return (
+        <li className="flex items-center gap-2 border-b border-dashed border-gray-200 pb-1.5 last:border-b-0 last:pb-0">
+            <Checkbox
+                id={`item-rfq-${item.name}`}
+                checked={checked}
+                onCheckedChange={onCheck}
+            />
+            <Label htmlFor={`item-rfq-${item.name}`} className="min-w-0 flex-1 text-xs font-normal cursor-pointer truncate">
+                {item.item_name}
+                <span className="text-muted-foreground text-xs"> ({item.quantity} {item.unit})</span>
+            </Label>
+            <ReactSelect
+                options={makeOptions}
+                value={selectedOption}
+                onChange={(opt) => onMakeChange(opt?.value || "")}
+                className="w-[180px] flex-shrink-0"
+                menuPortalTarget={document.body}
+                isLoading={isLoading}
+                styles={{
+                    control: (base) => ({ ...base, minHeight: '30px', fontSize: '12px' }),
+                    valueContainer: (base) => ({ ...base, padding: '0 6px' }),
+                    input: (base) => ({ ...base, margin: '0', padding: '0' }),
+                    indicatorsContainer: (base) => ({ ...base, height: '30px' }),
+                    menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: 'auto' as const }),
+                    option: (base) => ({ ...base, fontSize: '12px', padding: '6px 10px' }),
+                }}
+                placeholder="Select make..."
+                isClearable
+            />
+        </li>
+    );
+};
 
 export default GenerateRFQDialog;
