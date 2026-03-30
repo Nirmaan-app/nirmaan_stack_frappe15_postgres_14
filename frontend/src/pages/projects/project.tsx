@@ -1156,14 +1156,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           if (commissionReportId) {
             notes.push("Commission report already exists.");
           } else {
-            const normalizeToDate = (rawDate?: string | null) => {
-              if (!rawDate) return undefined;
-              const parsed = new Date(rawDate);
-              if (Number.isNaN(parsed.getTime())) return undefined;
-              return parsed.toISOString().split("T")[0];
-            };
-
-            const startDate = normalizeToDate(data?.project_start_date) || new Date().toISOString().split("T")[0];
+            const handoverBaseDate = new Date().toISOString().split("T")[0];
             const fallbackHandoverDeadline = (() => {
               const d = new Date();
               d.setDate(d.getDate() + 7);
@@ -1261,7 +1254,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   let deadline = fallbackHandoverDeadline;
                   const offset = Number(taskTemplate?.deadline_offset);
                   if (Number.isFinite(offset)) {
-                    const d = new Date(startDate);
+                    const d = new Date(handoverBaseDate);
                     d.setDate(d.getDate() + offset);
                     deadline = d.toISOString().split("T")[0];
                   }
@@ -1281,7 +1274,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             await createCommissionReportDoc("Project Commission Report", {
               project: projectId,
               project_name: data?.project_name,
-              start_date: startDate,
+              start_date: handoverBaseDate,
               status: "Assign Pending",
               handover_generated: 1,
               zone: zoneChildRows,
