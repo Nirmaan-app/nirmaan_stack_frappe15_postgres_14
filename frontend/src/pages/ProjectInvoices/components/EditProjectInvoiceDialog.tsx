@@ -2,6 +2,7 @@
 
 import React, { useCallback, useState, useEffect } from "react";
 import { useFrappeUpdateDoc, useFrappeFileUpload, useFrappeGetDocList } from "frappe-react-sdk";
+import { useGstOptions } from "@/hooks/useGstOptions";
 import { TailSpin } from "react-loader-spinner";
 import { KeyedMutator } from 'swr';
 import { formatDate as formatDateFns } from "date-fns";
@@ -31,6 +32,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 
 // --- Types ---
@@ -61,6 +69,7 @@ interface InvoiceFormState {
     date: string;
     project: string;
     project_name: string;
+    project_gst: string;
     customer: string;
     customer_name: string;
 }
@@ -74,6 +83,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
         date: "",
         project: "",
         project_name: "",
+        project_gst: "",
         customer: "",
         customer_name: "",
     });
@@ -89,9 +99,10 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
     // Fetch projects and customers for display
     const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
         "Projects",
-        getProjectListOptions({ fields: ["name", "project_name", "customer"] }) as any,
+        getProjectListOptions({ fields: ["name", "project_name", "customer", "project_gst"] }) as any,
         queryKeys.projects.list()
     );
+    const { gstOptions, isLoading: gstOptionsLoading } = useGstOptions();
     const { data: customers, isLoading: customersLoading } = useFrappeGetDocList<Customers>(
         "Customers",
         getCustomerListOptions({ fields: ["name", "company_name"] }) as any,
@@ -111,6 +122,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
                 date: invoiceToEdit.invoice_date ? formatDateFns(new Date(invoiceToEdit.invoice_date), "yyyy-MM-dd") : "",
                 project: invoiceToEdit.project || "",
                 project_name: project?.project_name || invoiceToEdit.project || "",
+                project_gst: invoiceToEdit.project_gst || "",
                 customer: customerId,
                 customer_name: customerName || (customerId ? "Customer not found" : "No Customer"),
             });
@@ -173,9 +185,10 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
     const validateForm = useCallback((): boolean => {
         const errors: Partial<Record<keyof InvoiceFormState, string>> = {};
         if (!invoiceData.invoice_no.trim()) errors.invoice_no = "Invoice number is required.";
-        if (invoiceData.amount.trim() === '' || isNaN(parseNumber(invoiceData.amount)) || parseNumber(invoiceData.amount) <= 0) {
+        if (invoiceData.amount.trim() === '' || isNaN(parseNumber(invoiceData.amount))) {
             errors.amount = "A valid amount is required.";
         }
+        if (!invoiceData.project_gst) errors.project_gst = "Project GST is required.";
         if (!invoiceData.date) errors.date = "Invoice date is required.";
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
@@ -192,6 +205,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
             invoice_no: invoiceData.invoice_no.trim(),
             amount: parseNumber(invoiceData.amount),
             invoice_date: invoiceData.date,
+            project_gst: invoiceData.project_gst,
         };
 
         try {
@@ -221,8 +235,8 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
         }
     }, [invoiceData, newAttachmentFile, invoiceToEdit, attachmentAction, upload, updateDoc, listMutate, validateForm]);
 
-    const isLoading = uploadLoading || updateDocLoading || projectsLoading || customersLoading;
-    const isSubmitDisabled = isLoading || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.date;
+    const isLoading = uploadLoading || updateDocLoading || projectsLoading || customersLoading || gstOptionsLoading;
+    const isSubmitDisabled = isLoading || !invoiceData.invoice_no || !invoiceData.amount || !invoiceData.date || !invoiceData.project_gst;
 
     // Get filename from URL and truncate
     const getFileName = (url: string, maxLength: number = 25) => {
@@ -325,6 +339,43 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
                             <span className="bg-white dark:bg-slate-950 px-3 text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                                 Invoice Details
                             </span>
+                        </div>
+                    </div>
+
+                    {/* Invoice GST Selection */}
+                    <div className="space-y-4">
+                        <div className="space-y-1.5 px-0.5">
+                            <Label htmlFor="project_gst" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Project GST <span className="text-red-500">*</span>
+                            </Label>
+                            <Select
+                                value={invoiceData.project_gst}
+                                onValueChange={(val) => setInvoiceData(prev => ({ ...prev, project_gst: val }))}
+                                disabled={isLoading}
+                            >
+                                <SelectTrigger className={cn(
+                                    "h-10 transition-all focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500",
+                                    formErrors.project_gst && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
+                                )}>
+                                    <SelectValue placeholder="Select GST Location" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {gstOptions.map((opt) => (
+                                        <SelectItem key={opt.value} value={opt.value}>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-sm">{opt.location}</span>
+                                                <span className="text-[10px] text-slate-500 font-mono">({opt.gst})</span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {formErrors.project_gst && (
+                                <p className="text-xs text-red-500 flex items-center gap-1 mt-1">
+                                    <AlertCircle className="w-3 h-3" />
+                                    {formErrors.project_gst}
+                                </p>
+                            )}
                         </div>
                     </div>
 

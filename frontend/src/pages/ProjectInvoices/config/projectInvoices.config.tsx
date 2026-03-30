@@ -17,7 +17,7 @@ import SITEURL from "@/constants/siteURL";
 export const DOCTYPE = "Project Invoices";
 
 export const PROJECT_INVOICE_FIELDS_TO_FETCH = [
-    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer"
+    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer", "project_gst"
 ];
 
 export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [

@@ -22,7 +22,7 @@ import { EditProjectInvoiceDialog } from "./components/EditProjectInvoiceDialog"
 
 
 const DOCTYPE = "Project Invoices";
-const ITEM_LIST_FIELDS_TO_FETCH: (keyof ProjectInvoice | 'name')[] = ["name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date"];
+const ITEM_LIST_FIELDS_TO_FETCH: (keyof ProjectInvoice | 'name')[] = ["name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "project_gst"];
 
 export const ProjectInvoices: React.FC<{ projectId?: string; customerId?: string }> = ({ projectId }) => { // Removed customerId if not used
   const {
