@@ -292,6 +292,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
   //     limit: 1000
   // });
 
+  const { gstOptions, isLoading: gst_isLoading, error: gst_error } = useGstOptions();
+
   useFrappeDocTypeEventListener("Project Types", async () => {
     await project_types_mutate();
   });
@@ -836,6 +838,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
+                        {gst_isLoading && <div className="p-2 text-xs text-muted-foreground italic">Loading GST options...</div>}
+                        {gst_error && <div className="p-2 text-xs text-destructive italic">Error: {gst_error.message}</div>}
                         {gstOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.location} - {option.gst}

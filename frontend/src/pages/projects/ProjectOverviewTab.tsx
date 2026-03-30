@@ -62,7 +62,6 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
     projectTypeResponse,
     projectAssigneesResponse,
   } = useProjectOverviewApi(projectData?.name, projectData?.project_type);
-  const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
   const { gstOptions } = useGstOptions();
 
   const [selectedUser, setSelectedUser] = useState<string | undefined>();

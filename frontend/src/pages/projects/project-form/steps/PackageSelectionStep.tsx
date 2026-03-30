@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { ProjectFormValues, DailyProgressWorkHeader } from "../schema";
-import { ProjectFormData, WorkPackageType, WorkHeaderType } from "../hooks/useProjectFormData";
+import { ProjectFormData } from "../hooks/useProjectFormData";
 import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy, ListChecks, Info } from "lucide-react";
 import { useState } from "react";
 
@@ -849,61 +849,61 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
 
                         {/* Category Selection */}
                         {((designZoneSource === 'copy_from_progress') ||
-                          (designZoneType && (designZoneType === 'single' || designZones.length > 0))) && (
-                            <div className="p-4">
-                                <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
-                                    Design Categories
-                                </Label>
-                                <p className="text-xs text-gray-400 mt-1 mb-3">
-                                    Select categories to create design tasks
-                                </p>
-
-                                {isDesignCategoriesLoading ? (
-                                    <div className="space-y-2">
-                                        {[1, 2, 3].map((i) => (
-                                            <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
-                                        ))}
-                                    </div>
-                                ) : !designCategories || designCategories.length === 0 ? (
-                                    <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded">
-                                        No design categories with tasks found in the system
+                            (designZoneType && (designZoneType === 'single' || designZones.length > 0))) && (
+                                <div className="p-4">
+                                    <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                        Design Categories
+                                    </Label>
+                                    <p className="text-xs text-gray-400 mt-1 mb-3">
+                                        Select categories to create design tasks
                                     </p>
-                                ) : (
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {designCategories.map((cat) => {
-                                            const isSelected = selectedDesignCategories.includes(cat.category_name);
-                                            return (
-                                                <Button
-                                                    key={cat.category_name}
-                                                    type="button"
-                                                    variant={isSelected ? "default" : "outline"}
-                                                    onClick={() => handleDesignCategoryToggle(cat.category_name)}
-                                                    size="sm"
-                                                    className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
-                                                >
-                                                    <span className="truncate">{cat.category_name}</span>
-                                                    <span className="ml-1 text-[10px] opacity-70">
-                                                        ({cat.tasks.length})
-                                                    </span>
-                                                </Button>
-                                            );
-                                        })}
-                                    </div>
-                                )}
 
-                                {selectedDesignCategories.length > 0 && (
-                                    <p className="text-xs text-gray-500 mt-3">
-                                        {selectedDesignCategories.length} categor{selectedDesignCategories.length !== 1 ? 'ies' : 'y'} selected
-                                    </p>
-                                )}
+                                    {isDesignCategoriesLoading ? (
+                                        <div className="space-y-2">
+                                            {[1, 2, 3].map((i) => (
+                                                <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+                                            ))}
+                                        </div>
+                                    ) : !designCategories || designCategories.length === 0 ? (
+                                        <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded">
+                                            No design categories with tasks found in the system
+                                        </p>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                            {designCategories.map((cat) => {
+                                                const isSelected = selectedDesignCategories.includes(cat.category_name);
+                                                return (
+                                                    <Button
+                                                        key={cat.category_name}
+                                                        type="button"
+                                                        variant={isSelected ? "default" : "outline"}
+                                                        onClick={() => handleDesignCategoryToggle(cat.category_name)}
+                                                        size="sm"
+                                                        className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
+                                                    >
+                                                        <span className="truncate">{cat.category_name}</span>
+                                                        <span className="ml-1 text-[10px] opacity-70">
+                                                            ({cat.tasks.length})
+                                                        </span>
+                                                    </Button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
 
-                                {selectedDesignCategories.length === 0 && designCategories && designCategories.length > 0 && (
-                                    <p className="text-xs text-amber-600 mt-2">
-                                        Select at least one category
-                                    </p>
-                                )}
-                            </div>
-                        )}
+                                    {selectedDesignCategories.length > 0 && (
+                                        <p className="text-xs text-gray-500 mt-3">
+                                            {selectedDesignCategories.length} categor{selectedDesignCategories.length !== 1 ? 'ies' : 'y'} selected
+                                        </p>
+                                    )}
+
+                                    {selectedDesignCategories.length === 0 && designCategories && designCategories.length > 0 && (
+                                        <p className="text-xs text-amber-600 mt-2">
+                                            Select at least one category
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                     </div>
                 )}
             </div>
