@@ -85,7 +85,7 @@ export const PMOPackagesMaster: React.FC = () => {
   } = useFrappeGetDocList<PMOTaskCategory>("PMO Task Category", {
     fields: ["name", "category_name"],
     limit: 0,
-    orderBy: { field: "creation", order: "asc" },
+    orderBy: { field: "category_name", order: "asc" },
   });
 
   const {
@@ -96,7 +96,7 @@ export const PMOPackagesMaster: React.FC = () => {
   } = useFrappeGetDocList<PMOTaskMaster>("PMO Task Master", {
     fields: ["name", "task_name", "category_link"],
     limit: 0,
-    orderBy: { field: "creation", order: "asc" },
+    orderBy: { field: "task_name", order: "asc" },
   });
 
   if (catLoading || taskLoading) {

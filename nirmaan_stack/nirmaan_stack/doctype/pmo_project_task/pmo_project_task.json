@@ -5,9 +5,10 @@
  "creation": "2026-03-28 10:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
+  "field_order": [
   "project_section",
   "project",
+  "task_master",
   "task_details_section",
   "task_name",
   "category",
@@ -27,6 +28,13 @@
    "label": "Project",
    "options": "Projects",
    "reqd": 1
+  },
+  {
+   "fieldname": "task_master",
+   "fieldtype": "Link",
+   "label": "Task Master",
+   "options": "PMO Task Master",
+   "read_only": 1
   },
   {
    "fieldname": "task_details_section",

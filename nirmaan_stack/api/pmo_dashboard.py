@@ -110,7 +110,7 @@ def get_project_tasks(project):
             "name", "task_name", "category", "status",
             "expected_completion_date", "completion_date"
         ],
-        order_by="creation asc",
+        order_by="category asc, task_name asc",
     )
 
     # Group by category maintaining order
@@ -185,15 +185,31 @@ def initialize_project_tasks(project):
     for cat in categories:
         cat_tasks = [t for t in master_tasks if t.category_link == cat.name]
         for task in cat_tasks:
-            # Check if this specific task already exists for this project
-            exists = frappe.db.exists("PMO Project Task", {
+            # Check by template link (reliable ID)
+            existing_name = frappe.db.get_value("PMO Project Task", {
                 "project": project,
-                "task_name": task.task_name,
-                "category": cat.category_name,
-            })
-            if not exists:
+                "task_master": task.name
+            }, "name")
+
+            if not existing_name:
+                # Legacy check by name/category (handles migration for records created before this change)
+                existing_name = frappe.db.get_value("PMO Project Task", {
+                    "project": project,
+                    "task_name": task.task_name,
+                    "category": cat.category_name,
+                }, "name")
+
+            if existing_name:
+                # Pair with master if not already linked, and sync name/category in case template changed
+                frappe.db.set_value("PMO Project Task", existing_name, {
+                    "task_master": task.name,
+                    "task_name": task.task_name,
+                    "category": cat.category_name
+                }, update_modified=False)
+            else:
                 doc = frappe.new_doc("PMO Project Task")
                 doc.project = project
+                doc.task_master = task.name
                 doc.task_name = task.task_name
                 doc.category = cat.category_name
                 doc.status = "Not Defined"
@@ -213,8 +229,7 @@ def initialize_project_tasks(project):
 def cleanup_duplicate_tasks(project=None):
     """
     Remove duplicate PMO Project Task records.
-    Keeps the oldest record for each project+category+task_name combination.
-    If project is specified, only cleans up that project. Otherwise cleans all.
+    Keeps the oldest record for each project + task_master combination.
     """
     filters = {}
     if project:
@@ -223,15 +238,19 @@ def cleanup_duplicate_tasks(project=None):
     all_tasks = frappe.get_all(
         "PMO Project Task",
         filters=filters,
-        fields=["name", "project", "task_name", "category", "creation"],
+        fields=["name", "project", "task_master", "task_name", "category", "creation"],
         order_by="creation asc",
     )
 
-    # Group by (project, category, task_name)
+    # Group by (project, task_master) if available, else fallback to (project, category, task_name)
     seen = {}
     duplicates = []
     for task in all_tasks:
-        key = (task.project, task.category, task.task_name)
+        if task.task_master:
+            key = (task.project, task.task_master)
+        else:
+            key = (task.project, task.category, task.task_name)
+            
         if key in seen:
             duplicates.append(task.name)
         else:
