@@ -150,6 +150,18 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
         const projectLabel = preSelectedProjectName || projectOptions.find(p => p.value === selectedProjectId)?.label;
         if (!projectLabel) return;
 
+        const normalizeToDate = (rawDate?: string | null) => {
+            if (!rawDate) return undefined;
+            const parsed = new Date(rawDate);
+            if (Number.isNaN(parsed.getTime())) return undefined;
+            return parsed.toISOString().split("T")[0];
+        };
+
+        const selectedProjectDoc = projects?.find((p: any) => p.name === selectedProjectId);
+        const handoverBaseDate =
+            normalizeToDate(selectedProjectDoc?.handover_date) ||
+            new Date().toISOString().split("T")[0];
+
         const tasksToGenerate: Partial<CommissionReportTask>[] = [];
 
         // Loop through Zones first (or tasks, order doesn't strictly matter for DB, but logical for UI)
@@ -166,9 +178,8 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
                         if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
                              const offset = Number(taskDef.deadline_offset);
                              if (!isNaN(offset)) {
-                                 // Use project start_date if available (found in projects list), else today
-                                 const projectStart = projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date;
-                                 const baseDate = projectStart ? new Date(projectStart) : new Date();
+                                 // Commission deadlines are relative to Project Handover date.
+                                 const baseDate = new Date(handoverBaseDate);
                                  const d = new Date(baseDate);
                                  d.setDate(baseDate.getDate() + offset);
                                  calculatedDeadline = format(d, 'yyyy-MM-dd');
@@ -200,7 +211,7 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
             await createTracker({
                 project: selectedProjectId,
                 project_name: projectLabel,
-                start_date: projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date,
+                start_date: handoverBaseDate,
                 status: 'Assign Pending',
                 commission_report_task: tasksToGenerate,
                 zone: zoneChildTableData // Send Zones to backend

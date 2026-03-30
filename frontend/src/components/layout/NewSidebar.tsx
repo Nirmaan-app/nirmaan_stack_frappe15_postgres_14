@@ -221,7 +221,6 @@ export function NewSidebar() {
             { key: "/pmo-packages", label: "PMO Packages" },
             { key: "/work-order-rate-card", label: "Work Order Rate Card" },
             { key: "/tds-repository", label: "TDS Repository" },
-
             ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
@@ -423,6 +422,17 @@ export function NewSidebar() {
 
       ]
       : []),
+
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
+      ? [
+        {
+          key: '/work-order-rate-card',
+          icon: Tickets,
+          label: 'Work Order Rate Card',
+        },
+      ]
+      : []),
+
 
     // ...(role == "Nirmaan Procurement Executive Profile" ||
     // user_id == "Administrator" ||
@@ -701,6 +711,7 @@ export function NewSidebar() {
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
+    '/work-order-rate-card': ['work-order-rate-card'],
   }), []);
 
   const openKey = useMemo(() => {
