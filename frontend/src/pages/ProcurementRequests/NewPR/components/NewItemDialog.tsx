@@ -1,23 +1,28 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import ReactSelect, { SingleValue } from 'react-select';
+import { v4 as uuidv4 } from 'uuid';
+import { useFrappeCreateDoc } from 'frappe-react-sdk';
+
 import {
     AlertDialog,
+    AlertDialogCancel,
     AlertDialogContent,
+    AlertDialogDescription,
     AlertDialogHeader,
     AlertDialogTitle,
-    AlertDialogDescription,
     AlertDialogFooter,
-    AlertDialogCancel,
-} from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SelectUnit } from "@/components/helpers/SelectUnit";
+import { useToast } from "@/components/ui/use-toast";
+import { TailSpin } from 'react-loader-spinner';
+import { ListChecks, CirclePlus } from "lucide-react";
+
+import { ProcurementRequestItem, CategoryOption } from '../types';
 import { useUserData } from '@/hooks/useUserData';
-import { useToast } from '@/components/ui/use-toast';
-import { Items } from '@/types/NirmaanStack/Items';
-import { ProcurementRequestItem } from '../types';
-import CreatableSelect from 'react-select/creatable';
-import { SingleValue } from 'react-select';
 import { FuseResult } from 'fuse.js';
+import { Items } from '@/types/NirmaanStack/Items';
 import { Category } from '@/types/NirmaanStack/Category';
 
 
@@ -32,6 +37,20 @@ interface NewItemDialogProps {
     itemMutate: () => Promise<any>;
 }
 
+interface NewItemState {
+    itemName: string;
+    unitName: string;
+    quantity: string;
+    comment: string;
+}
+
+const initialNewItemState: NewItemState = {
+    itemName: '',
+    unitName: '',
+    quantity: '',
+    comment: '',
+};
+
 export const NewItemDialog: React.FC<NewItemDialogProps> = ({
     isOpen,
     onOpenChange,
@@ -44,89 +63,134 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
 }) => {
     const { toast } = useToast();
     const userData = useUserData();
+    const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
-    const [newItem, setNewItem] = useState({
-        item: '',
-        category: '',
-        unit: '',
-        comment: '',
-    });
-
+    const [selectedCategory, setSelectedCategory] = useState<SingleValue<CategoryOption>>(null);
+    const [newItem, setNewItem] = useState<NewItemState>(initialNewItemState);
+    const [fuzzyMatches, setFuzzyMatches] = useState<FuseResult<Items>[]>([]);
     const [isFocused, setIsFocused] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const categoryOptions = useMemo(() => 
-        categories.map(cat => ({
+    const catOptions: CategoryOption[] = useMemo(() => {
+        return categories?.map(cat => ({
             value: cat.name,
             label: cat.category_name,
-            tax: cat.tax || 0,
-            newItemsDisabled: cat.new_items === 'false'
-        }))
-    , [categories]);
+            tax: parseFloat(cat.tax || "0"),
+            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile" && userData?.role !== "Nirmaan PMO Executive Profile"
+        })) || [];
+    }, [categories, userData?.role]);
 
-    const selectedCategory = useMemo(() => 
-        categoryOptions.find(opt => opt.value === newItem.category)
-    , [categoryOptions, newItem.category]);
+    const isNewItemsDisabled = useMemo(() => selectedCategory?.newItemsDisabled ?? false, [selectedCategory]);
 
-    const fuzzyMatches = useMemo(() => 
-        newItem.item.length > 2 ? fuzzySearch(newItem.item) : []
-    , [newItem.item, fuzzySearch]);
+    const resolveWorkPackage = useCallback((categoryValue: string) => {
+        return categoryToPackageMap[categoryValue] || (selectedHeaderTags.length > 0 ? selectedHeaderTags[0].tag_package : '');
+    }, [categoryToPackageMap, selectedHeaderTags]);
 
-    const handleExistingItemSelect = (item: Items) => {
+    useEffect(() => {
+        if (isOpen) {
+            setSelectedCategory(null);
+            setNewItem(initialNewItemState);
+            setFuzzyMatches([]);
+        }
+    }, [isOpen]);
+
+    useEffect(() => {
+        setNewItem(initialNewItemState);
+        setFuzzyMatches([]);
+    }, [selectedCategory]);
+
+    const handleInputChange = (field: keyof NewItemState, value: string) => {
+        setNewItem(prev => ({ ...prev, [field]: value }));
+        if (field === 'itemName') {
+            setFuzzyMatches(fuzzySearch(value));
+        }
+    };
+
+    const handleUnitChange = (value: string) => {
+        setNewItem(prev => ({ ...prev, unitName: value }));
+    };
+
+    const closeDialog = useCallback(() => {
+        onOpenChange(false);
+    }, [onOpenChange]);
+
+    const handleSelectExistingItem = (item: Items) => {
         if (!selectedCategory) return;
-        
+
         onSubmit({
             name: item.name,
             item: item.item_name,
-            unit: item.unit,
+            unit: item.unit_name || 'N/A',
+            quantity: 1,
             category: selectedCategory.value,
             tax: selectedCategory.tax,
             comment: '',
-            work_package: categoryToPackageMap[selectedCategory.value] || (selectedHeaderTags.length > 0 ? selectedHeaderTags[0].tag_package : ''),
-         }, false);
+            work_package: resolveWorkPackage(selectedCategory.value),
+        }, false);
 
-         closeDialog();
+        closeDialog();
+        toast({ title: `Existing Item "${item.item_name}" added.`, description: "Adjust quantity/comment in the list.", variant: "success" });
     };
 
-    const handleCreateNew = async () => {
-        if (!newItem.item || !newItem.category || !newItem.unit) {
-            toast({
-                title: "Error",
-                description: "Please fill in all required fields",
-                variant: "destructive",
-            });
+    const handleConfirm = async (isRequest: boolean) => {
+        if (!selectedCategory || !newItem.itemName || !newItem.unitName || !newItem.quantity || parseFloat(newItem.quantity) <= 0) {
+            toast({ title: "Validation Error", description: "Please fill all required fields (*) with valid values.", variant: "destructive" });
             return;
         }
 
-        if (!selectedCategory) return;
+        const quantity = parseFloat(newItem.quantity);
 
-        setIsSubmitting(true);
-        try {
+        if (isRequest) {
             const requestItemData: Omit<ProcurementRequestItem, "uniqueId" | "status"> = {
-                name: `REQ-${Date.now()}`,
-                item: newItem.item.trim(),
-                unit: newItem.unit.trim(),
+                name: `REQ-${uuidv4()}`,
+                item: newItem.itemName.trim(),
+                unit: newItem.unitName,
+                quantity: quantity,
                 category: selectedCategory.value,
                 tax: selectedCategory.tax,
                 comment: newItem.comment.trim() || undefined,
-                work_package: categoryToPackageMap[selectedCategory.value] || (selectedHeaderTags.length > 0 ? selectedHeaderTags[0].tag_package : ''),
+                work_package: resolveWorkPackage(selectedCategory.value),
             };
             onSubmit(requestItemData, true);
             closeDialog();
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: "Failed to create item request",
-                variant: "destructive",
-            });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
+        } else {
+            try {
+                const itemDocData = {
+                    item_name: newItem.itemName.trim(),
+                    unit_name: newItem.unitName,
+                    category: selectedCategory.value,
+                };
 
-    const closeDialog = () => {
-        setNewItem({ item: '', category: '', unit: '', comment: '' });
-        onOpenChange(false);
+                const res = await createDoc("Items", itemDocData);
+
+                const newItemForList: Omit<ProcurementRequestItem, "uniqueId" | "status"> = {
+                    name: res.name,
+                    item: res.item_name,
+                    unit: res.unit_name,
+                    quantity: quantity,
+                    category: res.category,
+                    tax: selectedCategory.tax,
+                    comment: newItem.comment.trim() || undefined,
+                    work_package: resolveWorkPackage(selectedCategory.value),
+                };
+                onSubmit(newItemForList, false);
+
+                await itemMutate();
+                toast({
+                    title: "Item Created & Added",
+                    description: `New Item "${res.item_name}" added to your request list.`,
+                    variant: "success",
+                });
+                closeDialog();
+
+            } catch (error: any) {
+                console.error("Failed to create item:", error);
+                toast({
+                    title: "Item Creation Failed",
+                    description: error.message || "Could not create the new item.",
+                    variant: "destructive",
+                });
+            }
+        }
     };
 
     return (
@@ -138,8 +202,8 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                     </AlertDialogTitle>
                     <div className="flex flex-wrap gap-2 mt-2">
                         {selectedHeaderTags.map((tag, idx) => (
-                            <span 
-                                key={idx} 
+                            <span
+                                key={idx}
                                 className="px-2 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20"
                             >
                                 {tag.tag_header}
@@ -151,30 +215,39 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="category">Category <sup className="text-red-500">*</sup></Label>
-                        <CreatableSelect
-                            id="category"
-                            options={categoryOptions}
+                <div className="flex flex-col gap-4 py-4">
+                    <div className="flex flex-col gap-1">
+                        <label htmlFor="newItemCategory" className="dialog-label">
+                            Category <sup className="text-red-500">*</sup>
+                        </label>
+                        <ReactSelect
+                            inputId='newItemCategory'
+                            placeholder="Select Category..."
                             value={selectedCategory}
-                            onChange={(newValue: SingleValue<{value: string, label: string}>) => 
-                                setNewItem(prev => ({ ...prev, category: newValue?.value || '' }))
-                            }
-                            placeholder="Select category..."
-                            className="text-sm"
+                            options={catOptions}
+                            onChange={(selectedOption) => setSelectedCategory(selectedOption)}
+                            isClearable
                         />
+                        {isNewItemsDisabled && (
+                            <p className="text-xs text-red-500 px-1 mt-1">
+                                New item creation is disabled for this category by Admin. This item will be added as a 'Request'.
+                            </p>
+                        )}
                     </div>
 
-                    <div className="grid gap-2 relative">
-                        <Label htmlFor="item_name">Item Name <sup className="text-red-500">*</sup></Label>
+                    <div className="flex flex-col gap-1 relative">
+                        <label htmlFor="itemName" className="dialog-label">
+                            Item Name <sup className="text-red-500">*</sup>
+                        </label>
                         <Input
-                            id="item_name"
-                            value={newItem.item}
-                            onChange={(e) => setNewItem(prev => ({ ...prev, item: e.target.value }))}
+                            id="itemName"
+                            placeholder="Enter Item Name..."
+                            disabled={!selectedCategory}
+                            value={newItem.itemName}
+                            onChange={(e) => handleInputChange('itemName', e.target.value)}
+                            autoComplete="off"
                             onFocus={() => setIsFocused(true)}
-                            onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-                            placeholder="Enter item name..."
+                            onBlur={() => setTimeout(() => setIsFocused(false), 150)}
                         />
                         {isFocused && fuzzyMatches.length > 0 && selectedCategory && (
                             <ul className="absolute z-20 mt-1 top-full left-0 right-0 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 w-full overflow-y-auto">
@@ -183,15 +256,16 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                                      <li
                                         key={item.name}
                                         className="p-2 hover:bg-gray-100 flex justify-between items-center text-sm cursor-default"
+                                        onMouseDown={() => handleSelectExistingItem(item)}
                                     >
-                                        <span>{item.item_name} ({item.unit})</span>
-                                        <Button 
-                                            size="sm" 
-                                            variant="ghost" 
-                                            className="text-primary hover:text-primary"
-                                            onClick={() => handleExistingItemSelect(item)}
-                                        >
-                                            Add This
+                                        <div className="flex flex-col gap-0.5">
+                                            <strong className='text-gray-800'>{item.item_name}</strong>
+                                            <span className="text-xs text-gray-500">
+                                                (Category: {item.category}, Unit: {item.unit_name || 'N/A'})
+                                            </span>
+                                        </div>
+                                        <Button variant="outline" size="sm" className="flex items-center gap-1 h-6 px-2 py-0.5 text-primary border-primary hover:bg-primary/5">
+                                            <CirclePlus className="w-3 h-3" /> Add
                                         </Button>
                                     </li>
                                 ))}
@@ -199,39 +273,76 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                         )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
-                            <Label htmlFor="unit">Unit <sup className="text-red-500">*</sup></Label>
+                    <div className="grid grid-cols-2 gap-4 items-end">
+                        <div className="flex flex-col gap-1">
+                            <label htmlFor="itemUnit" className="dialog-label">
+                                Item Unit <sup className="text-red-500">*</sup>
+                            </label>
+                            <SelectUnit
+                                value={newItem.unitName}
+                                disabled={!selectedCategory}
+                                onChange={handleUnitChange}
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label htmlFor="quantity" className="dialog-label">
+                                Quantity <sup className="text-red-500">*</sup>
+                            </label>
                             <Input
-                                id="unit"
-                                value={newItem.unit}
-                                onChange={(e) => setNewItem(prev => ({ ...prev, unit: e.target.value }))}
-                                placeholder="e.g. Nos, Kg, Pkt"
+                                id="quantity"
+                                type="number"
+                                placeholder='0.00'
+                                inputMode='decimal'
+                                min="0"
+                                step="any"
+                                disabled={!selectedCategory}
+                                value={newItem.quantity}
+                                onChange={(e) => handleInputChange('quantity', e.target.value)}
                             />
                         </div>
                     </div>
 
-                    <div className="grid gap-2">
-                        <Label htmlFor="comment">Comments (Optional)</Label>
+                    <div className="flex flex-col gap-1">
+                        <label htmlFor="comment" className="dialog-label">
+                            Comment (Optional)
+                        </label>
                         <Input
                             id="comment"
+                            placeholder="Add any notes..."
+                            disabled={!selectedCategory}
                             value={newItem.comment}
-                            onChange={(e) => setNewItem(prev => ({ ...prev, comment: e.target.value }))}
-                            placeholder="Add notes for this new item..."
+                            onChange={(e) => handleInputChange('comment', e.target.value)}
                         />
                     </div>
                 </div>
 
                 <AlertDialogFooter>
-                    <AlertDialogCancel onClick={closeDialog}>Cancel</AlertDialogCancel>
-                    <Button 
-                        onClick={handleCreateNew}
-                        disabled={isSubmitting || !newItem.item || !newItem.category || !newItem.unit}
-                    >
-                        {selectedCategory?.newItemsDisabled && userData?.role !== 'Nirmaan Admin Profile' 
-                            ? (isSubmitting ? 'Requesting...' : 'Request Item')
-                            : (isSubmitting ? 'Creating...' : 'Create & Add')}
-                    </Button>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    {isNewItemsDisabled ? (
+                         <Button
+                            disabled={!selectedCategory || !newItem.itemName || !newItem.unitName || !newItem.quantity || parseFloat(newItem.quantity) <= 0}
+                            variant="default"
+                            onClick={() => handleConfirm(true)}
+                            className="flex items-center gap-1 min-w-[100px]"
+                        >
+                             <ListChecks className="h-4 w-4" /> Request Item
+                        </Button>
+                    ) : (
+                        <Button
+                            disabled={createLoading || !selectedCategory || !newItem.itemName || !newItem.unitName || !newItem.quantity || parseFloat(newItem.quantity) <= 0}
+                            variant="default"
+                            onClick={() => handleConfirm(false)}
+                            className="flex items-center gap-1 min-w-[100px]"
+                        >
+                             {createLoading ? (
+                                <TailSpin width={18} height={18} color="white" />
+                            ) : (
+                                <>
+                                    <ListChecks className="h-4 w-4" /> Create & Add
+                                </>
+                             )}
+                        </Button>
+                    )}
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

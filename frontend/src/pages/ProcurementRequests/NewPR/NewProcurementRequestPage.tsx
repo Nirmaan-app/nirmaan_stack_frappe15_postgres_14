@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useFrappeDocumentEventListener } from 'frappe-react-sdk';
 
 // Import UI Components
 import { WorkPackageSelector } from './components/WorkPackageSelector';
@@ -18,12 +18,11 @@ import { NewPRErrorBoundary } from '@/components/error-boundaries/NewPRErrorBoun
 
 // Store, Hooks, Types
 import { useProcurementRequestStore } from './store/useProcurementRequestStore';
-import { ProcurementRequest } from '@/types/NirmaanStack/ProcurementRequests';
-import { BackendPRItemDetail, CategoryMakesMap, CategorySelection, ProcurementRequestItem } from './types';
+import { BackendPRItemDetail, CategorySelection, ProcurementRequestItem } from './types';
 import { useProcurementRequestData } from './hooks/useProcurementRequestData';
 import { useProcurementRequestForm } from './hooks/useProcurementRequestForm';
 import { useSubmitProcurementRequest } from './hooks/useSubmitProcurementRequest';
-import { Projects, WorkPackage } from '@/types/NirmaanStack/Projects';
+import { CategoryMakesMap, extractMakesFromChildTableForMultipleWPs, extractCategoryToPackageMap } from '@/hooks/useMakeOptions';
 import { toast } from '@/components/ui/use-toast';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
@@ -32,43 +31,8 @@ import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 type PageState = 'loading' | 'wp-selection' | 'item-selection' | 'error';
 
-// Helper function to safely parse JSON and extract makes map for multiple packages
-export const extractMakesFromChildTableForMultipleWPs = (project: Projects | undefined, selectedPackages: string[]): CategoryMakesMap => {
-    const makesMap: CategoryMakesMap = {};
-    if (!project?.project_wp_category_makes || selectedPackages.length === 0) {
-        return makesMap;
-    }
-
-    project.project_wp_category_makes.forEach((itemLink) => {
-        if (selectedPackages.includes(itemLink.procurement_package)) {
-            if (!makesMap[itemLink.category]) {
-                makesMap[itemLink.category] = [];
-            }
-            if (itemLink.make && !makesMap[itemLink.category].includes(itemLink.make)) {
-                makesMap[itemLink.category].push(itemLink.make);
-            }
-        }
-    });
-
-    for (const category in makesMap) {
-        makesMap[category].sort();
-    }
-    return makesMap;
-};
-
-// Helper function to extract category-to-package mapping for selected packages
-export const extractCategoryToPackageMap = (project: Projects | undefined, selectedPackages: string[]): Record<string, string> => {
-    const pkgMap: Record<string, string> = {};
-    if (!project?.project_wp_category_makes || selectedPackages.length === 0) {
-        return pkgMap;
-    }
-    project.project_wp_category_makes.forEach((itemLink) => {
-        if (selectedPackages.includes(itemLink.procurement_package)) {
-            pkgMap[itemLink.category] = itemLink.procurement_package;
-        }
-    });
-    return pkgMap;
-};
+// extractMakesFromChildTableForMultipleWPs, extractCategoryToPackageMap, and CategoryMakesMap
+// are now imported from @/hooks/useMakeOptions
 
 const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boolean }> = ({ resolve = false, edit = false }) => {
     const { projectId, prId } = useParams<{ projectId: string; prId?: string }>();
@@ -83,7 +47,6 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
     const selectedHeaderTagsFromStore = useProcurementRequestStore(state => state.selectedHeaderTags);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
 
-    const initialCategoryMakes = useProcurementRequestStore(state => state.initialCategoryMakes)
     const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useProcurementRequest(prId)
 
     const { emitDocOpen } = useFrappeDocumentEventListener("Procurment Requests", prId!, () => {
@@ -97,7 +60,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
         if (prId) emitDocOpen();
     }, [prId, emitDocOpen]);
 
-    const { project, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate, categoryMakelist, categoryMakeListMutate } = useProcurementRequestData();
+    const { project, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate } = useProcurementRequestData();
 
     useEffect(() => {
         if (mode === "create" && !projectId) return;
@@ -258,13 +221,10 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                     )}
 
                     <ItemSelectorControls
-                        initialCategoryMakes={initialCategoryMakes}
                         selectedWP={selectedWP}
                         selectedHeaderTags={selectedHeaderTagsFromStore}
                         categoryToPackageMap={extractCategoryToPackageMap(project, selectedHeaderTagsFromStore.map(h => h.tag_package))}
                         itemOptions={itemOptions}
-                        allMakeOptions={allMakeOptions}
-                        selectedCategories={selectedCategories}
                         onAddItem={addOrUpdateItem}
                         onOpenNewItemDialog={() => setShowNewItemDialog(true)}
                         allowWpEdit={mode === 'create'}
@@ -274,12 +234,13 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                         disabled={isSubmitting}
                         categoryList={categoryList}
                         updateCategoryMakesInStore={updateCategoryMakes}
+                        makeList={makeList}
                         makeListMutate={makeListMutate}
-                        categoryMakelist={categoryMakelist}
-                        categoryMakeListMutate={categoryMakeListMutate}
                         itemFuseOptions={itemFuseOptions}
                         procList={procList}
                         allProjectPackages={Array.from(new Set(project?.project_wp_category_makes?.map(m => m.procurement_package) || []))}
+                        projectWpCategoryMakes={project?.project_wp_category_makes}
+                        relevantPackages={selectedHeaderTagsFromStore.map(h => h.tag_package)}
                     />
 
                     <div className="flex flex-col justify-between min-h-[48vh]">
@@ -330,14 +291,11 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 categories={categoryList || []}
                 onSubmitUpdate={updateItemInList}
                 onDeleteItem={deleteItemFromList}
-                allMakeOptions={allMakeOptions}
-                initialCategoryMakes={initialCategoryMakes}
-                selectedCategories={selectedCategories}
                 updateCategoryMakesInStore={updateCategoryMakes}
                 makeList={makeList}
                 makeListMutate={makeListMutate}
-                categoryMakelist={categoryMakelist}
-                categoryMakeListMutate={categoryMakeListMutate}
+                projectWpCategoryMakes={project?.project_wp_category_makes}
+                relevantPackages={selectedHeaderTagsFromStore.map(h => h.tag_package)}
             />
         </div>
     );

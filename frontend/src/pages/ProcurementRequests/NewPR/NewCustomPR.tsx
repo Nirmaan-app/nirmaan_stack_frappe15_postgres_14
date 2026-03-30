@@ -93,7 +93,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
   const [order, setOrder] = useState<CustomPRItem[]>([]);
   const [amounts, setAmounts] = useState<{ [key: string]: number }>({});
-  const [categories, setCategories] = useState<{ list: { name: string, makes: string[] }[] }>({ list: [] });
   const [comment, setComment] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermsData>({});
@@ -166,7 +165,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
       })) as CustomPRItem[];
 
       setOrder(transformedOrder);
-      setCategories(request?.category_list);
 
       const amounts: { [key: string]: number } = {};
       transformedOrder.forEach(item => { amounts[item.name] = item.quote; });
@@ -207,13 +205,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     let newOrderData = order.map(item => ({ ...item, quote: amounts[item.name], vendor: selectedVendor?.value }));
     setOrder(newOrderData);
     setSection("summary");
-    const newCategories: { name: string, makes: string[] }[] = [];
-    order.forEach((item) => {
-      if (!newCategories.some(category => category.name === item.category)) {
-        newCategories.push({ name: item.category, makes: [] });
-      }
-    });
-    setCategories({ list: newCategories });
   }, [order, amounts, selectedVendor]);
 
   const handleInputChange = useCallback((id: string, field: keyof CustomPRItem, value: string | number) => {
@@ -246,7 +237,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
       const response = await newCustomPRCall({
         project_id: projectId,
         order: order,
-        categories: categories.list,
         comment: comment,
         attachment: attachment ? { file_url: file_url } : null,
         payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null,
@@ -281,7 +271,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         project_id: prDoc?.project,
         pr_id: prId,
         order: order,
-        categories: categories.list,
         comment: comment,
         attachment: attachment ? { file_url: file_url } : null,
         payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null,

@@ -18,8 +18,6 @@ import {
 } from "@/components/ui/dialog"; // Adjust path
 import { CirclePlus } from "lucide-react";
 import {
-  CategoryMakesMap,
-  CategorySelection,
   ItemOption,
   MakeOption,
   ProcurementRequestItem,
@@ -30,9 +28,10 @@ import { parseNumber } from "@/utils/parseNumber";
 import { Label } from "@/components/ui/label";
 import { ManageCategoryMakesDialog } from "./ManageCategoryMakesDialog";
 import { Makelist } from "@/types/NirmaanStack/Makelist";
-import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { IFuseOptions } from "fuse.js";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { useMakeOptions } from "@/hooks/useMakeOptions";
+import { ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 
 // Custom MenuList for Make Select
 export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
@@ -89,8 +88,6 @@ const ItemCustomMenuList = (props: MenuListProps<ItemOption, false>) => {
 interface ItemSelectorControlsProps {
   selectedWP: string;
   itemOptions: ItemOption[];
-  allMakeOptions: MakeOption[];
-  selectedCategories: CategorySelection[];
   onAddItem: (
     itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">
   ) => void;
@@ -102,21 +99,18 @@ interface ItemSelectorControlsProps {
   updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
   makeList?: Makelist[];
   makeListMutate: () => Promise<any>;
-  categoryMakelist?: CategoryMakelist[];
-  categoryMakeListMutate?: () => Promise<any>;
-  initialCategoryMakes: CategoryMakesMap;
   selectedHeaderTags: { tag_header: string; tag_package: string }[];
   categoryToPackageMap: Record<string, string>;
   itemFuseOptions: IFuseOptions<ItemOption>;
   procList: ProcurementRequestItem[];
   allProjectPackages: string[];
+  projectWpCategoryMakes: ProjectWPCategoryMake[] | undefined;
+  relevantPackages: string[];
 }
 
 export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   selectedWP,
   itemOptions,
-  allMakeOptions,
-  selectedCategories,
   onAddItem,
   onOpenNewItemDialog,
   allowWpEdit,
@@ -126,14 +120,13 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   updateCategoryMakesInStore,
   makeList,
   makeListMutate,
-  categoryMakelist,
-  categoryMakeListMutate,
-  initialCategoryMakes,
   selectedHeaderTags,
   categoryToPackageMap,
   itemFuseOptions,
   procList,
-  allProjectPackages,
+  allProjectPackages: _allProjectPackages,
+  projectWpCategoryMakes,
+  relevantPackages,
 }) => {
   // --- State ---
   const [curItem, setCurItem] = useState<SingleValue<ItemOption>>(null);
@@ -151,34 +144,16 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     return itemOptions.filter(opt => !addedItemNames.has(opt.value));
   }, [itemOptions, procList]);
 
-  const availableMakeOptions = useMemo(() => {
-    if (!currentItemCategoryName) return [];
-
-    const applicableMakeValues = new Set<string>();
-
-    const initialMakes = initialCategoryMakes?.[currentItemCategoryName];
-    const hasInitialMakes = Array.isArray(initialMakes) && initialMakes.length > 0;
-
-    if (hasInitialMakes) {
-      initialMakes!.forEach((makeValue) => applicableMakeValues.add(makeValue));
-    } else if (categoryMakelist) {
-      categoryMakelist
-        .filter((entry) => entry.category === currentItemCategoryName && entry.make)
-        .forEach((entry) => applicableMakeValues.add(entry.make!));
-    }
-
-    let potentialMakeOptions = allMakeOptions.filter((opt) =>
-      applicableMakeValues.has(opt.value)
-    );
-
-    potentialMakeOptions.sort((a, b) => a.label.localeCompare(b.label));
-    return potentialMakeOptions;
-  }, [
-    currentItemCategoryName,
-    initialCategoryMakes,
+  const {
+    makeOptions: availableMakeOptions,
     allMakeOptions,
     categoryMakelist,
-  ]);
+    categoryMakeListMutate,
+  } = useMakeOptions({
+    categoryName: currentItemCategoryName,
+    projectWpCategoryMakes,
+    relevantPackages,
+  });
 
   const isNewItemsCreationDisabledForCategory = useMemo(() => {
     if (!curItem?.category || !categoryList) return false;
@@ -428,12 +403,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
           isOpen={isManageMakesDialogOpen}
           onOpenChange={setIsManageMakesDialogOpen}
           categoryName={currentItemCategoryName}
-          associatedMakes={
-            selectedCategories.find((c) => c.name === currentItemCategoryName)
-              ?.makes ??
-            initialCategoryMakes[currentItemCategoryName] ??
-            []
-          }
+          associatedMakes={availableMakeOptions.map((opt) => opt.value)}
           onMakesAssociated={handleMakesManaged}
           makeList={makeList}
           makeListMutate={makeListMutate}
