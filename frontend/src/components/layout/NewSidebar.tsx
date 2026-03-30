@@ -191,6 +191,15 @@ export function NewSidebar() {
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ? [
+      {
+        key: '/pmo-dashboard',
+        icon: SquareStack,
+        label: 'PMO Dashboard',
+      },
+    ]
+    : []),
     ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
       ? [
         {
@@ -209,8 +218,9 @@ export function NewSidebar() {
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
             { key: "/commission-packages", label: "Commission Packages" },
+            { key: "/pmo-packages", label: "PMO Packages" },
+            { key: "/work-order-rate-card", label: "Work Order Rate Card" },
             { key: "/tds-repository", label: "TDS Repository" },
-
             ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
@@ -595,7 +605,15 @@ export function NewSidebar() {
         },
       ]
       : []),
-
+    ...(["Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
+      ? [
+        {
+          key: '/work-order-rate-card',
+          icon: Tickets,
+          label: 'Work Order Rate Card',
+        },
+      ]
+      : []),
 
 
   ], [user_id, role]);
@@ -652,6 +670,8 @@ export function NewSidebar() {
     "commission-packages",
     "work-order-rate-card",
     "commission-tracker",
+    "pmo-dashboard",
+    "pmo-packages",
 
   ]), [])
 
@@ -662,7 +682,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "tds-repository", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs", "pmo-packages"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -690,6 +710,7 @@ export function NewSidebar() {
     '/inventory': ['inventory'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
+    '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
   }), []);
 
@@ -797,7 +818,8 @@ export function NewSidebar() {
                     "Products",
                     "TDS Approval",
                     "Work Order Rate Card",
-                    "Inventory"]).has(item?.label) ? (
+                    "Inventory",
+                    "PMO Dashboard"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
