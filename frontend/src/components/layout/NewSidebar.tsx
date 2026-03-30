@@ -209,7 +209,6 @@ export function NewSidebar() {
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
             { key: "/commission-packages", label: "Commission Packages" },
-            { key: "/work-order-rate-card", label: "Work Order Rate Card" },
             { key: "/tds-repository", label: "TDS Repository" },
 
             ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
@@ -414,6 +413,17 @@ export function NewSidebar() {
       ]
       : []),
 
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
+      ? [
+        {
+          key: '/work-order-rate-card',
+          icon: Tickets,
+          label: 'Work Order Rate Card',
+        },
+      ]
+      : []),
+
+
     // ...(role == "Nirmaan Procurement Executive Profile" ||
     // user_id == "Administrator" ||
     // role == "Nirmaan Admin Profile"
@@ -585,15 +595,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(["Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
-      ? [
-        {
-          key: '/work-order-rate-card',
-          icon: Tickets,
-          label: 'Work Order Rate Card',
-        },
-      ]
-      : [])
+
 
 
   ], [user_id, role]);
@@ -660,7 +662,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "tds-repository", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -688,6 +690,7 @@ export function NewSidebar() {
     '/inventory': ['inventory'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
+    '/work-order-rate-card': ['work-order-rate-card'],
   }), []);
 
   const openKey = useMemo(() => {
