@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import ReactSelect from "react-select";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { ITEM_TOKEN_SEARCH_CONFIG, ItemCatalogOption } from "@/hooks/useItemCatalog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
@@ -26,7 +28,8 @@ interface Step1ReviseItemsProps {
   afterSummary: SummaryData;
   difference: DifferenceData;
   netImpact: number;
-  itemOptions?: { label: string; value: string; item_id: string; item_name: string; make: string; available_makes: string[]; unit: string; category: string; tax: number }[];
+  itemOptions?: ItemCatalogOption[];
+  chargeOptions?: ItemCatalogOption[];
   isCustom?: boolean;
   poTotalAmount: number;
   poAmountPaid: number;
@@ -45,6 +48,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   difference,
   netImpact,
   itemOptions = [],
+  chargeOptions = [],
   isCustom = false,
   poTotalAmount,
   poAmountPaid,
@@ -165,16 +169,15 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           className="text-xs font-medium h-9"
                         />
                       ) : item.item_type !== "Deleted" && item.item_type !== "Revised" ? (
-                        <ReactSelect
-                          options={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== "Deleted"))}
+                        <FuzzySearchSelect<ItemCatalogOption>
+                          allOptions={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== "Deleted"))}
+                          tokenSearchConfig={ITEM_TOKEN_SEARCH_CONFIG}
                           value={
                             item.item_id
-                              ? itemOptions.find(opt => opt.item_id === item.item_id)
-                              : item.item_name
-                                ? { label: item.item_name, value: item.item_name, item_id: "", item_name: item.item_name, make: item.make || "", unit: item.unit || "", category: "", tax: item.tax || 0 }
-                                : null
+                              ? itemOptions.find(opt => opt.item_id === item.item_id) ?? null
+                              : null
                           }
-                          onChange={(selected: any) => {
+                          onChange={(selected) => {
                             const isOriginal = item.item_type === "Original";
                             let typeUpdates: Partial<RevisionItem> = {};
                             if (selected) {
@@ -199,6 +202,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           isDisabled={isDeleted || isPartiallyDelivered}
                           placeholder="Select Item..."
                           isClearable
+                          menuPortalTarget={document.body}
                           styles={{
                             control: (base) => ({ ...base, minHeight: "36px", height: "36px", fontSize: "12px", fontWeight: 500 }),
                             valueContainer: (base) => ({ ...base, padding: "0 8px" }),
@@ -393,7 +397,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
         onOpenChange={setIsAddChargeDialogOpen}
         onAdd={handleAddItem}
         isCustom={isCustom}
-        itemOptions={itemOptions}
+        chargeOptions={chargeOptions}
         revisionItems={revisionItems}
       />
     </div>

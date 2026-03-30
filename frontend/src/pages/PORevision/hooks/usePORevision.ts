@@ -7,14 +7,11 @@ import {
   SummaryData
 } from "../types";
 import {
-  useProcurementRequestForRevision,
   useProjectForRevision,
-  useRevisionCategories,
-  useRevisionItems,
-  useRevisionCategoryMakelist,
   useRevisionVendorInvoices,
 } from "../data/usePORevisionQueries";
 import { useCreateRevision } from "../data/usePORevisionMutations";
+import { useItemCatalog } from "@/hooks/useItemCatalog";
 
 interface UsePORevisionProps {
   po: ProcurementOrder;
@@ -78,93 +75,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   }, [open, po]);
 
   // ─── Centralized Data Fetching ────────────────────────────
-  const { data: prData } = useProcurementRequestForRevision(po?.procurement_request);
   const { data: projectDoc } = useProjectForRevision(po?.project);
-
-  const allRelevantPackages = useMemo(() => {
-    const packages = new Set<string>();
-
-    if (projectDoc?.project_work_packages) {
-      const projectWPs = (typeof projectDoc.project_work_packages === 'string'
-        ? JSON.parse(projectDoc.project_work_packages)
-        : projectDoc.project_work_packages)?.work_packages ?? [];
-      projectWPs.forEach((wp: any) => {
-        if (wp.work_package_name) packages.add(wp.work_package_name);
-      });
-    }
-
-    if (prData?.work_package) packages.add(prData.work_package);
-
-    (prData?.pr_tag_list || []).forEach((tag: any) => {
-      if (tag.tag_package) packages.add(tag.tag_package);
-    });
-
-    (projectDoc?.project_wp_category_makes || []).forEach((item: any) => {
-      if (item.procurement_package) packages.add(item.procurement_package);
-    });
-
-    return Array.from(packages);
-  }, [prData?.work_package, prData?.pr_tag_list, projectDoc?.project_work_packages, projectDoc?.project_wp_category_makes]);
-
-  const { data: categories } = useRevisionCategories(allRelevantPackages);
-  const categoryNames = useMemo(() => categories?.map(c => c.name) || [], [categories]);
-
-  const { data: itemsList } = useRevisionItems(allRelevantPackages, categoryNames);
-  const { data: categoryMakelist } = useRevisionCategoryMakelist(allRelevantPackages, categoryNames);
-
-  const itemOptions = useMemo(() => {
-    if (!itemsList) return [];
-
-    const projectMakes = projectDoc?.project_wp_category_makes || [];
-    const allowedCategoriesFromProject = projectMakes.map((item: any) => item.category).filter(Boolean);
-    const allowedPackagesFromProject = projectMakes.map((item: any) => item.procurement_package).filter(Boolean);
-
-    const filteredItems = itemsList.filter(item => {
-      const category = categories?.find(cat => cat.name === item.category);
-      if (!category) return false;
-
-      const catName = category.category_name || category.name;
-      if (catName === "Tool & Equipments" || catName === "Additional Charges" || category.work_package === "Additional Charges" || category.work_package === "Tool & Equipments") return true;
-
-      if (allowedCategoriesFromProject.length > 0 || allowedPackagesFromProject.length > 0) {
-        const matchesCategory = allowedCategoriesFromProject.includes(item.category);
-        const matchesPackage = allowedPackagesFromProject.includes(category.work_package);
-        return matchesCategory || matchesPackage;
-      }
-
-      const prTags = prData?.pr_tag_list || [];
-      const allowedPackagesFromTags = prTags.length > 0
-        ? Array.from(new Set(prTags.map((t: any) => t.tag_package)))
-        : [];
-
-      if (allowedPackagesFromTags.length > 0) {
-        return allowedPackagesFromTags.includes(category.work_package) || category.work_package === "Tool & Equipments" || category.work_package === "Additional Charges";
-      }
-
-      return true;
-    });
-
-    const categoryMap = new Map(categories?.map(c => [c.name, c]) || []);
-    const categoryMakesMap = new Map<string, string[]>();
-    categoryMakelist?.forEach(m => {
-      if (!categoryMakesMap.has(m.category)) categoryMakesMap.set(m.category, []);
-      categoryMakesMap.get(m.category)!.push(m.make);
-    });
-
-    return filteredItems.map(item => ({
-      label: item.item_name,
-      value: item.name,
-      item_id: item.name,
-      item_name: item.item_name,
-      make: item.make_name || "",
-      available_makes: categoryMakesMap.get(item.category) || (item.make_name ? [item.make_name] : []),
-      unit: item.unit_name || "",
-      category: item.category,
-      procurement_package: categoryMap.get(item.category)?.work_package || "",
-      tax: parseFloat(categoryMap.get(item.category)?.tax || "0")
-    }));
-  }, [itemsList, categories, categoryMakelist, projectDoc?.project_wp_category_makes, prData?.pr_tag_list]);
-
+  const { itemOptions, chargeOptions } = useItemCatalog();
   const { data: invoices } = useRevisionVendorInvoices(po?.name, open);
 
   // ─── Centralized Mutations ───────────────────────────────
@@ -306,5 +218,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     handleRemoveItem,
     handleSave,
     itemOptions,
+    chargeOptions,
+    projectDoc,
   };
 };

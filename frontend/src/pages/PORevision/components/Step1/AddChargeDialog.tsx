@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import ReactSelect from "react-select";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { ITEM_TOKEN_SEARCH_CONFIG, ItemCatalogOption } from "@/hooks/useItemCatalog";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { RevisionItem } from "../../types";
@@ -14,7 +15,7 @@ interface AddChargeDialogProps {
   onOpenChange: (open: boolean) => void;
   onAdd: (item: RevisionItem) => void;
   isCustom: boolean;
-  itemOptions: any[];
+  chargeOptions: ItemCatalogOption[];
   revisionItems: RevisionItem[];
 }
 
@@ -23,7 +24,7 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
   onOpenChange,
   onAdd,
   isCustom,
-  itemOptions,
+  chargeOptions,
   revisionItems,
 }) => {
   const { toast } = useToast();
@@ -101,8 +102,6 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
     handleOpenChange(false);
   };
 
-  const chargeOptions = itemOptions.filter(opt => opt.category === "Additional Charges");
-
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
@@ -112,10 +111,11 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
         <div className="grid gap-4 py-4">
           <div className="space-y-2">
             <Label className="text-xs">Charge Name <span className="text-red-500">*</span></Label>
-            <ReactSelect
-              options={chargeOptions.filter(opt => !revisionItems.some(ri => (ri.item_id === opt.item_id || ri.item_name === opt.item_name) && ri.item_type !== 'Deleted'))}
-              value={item_id ? chargeOptions.find(opt => opt.item_id === item_id) : null}
-              onChange={(selected: any) => {
+            <FuzzySearchSelect<ItemCatalogOption>
+              allOptions={chargeOptions.filter(opt => !revisionItems.some(ri => (ri.item_id === opt.item_id || ri.item_name === opt.item_name) && ri.item_type !== 'Deleted'))}
+              tokenSearchConfig={ITEM_TOKEN_SEARCH_CONFIG}
+              value={item_id ? chargeOptions.find(opt => opt.item_id === item_id) ?? null : null}
+              onChange={(selected) => {
                 if (selected) {
                   setItemId(selected.item_id);
                   setItemName(selected.item_name);
@@ -134,6 +134,7 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
               }}
               placeholder="Select Charge..."
               isClearable
+              menuPortalTarget={document.body}
               styles={{
                 control: (base) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '12px' }),
               }}
