@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useFrappeDocumentEventListener } from 'frappe-react-sdk';
 
@@ -60,7 +60,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
         if (prId) emitDocOpen();
     }, [prId, emitDocOpen]);
 
-    const { project, categoryList, itemList, itemOptions, makeList, allMakeOptions, isLoading: dataLoading, error: dataError, itemMutate, makeListMutate } = useProcurementRequestData();
+    const { project, categoryList, itemOptions, isLoading: dataLoading, error: dataError, itemMutate } = useProcurementRequestData();
 
     useEffect(() => {
         if (mode === "create" && !projectId) return;
@@ -122,6 +122,19 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
     }, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project]);
 
+    // Derive Items-compatible array from itemOptions for fuzzy search in NewItemDialog
+    const rawItemList = useMemo(() =>
+        itemOptions.map(opt => ({
+            name: opt.value,
+            item_name: opt.label,
+            unit_name: opt.unit,
+            category: opt.category,
+            make_name: opt.make,
+            creation: '',
+        })),
+        [itemOptions]
+    );
+
     const {
         selectedWP,
         procList, selectedCategories, undoStack, newPRComment,
@@ -133,13 +146,8 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
         setComment,
         handleFuzzySearch,
         updateCategoryMakes,
-        itemFuseOptions
-    } = useProcurementRequestForm(
-        makeListMutate,
-        itemList,
-        makeList,
-        allMakeOptions,
-    );
+        itemTokenSearchConfig
+    } = useProcurementRequestForm(rawItemList as any);
 
     const { submitNewPR, resolveOrUpdatePR, cancelDraftPR, isSubmitting } = useSubmitProcurementRequest();
 
@@ -234,9 +242,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                         disabled={isSubmitting}
                         categoryList={categoryList}
                         updateCategoryMakesInStore={updateCategoryMakes}
-                        makeList={makeList}
-                        makeListMutate={makeListMutate}
-                        itemFuseOptions={itemFuseOptions}
+                        itemTokenSearchConfig={itemTokenSearchConfig}
                         procList={procList}
                         allProjectPackages={Array.from(new Set(project?.project_wp_category_makes?.map(m => m.procurement_package) || []))}
                         projectWpCategoryMakes={project?.project_wp_category_makes}
@@ -292,8 +298,6 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 onSubmitUpdate={updateItemInList}
                 onDeleteItem={deleteItemFromList}
                 updateCategoryMakesInStore={updateCategoryMakes}
-                makeList={makeList}
-                makeListMutate={makeListMutate}
                 projectWpCategoryMakes={project?.project_wp_category_makes}
                 relevantPackages={selectedHeaderTagsFromStore.map(h => h.tag_package)}
             />

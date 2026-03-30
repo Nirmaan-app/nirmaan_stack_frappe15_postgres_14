@@ -1,53 +1,33 @@
-import { useMemo } from 'react';
 import { useFrappeGetDocList, useFrappeGetDoc } from 'frappe-react-sdk';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProcurementPackages } from '@/types/NirmaanStack/ProcurementPackages';
 import { Category } from '@/types/NirmaanStack/Category';
-import { Items } from '@/types/NirmaanStack/Items';
-import { ItemOption, MakeOption } from '../types';
-import { Makelist } from '@/types/NirmaanStack/Makelist';
-import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
+import { useItemCatalog, ItemCatalogOption } from '@/hooks/useItemCatalog';
 
 interface UseProcurementRequestDataResult {
     project?: Projects;
     wpList?: ProcurementPackages[];
     categoryList?: Category[];
-    projectCategoryList?: Category[];
-    filteredCategoryList?: Category[];
-    itemList?: Items[];
-    // usersList?: NirmaanUsers[];
-    itemOptions: { label: string; value: string; unit: string; category: string; tax: number }[];
-    // catOptions: CategoryOption[];
+    itemOptions: ItemCatalogOption[];
     isLoading: boolean;
     error: Error | null;
-    itemMutate: () => Promise<any>; // Expose item mutation if needed (e.g., after creating new item)
-    makeList?: Makelist[];
-    allMakeOptions: MakeOption[];
-    makeListMutate: () => Promise<any>;
-    categoryMakelist?: CategoryMakelist[];
+    itemMutate: () => Promise<any>;
     categoryMakeListMutate: () => Promise<any>;
 }
 
 export const useProcurementRequestData = (): UseProcurementRequestDataResult => {
-    // Get projectId and selectedWP from the store
+    // Get projectId from the store
     const projectId = useProcurementRequestStore(state => state.projectId);
-    const selectedHeaderTags = useProcurementRequestStore(state => state.selectedHeaderTags);
-    const selectedPackages = useMemo(() => selectedHeaderTags.map(h => h.tag_package), [selectedHeaderTags]);
 
     // Fetch Project Details
     const { data: project, error: projectError } = useFrappeGetDoc<Projects>(
         "Projects",
-        projectId!, // Assert non-null as it should be set by initialization
-        !!projectId ? undefined : null, // Only fetch if projectId is set
+        projectId!,
+        !!projectId ? undefined : null,
     );
 
-    const allProjectPackages = useMemo(() => {
-        if (!project?.project_wp_category_makes) return [];
-        return Array.from(new Set(project.project_wp_category_makes.map(m => m.procurement_package)));
-    }, [project]);
-
-    // Fetch Work Packages
+    // Fetch Work Packages (for WorkPackageSelector)
     const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
         "Procurement Packages", {
             fields: ["work_package_name", "work_package_image"],
@@ -57,112 +37,28 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         "All_Work_Packages"
     );
 
-    // We fetch all categories associated with the project's packages to satisfy "full category of this Project"
-    const { data: category_list, isLoading: catLoading, error: catError } = useFrappeGetDocList<Category>(
-        "Category", {
-            fields: ["category_name", "work_package", "image_url", "tax", "new_items", "name"],
-            filters: allProjectPackages.length > 0 ? [["work_package", "in", [...allProjectPackages, "Tool & Equipments"]]] : [],
-            orderBy: { field: "category_name", order: "asc" },
-            limit: 0,
-        },
-        allProjectPackages.length > 0 ? undefined : null
-    );
-
-    // Fetch Items based on fetched categories
-    const categoryNames = useMemo(() => category_list?.map((c) => c.name) || [], [category_list]);
-
-    const { data: item_list, isLoading: itemLoading, error: itemError, mutate: itemMutate } = useFrappeGetDocList<Items>(
-        "Items", {
-            fields: ["name", "item_name", "make_name", "unit_name", "category", "creation"],
-            filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [],
-            orderBy: { field: "creation", order: "desc" },
-            limit: 0, // Still large, consider alternatives if perf issues
-        },
-        categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
-    );
-
-    const {data: categoryMakelist, isLoading: categoryMakeListLoading, error: categoryMakeListError, mutate: categoryMakeListMutate} = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
-        fields: ["category", "make"],
-        filters: [["category", "in", categoryNames]],
-        orderBy: { field: "category", order: "asc" },
-        limit: 0,
-    },
-    categoryNames.length > 0 ? undefined : null // Only fetch if categories are set
-    )
-
-     // --- Fetch Make List ---
-     const { data: make_list, isLoading: makeLoading, error: makeError, mutate: makeListMutate } = useFrappeGetDocList<Makelist>(
-        "Makelist", {
-            fields: ["name", "make_name"],
-            limit: 0, // Consider if this needs pagination for very large lists
-        }
-    );
-
-    // --- Derived Make Options ---
-    const allMakeOptions = useMemo<MakeOption[]>(() => {
-        return make_list?.map(make => ({
-            value: make.name, // Use DocType name (which might be same as make_name if not customized)
-            label: make.make_name,
-        })) || [];
-    }, [make_list]);
-
-
-    // --- Derived Options ---
-    //  const catOptions = useMemo(() => {
-    //     // Basic options without makes, makes are handled via the project data separately
-    //     return category_list?.map(cat => ({
-    //         value: cat.name,
-    //         label: cat.category_name,
-    //         tax: parseNumber(cat.tax),
-    //         // newItemsDisabled flag is still useful here
-    //         newItemsDisabled: cat.new_items === "false",
-    //     })) || [];
-    // }, [category_list]);
-
-    const itemOptions = useMemo<ItemOption[]>(() => {
-        if (!item_list || !category_list) return []; // Depend on category_list too
-         // Create a map for quick tax lookup
-        const categoryTaxMap = new Map(category_list.map(cat => [cat.name, parseFloat(cat.tax || "0")]));
-        return item_list.map(item => ({
-            value: item.name,
-            label: item.item_name,
-            unit: item.unit_name || 'N/A',
-            category: item.category,
-            tax: categoryTaxMap.get(item.category) || 0,
-        }));
-    }, [item_list, category_list]); // Use category_list dependency
-
-
-    const filteredCategoryList = useMemo(() => {
-        if (!category_list) return [];
-        if (selectedPackages.length === 0) return [];
-        return category_list.filter(cat => 
-            (cat.work_package && selectedPackages.includes(cat.work_package)) || 
-            cat.work_package === "Tool & Equipments"
-        );
-    }, [category_list, selectedPackages]);
+    // Use shared item catalog for items, categories, and category makelists
+    const {
+        itemOptions,
+        categories,
+        isLoading: catalogLoading,
+        error: catalogError,
+        itemMutate,
+        categoryMakeListMutate,
+    } = useItemCatalog();
 
     // Update isLoading and error aggregation
-    const isLoading = wpLoading || catLoading || itemLoading || makeLoading || categoryMakeListLoading || (!project && !!projectId);
-    const error = wpError || catError || itemError || projectError || makeError || categoryMakeListError;
+    const isLoading = wpLoading || catalogLoading || (!project && !!projectId);
+    const error = wpError || projectError || catalogError;
 
     return {
         project,
         wpList: wp_list,
-        categoryList: category_list,
-        projectCategoryList: category_list, // In this case they are the same now as we filter by allProjectPackages
-        filteredCategoryList,
-        itemList: item_list,
-        // usersList,
+        categoryList: categories,
         itemOptions,
-        // catOptions,
         isLoading,
         error: error instanceof Error ? error : null,
-        itemMutate, // Return mutate function for items
-        makeList: make_list,
-        allMakeOptions,
-        makeListMutate,
-        categoryMakelist,
-        categoryMakeListMutate
+        itemMutate,
+        categoryMakeListMutate,
     };
 };

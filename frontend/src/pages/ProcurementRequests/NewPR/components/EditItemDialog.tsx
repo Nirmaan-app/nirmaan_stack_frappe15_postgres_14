@@ -29,7 +29,6 @@ import { ManageCategoryMakesDialog } from './ManageCategoryMakesDialog'; // Impo
 import { CustomMakeMenuList } from './ItemSelectorControls'; // Reuse CustomMakeMenuList if suitable
 import { ItemStatus } from '../constants';
 import { Category } from '@/types/NirmaanStack/Category';
-import { Makelist } from '@/types/NirmaanStack/Makelist';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useMakeOptions } from '@/hooks/useMakeOptions';
 import { ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
@@ -43,8 +42,6 @@ interface EditItemDialogProps {
     onDeleteItem: (itemName: string) => void;
     // --- Make Props ---
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
-    makeList?: Makelist[];
-    makeListMutate: () => Promise<any>;
     // --- End Make Props ---
     projectWpCategoryMakes: ProjectWPCategoryMake[] | undefined;
     relevantPackages: string[];
@@ -69,8 +66,6 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     onDeleteItem,
     // Make Props Destructuring
     updateCategoryMakesInStore,
-    makeList,
-    makeListMutate,
     projectWpCategoryMakes,
     relevantPackages,
 }) => {
@@ -95,6 +90,8 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     const {
         makeOptions: availableMakeOptions,
         allMakeOptions,
+        makeList,
+        makeListMutate,
         categoryMakelist,
         categoryMakeListMutate,
     } = useMakeOptions({

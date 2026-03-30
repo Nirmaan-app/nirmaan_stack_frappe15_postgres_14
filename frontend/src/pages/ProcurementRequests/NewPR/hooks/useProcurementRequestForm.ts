@@ -1,17 +1,17 @@
 import { useCallback, useMemo } from 'react';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
-import Fuse, { FuseResult, IFuseOptions } from 'fuse.js';
-import { CategoryMakesMap, CategorySelection, ItemOption, MakeOption, ProcurementRequestItem, SelectedHeaderTag } from '../types';
+import Fuse, { FuseResult } from 'fuse.js';
+import { CategoryMakesMap, CategorySelection, ProcurementRequestItem, SelectedHeaderTag } from '../types';
 import { Items } from '@/types/NirmaanStack/Items';
+import { ITEM_TOKEN_SEARCH_CONFIG } from '@/hooks/useItemCatalog';
+import { TokenSearchConfig } from '@/components/ui/fuzzy-search-select';
 
 interface UseProcurementRequestFormResult {
     selectedWP: string;
     procList: ProcurementRequestItem[];
     selectedCategories: CategorySelection[];
     updateCategoryMakes: (categoryName: string, newMake: string) => void;
-    makeListMutate: () => Promise<any>;
-    allMakeOptions: MakeOption[];
     undoStack: ProcurementRequestItem[];
     newPRComment: string;
     isStoreInitialized: boolean;
@@ -22,14 +22,11 @@ interface UseProcurementRequestFormResult {
     undoLastDelete: () => void;
     setComment: (comment: string) => void;
     handleFuzzySearch: (input: string) => FuseResult<Items>[];
-    itemFuseOptions: IFuseOptions<ItemOption>;
+    itemTokenSearchConfig: TokenSearchConfig;
 }
 
 export const useProcurementRequestForm = (
-    makeListMutateHook: () => Promise<any>,
     rawItemList?: Items[],
-    _makeList?: any,
-    allMakeOptionsFromDataHook: MakeOption[] = [],
 ): UseProcurementRequestFormResult => {
     const { toast } = useToast();
 
@@ -50,12 +47,8 @@ export const useProcurementRequestForm = (
     const setNewPRComment = useProcurementRequestStore(state => state.setNewPRComment);
     const updateCategoryMakes = useProcurementRequestStore(state => state.updateCategoryMakes);
 
-    // --- Fuse.js Configuration for Item Selection ---
-    const itemFuseOptions: IFuseOptions<ItemOption> = useMemo(() => ({
-        keys: ['label', 'value', 'category'],
-        threshold: 0.3,
-        includeScore: false,
-    }), []);
+    // --- Token Search Configuration for Item Selection ---
+    const itemTokenSearchConfig = ITEM_TOKEN_SEARCH_CONFIG;
 
     const selectHeaders = useCallback((headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => {
         setSelectedHeaders(headers, combinedMakes);
@@ -134,8 +127,6 @@ export const useProcurementRequestForm = (
         setComment,
         handleFuzzySearch,
         updateCategoryMakes,
-        makeListMutate: makeListMutateHook,
-        allMakeOptions: allMakeOptionsFromDataHook,
-        itemFuseOptions,
+        itemTokenSearchConfig,
     };
 };

@@ -27,9 +27,7 @@ import { Category } from "@/types/NirmaanStack/Category";
 import { parseNumber } from "@/utils/parseNumber";
 import { Label } from "@/components/ui/label";
 import { ManageCategoryMakesDialog } from "./ManageCategoryMakesDialog";
-import { Makelist } from "@/types/NirmaanStack/Makelist";
-import { IFuseOptions } from "fuse.js";
-import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { FuzzySearchSelect, TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { useMakeOptions } from "@/hooks/useMakeOptions";
 import { ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 
@@ -97,11 +95,9 @@ interface ItemSelectorControlsProps {
   disabled?: boolean;
   categoryList?: Category[];
   updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
-  makeList?: Makelist[];
-  makeListMutate: () => Promise<any>;
   selectedHeaderTags: { tag_header: string; tag_package: string }[];
   categoryToPackageMap: Record<string, string>;
-  itemFuseOptions: IFuseOptions<ItemOption>;
+  itemTokenSearchConfig: TokenSearchConfig;
   procList: ProcurementRequestItem[];
   allProjectPackages: string[];
   projectWpCategoryMakes: ProjectWPCategoryMake[] | undefined;
@@ -118,11 +114,9 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   disabled = false,
   categoryList,
   updateCategoryMakesInStore,
-  makeList,
-  makeListMutate,
   selectedHeaderTags,
   categoryToPackageMap,
-  itemFuseOptions,
+  itemTokenSearchConfig,
   procList,
   allProjectPackages: _allProjectPackages,
   projectWpCategoryMakes,
@@ -147,6 +141,8 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   const {
     makeOptions: availableMakeOptions,
     allMakeOptions,
+    makeList,
+    makeListMutate,
     categoryMakelist,
     categoryMakeListMutate,
   } = useMakeOptions({
@@ -301,7 +297,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
           placeholder={"Select or Create/Request Item..."}
           value={curItem}
           allOptions={filteredItemOptions}
-          fuseOptions={itemFuseOptions}
+          tokenSearchConfig={itemTokenSearchConfig}
           onChange={handleItemChange as any}
           isDisabled={disabled}
           isClearable
