@@ -7,9 +7,6 @@ import {
 } from "frappe-react-sdk";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Category } from "@/types/NirmaanStack/Category";
-import { Items } from "@/types/NirmaanStack/Items";
-import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { Projects as Project } from "@/types/NirmaanStack/Projects";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
@@ -84,92 +81,6 @@ export const useProjectForRevision = (projectId?: string) => {
     feature: "po-revision",
     doctype: "Projects",
     entity_id: projectId,
-  });
-  return response;
-};
-
-// ─── Categories by Work Package ──────────────────────────────
-
-export const useRevisionCategories = (workPackages: string[]) => {
-  const wpFilter = workPackages.length > 0 ? workPackages : ["NOT YET DEFINED"];
-  const response = useFrappeGetDocList<Category>(
-    "Category",
-    {
-      fields: ["name", "category_name", "tax", "work_package"],
-      filters: [
-        [
-          "work_package",
-          "in",
-          [...wpFilter, "Tool & Equipments", "Additional Charges"],
-        ],
-      ],
-      limit: 0,
-    },
-    poRevisionKeys.categories(workPackages.join(",") || "default")
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useRevisionCategories",
-    api: "Category List",
-    feature: "po-revision",
-    doctype: "Category",
-  });
-  return response;
-};
-
-// ─── Items by Categories ─────────────────────────────────────
-
-export const useRevisionItems = (
-  workPackages: string[],
-  categoryNames: string[]
-) => {
-  const response = useFrappeGetDocList<Items>(
-    "Items",
-    {
-      fields: ["name", "item_name", "category", "unit_name", "make_name"],
-      filters:
-        categoryNames.length > 0
-          ? [["category", "in", categoryNames]]
-          : [["name", "=", "INVALID"]],
-      limit: 0,
-    },
-    categoryNames.length > 0
-      ? poRevisionKeys.items(workPackages.join(",") || "default")
-      : null
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useRevisionItems",
-    api: "Items List",
-    feature: "po-revision",
-    doctype: "Items",
-  });
-  return response;
-};
-
-// ─── Category Makelist ───────────────────────────────────────
-
-export const useRevisionCategoryMakelist = (
-  workPackages: string[],
-  categoryNames: string[]
-) => {
-  const response = useFrappeGetDocList<CategoryMakelist>(
-    "Category Makelist",
-    {
-      fields: ["category", "make"],
-      filters:
-        categoryNames.length > 0
-          ? [["category", "in", categoryNames]]
-          : [["category", "=", "INVALID"]],
-      limit: 0,
-    },
-    categoryNames.length > 0
-      ? poRevisionKeys.categoryMakelist(workPackages.join(",") || "default")
-      : null
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useRevisionCategoryMakelist",
-    api: "Category Makelist",
-    feature: "po-revision",
-    doctype: "Category Makelist",
   });
   return response;
 };
