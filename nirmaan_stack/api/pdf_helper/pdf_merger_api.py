@@ -3,11 +3,62 @@ import requests
 import io
 import os
 import concurrent.futures
-from pypdf import PdfWriter, PdfReader
+from pypdf import PdfWriter, PdfReader, Transformation
 from PIL import Image
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 
+# Standard A4 size in points (72 points per inch)
+A4_WIDTH = 595.27
+A4_HEIGHT = 841.89
+
 # // TDS  interval Merge PDfs for All Select POS 
+
+def ensure_a4(page):
+    """
+    Stretch a page to fill exactly into A4 (Portrait or Landscape) to eliminate ALL white space.
+    Returns: (page, was_converted)
+    """
+    was_converted = False
+    try:
+        # Current dimensions (using MediaBox)
+        width = float(page.mediabox.width)
+        height = float(page.mediabox.height)
+        
+        # Determine target dimensions based on orientation (Auto-Orientation)
+        is_landscape = width > height
+        target_w = A4_HEIGHT if is_landscape else A4_WIDTH
+        target_h = A4_WIDTH if is_landscape else A4_HEIGHT
+        
+        # Define tolerance for comparison (1 point)
+        tolerance = 1.0
+        
+        # Check if already the correct A4 size within tolerance and standard coordinates
+        is_a4_size = abs(width - target_w) < tolerance and abs(height - target_h) < tolerance
+        is_standard_origin = float(page.mediabox.left) == 0 and float(page.mediabox.bottom) == 0
+        
+        if is_a4_size and is_standard_origin:
+            return page, False
+
+        # Calculate non-uniform scale factors to FILL the target exactly (Stretch to Fill)
+        # This eliminates ALL white space by mapping the original box to the target A4 box
+        scale_x = target_w / width
+        scale_y = target_h / height
+        
+        # Apply transformation: Scaling to fill the entire target
+        # Note: We must also account for any existing offsets in the original mediabox
+        transform = Transformation().scale(sx=scale_x, sy=scale_y).translate(tx=0 - float(page.mediabox.left) * scale_x, ty=0 - float(page.mediabox.bottom) * scale_y)
+        page.add_transformation(transform)
+        
+        # Force the page boundaries to be exactly the target A4 size
+        page.mediabox.lower_left = (0, 0)
+        page.mediabox.upper_right = (target_w, target_h)
+        page.cropbox.lower_left = (0, 0)
+        page.cropbox.upper_right = (target_w, target_h)
+        was_converted = True
+        
+    except Exception as e:
+        frappe.log_error(f"ensure_a4 failed: {e}")
+    return page, was_converted
 
 @frappe.whitelist()
 def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event: str = None) -> tuple:
@@ -39,21 +90,34 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
     
     # Add all Start Pages (Stakeholders + Summary Table pages)
     for i in range(num_start_pages):
-        writer.add_page(main_reader.pages[i])
+        page = main_reader.pages[i]
+        fixed_page, _ = ensure_a4(page)
+        writer.add_page(fixed_page)
     
     # Process each item
     for idx, item in enumerate(items):
+        item_was_converted = False
         # Calculate where this item's approval page is located
         item_page_index = num_start_pages + idx
         
         # Add item's approval form page
         if item_page_index < total_pages:
-            writer.add_page(main_reader.pages[item_page_index])
+            page = main_reader.pages[item_page_index]
+            fixed_page, conv = ensure_a4(page)
+            writer.add_page(fixed_page)
+            if conv: item_was_converted = True
         
         # Get attachment URL
         attachment_url = item.get('tds_attachment') if isinstance(item, dict) else None
         
         if attachment_url:
+            # Inform frontend about conversion starting
+            if progress_event:
+                frappe.publish_realtime(
+                    progress_event,
+                    {"progress": int((idx / num_items) * 100), "message": f"Processing {item.get('tds_item_name', 'Item')}...", "status": "converting"},
+                    user=frappe.session.user
+                )
             try:
                 # Fetch attachment content
                 attachment_content = fetch_attachment_content(attachment_url)
@@ -63,7 +127,9 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
                     try:
                         attach_reader = PdfReader(io.BytesIO(attachment_content))
                         for page in attach_reader.pages:
-                            writer.add_page(page)
+                            fixed_page, conv = ensure_a4(page)
+                            writer.add_page(fixed_page)
+                            if conv: item_was_converted = True
                     except Exception:
                         # Try as Image
                         try:
@@ -75,7 +141,9 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
                             img.save(img_pdf, format="PDF")
                             img_reader = PdfReader(io.BytesIO(img_pdf.getvalue()))
                             for page in img_reader.pages:
-                                writer.add_page(page)
+                                fixed_page, conv = ensure_a4(page)
+                                writer.add_page(fixed_page)
+                                if conv: item_was_converted = True
                         except Exception as e:
                             frappe.log_error(f"Attachment convert failed for item {idx}: {e}")
                             failed_items.append(f"{item.get('tds_item_name', 'Item')} (Invalid PDF/Image format)")
@@ -88,9 +156,10 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
         if progress_event:
             progress = int(((idx + 1) / num_items) * 100)
             item_name = item.get('tds_item_name', f"Item {idx+1}")
+            status_tag = " (A4 Converted)" if item_was_converted else " (Original A4)"
             frappe.publish_realtime(
                 progress_event,
-                {"progress": progress, "message": f"Completed {item_name} ({idx + 1}/{num_items})", "total": num_items, "current": idx + 1},
+                {"progress": progress, "message": f"Completed {item_name}{status_tag} ({idx + 1}/{num_items})", "status": "completed", "total": num_items, "current": idx + 1},
                 user=frappe.session.user
             )
     

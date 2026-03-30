@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { CirclePlus, Info, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,6 @@ import {
 import NewCustomer from "@/pages/customers/add-new-customer";
 import ProjectTypeForm from "@/components/project-type-form";
 import { ProjectFormValues } from "../schema";
-import { gstOptions } from "../constants";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 
 interface ProjectDetailsStepProps {
@@ -60,10 +60,23 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
         customersError,
         projectTypesLoading,
         projectTypesError,
+        gstOptions,
     } = formData;
 
     // Watch customer field to show conditional message
     const customerValue = form.watch("customer");
+    const projectGstValue = form.watch("project_gst");
+
+    // Logic to handle legacy "Bengaluru" string and migrate it to the actual GSTIN record name
+    // This ensures the Select component can resolve the value to an option and show the label.
+    useEffect(() => {
+        if (projectGstValue === "Bengaluru" && gstOptions.length > 0) {
+            const bengaluruGst = gstOptions.find((opt) => opt.location === "Bengaluru")?.value;
+            if (bengaluruGst && bengaluruGst !== "Bengaluru") {
+                form.setValue("project_gst", bengaluruGst);
+            }
+        }
+    }, [projectGstValue, gstOptions, form]);
 
     return (
         <>
@@ -262,49 +275,33 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
-            {/* Nirmaan GST used for billing */}
             <FormField
                 control={form.control}
-                name="project_gst_number"
-                render={({ field }) => {
-                    const currentValue = field.value?.list?.[0]?.location || "";
-
-                    return (
-                        <FormItem className="lg:flex lg:items-center gap-4">
-                            <FormLabel className="md:basis-2/12">
-                                Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup>
-                            </FormLabel>
-                            <div className="md:basis-2/4">
-                                <Select
-                                    onValueChange={(selectedLocation: string) => {
-                                        const foundOption = gstOptions.find(
-                                            (opt) => opt.location === selectedLocation
-                                        );
-                                        if (foundOption) {
-                                            field.onChange({ list: [foundOption] });
-                                        } else {
-                                            field.onChange({ list: [] });
-                                        }
-                                    }}
-                                    value={currentValue}
-                                    disabled={field.disabled}
-                                >
-                                    <SelectTrigger className="w-full">
+                name="project_gst"
+                render={({ field }) => (
+                    <FormItem className="lg:flex lg:items-center gap-4">
+                        <FormLabel className="md:basis-2/12">
+                            Nirmaan GST for Billing<sup className="pl-1 text-sm text-red-600">*</sup>
+                        </FormLabel>
+                        <div className="md:basis-2/4">
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                    <SelectTrigger>
                                         <SelectValue placeholder="Select Nirmaan GST" />
                                     </SelectTrigger>
-                                    <SelectContent>
-                                        {gstOptions.map((option) => (
-                                            <SelectItem key={option.location} value={option.location}>
-                                                {option.location} - {option.gst}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </div>
-                        </FormItem>
-                    );
-                }}
+                                </FormControl>
+                                <SelectContent>
+                                    {gstOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.location} - {option.gst}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </div>
+                    </FormItem>
+                )}
             />
 
             {/* Carpet Area */}

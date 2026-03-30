@@ -192,14 +192,14 @@ export function NewSidebar() {
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
-    ? [
-      {
-        key: '/pmo-dashboard',
-        icon: SquareStack,
-        label: 'PMO Dashboard',
-      },
-    ]
-    : []),
+      ? [
+        {
+          key: '/pmo-dashboard',
+          icon: SquareStack,
+          label: 'PMO Dashboard',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
       ? [
         {
@@ -221,6 +221,8 @@ export function NewSidebar() {
             { key: "/pmo-packages", label: "PMO Packages" },
             { key: "/work-order-rate-card", label: "Work Order Rate Card" },
             { key: "/tds-repository", label: "TDS Repository" },
+            { key: "/project-gst", label: "Project GST" },
+
             ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
@@ -630,6 +632,7 @@ export function NewSidebar() {
     "milestone-packages",
     "design-packages",
     "tds-repository",
+    "project-gst",
     "critical-po-categories",
     "all-AQs",
     "item-price",
@@ -682,7 +685,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs", "pmo-packages"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs", "pmo-packages", "project-gst"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],

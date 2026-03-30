@@ -193,7 +193,6 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                     isOpen={isEditTermsDialogOpen}
                     onOpenChange={toggleEditTermsDialog}
                     srDoc={serviceRequest}
-                    projectDoc={project} // Pass project for GST options
                     mutateSR={mutateSR}
                 />
             )}

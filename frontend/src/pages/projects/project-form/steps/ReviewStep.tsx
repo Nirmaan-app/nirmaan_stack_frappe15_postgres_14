@@ -11,6 +11,7 @@ import { PackagesReviewGrid } from "@/components/ui/package-review-card";
 import { ProjectFormValues } from "../schema";
 import { ProjectFormData } from "../hooks/useProjectFormData";
 import { SectionKey } from "../constants";
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 interface ReviewStepProps {
     form: UseFormReturn<ProjectFormValues>;
@@ -32,6 +33,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
     onNavigateToSection,
 }) => {
     const { customers } = formData;
+    const { gstOptions } = useGstOptions();
 
     return (
         <>
@@ -70,10 +72,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                     />
                     <ReviewDetail
                         label="Nirmaan GST for billing"
-                        value={form
-                            .getValues("project_gst_number")
-                            ?.list?.map((item) => item.location)
-                            .join(", ")}
+                        value={form.getValues("project_gst")
+                            ? `${gstOptions.find(opt => opt.value === form.getValues("project_gst"))?.location || "--"} - ${form.getValues("project_gst")}`
+                            : "--"
+                        }
                     />
                 </ReviewSection>
 

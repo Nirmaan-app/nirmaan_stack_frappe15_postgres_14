@@ -53,8 +53,8 @@ import {
   AlertTriangle,
   TriangleAlert,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState,useCallback } from "react";
-import {useSearchParams,useNavigate} from "react-router-dom";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
 
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -62,6 +62,7 @@ import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from "uuid";
 import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 // =================================================================================
 // PROPS & TYPE DEFINITIONS
@@ -298,11 +299,10 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                           render={({ field: labelField }) => (
                             <Input
                               placeholder="e.g., On Delivery"
-                              className={`h-9 w-full ${
-                                errors?.payment_terms?.[index]?.label
+                              className={`h-9 w-full ${errors?.payment_terms?.[index]?.label
                                   ? "border-red-500"
                                   : ""
-                              }`}
+                                }`}
                               disabled={isDisabled}
                               {...labelField}
                             />
@@ -401,11 +401,10 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                             render={({ field: dateField }) => (
                               <Input
                                 type="date"
-                                className={`h-9 ${
-                                  errors?.payment_terms?.[index]?.due_date
+                                className={`h-9 ${errors?.payment_terms?.[index]?.due_date
                                     ? "border-red-500"
                                     : ""
-                                }`}
+                                  }`}
                                 // min={today}
                                 disabled={isDisabled}
                                 {...dateField}
@@ -513,7 +512,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
 };
 
 
- const EditGstNotesDialog = ({
+const EditGstNotesDialog = ({
   isOpen,
   onClose,
   po,
@@ -525,6 +524,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
   const [curNote, setCurNote] = useState<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedGst, setSelectedGst] = useState(po.project_gst || "");
+  const { gstOptions } = useGstOptions();
 
   useEffect(() => {
     if (po && isOpen) {
@@ -586,19 +586,17 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
             <Label className="font-semibold text-gray-700">
               Nirmaan GST for Billing <span className="text-red-500">*</span>
             </Label>
-            {poProject && poProject.project_gst_number ? (
+            {gstOptions.length > 0 ? (
               <Select onValueChange={setSelectedGst} value={selectedGst}>
                 <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Select Nirmaan GST for Billing" />
                 </SelectTrigger>
                 <SelectContent>
-                  {JSON.parse(poProject.project_gst_number).list.map(
-                    (option) => (
-                      <SelectItem key={option.gst} value={option.gst}>
-                        {option.location} ({option.gst})
-                      </SelectItem>
-                    )
-                  )}
+                  {gstOptions.map((option) => (
+                    <SelectItem key={option.gst} value={option.gst}>
+                      {option.location} - {option.gst}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             ) : (
@@ -885,41 +883,42 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   } = useFrappePostCall<ApiResponse>(
     "nirmaan_stack.api.payments.project_payments.create_project_payment"
   );
+  const { gstOptions } = useGstOptions();
 
- const [searchParams, setSearchParams] = useSearchParams(); // Use setSearchParams as well
- const navigate = useNavigate(); // Use navigate as well
+  const [searchParams, setSearchParams] = useSearchParams(); // Use setSearchParams as well
+  const navigate = useNavigate(); // Use navigate as well
 
   const [updatingTermName, setUpdatingTermName] = useState<string | null>(null);
   const [isEditTermsOpen, setEditTermsOpen] = useState(false);
   const [isEditGstNotesOpen, setEditGstNotesOpen] = useState(false);
   const [termToRequest, setTermToRequest] = useState<PaymentTerm | null>(null);
 
-    // --- ADD: useEffect to check the URL when the component mounts ---
+  // --- ADD: useEffect to check the URL when the component mounts ---
   useEffect(() => {
     // Check if the 'isEditing' parameter from the URL is 'true'
     if (searchParams.get('isEditing') === 'true') {
       // If it is, programmatically open the dialog by setting the state.
       setEditTermsOpen(true);
-     
-    }else{
-       setEditTermsOpen(false);
+
+    } else {
+      setEditTermsOpen(false);
     }
   }, []); // This effect runs once on load and if the URL params change.
 
 
-   const cleanupEditUrlParam = useCallback(() => {
+  const cleanupEditUrlParam = useCallback(() => {
     // Only run if the parameter actually exists
     if (searchParams.get('isEditing') === 'true') {
       const newSearchParams = new URLSearchParams(searchParams);
       newSearchParams.delete('isEditing');
-      
+
       // Update the URL without reloading or adding to history
       navigate(`?${newSearchParams.toString()}`, { replace: true });
     }
   }, [navigate, searchParams]); // Dependencies for useCallback
-  
-  
-  
+
+
+
 
   const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || !["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
 
@@ -1013,7 +1012,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const handleSave = async (dataToSave: Partial<ProcurementOrder>) => {
     try {
       await updateDoc("Procurement Orders", PO.name, dataToSave);
-     cleanupEditUrlParam()
+      cleanupEditUrlParam()
       poMutate();
       setEditTermsOpen(false);
       setEditGstNotesOpen(false);
@@ -1063,7 +1062,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     }
   };
 
-  console.log("processedPaymentTerms",processedPaymentTerms)
+  console.log("processedPaymentTerms", processedPaymentTerms)
   return (
     <>
       <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
@@ -1100,7 +1099,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
               </span>
             </p>
             <ul className="space-y-1">
-              {processedPaymentTerms.length > 0 && PO.status!=="Inactive" ? (
+              {processedPaymentTerms.length > 0 && PO.status !== "Inactive" ? (
                 processedPaymentTerms.map((term) => (
                   <PaymentTermRow
                     key={term.name}
@@ -1112,7 +1111,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                 ))
               ) : (
                 <p className="text-sm text-gray-400 text-center py-4">
-                   {PO.status==="Inactive"?"This Payment Terms Are in InActive Mode":"No payment terms defined" }.
+                  {PO.status === "Inactive" ? "This Payment Terms Are in InActive Mode" : "No payment terms defined"}.
                 </p>
               )}
             </ul>
@@ -1159,10 +1158,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
               <p>
                 <span className="font-semibold text-gray-800">GST: </span>
                 <span className="text-gray-600">
-                  {poProject && poProject.project_gst_number && PO.project_gst
-                    ? JSON.parse(poProject.project_gst_number).list.find(
-                        (g) => g.gst === PO.project_gst
-                      )?.location
+                  {PO.project_gst
+                    ? gstOptions.find((g) => g.gst === PO.project_gst)?.location || "Not Set"
                     : "Not Set"}
                 </span>
               </p>
@@ -1190,7 +1187,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
           isOpen={isEditTermsOpen}
           onClose={() => {
             cleanupEditUrlParam()
-            setEditTermsOpen(false)}}
+            setEditTermsOpen(false)
+          }}
           po={PO}
           onSave={handleSaveTerms}
           isLoading={isUpdatingDoc}

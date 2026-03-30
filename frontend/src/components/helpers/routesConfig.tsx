@@ -121,6 +121,7 @@ import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDet
 
 //Help Repository
 import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
+const ProjectGstPage = lazy(() => import("@/pages/ProjectGst/ProjectGstPage"));
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -687,6 +688,7 @@ export const appRoutes: RouteObject[] = [
           // --- END: PMO DASHBOARD SECTION ---
           // ======================================================
           { path: "help-repository", element: <HelpRepositoryPage /> },
+          { path: "project-gst", element: <Suspense fallback={null}><ProjectGstPage /></Suspense> },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },

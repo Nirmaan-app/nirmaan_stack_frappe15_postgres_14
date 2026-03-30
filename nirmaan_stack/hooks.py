@@ -355,7 +355,8 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
-    "PR Tag Headers"
+    "PR Tag Headers",
+    "Project GST"
     # "Pincodes"
 ]
 

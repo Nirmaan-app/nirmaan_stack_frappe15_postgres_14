@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea'; // For multi-line notes input
 import { useSREditTerms, NoteItem } from '../hooks/useSREditTerms'; // Import hook and NoteItem
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
-import { Projects } from '@/types/NirmaanStack/Projects'; // Needed for project GST options
+import { useGstOptions } from '@/hooks/useGstOptions';
 import { TailSpin } from 'react-loader-spinner';
 import { Check, CirclePlus, Edit3, Save, Trash2, X } from 'lucide-react';
 
@@ -18,7 +18,6 @@ interface SREditTermsDialogProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     srDoc: ServiceRequests | undefined; // Initial SR data
-    projectDoc: Projects | undefined; // For GST options
     mutateSR: () => Promise<any>; // To refresh SR data after save
 }
 
@@ -26,7 +25,6 @@ export const SREditTermsDialog: React.FC<SREditTermsDialogProps> = ({
     isOpen,
     onOpenChange,
     srDoc,
-    projectDoc,
     mutateSR,
 }) => {
     const {
@@ -43,17 +41,7 @@ export const SREditTermsDialog: React.FC<SREditTermsDialogProps> = ({
         saveTerms,
     } = useSREditTerms(srDoc, mutateSR);
 
-    const projectGstOptions = React.useMemo(() => {
-        if (!projectDoc?.project_gst_number) return [];
-        try {
-            const parsed = typeof projectDoc.project_gst_number === 'string'
-                ? JSON.parse(projectDoc.project_gst_number)
-                : projectDoc.project_gst_number;
-            return Array.isArray(parsed?.list) ? parsed.list : [];
-        } catch (e) {
-            return [];
-        }
-    }, [projectDoc]);
+    const { gstOptions, isLoading: isGstLoading } = useGstOptions();
 
     const handleSaveAndClose = async () => {
         const success = await saveTerms();
@@ -83,12 +71,12 @@ export const SREditTermsDialog: React.FC<SREditTermsDialogProps> = ({
                                 <SelectValue placeholder="Select Project GST for Nirmaan" />
                             </SelectTrigger>
                             <SelectContent>
-                                {projectGstOptions.map((opt: {gst: string, location: string}) => (
+                                {gstOptions.map((opt: { gst: string, location: string }) => (
                                     <SelectItem key={opt.gst} value={opt.gst}>
-                                        {opt.location} ({opt.gst})
+                                        {opt.location} - {opt.gst}
                                     </SelectItem>
                                 ))}
-                                {projectGstOptions.length === 0 && <SelectItem value="" disabled>No GST configured for project</SelectItem>}
+                                {gstOptions.length === 0 && <SelectItem value="" disabled>No GST configured</SelectItem>}
                             </SelectContent>
                         </Select>
                     </div>
@@ -118,11 +106,11 @@ export const SREditTermsDialog: React.FC<SREditTermsDialogProps> = ({
                             />
                             <div className="flex gap-2">
                                 <Button onClick={addOrUpdateNote} size="sm" disabled={!currentNoteInput.trim() || isSaving}>
-                                    {editingNoteId ? <><Edit3 className="mr-1 h-4 w-4"/>Update</> : <><CirclePlus className="mr-1 h-4 w-4"/>Add</>}
+                                    {editingNoteId ? <><Edit3 className="mr-1 h-4 w-4" />Update</> : <><CirclePlus className="mr-1 h-4 w-4" />Add</>}
                                 </Button>
                                 {editingNoteId && (
-                                    <Button onClick={() => { handleNoteInputChange(""); editNote("");}} variant="ghost" size="sm" disabled={isSaving}>
-                                       <X className="mr-1 h-4 w-4"/> Cancel Edit
+                                    <Button onClick={() => { handleNoteInputChange(""); editNote(""); }} variant="ghost" size="sm" disabled={isSaving}>
+                                        <X className="mr-1 h-4 w-4" /> Cancel Edit
                                     </Button>
                                 )}
                             </div>
@@ -150,7 +138,7 @@ export const SREditTermsDialog: React.FC<SREditTermsDialogProps> = ({
                 <DialogFooter className="mt-auto pt-4 border-t">
                     <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
                     <Button onClick={handleSaveAndClose} disabled={isSaving}>
-                        {isSaving ? <TailSpin color="#fff" height={20} width={20} /> : <><Save className="mr-2 h-4 w-4"/>Save Changes</>}
+                        {isSaving ? <TailSpin color="#fff" height={20} width={20} /> : <><Save className="mr-2 h-4 w-4" />Save Changes</>}
                     </Button>
                 </DialogFooter>
             </DialogContent>
