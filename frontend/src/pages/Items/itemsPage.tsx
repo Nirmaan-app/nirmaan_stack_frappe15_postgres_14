@@ -112,9 +112,8 @@ export default function ItemsPage() {
           const catName = row.getValue<string>("category");
           const catDetail = categoryList?.find((c) => c.name === catName);
           const displayLabel = catDetail
-            ? `${catName} (${
-                catDetail.work_package?.slice(0, 4).toUpperCase() || "N/A"
-              })`
+            ? `${catName} (${catDetail.work_package?.slice(0, 4).toUpperCase() || "N/A"
+            })`
             : catName;
           return <Badge variant="outline">{displayLabel || "N/A"}</Badge>;
         },
@@ -125,9 +124,8 @@ export default function ItemsPage() {
             const catName = row.category;
             const catDetail = categoryList?.find((c) => c.name === catName);
             return catDetail
-              ? `${catName} (${
-                  catDetail.work_package?.slice(0, 4).toUpperCase() || "N/A"
-                })`
+              ? `${catName} (${catDetail.work_package?.slice(0, 4).toUpperCase() || "N/A"
+              })`
               : catName;
           },
         },
@@ -314,8 +312,8 @@ export default function ItemsPage() {
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}

@@ -80,7 +80,7 @@
    "fieldname": "billing_category",
    "fieldtype": "Data",
    "label": "Billing Category",
-   "options": "Billable\nNon Billable"
+   "options": "Billable\nNon-Billable"
   },
   {
    "fieldname": "order_category",
