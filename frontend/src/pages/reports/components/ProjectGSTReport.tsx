@@ -4,6 +4,9 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGstOptions } from "@/hooks/useGstOptions";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { unparse } from "papaparse";
 
 export const ProjectGSTReport: React.FC = () => {
     const [selectedGST, setSelectedGST] = useState<string>("");
@@ -18,10 +21,43 @@ export const ProjectGSTReport: React.FC = () => {
         return formatToRoundedIndianRupee(val);
     };
 
+    const handleExportCSV = () => {
+        const header1 = ["Project Name", ...months.flatMap(m => [m.name, "", "", "", "", "", ""])];
+        const header2 = ["", ...months.flatMap(() => ["Vendor Invoices", "", "", "Client Invoices", "", "", "GST Payable"])];
+        const header3 = ["", ...months.flatMap(() => ["Incl", "Excl", "GST", "Incl", "Excl", "GST", "CI-VI"])];
+
+        const rows = reportData.map(row => [
+            row.project_name,
+            ...months.flatMap(m => {
+                const d = row.months[m.name];
+                return [d.vendor.incl, d.vendor.excl, d.vendor.gst, d.client.incl, d.client.excl, d.client.gst, d.gstPay];
+            })
+        ]);
+
+        const totalRow = [
+            "TOTAL",
+            ...months.flatMap(m => {
+                const t = totals[m.name];
+                return [t.vendor.incl, t.vendor.excl, t.vendor.gst, t.client.incl, t.client.excl, t.client.gst, t.gstPay];
+            })
+        ];
+
+        const csvData = [header1, header2, header3, ...rows, totalRow];
+        const csv = unparse(csvData);
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `Project_GST_Report_${selectedGST || "all"}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <div className="p-4 bg-white min-h-screen">
             {/* Options Selection Row */}
-            <div className="mb-4 flex items-center gap-4">
+            <div className="mb-4 flex items-end justify-between gap-4">
                 <div className="w-64">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Select Project GST</label>
                     <Select value={selectedGST} onValueChange={setSelectedGST}>
@@ -38,6 +74,14 @@ export const ProjectGSTReport: React.FC = () => {
                         </SelectContent>
                     </Select>
                 </div>
+                <Button
+                    variant="outline"
+                    onClick={handleExportCSV}
+                    className="flex items-center gap-2 text-red-600 border-red-500 hover:bg-red-50"
+                >
+                    <Download className="w-4 h-4" />
+                    Export CSV
+                </Button>
             </div>
 
             {/* Main Table Container */}
