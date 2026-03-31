@@ -10,9 +10,7 @@ import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { FolderPlus, MessageCircleMore } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-import { useReactToPrint } from 'react-to-print';
 import { getItemListFromDocument, ProgressDocument, ProgressItem } from '../types'
-import { useGstOptions } from '@/hooks/useGstOptions';
 
 interface GenerateRFQDialogProps {
     orderData: ProgressDocument;
@@ -51,16 +49,16 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData, projec
         try {
             const response = await fetch(printUrl);
             if (!response.ok) throw new Error('Network response was not ok');
-            
+
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            
+
             // Construct filename: rfq-PRNUMBER-PROJECTNAME.pdf
             const projectName = procurement_project?.project_name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project';
             const fileName = `rfq-${orderData.name}-${projectName}.pdf`;
-            
+
             a.download = fileName;
             document.body.appendChild(a);
             a.click();

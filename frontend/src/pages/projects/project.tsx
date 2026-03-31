@@ -460,7 +460,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Critical POs",
           key: PROJECT_PAGE_TABS.CRITICAL_POS,
         },
-         {
+        {
           label: "Planning",
           key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
         },
@@ -830,33 +830,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     month: "long",
     day: "numeric",
   });
-
-  const componentRef = React.useRef<HTMLDivElement>(null);
-  const handlePrint = useReactToPrint({
-    content: () => {
-      // console.log("Print Report button Clicked");
-      return componentRef.current || null;
-    },
-    documentTitle: `${formattedDate}_${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`,
-  });
-  const componentRef2 = React.useRef<HTMLDivElement>(null);
-  const handlePrint2 = useReactToPrint({
-    content: () => {
-      // console.log("Print Schedule button Clicked");
-      return componentRef2.current || null;
-    },
-    documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state}_${data?.owner}_${data?.creation}`,
-  });
-
-  const componentRef3 = React.useRef<HTMLDivElement>(null);
-  const handlePrint3 = useReactToPrint({
-    content: () => {
-      return componentRef3.current || null;
-    },
-    documentTitle: `${data?.project_name}_${data?.project_city}_${data?.project_state
-      }_${data?.owner}_${formatDate(new Date())}`,
-  });
-
   const groupItemsByWorkPackageAndCategory = useMemo(() => (
     items: po_item_data_item[] | undefined
   ) => {
@@ -1473,15 +1446,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                         {projectStatuses
                           .filter((s) => s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER)
                           .map((s) => (
-                          <CommandItem
-                            key={s.value}
-                            value={s.value}
-                            onSelect={() => handleStatusChange(s.value)}
-                          >
-                            {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
-                            {s.label}
-                          </CommandItem>
-                        ))}
+                            <CommandItem
+                              key={s.value}
+                              value={s.value}
+                              onSelect={() => handleStatusChange(s.value)}
+                            >
+                              {/* <Check className={cn("mr-2 h-4 w-4", status === s.value ? "opacity-100" : "opacity-0")} /> */}
+                              {s.label}
+                            </CommandItem>
+                          ))}
                       </CommandGroup>
                     </CommandList>
                   </Command>
