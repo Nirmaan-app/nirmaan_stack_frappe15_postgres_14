@@ -3,8 +3,8 @@ import { lazy, Suspense } from "react";
 import { RouteObject } from "react-router-dom";
 
 // --- Import all necessary components used in routes ---
-import { ManPowerOverallSummary } from "@/components/ManPowerOverallSummary";
-import { ManPowerReport } from "@/components/ManPowerReport";
+// import { ManPowerOverallSummary } from "@/components/ManPowerOverallSummary";
+// import { ManPowerReport } from "@/components/ManPowerReport";
 import { MainLayout } from "@/components/layout/main-layout";
 import { NotificationsPage } from "@/components/nav/notifications";
 import { ProcurementPackages } from "@/components/procurement-packages";
@@ -207,13 +207,13 @@ export const appRoutes: RouteObject[] = [
                   },
                 ],
               },
-              {
-                path: "man-power-report",
-                children: [
-                  { index: true, element: <ManPowerReport /> },
-                  { path: ":projectId", element: <ManPowerOverallSummary /> },
-                ],
-              },
+              // {
+              //   path: "man-power-report",
+              //   children: [
+              //     { index: true, element: <ManPowerReport /> },
+              //     { path: ":projectId", element: <ManPowerOverallSummary /> },
+              //   ],
+              // },
               {
                 path: "milestone-report",
                 children: [
@@ -359,11 +359,11 @@ export const appRoutes: RouteObject[] = [
             children: [
               // 1. List View (e.g., /design-tracker)
               { index: true, element: <DesignTrackerList /> },
-              
+
               // 2. Detail View (e.g., /design-tracker/DT-2024-0001)
-              { 
-                path: ":id", 
-                element: <ProjectDesignTrackerDetail /> 
+              {
+                path: ":id",
+                element: <ProjectDesignTrackerDetail />
               },
             ],
           },
@@ -702,11 +702,11 @@ export const appRoutes: RouteObject[] = [
           // --- START: TDS APPROVAL SECTION ---
           // ======================================================
           {
-             path: "tds-approval",
-             children: [
-               { index: true, element: <TDSApprovalList /> },
-               { path: ":id", element: <TDSApprovalDetail /> },
-             ],
+            path: "tds-approval",
+            children: [
+              { index: true, element: <TDSApprovalList /> },
+              { path: ":id", element: <TDSApprovalDetail /> },
+            ],
           },
           // ======================================================
           // --- END: TDS APPROVAL SECTION ---
