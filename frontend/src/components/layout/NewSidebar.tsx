@@ -213,19 +213,9 @@ export function NewSidebar() {
             { key: "/asset-management", label: "Assets" },
             { key: "/vendors", label: "Vendors" },
             { key: "/customers", label: "Customers" },
-            { key: "/product-packages", label: "Product Packages" },
-            { key: "/pr-header-packages", label: "PR Header Packages" },
-            { key: "/milestone-packages", label: "Milestone Packages" },
-            { key: "/design-packages", label: "Design Packages" },
-            { key: "/commission-packages", label: "Commission Packages" },
-            { key: "/pmo-packages", label: "PMO Packages" },
-            { key: "/work-order-rate-card", label: "Work Order Rate Card" },
+            { key: "/packages-settings", label: "Packages Settings" },
             { key: "/tds-repository", label: "TDS Repository" },
             { key: "/project-gst", label: "Project GST" },
-
-            ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
-              ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
-              : []),
             // { key: "/all-AQs", label: "Approved Quotations" },
             //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
           ],
@@ -627,8 +617,8 @@ export function NewSidebar() {
     "asset-management",
     "vendors",
     "customers",
+    "packages-settings",
     "product-packages",
-    "pr-header-packages",
     "milestone-packages",
     "design-packages",
     "tds-repository",
@@ -670,11 +660,8 @@ export function NewSidebar() {
     'tds-approval',
     'inventory',
     'help-repository',
-    "commission-packages",
     "work-order-rate-card",
-    "commission-tracker",
     "pmo-dashboard",
-    "pmo-packages",
 
   ]), [])
 
@@ -685,7 +672,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "pr-header-packages", "design-packages", "commission-packages", "work-order-rate-card", "tds-repository", "critical-po-categories", "all-AQs", "pmo-packages", "project-gst"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
