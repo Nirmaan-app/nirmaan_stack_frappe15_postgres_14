@@ -97,6 +97,17 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
             )
             vendor_names = {v["name"]: v["vendor_name"] for v in vendors}
 
+        # Get SR project_gst in bulk
+        sr_ids = list(set(inv.get("document_name") for inv in invoices if inv.get("document_name")))
+        sr_gst_map = {}
+        if sr_ids:
+            srs = frappe.get_all(
+                "Service Requests",
+                filters={"name": ["in", sr_ids]},
+                fields=["name", "project_gst"]
+            )
+            sr_gst_map = {s["name"]: s["project_gst"] for s in srs}
+
         # Process invoices and calculate metrics
         invoice_entries = []
         total_fully_reconciled = 0
@@ -140,7 +151,8 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
                 "reconciled_date": str(inv.get("reconciled_date")) if inv.get("reconciled_date") else None,
                 "reconciled_by": inv.get("reconciled_by"),
                 "reconciliation_proof_attachment_id": inv.get("reconciliation_proof"),
-                "modified_by": inv.get("modified_by")
+                "modified_by": inv.get("modified_by"),
+                "project_gst": sr_gst_map.get(inv.get("document_name"))
             }
             invoice_entries.append(entry)
 

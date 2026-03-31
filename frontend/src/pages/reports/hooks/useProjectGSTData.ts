@@ -28,7 +28,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
     const projectsOptions = useMemo(() => ({
         fields: ["name", "project_name"] as (keyof Projects)[],
         limit: 0,
-        orderBy: { field: "project_name", order: "asc" } as const
+        orderBy: { field: "creation", order: "desc" } as const
     }), []);
 
     const { data: projects, isLoading: isLoadingProjects } = useFrappeGetDocList<Projects>("Projects", projectsOptions);
@@ -44,7 +44,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
 
     // 2.1 Fetch Procurement Orders for GST Mapping
     const poOptions = useMemo(() => ({
-        fields: ["name", "project_gst"] as any,
+        fields: ["name", "project_gst", "amount", "total_amount"] as any,
         limit: 0
     }), []);
     const { data: procurementOrders, isLoading: isLoadingPOs } = useFrappeGetDocList<any>("Procurement Orders", poOptions);
@@ -111,8 +111,8 @@ export const useProjectGSTData = (selectedGST?: string) => {
         // Pre-filter invoices by GST to reduce work in the main loop
         const filteredVendorInvoices = (vendorInvoices || []).filter(vi => {
             if (!selectedGST || selectedGST === "all") return true;
-            const sourceGst = vi.document_type === "Procurement Orders" 
-                ? poGstMap[vi.document_name] 
+            const sourceGst = vi.document_type === "Procurement Orders"
+                ? poGstMap[vi.document_name]
                 : (vi.document_type === "Service Requests" ? srGstMap[vi.document_name] : null);
             return sourceGst === selectedGST;
         });
@@ -120,6 +120,21 @@ export const useProjectGSTData = (selectedGST?: string) => {
         const filteredProjectInvoices = (projectInvoices || []).filter(pi => {
             if (!selectedGST || selectedGST === "all") return true;
             return pi.project_gst === selectedGST;
+        });
+
+        const documentRatioMap: Record<string, number> = {};
+        const calculateRatio = (doc: any) => {
+            const amt = parseNumber(doc.amount);
+            const total = parseNumber(doc.total_amount);
+            if (amt > 0 && total > 0) {
+                return total / amt;
+            }
+            return 1.18; // Default to 18%
+        };
+
+        // Only POs have explicit ratio fields, SRs will naturally fallback to 1.18 in the map lookup
+        (procurementOrders || []).forEach(po => {
+            if (po.name) documentRatioMap[po.name] = calculateRatio(po);
         });
 
         // Pre-group invoices by project and month for O(1) lookup
@@ -141,20 +156,40 @@ export const useProjectGSTData = (selectedGST?: string) => {
             projectGroups[pi.project][monthId].push(pi);
         });
 
-        return projects.map((project) => {
+        const rows = projects.map((project) => {
             const monthlyData: Record<string, MonthlyGST> = {};
+            let hasAnyValue = false;
 
             months.forEach((month) => {
                 const monthVendorInvoices = vendorGroups[project.name]?.[month.id] || [];
                 const monthClientInvoices = projectGroups[project.name]?.[month.id] || [];
 
-                const vendorTotalIncl = monthVendorInvoices.reduce((sum, vi) => sum + parseNumber(vi.invoice_amount), 0);
-                const vendorTotalExcl = vendorTotalIncl / 1.18;
+                let vendorTotalIncl = 0;
+                let vendorTotalExcl = 0;
+
+                monthVendorInvoices.forEach(vi => {
+                    const viAmt = parseNumber(vi.invoice_amount);
+                    const ratio = vi.document_name ? (documentRatioMap[vi.document_name] || 1.18) : 1.18;
+                    vendorTotalIncl += viAmt;
+                    vendorTotalExcl += (viAmt / ratio);
+                });
+
+                // Round before subtracting to prevent 1-rupee visual discrepancies
+                vendorTotalIncl = Math.round(vendorTotalIncl);
+                vendorTotalExcl = Math.round(vendorTotalExcl);
                 const vendorTotalGst = vendorTotalIncl - vendorTotalExcl;
 
-                const clientTotalIncl = monthClientInvoices.reduce((sum, pi) => sum + parseNumber(pi.amount), 0);
-                const clientTotalExcl = clientTotalIncl / 1.18;
+                let clientTotalIncl = monthClientInvoices.reduce((sum, pi) => sum + parseNumber(pi.amount), 0);
+                let clientTotalExcl = clientTotalIncl / 1.18;
+
+                // Round before subtracting
+                clientTotalIncl = Math.round(clientTotalIncl);
+                clientTotalExcl = Math.round(clientTotalExcl);
                 const clientTotalGst = clientTotalIncl - clientTotalExcl;
+
+                if (vendorTotalIncl > 0 || clientTotalIncl > 0) {
+                    hasAnyValue = true;
+                }
 
                 monthlyData[month.name] = {
                     vendor: { incl: vendorTotalIncl, excl: vendorTotalExcl, gst: vendorTotalGst },
@@ -165,10 +200,13 @@ export const useProjectGSTData = (selectedGST?: string) => {
 
             return {
                 project_name: project.project_name || project.name,
-                months: monthlyData
-            } as ProjectGSTRow;
-        });
-    }, [projects, vendorInvoices, projectInvoices, months, selectedGST, poGstMap, srGstMap]);
+                months: monthlyData,
+                hasAnyValue
+            } as ProjectGSTRow & { hasAnyValue: boolean };
+        }).filter(row => row.hasAnyValue);
+        
+        return rows.map(({ hasAnyValue, ...rest }) => rest as ProjectGSTRow);
+    }, [projects, vendorInvoices, projectInvoices, months, selectedGST, poGstMap, srGstMap, procurementOrders, serviceRequests]);
 
     // 6. Calculate Totals for Footer
     const totals = useMemo(() => {

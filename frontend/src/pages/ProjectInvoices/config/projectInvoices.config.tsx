@@ -54,12 +54,14 @@ export const getProjectInvoiceStaticFilters = (
 type ProjectNameResolver = (projectId?: string) => string;
 type CustomerNameResolver = (customerId?: string) => string;
 type UserNameResolver = (userId?: string) => string;
+type GstNameResolver = (gstId?: string) => string;
 
 interface ColumnGeneratorOptions {
     isAdmin: boolean;
     getProjectName: ProjectNameResolver;
     getCustomerName: CustomerNameResolver;
     getUserName: UserNameResolver;
+    getGstName: GstNameResolver;
     onDelete: (invoice: ProjectInvoice) => void;
     onEdit: (invoice: ProjectInvoice) => void;
     hideCustomerColumn?: boolean; // Hide customer column when viewing from customer page
@@ -72,7 +74,7 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { isAdmin, getProjectName, getCustomerName, getUserName, onDelete, onEdit, hideCustomerColumn } = options;
+    const { isAdmin, getProjectName, getCustomerName, getUserName, getGstName, onDelete, onEdit, hideCustomerColumn } = options;
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
@@ -128,6 +130,21 @@ export const getProjectInvoiceColumns = (
                   } as ColumnDef<ProjectInvoice>,
               ]
             : []),
+        {
+            accessorKey: "project_gst",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Project GST" />,
+            cell: ({ row }) => {
+                const gstName = getGstName(row.original.project_gst);
+                return <div>{gstName || '--'}</div>;
+            },
+            filterFn: facetedFilterFn,
+            meta: {
+                exportHeaderName: "Project GST",
+                exportValue: (row: ProjectInvoice) => getGstName(row.project_gst) || '--',
+                enableFacet: true,
+                facetTitle: "Project GST"
+            }
+        },
         {
             accessorKey: "amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount(Incl. GST)" />,

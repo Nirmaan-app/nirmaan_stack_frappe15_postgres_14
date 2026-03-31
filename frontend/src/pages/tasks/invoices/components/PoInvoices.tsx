@@ -23,7 +23,8 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
 import { useUserData } from "@/hooks/useUserData";
 import { useInvoiceReconciliation } from "../hooks/useInvoiceReconciliation";
-import { dateFilterFn } from "@/utils/tableFilters";
+import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 // --- Types ---
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
@@ -54,6 +55,7 @@ interface InvoiceItem {
     uploaded_by: string;
     invoice_attachment_id: string;
     procurement_order: string;
+    project_gst?: string;
     project?: string;
     vendor: string;
     vendor_name: string;
@@ -145,6 +147,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         limit: 0,
     }, 'NirmaanUsers');
 
+    const { gstOptions, isLoading: isGstLoading } = useGstOptions();
+
     // --- Lookup maps ---
     const projectValues = useMemo(() => projectdata?.map((item) => ({
         label: item?.project_name,
@@ -201,6 +205,12 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         const user = userValues.find(u => u.value === userId);
         return user?.label || userId;
     }), [userValues]);
+
+    // Helper to get GST Location Name
+    const getGstName = useMemo(() => memoize((gstId: string) => {
+        const gst = gstOptions?.find(g => g.value === gstId);
+        return gst?.location || gstId;
+    }), [gstOptions]);
 
     // --- Invoice entries from API ---
     // Note: The backend returns the actual Vendor Invoice `name` field - do NOT overwrite it
@@ -359,6 +369,23 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                     );
                 },
                 size: 180,
+            },
+            {
+                accessorKey: "project_gst",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Project GST" />,
+                cell: ({ row }) => {
+                    const gstId = row.original.project_gst;
+                    const gstName = gstId ? getGstName(gstId) : '-';
+                    return <div className="font-medium whitespace-nowrap">{gstName}</div>;
+                },
+                filterFn: facetedFilterFn,
+                meta: {
+                    exportHeaderName: "Project GST",
+                    exportValue: (row: InvoiceItem) => {
+                        return row.project_gst ? getGstName(row.project_gst) : "-";
+                    },
+                },
+                size: 150,
             },
             {
                 accessorKey: "project",
@@ -558,7 +585,7 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         );
 
         return baseColumns;
-    }, [getAttachmentUrl, getProjectName, getVendorName, getUserFullName, canUpdateReconciliation, openReconciliationDialog, isReconciliationProcessing, role, vendorId]);
+    }, [getAttachmentUrl, getProjectName, getVendorName, getUserFullName, getGstName, canUpdateReconciliation, openReconciliationDialog, isReconciliationProcessing, role, vendorId]);
 
     // --- Use Server Data Table Hook in Client Mode ---
     const {
@@ -665,8 +692,16 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         const uniqueProjects = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.project).filter(Boolean))];
         const uniqueUpdatedBy = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.uploaded_by).filter(Boolean))];
         const uniqueReconciledBy = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.reconciled_by).filter(Boolean))];
+        const uniqueProjectGst = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.project_gst).filter(Boolean))];
 
         const options: Record<string, { title: string; options: { label: string; value: string }[] }> = {
+            project_gst: {
+                title: "Project GST",
+                options: uniqueProjectGst.map(g => ({
+                    label: getGstName(g as string),
+                    value: g as string
+                }))
+            },
             project: {
                 title: "Project",
                 options: uniqueProjects.map(p => ({
@@ -707,7 +742,7 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         }
 
         return options;
-    }, [invoiceEntries, getProjectName, getVendorName, getUserFullName, vendorId]);
+    }, [invoiceEntries, getProjectName, getVendorName, getUserFullName, getGstName, vendorId]);
 
     // --- Summary Card ---
     const summaryCard = useMemo(() => {
@@ -888,7 +923,7 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
     }, [dynamicSummary, columnFilters, searchTerm, vendorId]);
 
     // --- Loading State ---
-    const isDataLoading = invoicesDataLoading || attachmentsDataLoading || projectloading || vendorsLoading || usersLoading;
+    const isDataLoading = invoicesDataLoading || attachmentsDataLoading || projectloading || vendorsLoading || usersLoading || isGstLoading;
 
     if (isDataLoading) {
         return (
