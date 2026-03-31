@@ -217,7 +217,7 @@ export default function ItemsPage() {
     defaultSort: "creation desc",
     urlSyncKey: "items_master",
     enableRowSelection: false,
-    shouldCache: true,
+    shouldCache: false,
   });
 
   // Dynamic facet values for category

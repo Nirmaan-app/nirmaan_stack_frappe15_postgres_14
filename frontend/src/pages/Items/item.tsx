@@ -106,6 +106,7 @@ const ItemView = ({ productId }: { productId: string }) => {
     const [unit, setUnit] = useState('');
     const [category, setCategory] = useState('');
     const [billingCategory, setBillingCategory] = useState('');
+    const [itemStatus, setItemStatus] = useState('');
 
     const { updateDoc: updateDoc, loading: update_loading, error: update_submit_error } = useFrappeUpdateDoc()
 
@@ -115,16 +116,18 @@ const ItemView = ({ productId }: { productId: string }) => {
             setCategory(data?.category)
             setUnit(data?.unit_name)
             setBillingCategory(data?.billing_category)
+            setItemStatus(data?.item_status)
         }
     }, [data])
 
 
     const handleEditItem = () => {
         updateDoc('Items', productId, {
-            category: category ? category : undefined,
-            unit_name: unit ? unit : undefined,
-            item_name: curItem ? curItem : undefined,
-            billing_category: billingCategory ? billingCategory : undefined
+            category: category ? category : data?.category,
+            unit_name: unit ? unit : data.unit_name,
+            item_name: curItem ? curItem : data.item_name,
+            billing_category: billingCategory ? billingCategory : data?.billing_category,
+            item_status: itemStatus ? itemStatus : data?.item_status
         })
             .then(() => {
                 mutate()
@@ -219,11 +222,24 @@ const ItemView = ({ productId }: { productId: string }) => {
                                                 />
                                             </div>
                                         </div>
+
+                                        <div className="flex flex-col items-start pt-2">
+                                            <label htmlFor="itemStatus" className="block text-sm font-medium text-gray-700">Item Status<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                                            <Select value={itemStatus} onValueChange={setItemStatus}>
+                                                <SelectTrigger className="w-full">
+                                                    <SelectValue placeholder={data?.item_status || "Select Status"} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="Active">Active</SelectItem>
+                                                    <SelectItem value="Inactive">Inactive</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                     </div>
-                                    <DialogClose className="flex justify-center">
-                                        <Button disabled={update_loading || (data?.item_name === curItem && data?.category === category && data?.unit_name === unit && data?.billing_category === billingCategory)} className="flex items-center gap-1" onClick={() => handleEditItem()}>
+                                    <DialogClose className="flex justify-center mt-3">
+                                        <Button disabled={update_loading || (data?.item_name === curItem && data?.category === category && data?.unit_name === unit && data?.billing_category === billingCategory && data?.item_status === itemStatus)} className="flex items-center gap-1" onClick={() => handleEditItem()}>
                                             <ListChecks className="h-4 w-4" />
-                                            Submit</Button>
+                                            {update_loading ? "Submitting..." : "Submit"}</Button>
                                     </DialogClose>
                                 </DialogDescription>
                             </DialogHeader>
