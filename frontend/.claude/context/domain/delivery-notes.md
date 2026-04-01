@@ -77,8 +77,9 @@ interface DeliveryNote {
 | PO Status | Can Record DN? | Visible in DN List? |
 |-----------|---------------|-------------------|
 | Drafted / PO Approved | No | No |
-| **Dispatched** | Yes (first delivery) | "Create" view only |
-| **Partially Delivered** | Yes (subsequent) | Both views |
+| **Partially Dispatched** | Yes | "Create" view (with DN count badge) |
+| **Dispatched** | Yes (first delivery) | "Create" view (with DN count badge) |
+| **Partially Delivered** | Yes (subsequent) | Both views (Create + View Existing) |
 | **Delivered** | Yes (corrections) | "View Existing" only |
 | Cancelled | No | No |
 
