@@ -50,6 +50,7 @@ const PO_TABLE_FIELDS: (keyof ProcurementOrder | "name")[] = [
   "vendor_name",
   "expected_delivery_date",
   "latest_delivery_date",
+  "po_amount_delivered",
 ];
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "name", label: "PO ID", default: true },
@@ -410,6 +411,26 @@ export const VendorMaterialOrdersTable: React.FC<
         meta: {
           exportHeaderName: "Amount Paid",
           exportValue: (row: ProcurementOrder) => parseNumber(row.amount_paid) || 0,
+        },
+      },
+      {
+        accessorKey: "po_amount_delivered",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Amt. Delivered"
+            className="justify-end"
+          />
+        ),
+        cell: ({ row }) => (
+          <div className="text-center font-medium">
+            {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
+          </div>
+        ),
+        size: 150,
+        meta: {
+          exportHeaderName: "PO Amount Delivered",
+          exportValue: (row: ProcurementOrder) => parseNumber(row.po_amount_delivered) || 0,
         },
       },
       {

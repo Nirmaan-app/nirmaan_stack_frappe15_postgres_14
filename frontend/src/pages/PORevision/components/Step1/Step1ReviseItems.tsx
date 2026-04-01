@@ -152,7 +152,11 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
 
                     {/* Item Name */}
                     <TableCell>
-                      {isCustom ? (
+                      {item.category === "Additional Charges" ? (
+                        <div className="flex items-center h-9 px-3 text-xs font-medium text-gray-700 bg-gray-50 border rounded-md cursor-not-allowed w-full">
+                          {item.item_name}
+                        </div>
+                      ) : isCustom ? (
                         <Input
                           value={item.item_name}
                           onChange={(e) => {
@@ -164,7 +168,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             }
                             handleUpdateItem(idx, { ...typeUpdates, item_name: val });
                           }}
-                          disabled={isDeleted || item.category === "Additional Charges"}
+                          disabled={isDeleted}
                           placeholder="Item Name..."
                           className="text-xs font-medium h-9"
                         />
@@ -267,12 +271,11 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 });
                           }}
                           disabled={isDeleted || item.category === "Additional Charges"}
-                          className={`text-xs font-medium h-9 ${
-                            !isDeleted && item.category !== "Additional Charges" &&
+                          className={`text-xs font-medium h-9 ${!isDeleted && item.category !== "Additional Charges" &&
                             (item.quantity === undefined || item.quantity <= 0 || item.quantity < (isPartiallyDelivered ? (item.received_quantity ?? 0) : 0))
-                              ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
-                              : ""
-                          } ${item.category === "Additional Charges" ? "bg-gray-50" : ""}`}
+                            ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
+                            : ""
+                            } ${item.category === "Additional Charges" ? "bg-gray-50" : ""}`}
                         />
                       )}
                     </TableCell>
@@ -289,11 +292,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             value={item.quote}
                             onChange={(e) => handleUpdateItem(idx, { quote: parseFloat(e.target.value) || 0 })}
                             disabled={isDeleted}
-                            className={`text-xs font-medium pl-5 h-9 ${
-                              !isDeleted && (item.quote === undefined || item.quote <= 0)
-                                ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
-                                : ""
-                            }`}
+                            className={`text-xs font-medium pl-5 h-9 ${!isDeleted && (item.quote === undefined || item.quote <= 0)
+                              ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
+                              : ""
+                              }`}
                           />
                         </div>
                       )}
@@ -338,11 +340,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           handleRemoveItem(idx);
                         }}
                         disabled={item.item_type !== "New" && (item.received_quantity || 0) > 0 && !isDeleted}
-                        className={`p-0 h-7 w-7 rounded ${
-                          isDeleted
-                            ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
-                            : "text-gray-400 hover:text-red-500 hover:bg-red-50"
-                        } disabled:opacity-30 disabled:cursor-not-allowed`}
+                        className={`p-0 h-7 w-7 rounded ${isDeleted
+                          ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
+                          : "text-gray-400 hover:text-red-500 hover:bg-red-50"
+                          } disabled:opacity-30 disabled:cursor-not-allowed`}
                       >
                         {isDeleted ? <Undo className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </Button>

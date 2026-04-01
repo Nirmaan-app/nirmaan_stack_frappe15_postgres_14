@@ -25,6 +25,7 @@ const VendorPaymentsTable = React.lazy(() => import("./components/VendorPayments
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
+const AllSRList = React.lazy(() => import("../ServiceRequests/service-request/all-sr-list"));
 import { cn } from "@/lib/utils";
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
 const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTable"));
@@ -47,7 +48,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [editSheetOpen, setEditSheetOpen] = useState(false);
     const toggleEditSheet = useCallback(() => setEditSheetOpen(prev => !prev), []);
-    const [serviceOrderTab, setServiceOrderTab] = useState<"approved" | "finalized">("approved");
+    const [serviceOrderTab, setServiceOrderTab] = useState<"all" | "approved" | "finalized">("all");
 
     // Effect to sync tab state TO URL
     useEffect(() => {
@@ -155,6 +156,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                         <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
                             <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
                                 {[
+                                    { label: "All WO", value: "all", count: approvedCount + finalizedCount },
                                     { label: "Approved WO", value: "approved", count: approvedCount },
                                     { label: "Finalized WO", value: "finalized", count: finalizedCount }
                                 ].map((tab) => {
@@ -163,7 +165,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                                         <button
                                             key={tab.value}
                                             type="button"
-                                            onClick={() => setServiceOrderTab(tab.value as "approved" | "finalized")}
+                                            onClick={() => setServiceOrderTab(tab.value as "all" | "approved" | "finalized")}
                                             className={cn(
                                                 "px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap",
                                                 isActive
@@ -182,6 +184,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                         </div>
 
                         {/* Tab Content */}
+                        {serviceOrderTab === "all" && <AllSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                         {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                         {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                     </div>

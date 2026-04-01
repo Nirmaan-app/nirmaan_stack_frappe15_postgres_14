@@ -796,7 +796,6 @@ import { useUserData } from "@/hooks/useUserData";
 // PDF download still works via backend API (handleDownloadPdf)
 // import * as pdfjsLib from "pdfjs-dist";
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useReactToPrint } from "react-to-print";
 import { AddressView } from "@/components/address-view";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -1179,16 +1178,7 @@ export const POPdf: React.FC<POPdfProps> = ({
   }, [po?.attachment]);
 
 
-  const handlePrint = useReactToPrint({
-    content: () => componentRef.current || null,
-    documentTitle: `${po?.name}_${po?.vendor_name}`,
-    onBeforeGetContent: () => {
-      setIsPrinting(true);
-    },
-    onAfterPrint: () => {
-      setIsPrinting(false);
-    },
-  });
+
 
   const handleDownloadPdf = async (formatName: string) => {
     if (!po?.name) return;
@@ -1292,10 +1282,6 @@ export const POPdf: React.FC<POPdfProps> = ({
           {/* Hide Print and Download buttons for Project Manager role */}
           {role !== "Nirmaan Project Manager Profile" && (
             <>
-              <Button onClick={handlePrint} className="flex items-center gap-1">
-                <Printer className="h-4 w-4" />
-                Print
-              </Button>
               <Button
                 onClick={() => handleDownloadPdf("PO Orders")}
                 disabled={!!downloadingFormat}
@@ -1317,151 +1303,126 @@ export const POPdf: React.FC<POPdfProps> = ({
         </div>
         {/* Hide PO render/preview for Project Manager - they can only download without rate */}
         {role !== "Nirmaan Project Manager Profile" && (
-        <div className={`w-full border mt-6`}>
-          <div ref={componentRef} className="w-full p-4">
-            <style>
-              {`
-                @media print {
-                  .page-break {
-                    page-break-before: always;
-                  }
-                  .page-break-inside-avoid {
-        page-break-inside: avoid !important;
-    }
-                  .no-break-after {
-                    page-break-after: avoid;
-                  }
-                }
-                thead {
-                  display: table-header-group !important;
-                    }
-                @media screen {
-                  .page-break {
-                    margin-top: 2rem;
-                    border-top: 2px solid #e5e7eb;
-                    padding-top: 1rem;
-                  }
-                }
-              `}
-            </style>
+          <div className={`w-full border mt-6`}>
+            <div ref={componentRef} className="w-full p-4">
 
-            {/* Render all item pages with smart pagination */}
-            {itemPages.map((pageItems, pageIndex) => (
-              <div key={pageIndex} className={pageIndex > 0 ? "page-break" : ""}>
-                <div className="overflow-x-auto p-4">
-                  <table className="min-w-full table-fixed divide-gray-200">
-                    <POHeader po={po} showVendorInfo={pageIndex === 0} resolvedAddress={resolvedAddress} />
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {pageItems.map((item, itemIndex) => {
-                        // Calculate global index across all pages
-                        const globalIndex = itemPages.slice(0, pageIndex).reduce((acc, page) => acc + page.length, 0) + itemIndex + 1;
-                        return (
-                          <ItemRow
-                            key={globalIndex}
-                            item={item}
-                            index={globalIndex - 1}
-                            includeComments={includeComments}
-                          />
-                        );
-                      })}
-                      {pageIndex === itemPages.length - 1 && (
-                        <>
-                          <tr className="border-b border-t border-black page-break-inside-avoid">
-                            <td className="py-4 w-[8%]"></td>
-                            <td className="py-4 w-[35%]"></td>
-                            <td className="py-4 w-[10%]"></td>
-                            <td className="py-4 w-[10%]"></td>
-                            <td className="py-4 w-[10%]"></td>
-                            <td className="py-4 text-sm font-bold text-right pr-2 page-break-inside-avoid w-[30%]">
-                              <div className="space-y-2">
-                                <div>Sub-Total:</div>
-                                <div>Total Tax(GST):</div>
-                                <div>Round Off:</div>
-                                <div>Total:</div>
-                              </div>
-                            </td>
-                            <td className="py-4 text-sm font-bold text-right pr-4 w-[15%]">
-                              <div className="space-y-2">
-                                <div>
-                                  {formatToIndianRupee(po?.amount)}
+              {/* Render all item pages with smart pagination */}
+              {itemPages.map((pageItems, pageIndex) => (
+                <div key={pageIndex} className={pageIndex > 0 ? "page-break" : ""}>
+                  <div className="overflow-x-auto p-4">
+                    <table className="min-w-full table-fixed divide-gray-200">
+                      <POHeader po={po} showVendorInfo={pageIndex === 0} resolvedAddress={resolvedAddress} />
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {pageItems.map((item, itemIndex) => {
+                          // Calculate global index across all pages
+                          const globalIndex = itemPages.slice(0, pageIndex).reduce((acc, page) => acc + page.length, 0) + itemIndex + 1;
+                          return (
+                            <ItemRow
+                              key={globalIndex}
+                              item={item}
+                              index={globalIndex - 1}
+                              includeComments={includeComments}
+                            />
+                          );
+                        })}
+                        {pageIndex === itemPages.length - 1 && (
+                          <>
+                            <tr className="border-b border-t border-black page-break-inside-avoid">
+                              <td className="py-4 w-[8%]"></td>
+                              <td className="py-4 w-[35%]"></td>
+                              <td className="py-4 w-[10%]"></td>
+                              <td className="py-4 w-[10%]"></td>
+                              <td className="py-4 w-[10%]"></td>
+                              <td className="py-4 text-sm font-bold text-right pr-2 page-break-inside-avoid w-[30%]">
+                                <div className="space-y-2">
+                                  <div>Sub-Total:</div>
+                                  <div>Total Tax(GST):</div>
+                                  <div>Round Off:</div>
+                                  <div>Total:</div>
                                 </div>
-                                <div>
-                                  {formatToIndianRupee(po?.tax_amount)}
-                                </div>
-                                <div>
-                                  {formatToIndianRupee(
-                                    (po?.total_amount -
-                                      Math.round(po?.total_amount)) *
-                                    -1
-                                  )}
-                                </div>
-                                <div>
-                                  {formatToIndianRupee(Math.round(po?.total_amount))}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-
-
-                          <tr>
-                            <td colSpan={7}>
-                              {finalPaymentTerms && finalPaymentTerms.length > 0 && (
-                                <div className="mb-4">
-                                  <div className="text-gray-600 font-bold text-sm py-2">
-                                    Payment
+                              </td>
+                              <td className="py-4 text-sm font-bold text-right pr-4 w-[15%]">
+                                <div className="space-y-2">
+                                  <div>
+                                    {formatToIndianRupee(po?.amount)}
                                   </div>
-                                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-900">
-                                    <li>
-                                      {finalPaymentTerms
-                                        .filter(
-                                          (term) => parseFloat(term.percentage) > 0
-                                        )
-                                        .map(
-                                          (term) =>
-                                            `${parseFloat(term.percentage).toFixed(
-                                              2
-                                            )}% -- ${term.label}`
-                                        )
-                                        .join(", ")}
-                                    </li>
-                                  </ul>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-
-                          {/* Notes and signature */}
-                          <tr className="page-break-inside-avoid">
-                            <td colSpan={7}>
-                              {parsedNotes.length > 0 && (
-                                <div className="mb-4">
-                                  <div className="text-gray-600 font-bold text-sm py-2">
-                                    Note
+                                  <div>
+                                    {formatToIndianRupee(po?.tax_amount)}
                                   </div>
-                                  <ol className="list-decimal list-inside space-y-1 text-sm text-gray-900">
-                                    {parsedNotes.map((note, index) => (
-                                      <li key={index}>{note}</li>
-                                    ))}
-                                  </ol>
+                                  <div>
+                                    {formatToIndianRupee(
+                                      (po?.total_amount -
+                                        Math.round(po?.total_amount)) *
+                                      -1
+                                    )}
+                                  </div>
+                                  <div>
+                                    {formatToIndianRupee(Math.round(po?.total_amount))}
+                                  </div>
                                 </div>
-                              )}
-                              <img src={Seal} className="w-24 h-24" />
-                              <div className="text-sm text-gray-900 py-6">
-                                For, Stratos Infra Technologies Pvt. Ltd.
-                              </div>
-                            </td>
-                          </tr>
-                        </>
-                      )}
-                    </tbody>
-                  </table>
+                              </td>
+                            </tr>
+
+
+                            <tr>
+                              <td colSpan={7}>
+                                {finalPaymentTerms && finalPaymentTerms.length > 0 && (
+                                  <div className="mb-4">
+                                    <div className="text-gray-600 font-bold text-sm py-2">
+                                      Payment
+                                    </div>
+                                    <ul className="list-disc list-inside space-y-1 text-sm text-gray-900">
+                                      <li>
+                                        {finalPaymentTerms
+                                          .filter(
+                                            (term) => parseFloat(term.percentage) > 0
+                                          )
+                                          .map(
+                                            (term) =>
+                                              `${parseFloat(term.percentage).toFixed(
+                                                2
+                                              )}% -- ${term.label}`
+                                          )
+                                          .join(", ")}
+                                      </li>
+                                    </ul>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Notes and signature */}
+                            <tr className="page-break-inside-avoid">
+                              <td colSpan={7}>
+                                {parsedNotes.length > 0 && (
+                                  <div className="mb-4">
+                                    <div className="text-gray-600 font-bold text-sm py-2">
+                                      Note
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1 text-sm text-gray-900">
+                                      {parsedNotes.map((note, index) => (
+                                        <li key={index}>{note}</li>
+                                      ))}
+                                    </ol>
+                                  </div>
+                                )}
+                                <img src={Seal} className="w-24 h-24" />
+                                <div className="text-sm text-gray-900 py-6">
+                                  For, Stratos Infra Technologies Pvt. Ltd.
+                                </div>
+                              </td>
+                            </tr>
+                          </>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* RENDER THE SUMMARY AND TOTALS SECTION ONLY ON THE LAST PAGE */}
+
                 </div>
-                {/* RENDER THE SUMMARY AND TOTALS SECTION ONLY ON THE LAST PAGE */}
+              ))}
 
-              </div>
-            ))}
-
-            {/* Summary and totals section
+              {/* Summary and totals section
             <div className="overflow-x-auto p-4 page-break-inside-avoid">
               <table className="min-w-full table-fixed divide-gray-200">
                 <POHeader po={po} showVendorInfo={false} />
@@ -1555,267 +1516,267 @@ export const POPdf: React.FC<POPdfProps> = ({
               </table>
             </div> */}
 
-            {/* Terms and Conditions Page */}
-            <div className="page-break ">
-              <div className="overflow-x-auto px-4">
-                <table className="min-w-full divide-gray-200">
-                  <thead className="border-b border-black mt-2">
-                    <tr>
-                      <th colSpan={6}>
-                        <div className="flex justify-between border-gray-600 pb-1 pt-2 mt-4">
-                          <div className=" flex justify-between">
+              {/* Terms and Conditions Page */}
+              <div className="page-break ">
+                <div className="overflow-x-auto px-4">
+                  <table className="min-w-full divide-gray-200">
+                    <thead className="border-b border-black mt-2">
+                      <tr>
+                        <th colSpan={6}>
+                          <div className="flex justify-between border-gray-600 pb-1 pt-2 mt-4">
+                            <div className=" flex justify-between">
+                              <div>
+                                <img
+                                  src={logo}
+                                  alt="Nirmaan"
+                                  width="180"
+                                  height="52"
+                                />
+                                <div className="pt-2 text-lg text-gray-600 font-semibold">
+                                  Nirmaan(Stratos Infra Technologies Pvt. Ltd.)
+                                </div>
+                              </div>
+                            </div>
                             <div>
-                              <img
-                                src={logo}
-                                alt="Nirmaan"
-                                width="180"
-                                height="52"
-                              />
-                              <div className="pt-2 text-lg text-gray-600 font-semibold">
-                                Nirmaan(Stratos Infra Technologies Pvt. Ltd.)
+                              <div className="pt-2 text-xl text-gray-600 font-semibold">
+                                Purchase Order No. :
+                              </div>
+                              <div className="text-lg font-light italic text-black">
+                                {po?.name?.toUpperCase()}
                               </div>
                             </div>
                           </div>
-                          <div>
-                            <div className="pt-2 text-xl text-gray-600 font-semibold">
-                              Purchase Order No. :
+
+                          <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
+                            <div className="text-xs text-gray-600 font-normal">
+                              {resolvedAddress}
                             </div>
-                            <div className="text-lg font-light italic text-black">
-                              {po?.name?.toUpperCase()}
+                            <div className="text-xs text-gray-600 font-normal">
+                              GST: {po?.project_gst || "N/A"}
                             </div>
                           </div>
-                        </div>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td colSpan={6}>
+                          <div className="max-w-4xl mx-auto p-6 text-gray-800">
+                            <h1 className="text-xl font-bold mb-4">
+                              Terms and Conditions
+                            </h1>
+                            <h2 className="text-lg font-semibold mt-6">
+                              1. Invoicing:
+                            </h2>
+                            <ol className="list-decimal pl-6 space-y-2 text-sm">
+                              <li className="pl-2">
+                                All invoices shall be submitted in original and shall be
+                                tax invoices showing the breakup of tax structure/value
+                                payable at the prevailing rate and a clear description
+                                of goods.
+                              </li>
+                              <li className="pl-2">
+                                All invoices submitted shall have Delivery
+                                Challan/E-waybill for supply items.
+                              </li>
+                              <li className="pl-2">
+                                All Invoices shall have the tax registration numbers
+                                mentioned thereon. The invoices shall be raised in the
+                                name of "Stratos Infra Technologies Pvt Ltd, Bangalore".
+                              </li>
+                              <li className="pl-2">
+                                Payments shall be only entertained after receipt of the
+                                correct invoice.
+                              </li>
+                              <li className="pl-2">
+                                In case of advance request, Advance payment shall be
+                                paid after the submission of an advance receipt (as
+                                suggested under GST law).
+                              </li>
+                            </ol>
 
-                        <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
-                          <div className="text-xs text-gray-600 font-normal">
-                            {resolvedAddress}
+                            <h2 className="text-lg font-semibold mt-6">2. Payment:</h2>
+                            <ol className="list-decimal pl-6 space-y-2 text-sm">
+                              <li className="pl-2">
+                                Payment shall be done through RTGS/NEFT.
+                              </li>
+                              <li className="pl-2">
+                                A retention amount shall be deducted as per PO payment
+                                terms and:
+                              </li>
+                              <li className="pl-2">
+                                In case the vendor is not completing the task assigned
+                                by Nirmaan a suitable amount, as decided by Nirmaan,
+                                shall be deducted from the retention amount.
+                              </li>
+                              <li className="pl-2">
+                                The adjusted amount shall be paid on completion of the
+                                defect liability period.
+                              </li>
+                              <li className="pl-2">
+                                Vendors are expected to pay GST as per the prevailing
+                                rules. In case the vendor is not making GST payments
+                                to the tax authority, Nirmaan shall deduct the
+                                appropriated amount from the invoice payment of the
+                                vendor.
+                              </li>
+                              <li className="pl-2">
+                                Nirmaan shall deduct the following amounts from the
+                                final bills:
+                              </li>
+                              <li className="pl-2">
+                                Amount pertaining to unfinished supply.
+                              </li>
+                              <li className="pl-2">
+                                Amount pertaining to Liquidated damages and other
+                                fines, as mentioned in the documents.
+                              </li>
+                              <li className="pl-2">
+                                Any agreed amount between the vendor and Nirmaan.
+                              </li>
+                            </ol>
+
+                            <h2 className="text-lg font-semibold mt-6">
+                              3. Technical Specifications of the Work:
+                            </h2>
+                            <ol className="list-decimal pl-6 space-y-2 text-sm">
+                              <li className="pl-2">
+                                All goods delivered shall conform to the technical
+                                specifications mentioned in the vendor's quote referred
+                                to in this PO or as detailed in Annexure 1 to this PO.
+                              </li>
+                              <li className="pl-2">
+                                Supply of goods or services shall be strictly as per
+                                Annexure - 1 or the Vendor's quote/PI in case of the
+                                absence of Annexure - I.
+                              </li>
+                              <li className="pl-2">
+                                Any change in line items or quantities shall be duly
+                                approved by Nirmaan with rate approval prior to supply.
+                                Any goods supplied by the agency without obtaining due
+                                approvals shall be subject to the acceptance or
+                                rejection from Nirmaan.
+                              </li>
+                              <li className="pl-2">
+                                Any damaged/faulty material supplied needs to be
+                                replaced with a new item free of cost, without extending
+                                the completion dates.
+                              </li>
+                              <li className="pl-2">
+                                Material supplied in excess and not required by the
+                                project shall be taken back by the vendor at no cost to
+                                Nirmaan.
+                              </li>
+                            </ol>
+
+                            <h1 className="text-xl font-bold mb-4 mt-8">
+                              General Terms & Conditions for Purchase Order
+                            </h1>
+                            <ol className="list-decimal pl-6 space-y-2 text-sm">
+                              <li className="pl-2">
+                                <div className="font-semibold">Liquidity Damages:</div>{" "}
+                                Liquidity damages shall be applied at 2.5% of the order
+                                value for every day of delay.
+                              </li>
+                              <li className="pl-2">
+                                <div className="font-semibold">
+                                  Termination/Cancellation:
+                                </div>{" "}
+                                If Nirmaan reasonably determines that it can no longer
+                                continue business with the vendor in accordance with
+                                applicable legal, regulatory, or professional
+                                obligations, Nirmaan shall have the right to
+                                terminate/cancel this PO immediately.
+                              </li>
+                              <li className="pl-2">
+                                <div className="font-semibold">
+                                  Other General Conditions:
+                                </div>
+                              </li>
+                              <li className="pl-2">
+                                Insurance: All required insurance including, but not
+                                limited to, Contractors' All Risk (CAR) Policy, FLEXA
+                                cover, and Workmen's Compensation (WC) policy are in
+                                the vendor's scope. Nirmaan in any case shall not be
+                                made liable for providing these insurance. All
+                                required insurances are required prior to the
+                                commencement of the work at the site.
+                              </li>
+                              <li className="pl-2">
+                                Safety: The safety and security of all men deployed
+                                and materials placed by the Vendor or its agents for
+                                the project shall be at the risk and responsibility of
+                                the Vendor. Vendor shall ensure compliance with all
+                                safety norms at the site. Nirmaan shall have no
+                                obligation or responsibility on any safety, security &
+                                compensation related matters for the resources &
+                                material deployed by the Vendor or its agent.
+                              </li>
+                              <li className="pl-2">
+                                Notice: Any notice or other communication required or
+                                authorized under this PO shall be in writing and given
+                                to the party for whom it is intended at the address
+                                given in this PO or such other address as shall have
+                                been notified to the other party for that purpose,
+                                through registered post, courier, facsimile or
+                                electronic mail.
+                              </li>
+                              <li className="pl-2">
+                                Force Majeure: Neither party shall be liable for any
+                                delay or failure to perform if such delay or failure
+                                arises from an act of God or of the public enemy, an
+                                act of civil disobedience, epidemic, war,
+                                insurrection, labor action, or governmental action.
+                              </li>
+                              <li className="pl-2">
+                                Name use: Vendor shall not use, or permit the use of,
+                                the name, trade name, service marks, trademarks, or
+                                logo of Nirmaan in any form of publicity, press
+                                release, advertisement, or otherwise without Nirmaan's
+                                prior written consent.
+                              </li>
+                              <li className="pl-2">
+                                Arbitration: Any dispute arising out of or in
+                                connection with the order shall be settled by
+                                Arbitration in accordance with the Arbitration and
+                                Conciliation Act,1996 (As amended in 2015). The
+                                arbitration proceedings shall be conducted in English
+                                in Bangalore by the sole arbitrator appointed by the
+                                Purchaser.
+                              </li>
+                              <li className="pl-2">
+                                The law governing: All disputes shall be governed as
+                                per the laws of India and subject to the exclusive
+                                jurisdiction of the court in Karnataka.
+                              </li>
+                            </ol>
                           </div>
-                          <div className="text-xs text-gray-600 font-normal">
-                            GST: {po?.project_gst || "N/A"}
-                          </div>
-                        </div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colSpan={6}>
-                        <div className="max-w-4xl mx-auto p-6 text-gray-800">
-                          <h1 className="text-xl font-bold mb-4">
-                            Terms and Conditions
-                          </h1>
-                          <h2 className="text-lg font-semibold mt-6">
-                            1. Invoicing:
-                          </h2>
-                          <ol className="list-decimal pl-6 space-y-2 text-sm">
-                            <li className="pl-2">
-                              All invoices shall be submitted in original and shall be
-                              tax invoices showing the breakup of tax structure/value
-                              payable at the prevailing rate and a clear description
-                              of goods.
-                            </li>
-                            <li className="pl-2">
-                              All invoices submitted shall have Delivery
-                              Challan/E-waybill for supply items.
-                            </li>
-                            <li className="pl-2">
-                              All Invoices shall have the tax registration numbers
-                              mentioned thereon. The invoices shall be raised in the
-                              name of "Stratos Infra Technologies Pvt Ltd, Bangalore".
-                            </li>
-                            <li className="pl-2">
-                              Payments shall be only entertained after receipt of the
-                              correct invoice.
-                            </li>
-                            <li className="pl-2">
-                              In case of advance request, Advance payment shall be
-                              paid after the submission of an advance receipt (as
-                              suggested under GST law).
-                            </li>
-                          </ol>
-
-                          <h2 className="text-lg font-semibold mt-6">2. Payment:</h2>
-                          <ol className="list-decimal pl-6 space-y-2 text-sm">
-                            <li className="pl-2">
-                              Payment shall be done through RTGS/NEFT.
-                            </li>
-                            <li className="pl-2">
-                              A retention amount shall be deducted as per PO payment
-                              terms and:
-                            </li>
-                            <li className="pl-2">
-                              In case the vendor is not completing the task assigned
-                              by Nirmaan a suitable amount, as decided by Nirmaan,
-                              shall be deducted from the retention amount.
-                            </li>
-                            <li className="pl-2">
-                              The adjusted amount shall be paid on completion of the
-                              defect liability period.
-                            </li>
-                            <li className="pl-2">
-                              Vendors are expected to pay GST as per the prevailing
-                              rules. In case the vendor is not making GST payments
-                              to the tax authority, Nirmaan shall deduct the
-                              appropriated amount from the invoice payment of the
-                              vendor.
-                            </li>
-                            <li className="pl-2">
-                              Nirmaan shall deduct the following amounts from the
-                              final bills:
-                            </li>
-                            <li className="pl-2">
-                              Amount pertaining to unfinished supply.
-                            </li>
-                            <li className="pl-2">
-                              Amount pertaining to Liquidated damages and other
-                              fines, as mentioned in the documents.
-                            </li>
-                            <li className="pl-2">
-                              Any agreed amount between the vendor and Nirmaan.
-                            </li>
-                          </ol>
-
-                          <h2 className="text-lg font-semibold mt-6">
-                            3. Technical Specifications of the Work:
-                          </h2>
-                          <ol className="list-decimal pl-6 space-y-2 text-sm">
-                            <li className="pl-2">
-                              All goods delivered shall conform to the technical
-                              specifications mentioned in the vendor's quote referred
-                              to in this PO or as detailed in Annexure 1 to this PO.
-                            </li>
-                            <li className="pl-2">
-                              Supply of goods or services shall be strictly as per
-                              Annexure - 1 or the Vendor's quote/PI in case of the
-                              absence of Annexure - I.
-                            </li>
-                            <li className="pl-2">
-                              Any change in line items or quantities shall be duly
-                              approved by Nirmaan with rate approval prior to supply.
-                              Any goods supplied by the agency without obtaining due
-                              approvals shall be subject to the acceptance or
-                              rejection from Nirmaan.
-                            </li>
-                            <li className="pl-2">
-                              Any damaged/faulty material supplied needs to be
-                              replaced with a new item free of cost, without extending
-                              the completion dates.
-                            </li>
-                            <li className="pl-2">
-                              Material supplied in excess and not required by the
-                              project shall be taken back by the vendor at no cost to
-                              Nirmaan.
-                            </li>
-                          </ol>
-
-                          <h1 className="text-xl font-bold mb-4 mt-8">
-                            General Terms & Conditions for Purchase Order
-                          </h1>
-                          <ol className="list-decimal pl-6 space-y-2 text-sm">
-                            <li className="pl-2">
-                              <div className="font-semibold">Liquidity Damages:</div>{" "}
-                              Liquidity damages shall be applied at 2.5% of the order
-                              value for every day of delay.
-                            </li>
-                            <li className="pl-2">
-                              <div className="font-semibold">
-                                Termination/Cancellation:
-                              </div>{" "}
-                              If Nirmaan reasonably determines that it can no longer
-                              continue business with the vendor in accordance with
-                              applicable legal, regulatory, or professional
-                              obligations, Nirmaan shall have the right to
-                              terminate/cancel this PO immediately.
-                            </li>
-                            <li className="pl-2">
-                              <div className="font-semibold">
-                                Other General Conditions:
-                              </div>
-                            </li>
-                            <li className="pl-2">
-                              Insurance: All required insurance including, but not
-                              limited to, Contractors' All Risk (CAR) Policy, FLEXA
-                              cover, and Workmen's Compensation (WC) policy are in
-                              the vendor's scope. Nirmaan in any case shall not be
-                              made liable for providing these insurance. All
-                              required insurances are required prior to the
-                              commencement of the work at the site.
-                            </li>
-                            <li className="pl-2">
-                              Safety: The safety and security of all men deployed
-                              and materials placed by the Vendor or its agents for
-                              the project shall be at the risk and responsibility of
-                              the Vendor. Vendor shall ensure compliance with all
-                              safety norms at the site. Nirmaan shall have no
-                              obligation or responsibility on any safety, security &
-                              compensation related matters for the resources &
-                              material deployed by the Vendor or its agent.
-                            </li>
-                            <li className="pl-2">
-                              Notice: Any notice or other communication required or
-                              authorized under this PO shall be in writing and given
-                              to the party for whom it is intended at the address
-                              given in this PO or such other address as shall have
-                              been notified to the other party for that purpose,
-                              through registered post, courier, facsimile or
-                              electronic mail.
-                            </li>
-                            <li className="pl-2">
-                              Force Majeure: Neither party shall be liable for any
-                              delay or failure to perform if such delay or failure
-                              arises from an act of God or of the public enemy, an
-                              act of civil disobedience, epidemic, war,
-                              insurrection, labor action, or governmental action.
-                            </li>
-                            <li className="pl-2">
-                              Name use: Vendor shall not use, or permit the use of,
-                              the name, trade name, service marks, trademarks, or
-                              logo of Nirmaan in any form of publicity, press
-                              release, advertisement, or otherwise without Nirmaan's
-                              prior written consent.
-                            </li>
-                            <li className="pl-2">
-                              Arbitration: Any dispute arising out of or in
-                              connection with the order shall be settled by
-                              Arbitration in accordance with the Arbitration and
-                              Conciliation Act,1996 (As amended in 2015). The
-                              arbitration proceedings shall be conducted in English
-                              in Bangalore by the sole arbitrator appointed by the
-                              Purchaser.
-                            </li>
-                            <li className="pl-2">
-                              The law governing: All disputes shall be governed as
-                              per the laws of India and subject to the exclusive
-                              jurisdiction of the court in Karnataka.
-                            </li>
-                          </ol>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
+
+              {/* Attachments */}
+              {po?.custom === "true" && images?.length > 0 && (
+                <div>
+                  {images?.map((imgSrc, index) => (
+                    <img
+                      key={index}
+                      src={imgSrc}
+                      alt={`Attachment ${index + 1}`}
+                      style={{
+                        width: "100%",
+                        marginBottom: "20px",
+                        marginTop: "20px",
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-
-            {/* Attachments */}
-            {po?.custom === "true" && images?.length > 0 && (
-              <div>
-                {images?.map((imgSrc, index) => (
-                  <img
-                    key={index}
-                    src={imgSrc}
-                    alt={`Attachment ${index + 1}`}
-                    style={{
-                      width: "100%",
-                      marginBottom: "20px",
-                      marginTop: "20px",
-                    }}
-                  />
-                ))}
-              </div>
-            )}
           </div>
-        </div>
         )}
       </SheetContent>
     </Sheet>

@@ -8,11 +8,9 @@ import { Projects, ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 import { formatDate } from '@/utils/FormatDate';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { FolderPlus, MessageCircleMore } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-import { useReactToPrint } from 'react-to-print';
 import { getItemListFromDocument, ProgressDocument, ProgressItem } from '../types'
-import { useGstOptions } from '@/hooks/useGstOptions';
 
 interface GenerateRFQDialogProps {
     orderData: ProgressDocument;
@@ -24,15 +22,57 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData, projec
     const [open, setOpen] = useState(false);
     const [selectedItemsForRfq, setSelectedItemsForRfq] = useState<{ [category: string]: string[] }>({});
     const [selectedMakesForRfq, setSelectedMakesForRfq] = useState<Record<string, string>>({});
-
-    const componentRef = useRef<HTMLDivElement>(null);
+    const [isPrinting, setIsPrinting] = useState(false);
 
     const { data: procurement_project } = useFrappeGetDoc("Projects", orderData?.project)
 
-    const handlePrint = useReactToPrint({
-        content: () => componentRef.current,
-        documentTitle: `RFQ_Preview`,
-    });
+    const handlePrint = async () => {
+        if (!orderData) return;
+        setIsPrinting(true);
+
+        const itemNames = Object.values(selectedItemsForRfq).flat();
+        const selectionData = {
+            items: itemNames,
+            makes: selectedMakesForRfq
+        };
+
+        const params = new URLSearchParams({
+            doctype: "Procurement Requests",
+            name: orderData.name,
+            format: "Generate RFQ",
+            no_letterhead: "0",
+            selected_items: JSON.stringify(selectionData)
+        });
+
+        const printUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
+
+        try {
+            const response = await fetch(printUrl);
+            if (!response.ok) throw new Error('Network response was not ok');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+
+            // Construct filename: rfq-PRNUMBER-PROJECTNAME.pdf
+            const projectName = procurement_project?.project_name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'project';
+            const fileName = `rfq-${orderData.name}-${projectName}.pdf`;
+
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            // Close dialog after successful download
+            setOpen(false);
+        } catch (error) {
+            console.error('Error downloading PDF:', error);
+        } finally {
+            setIsPrinting(false);
+        }
+    };
 
     // Use helper functions to get item and category lists
     const currentItemList = useMemo(() => getItemListFromDocument(orderData), [orderData]);
@@ -206,156 +246,16 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData, projec
                     <DialogClose asChild>
                         <Button variant="outline">Cancel</Button>
                     </DialogClose>
-                    <Button onClick={handlePrint} disabled={totalSelectedItems === 0}>
-                        Print RFQ
+                    <Button onClick={handlePrint} disabled={totalSelectedItems === 0 || isPrinting}>
+                        {isPrinting ? "Generating..." : "Print RFQ"}
                     </Button>
                 </DialogFooter>
-                {/* RFQPDf is hidden and used by react-to-print */}
-                <RFQPDf componentRef={componentRef} selectedItems={selectedItemsForRfq} orderData={orderData} procurement_project={procurement_project} selectedMakes={selectedMakesForRfq} />
             </DialogContent>
         </Dialog>
     );
 };
 
 
-interface RFQPdfProps {
-    componentRef: React.RefObject<HTMLDivElement>;
-    selectedItems: { [category: string]: string[] };
-    orderData: ProgressDocument | undefined;
-    procurement_project: Projects | undefined;
-    selectedMakes: Record<string, string>;
-}
-
-const RFQPDf: React.FC<RFQPdfProps> = ({ componentRef, selectedItems, orderData, procurement_project, selectedMakes }) => {
-    const itemListForPdf = useMemo(() => {
-        if (!orderData) return [];
-        const itemsFromDoc = getItemListFromDocument(orderData);
-        const rfqItems: ProgressItem[] = [];
-        Object.keys(selectedItems).forEach((categoryName) => {
-            const itemsInCategorySelected = selectedItems[categoryName];
-            const itemsFromSource = itemsFromDoc.filter(
-                item => item.category === categoryName && itemsInCategorySelected.includes(item.name)
-            );
-            rfqItems.push(...itemsFromSource);
-        });
-        return rfqItems;
-    }, [orderData, selectedItems]);
-
-    const { gstOptions } = useGstOptions();
-
-    const { resolvedAddress, resolvedGst } = useMemo(() => {
-        // 1. Try to get GST from project record (New Link Field)
-        const projectGstName = procurement_project?.project_gst;
-        if (projectGstName) {
-            const match = gstOptions.find(opt => opt.value === projectGstName);
-            if (match?.address) {
-                return {
-                    resolvedAddress: match.address,
-                    resolvedGst: match.gst
-                };
-            }
-        }
-
-        // 2. Fallback to Bengaluru
-        const bengaluru = gstOptions.find(opt => opt.location === "Bengaluru");
-        return {
-            resolvedAddress: bengaluru?.address || "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
-            resolvedGst: bengaluru?.gst || "29ABFCS9095N1Z9"
-        };
-    }, [gstOptions, procurement_project]);
-
-    return (
-        <div className='hidden'>
-            <div ref={componentRef} className="px-4 pb-4">
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead className="w-full border-b border-black">
-                            <tr>
-                                <th colSpan={5} className="p-0">
-                                    <div className="mt-6 flex justify-between">
-                                        <div>
-                                            <img className="w-44" src={redlogo} alt="Nirmaan" />
-                                            <div className="pt-2 text-lg text-gray-500 font-semibold">Nirmaan(Stratos Infra Technologies Pvt. Ltd.)</div>
-                                        </div>
-                                    </div>
-                                </th>
-                            </tr>
-                            <tr>
-                                <th colSpan={5} className="p-0">
-                                    <div className="py-2 border-b-2 border-gray-600 pb-3 mb-3">
-                                        <div className="flex justify-between">
-                                            <div className="text-xs text-gray-500 font-normal">{resolvedAddress}</div>
-                                            <div className="text-xs text-gray-500 font-normal">GST: {resolvedGst}</div>
-                                        </div>
-                                    </div>
-                                </th>
-                            </tr>
-                            <tr>
-                                <th colSpan={5} className="p-0">
-                                    <div className="grid grid-cols-2 justify-between border border-gray-100 rounded-lg p-4">
-                                        <div className="border-0 flex flex-col">
-                                            <p className="text-left py-1 font-medium text-xs text-gray-500">Date</p>
-                                            <p className="text-left font-bold py-1 font-semibold text-sm text-black">{formatDate(procurement_project?.creation!)}</p>
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <div className="border-0 flex flex-col ml-10">
-                                                <p className="text-left py-1 font-medium text-xs text-gray-500">Project ID</p>
-                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.name}</p>
-                                            </div>
-                                            <div className="border-0 flex flex-col ml-10">
-                                                <p className="text-left py-1 font-medium text-xs text-gray-500">Project Address</p>
-                                                <p className="text-left font-bold py-1 font-semibold text-sm text-black">{procurement_project?.project_city}, {procurement_project?.project_state}</p>
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                </th>
-                            </tr>
-                            <tr>
-                                <th scope="col" className="px-6 py-3 text-left font-bold text-gray-800 tracking-wider pr-32">Item</th>
-                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Category</th>
-                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Unit</th>
-                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Quantity</th>
-                                <th scope="col" className="px-2 py-1 text-left font-bold text-gray-800 tracking-wider">Rate excl. GST</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {itemListForPdf.map((i, index) => {
-                                const displayMake = selectedMakes[i.name] ?? i.make;
-                                return (
-                                    <tr key={`pdf-item-${i.name}-${index}`}>
-                                        <td className="px-6 py-2 text-xs">
-                                            {i.item_name}
-                                            {displayMake && <div className="text-xxs font-normal">{` - ${displayMake}`}</div>}
-                                            {i.comment && (
-                                                <div className="flex gap-1 items-start p-0.5 mt-0.5">
-                                                    <MessageCircleMore className="w-3 h-3 flex-shrink-0" />
-                                                    <div className="text-xxs text-gray-500">{i.comment}</div>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="px-2 py-2 text-xs whitespace-nowrap">{i.category}</td>
-                                        <td className="px-2 py-2 text-xs whitespace-nowrap">{i.unit}</td>
-                                        <td className="px-2 py-2 text-xs whitespace-nowrap">{i.quantity}</td>
-                                        <td className="px-2 py-2 text-sm whitespace-nowrap">-</td> {/* Rate excl. GST - empty as per example */}
-                                    </tr>
-                                );
-                            })}
-                            {itemListForPdf.length === 0 && <tr><td colSpan={5} className="text-center p-4">No items selected for RFQ.</td></tr>}
-                        </tbody>
-                    </table>
-                    <div className="pt-24">
-                        <p className="text-md font-bold text-red-700 underline">Note</p>
-                        <ul className="list-disc ml-4 text-xs">
-                            <li>Please share the quotes as soon as possible</li>
-                            <li>Please Exclude GST from the rates</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
 
 // Sub-component per item row — calls useMakeOptions for the item's category
 interface RFQItemRowProps {

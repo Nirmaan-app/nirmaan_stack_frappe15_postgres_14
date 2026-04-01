@@ -1394,14 +1394,16 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                             </Button>
                                         </>
                                     )}
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
-                                         onClick={() => handleDownloadReport(undefined, true)}
-                                    >
-                                        <Download className="h-3 w-3" /> Download Tracker
-                                    </Button>
+                                    {hasHandover && (
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
+                                            onClick={() => handleDownloadReport(undefined, true)}
+                                        >
+                                            <Download className="h-3 w-3" /> Download Tracker
+                                        </Button>
+                                    )}
                                     {/* <TooltipProvider>
                                 <Tooltip delayDuration={200}>
                                     <TooltipTrigger asChild>
@@ -1540,24 +1542,26 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                 </Button>
                             </div>
                             
-                            {/* Right: Report Button */}
-                            <TooltipProvider>
-                                <Tooltip delayDuration={200}>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 text-xs gap-1"
-                                            onClick={() => handleDownloadReport(undefined, true)}
-                                        >
-                                            <Download className="h-3 w-3" /> Download Tracker
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
-                                        Download full report (Onboarding + Handover) for all zones
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
+                            {/* Right: Report Button (Only if handover exists) */}
+                            {hasHandover && (
+                                <TooltipProvider>
+                                    <Tooltip delayDuration={200}>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 text-xs gap-1"
+                                                onClick={() => handleDownloadReport(undefined, true)}
+                                            >
+                                                <Download className="h-3 w-3" /> Download Tracker
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="text-xs">
+                                            Download full report (Onboarding + Handover) for all zones
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
                         </div>
                     )}
                 </div>
@@ -1570,20 +1574,20 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 <div className="flex items-center justify-between">
                     {/* Left: Phase Tabs (Only if Handover exists) */}
                     <div>
-                        {hasHandover && (
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
-                                <div className="flex rounded-md border border-gray-300 overflow-hidden">
-                                    <button
-                                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                                            activePhase === "Onboarding"
-                                                ? 'bg-primary text-white'
-                                                : 'bg-white text-gray-700 hover:bg-gray-50'
-                                        }`}
-                                        onClick={() => setActivePhase("Onboarding")}
-                                    >
-                                        Onboarding
-                                    </button>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
+                            <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                                <button
+                                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        activePhase === "Onboarding"
+                                            ? 'bg-primary text-white'
+                                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                    onClick={() => setActivePhase("Onboarding")}
+                                >
+                                    Onboarding
+                                </button>
+                                {hasHandover && (
                                     <button
                                         className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                                             activePhase === "Handover"
@@ -1594,9 +1598,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                     >
                                         Handover
                                     </button>
-                                </div>
+                                )}
                             </div>
-                        )}
+                        </div>
                     </div>
 
                     {/* Right: Download Button */}

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Download, Truck, Info, Eye, EyeOff, FileText, MapPin } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
-import { MilestoneProgress } from '../MilestonesSummary';
+import { MilestoneProgress } from '../Manpower-and-WorkMilestones/MilestonesSummary';
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 import { Label } from '@/components/ui/label'; 

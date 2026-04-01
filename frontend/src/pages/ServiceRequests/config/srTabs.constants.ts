@@ -9,6 +9,7 @@ export const SR_TABS = {
   PENDING: 'choose-vendor',
   APPROVED: 'approved-sr',
   FINALIZED: 'finalized-sr',
+  ALL: 'all-sr',
 } as const;
 
 export type SRTabValue = typeof SR_TABS[keyof typeof SR_TABS];
@@ -16,7 +17,7 @@ export type SRTabValue = typeof SR_TABS[keyof typeof SR_TABS];
 export interface SRTabOption {
   label: string;
   value: SRTabValue;
-  countKey: 'selected' | 'amended' | 'pending' | 'approved' | 'finalized';
+  countKey: 'selected' | 'amended' | 'pending' | 'approved' | 'finalized' | 'all';
 }
 
 export const SR_ADMIN_TAB_OPTIONS: SRTabOption[] = [
@@ -26,8 +27,7 @@ export const SR_ADMIN_TAB_OPTIONS: SRTabOption[] = [
 
 export const SR_COMMON_TAB_OPTIONS: SRTabOption[] = [
   { label: "Pending WO", value: SR_TABS.PENDING, countKey: 'pending' },
-  { label: "Approved WO", value: SR_TABS.APPROVED, countKey: 'approved' },
-  { label: "Finalized WO", value: SR_TABS.FINALIZED, countKey: 'finalized' },
+  { label: "All WO", value: SR_TABS.ALL, countKey: 'all' },
 ];
 
 export const SR_ADMIN_ROLES = [

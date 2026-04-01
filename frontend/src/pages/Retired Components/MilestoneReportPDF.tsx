@@ -4,9 +4,9 @@ import { formatDate } from '@/utils/FormatDate';
 import { MapPin, MessagesSquare, Eye, EyeOff } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
-import { MilestoneProgress } from '../MilestonesSummary';
+import { MilestoneProgress } from '../Manpower-and-WorkMilestones/MilestonesSummary';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
-import { DELIMITER, parseWorkPlan, serializeWorkPlan } from '../MilestoneTab';
+import { DELIMITER, parseWorkPlan, serializeWorkPlan } from '../Manpower-and-WorkMilestones/MilestoneTab';
 import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 import { Button } from '@/components/ui/button'; // Ensure Button is imported
 import { Label } from '@/components/ui/label'; // Ensure Label is imported

@@ -2,7 +2,6 @@ import React, { useRef } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Printer } from "lucide-react";
-import { useReactToPrint } from 'react-to-print';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Customers } from '@/types/NirmaanStack/Customers';
