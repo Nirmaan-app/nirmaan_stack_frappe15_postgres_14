@@ -1,20 +1,15 @@
 import { useFrappeGetDocCount } from "frappe-react-sdk";
 import {
   LucideIcon,
-  Boxes,
   HardHat,
-  Package,
-  ShoppingCart,
-  SquareUserRound,
   UsersRound,
-  Milestone,
-  PencilRuler,
-  AlertTriangle,
+  ShoppingCart,
+  Package,
+  SquareUserRound,
   ArrowUpRight,
   Layers,
-  FileBox,
   Tickets,
-  SquareStack,
+  Settings,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
@@ -34,6 +29,7 @@ export interface DashboardMetric {
   linkTo: string;
   Icon: LucideIcon;
   dataCy?: string;
+  hideCount?: boolean;
 }
 
 export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
@@ -83,42 +79,6 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     dataCy: "admin-dashboard-customers-card",
   },
   {
-    id: "product-packages",
-    title: "Product Packages",
-    description: "Procurement categories",
-    doctype: "Procurement Packages",
-    linkTo: "/product-packages",
-    Icon: Boxes,
-    dataCy: "admin-dashboard-proc-packages-card",
-  },
-  {
-    id: "milestone-packages",
-    title: "Milestone Packages",
-    description: "Work milestones",
-    doctype: "Work Headers",
-    linkTo: "/milestone-packages",
-    Icon: Milestone,
-    dataCy: "admin-dashboard-proc-packages-card",
-  },
-  {
-    id: "design-packages",
-    title: "Design Packages",
-    description: "Design categories",
-    doctype: "Design Tracker Category",
-    linkTo: "/design-packages",
-    Icon: PencilRuler,
-    dataCy: "admin-dashboard-design-packages-card",
-  },
-  {
-    id: "critical-po-categories",
-    title: "Critical PO Categories",
-    description: "Priority categories",
-    doctype: "Critical PO Category",
-    linkTo: "/critical-po-categories",
-    Icon: AlertTriangle,
-    dataCy: "admin-dashboard-critical-po-categories-card",
-  },
-  {
     id: "assets",
     title: "Assets",
     description: "Asset management",
@@ -126,15 +86,6 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     linkTo: "/asset-management",
     Icon: Layers,
     dataCy: "admin-dashboard-assets-card",
-  },
-   {
-    id: "commission-packages",
-    title: "Commision Pacakges",
-    description: "Commision Pacakges",
-    doctype: "Commission Report Category",
-    linkTo: "/commission-packages",
-    Icon: FileBox,
-    dataCy: "admin-dashboard-commission-packages-card",
   },
   {
     id: "work-order-rate-card",
@@ -146,13 +97,14 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     dataCy: "admin-dashboard-work-order-rate-card",
   },
   {
-    id: "pmo-packages",
-    title: "PMO Packages",
-    description: "PMO Packages",
-    doctype: "PMO Task Category",
-    linkTo: "/pmo-packages",
-    Icon: SquareStack,
-    dataCy: "admin-dashboard-pmo-packages-card",
+    id: "packages-settings",
+    title: "Packages Settings",
+    description: "All configuration packages",
+    doctype: "Procurement Packages", 
+    linkTo: "/packages-settings",
+    Icon: Settings,
+    dataCy: "admin-dashboard-packages-settings-card",
+    hideCount: true,
   },
 ];
 
@@ -169,6 +121,7 @@ interface DashboardMetricCardProps {
   isLoading: boolean;
   error?: unknown;
   dataCy?: string;
+  hideCount?: boolean;
 }
 
 export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
@@ -180,6 +133,7 @@ export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
   isLoading,
   error,
   dataCy,
+  hideCount,
 }) => {
   const renderContent = () => {
     if (isLoading) {
@@ -196,6 +150,9 @@ export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
     }
     if (error) {
       return <span className="text-sm text-gray-300">--</span>;
+    }
+    if (hideCount) {
+      return null;
     }
     return count !== undefined ? count : "--";
   };
@@ -353,17 +310,18 @@ export default function DefaultDashboard() {
       {/* Grid */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {metricDataHooks.map(
-          ({ id, title, description, linkTo, Icon, dataCy, data, isLoading, error }) => (
+          ({ id, title, description, linkTo, Icon, dataCy, hideCount, data, isLoading, error }) => (
             <DashboardMetricCard
               key={id}
               title={title}
               description={description}
               linkTo={linkTo}
               Icon={Icon}
-              count={data}
-              isLoading={isLoading}
-              error={error}
+              count={hideCount ? undefined : data}
+              isLoading={hideCount ? false : isLoading}
+              error={hideCount ? undefined : error}
               dataCy={dataCy}
+              hideCount={hideCount}
             />
           )
         )}
