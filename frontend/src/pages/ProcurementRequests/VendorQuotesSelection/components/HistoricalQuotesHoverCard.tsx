@@ -83,7 +83,7 @@ export const HistoricalQuotesHoverCard: React.FC<HistoricalQuotesHoverCardProps>
                                             <span className="flex items-center gap-1">
                                                 <ShoppingCart className="h-3 w-3" /> PO:
                                             </span>
-                                            <Link to={`/purchase-orders/${quote.procurement_order?.replaceAll("/", "&=")}`} className="underline hover:underline-offset-2 text-primary">
+                                            <Link to={`/all-AQs/${quote.procurement_order?.replaceAll("/", "&=")}`} className="underline hover:underline-offset-2 text-primary">
                                                 {quote.procurement_order}
                                             </Link>
                                         </div>
