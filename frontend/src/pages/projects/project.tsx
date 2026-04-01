@@ -1383,7 +1383,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectExpensesTab projectId={projectId} />;
       // --- (Indicator) NEW CASE FOR THE NEW TAB ---
       case PROJECT_PAGE_TABS.DC_MIR:
-        return <Suspense fallback={<LoadingFallback />}><ProjectDCMIRTab projectId={projectId} /></Suspense>;
+        return <Suspense fallback={<LoadingFallback />}><ProjectDCMIRTab projectId={projectId} projectName={data?.project_name} /></Suspense>;
       case PROJECT_PAGE_TABS.TDS_REPOSITORY:
         return <TDSRepositoryTab projectId={projectId} />;
       case PROJECT_PAGE_TABS.BULK_DOWNLOAD:

@@ -36,6 +36,7 @@ export interface ProjectPOItemDataItem {
   unit: string;
   item_name: string;
   work_package: string;
+  is_dispatched?: number;
 }
 
 export const projectRootKeys = {

@@ -7,7 +7,7 @@ import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ReconcileStatus = "matched" | "mismatch" | "no_dc_update";
+export type ReconcileStatus = "matched" | "mismatch" | "no_dc_update" | "pending_dn";
 
 export interface DNDCItemRow {
   itemId: string;
@@ -39,6 +39,7 @@ export interface DNDCSummary {
   matchedPOs: number;
   mismatchPOs: number;
   noDCUpdatePOs: number;
+  pendingDNPOs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +87,7 @@ export function useDNDCQuantityData(projectId: string | null) {
       fields: ["name", "status"],
       filters: [
         ["project", "=", projectId],
-        ["status", "in", ["Delivered", "Partially Delivered"]],
+        ["status", "in", ["Dispatched", "Partially Dispatched", "Delivered", "Partially Delivered"]],
       ],
       limit: 10000,
     },
@@ -117,8 +118,9 @@ export function useDNDCQuantityData(projectId: string | null) {
       return { poRows: null, summary: null };
     }
 
-    // 2. Build valid PO set
+    // 2. Build valid PO set and status map
     const validPOSet = new Set<string>(poList.map((po) => po.name));
+    const poStatusMap = new Map<string, string>(poList.map((po) => [po.name, po.status]));
 
     // 3. Merge po_items + custom_items
     const allItems = [
@@ -126,8 +128,13 @@ export function useDNDCQuantityData(projectId: string | null) {
       ...(poItemData.message.custom_items ?? []),
     ];
 
-    // 4. Filter to valid POs only
-    const filteredItems = allItems.filter((item) => validPOSet.has(item.po_number));
+    // 4. Filter to valid POs, exclude Additional Charges, and apply dispatch filter
+    const filteredItems = allItems.filter((item) => {
+      if (!validPOSet.has(item.po_number)) return false;
+      if (item.category === "Additional Charges") return false;
+      if (poStatusMap.get(item.po_number) === "Partially Dispatched" && item.is_dispatched !== 1) return false;
+      return true;
+    });
 
     // 5. Group by PO
     const poMap = new Map<
@@ -232,7 +239,9 @@ export function useDNDCQuantityData(projectId: string | null) {
         const difference = dnQty - dcQty;
 
         let status: ReconcileStatus;
-        if (dcQty >= dnQty) {
+        if (dnQty === 0 && dcQty > 0) {
+          status = "pending_dn";
+        } else if (dcQty >= dnQty) {
           status = "matched";
         } else if (dnQty > 0 && dcQty === 0) {
           status = "no_dc_update";
@@ -288,12 +297,15 @@ export function useDNDCQuantityData(projectId: string | null) {
 
       const hasMismatch = activeItems.some((i) => i.status === "mismatch");
       const hasNoDCUpdate = activeItems.some((i) => i.status === "no_dc_update");
+      const hasPendingDN = activeItems.some((i) => i.status === "pending_dn");
 
       let reconcileStatus: ReconcileStatus;
       if (hasMismatch) {
         reconcileStatus = "mismatch";
       } else if (hasNoDCUpdate) {
         reconcileStatus = "no_dc_update";
+      } else if (hasPendingDN) {
+        reconcileStatus = "pending_dn";
       } else {
         reconcileStatus = "matched";
       }
@@ -360,6 +372,7 @@ export function useDNDCQuantityData(projectId: string | null) {
     const matchedPOs = resultRows.filter((r) => r.reconcileStatus === "matched").length;
     const mismatchPOs = resultRows.filter((r) => r.reconcileStatus === "mismatch").length;
     const noDCUpdatePOs = resultRows.filter((r) => r.reconcileStatus === "no_dc_update").length;
+    const pendingDNPOs = resultRows.filter((r) => r.reconcileStatus === "pending_dn").length;
 
     return {
       poRows: resultRows,
@@ -368,6 +381,7 @@ export function useDNDCQuantityData(projectId: string | null) {
         matchedPOs,
         mismatchPOs,
         noDCUpdatePOs,
+        pendingDNPOs,
       },
     };
   }, [isLoading, poItemData, poDeliveryDocsData, poList]);
