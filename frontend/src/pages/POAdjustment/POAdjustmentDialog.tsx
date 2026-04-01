@@ -68,7 +68,7 @@ export function POAdjustmentDialog({
     candidatePOs,
     candidatesLoading,
     executing,
-  } = usePOAdjustmentDialog(poId, vendor, isOpen);
+  } = usePOAdjustmentDialog(poId, vendor, isOpen, onClose);
 
   const [isMethodDialogOpen, setIsMethodDialogOpen] = React.useState(false);
 
@@ -106,7 +106,7 @@ export function POAdjustmentDialog({
         {
           id: Math.random().toString(),
           type: "Adhoc",
-          amount: absImpact,
+          amount: 0,
           adhoc_type: "",
           description: `${poId} and ad-hoc : `,
         },
@@ -116,7 +116,7 @@ export function POAdjustmentDialog({
         {
           id: Math.random().toString(),
           type: "Refunded",
-          amount: absImpact,
+          amount: 0,
           date: new Date().toISOString().split("T")[0],
         },
       ]);
@@ -327,17 +327,16 @@ export function POAdjustmentDialog({
                                     {cand.status && (
                                       <Badge
                                         variant="outline"
-                                        className={`text-[9px] px-1.5 py-0 h-[14px] border-none leading-none font-medium ${
-                                          cand.status === "PO Approved"
-                                            ? "bg-green-50 text-green-600"
-                                            : cand.status === "Dispatched"
-                                              ? "bg-blue-50 text-blue-600"
-                                              : cand.status === "Partially Dispatched"
-                                                ? "bg-amber-50 text-amber-600"
-                                                : cand.status === "Partially Delivered"
-                                                  ? "bg-yellow-50 text-yellow-600"
-                                                  : "bg-gray-50 text-gray-500"
-                                        }`}
+                                        className={`text-[9px] px-1.5 py-0 h-[14px] border-none leading-none font-medium ${cand.status === "PO Approved"
+                                          ? "bg-green-50 text-green-600"
+                                          : cand.status === "Dispatched"
+                                            ? "bg-blue-50 text-blue-600"
+                                            : cand.status === "Partially Dispatched"
+                                              ? "bg-amber-50 text-amber-600"
+                                              : cand.status === "Partially Delivered"
+                                                ? "bg-yellow-50 text-yellow-600"
+                                                : "bg-gray-50 text-gray-500"
+                                          }`}
                                       >
                                         {cand.status}
                                       </Badge>
@@ -383,6 +382,7 @@ export function POAdjustmentDialog({
                         expenseTypesLoading={expenseTypesLoading}
                         onUpdate={updateAdjustment}
                         onRemove={removeAdjustment}
+                        maxAmount={remainingToAdjust + (adj.amount || 0)}
                       />
                     )
                 )}
@@ -397,14 +397,13 @@ export function POAdjustmentDialog({
                         adj={adj}
                         onUpdate={updateAdjustment}
                         onRemove={removeAdjustment}
+                        maxAmount={remainingToAdjust + (adj.amount || 0)}
                       />
                     )
                 )}
 
               {/* "Add Another Method" link */}
-              {adjustmentMethod === "Another PO" &&
-                isPOSelected &&
-                remainingToAdjust > 0 && (
+              {/* {remainingToAdjust > 0.01 && (
                   <button
                     onClick={() => setIsMethodDialogOpen(true)}
                     className="flex items-center gap-1.5 text-primary hover:text-primary/80 transition-colors py-1"
@@ -414,38 +413,40 @@ export function POAdjustmentDialog({
                       Add another method
                     </span>
                   </button>
-                )}
+                )} */}
 
               {/* Secondary adjustment blocks */}
               {(adhocAdjustments.some(() => adjustmentMethod !== "Adhoc") ||
                 refundItems.some(() => adjustmentMethod !== "Refunded")) && (
-                <div className="space-y-3">
-                  {adhocAdjustments.map(
-                    (adj) =>
-                      adjustmentMethod !== "Adhoc" && (
-                        <AdhocCard
-                          key={adj.id}
-                          adj={adj}
-                          expenseTypeOptions={expenseTypeOptions}
-                          expenseTypesLoading={expenseTypesLoading}
-                          onUpdate={updateAdjustment}
-                          onRemove={removeAdjustment}
-                        />
-                      )
-                  )}
-                  {refundItems.map(
-                    (adj) =>
-                      adjustmentMethod !== "Refunded" && (
-                        <RefundCard
-                          key={adj.id}
-                          adj={adj}
-                          onUpdate={updateAdjustment}
-                          onRemove={removeAdjustment}
-                        />
-                      )
-                  )}
-                </div>
-              )}
+                  <div className="space-y-3">
+                    {adhocAdjustments.map(
+                      (adj) =>
+                        adjustmentMethod !== "Adhoc" && (
+                          <AdhocCard
+                            key={adj.id}
+                            adj={adj}
+                            expenseTypeOptions={expenseTypeOptions}
+                            expenseTypesLoading={expenseTypesLoading}
+                            onUpdate={updateAdjustment}
+                            onRemove={removeAdjustment}
+                            maxAmount={remainingToAdjust + (adj.amount || 0)}
+                          />
+                        )
+                    )}
+                    {refundItems.map(
+                      (adj) =>
+                        adjustmentMethod !== "Refunded" && (
+                          <RefundCard
+                            key={adj.id}
+                            adj={adj}
+                            onUpdate={updateAdjustment}
+                            onRemove={removeAdjustment}
+                            maxAmount={remainingToAdjust + (adj.amount || 0)}
+                          />
+                        )
+                    )}
+                  </div>
+                )}
 
               {/* Method selection sub-dialog */}
               <Dialog
@@ -539,6 +540,7 @@ interface AdhocCardProps {
   expenseTypesLoading: boolean;
   onUpdate: (id: string, updates: Partial<RefundAdjustment>) => void;
   onRemove: (id: string) => void;
+  maxAmount: number;
 }
 
 function AdhocCard({
@@ -547,15 +549,20 @@ function AdhocCard({
   expenseTypesLoading,
   onUpdate,
   onRemove,
+  maxAmount,
 }: AdhocCardProps) {
+  const handleAmountChange = (val: string) => {
+    let num = parseFloat(val) || 0;
+    if (num < 0) num = 0;
+    if (num > maxAmount) num = maxAmount;
+    onUpdate(adj.id, { amount: num });
+  };
+
   return (
     <div className="rounded-lg border border-gray-200 p-4 space-y-3 bg-gray-50/50">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold text-gray-700">Ad-hoc Expense</h4>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold text-primary tabular-nums">
-            {formatToIndianRupee(adj.amount || 0)}
-          </span>
           <button
             onClick={() => onRemove(adj.id)}
             className="text-gray-300 hover:text-red-500 transition-colors p-0.5"
@@ -567,6 +574,23 @@ function AdhocCard({
 
       <div className="space-y-2.5">
         <div className="space-y-1">
+          <label className="text-[11px] font-medium text-gray-500">
+            Amount<span className="text-red-400 ml-0.5">*</span>
+          </label>
+          <div className="relative">
+            <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+            <Input
+              type="number"
+              min={0}
+              max={maxAmount}
+              value={adj.amount || ""}
+              onChange={(e) => handleAmountChange(e.target.value)}
+              className="h-8 pl-7 bg-white text-xs font-semibold"
+            />
+          </div>
+          <p className="text-[9px] text-gray-400">Max: {formatToIndianRupee(maxAmount)}</p>
+        </div>
+        <div className="space-y-1" onPointerDown={(e) => e.stopPropagation()}>
           <label className="text-[11px] font-medium text-gray-500">
             Type<span className="text-red-400 ml-0.5">*</span>
           </label>
@@ -581,20 +605,23 @@ function AdhocCard({
             }
             isLoading={expenseTypesLoading}
             placeholder="Select expense type"
-            menuPortalTarget={document.body}
-            className="react-select-container text-xs"
-            classNamePrefix="react-select"
             styles={{
               menuPortal: (base) => ({ ...base, zIndex: 9999 }),
               control: (base) => ({
                 ...base,
                 minHeight: "2rem",
+                height: "2rem",
                 borderRadius: "6px",
                 borderColor: "#e5e7eb",
                 backgroundColor: "#fff",
                 boxShadow: "none",
-                fontSize: "0.8125rem",
+                fontSize: "12px",
+                fontWeight: 500,
                 "&:hover": { borderColor: "#d1d5db" },
+              }),
+              menu: (base) => ({
+                ...base,
+                zIndex: 9999,
               }),
             }}
           />
@@ -642,17 +669,22 @@ interface RefundCardProps {
   adj: RefundAdjustment;
   onUpdate: (id: string, updates: Partial<RefundAdjustment>) => void;
   onRemove: (id: string) => void;
+  maxAmount: number;
 }
 
-function RefundCard({ adj, onUpdate, onRemove }: RefundCardProps) {
+function RefundCard({ adj, onUpdate, onRemove, maxAmount }: RefundCardProps) {
+  const handleAmountChange = (val: string) => {
+    let num = parseFloat(val) || 0;
+    if (num < 0) num = 0;
+    if (num > maxAmount) num = maxAmount;
+    onUpdate(adj.id, { amount: num });
+  };
+
   return (
     <div className="rounded-lg border border-gray-200 p-4 space-y-3 bg-white">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold text-gray-700">Vendor Refund</h4>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold text-primary tabular-nums">
-            {formatToIndianRupee(adj.amount || 0)}
-          </span>
           <button
             onClick={() => onRemove(adj.id)}
             className="text-gray-300 hover:text-red-500 transition-colors p-0.5"
@@ -663,6 +695,23 @@ function RefundCard({ adj, onUpdate, onRemove }: RefundCardProps) {
       </div>
 
       <div className="space-y-2.5">
+        <div className="space-y-1">
+          <label className="text-[11px] font-medium text-gray-500">
+            Amount<span className="text-red-400 ml-0.5">*</span>
+          </label>
+          <div className="relative">
+            <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+            <Input
+              type="number"
+              min={0}
+              max={maxAmount}
+              value={adj.amount || ""}
+              onChange={(e) => handleAmountChange(e.target.value)}
+              className="h-8 pl-7 bg-white text-xs font-semibold"
+            />
+          </div>
+          <p className="text-[9px] text-gray-400">Max: {formatToIndianRupee(maxAmount)}</p>
+        </div>
         <CustomAttachment
           selectedFile={adj.refund_attachment_file}
           onFileSelect={(file) =>
