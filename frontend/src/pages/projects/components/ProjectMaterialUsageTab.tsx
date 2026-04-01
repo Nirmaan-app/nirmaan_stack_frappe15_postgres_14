@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { VirtualizedMaterialTable } from './VirtualizedMaterialTable';
 import { POWiseMaterialTable, POWiseMaterialTableHandle } from './POWiseMaterialTable';
+import { DCMIRWiseMaterialTable, DCMIRWiseMaterialTableHandle } from './DCMIRWiseMaterialTable';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import {
   useMaterialUsageRemainingQuantities,
@@ -49,6 +50,7 @@ export interface POWiseDisplayItem {
   poNumber: string;
   vendorName: string;
   category: string;
+  billingCategory: string;
   totalOrderedQty: number;
   totalDeliveryNoteQty: number;
   totalDCQty: number;
@@ -90,6 +92,36 @@ export interface MaterialUsageDisplayItem {
   isHighValueItem?: boolean;
 }
 
+// Data structure for DC/MIR Wise view item rows
+export interface DCMIRItemDisplay {
+  itemId: string;
+  itemName: string;
+  category: string;
+  unit: string;
+  receivedQuantity: number;
+  quantity: number;
+  make?: string;
+  billingCategory: string;
+}
+
+// Data structure for DC/MIR Wise view document rows
+export interface DCMIRWiseDisplayItem {
+  documentName: string;
+  referenceNumber: string;
+  dcReference?: string;
+  poNumber: string;
+  vendorName: string;
+  dcDate?: string;
+  billingCategory: string;
+  totalReceivedQuantity: number;
+  totalQuantity: number;
+  itemCount: number;
+  isSignedByClient: boolean;
+  attachmentUrl?: string;
+  isStub: boolean;
+  items: DCMIRItemDisplay[];
+}
+
 export interface ProjectMaterialUsageTabProps {
   projectId: string;
   projectPayments?: ProjectPayments[];
@@ -109,6 +141,8 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   const {
     allMaterialUsageItems,
     poWiseItems,
+    dcWiseItems,
+    mirWiseItems,
     isLoading,
     error,
     categoryOptions,
@@ -125,6 +159,8 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
 
   // --- A2. TAB STATE & REFS ---
   const poTableRef = useRef<POWiseMaterialTableHandle>(null);
+  const dcTableRef = useRef<DCMIRWiseMaterialTableHandle>(null);
+  const mirTableRef = useRef<DCMIRWiseMaterialTableHandle>(null);
   const [activeTab, setActiveTab] = useState<string>(() => getUrlStringParam('mus_tab', 'Item Wise'));
 
   // --- B. STATE MANAGEMENT ---
@@ -334,32 +370,37 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   const tabs = [
     { label: "Item Wise", value: "Item Wise" },
     { label: "PO Wise", value: "PO Wise" },
+    { label: "DC Wise", value: "DC Wise" },
+    { label: "MIR Wise", value: "MIR Wise" },
   ];
 
   const searchPlaceholder = activeTab === "Item Wise"
     ? "Search item name, vendor..."
-    : "Search PO, vendor, category...";
-
-  // const handleExport = useCallback(() => {
-  //   if (activeTab === "Item Wise") {
-  //     handleExportCsv();
-  //   } else {
-  //     poTableRef.current?.exportCsv();
-  //   }
-  // }, [activeTab, handleExportCsv]);
-  
+    : activeTab === "PO Wise"
+      ? "Search PO, vendor, category..."
+      : activeTab === "DC Wise"
+        ? "Search DC no., PO, vendor..."
+        : "Search MIR no., PO, vendor...";
 
   const handleExport = () => {
     if (activeTab === "Item Wise") {
       handleExportCsv();
-    } else {
+    } else if (activeTab === "PO Wise") {
       poTableRef.current?.exportCsv();
+    } else if (activeTab === "DC Wise") {
+      dcTableRef.current?.exportCsv();
+    } else {
+      mirTableRef.current?.exportCsv();
     }
   };
-  
+
   const isExportDisabled = activeTab === "Item Wise"
     ? processedItems.length === 0
-    : (poWiseItems?.length ?? 0) === 0;
+    : activeTab === "PO Wise"
+      ? (poWiseItems?.length ?? 0) === 0
+      : activeTab === "DC Wise"
+        ? (dcWiseItems?.length ?? 0) === 0
+        : (mirWiseItems?.length ?? 0) === 0;
 
   return (
     <div className="flex-1 space-y-3">
@@ -432,10 +473,26 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
           hiddenColumns={hiddenColumns}
           onToggleColumnVisibility={handleToggleColumnVisibility}
         />
-      ) : (
+      ) : activeTab === "PO Wise" ? (
         <POWiseMaterialTable
           ref={poTableRef}
           items={poWiseItems || []}
+          searchTerm={debouncedSearchTerm}
+          projectId={projectId}
+        />
+      ) : activeTab === "DC Wise" ? (
+        <DCMIRWiseMaterialTable
+          ref={dcTableRef}
+          type="dc"
+          items={dcWiseItems || []}
+          searchTerm={debouncedSearchTerm}
+          projectId={projectId}
+        />
+      ) : (
+        <DCMIRWiseMaterialTable
+          ref={mirTableRef}
+          type="mir"
+          items={mirWiseItems || []}
           searchTerm={debouncedSearchTerm}
           projectId={projectId}
         />

@@ -6,7 +6,7 @@ import { po_item_data_item } from '../project';
 import { parseNumber } from '@/utils/parseNumber';
 import { useOrderTotals } from '@/hooks/useOrderTotals';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { DeliveryDocumentInfo, DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus, POWiseDisplayItem } from '../components/ProjectMaterialUsageTab';
+import { DCMIRItemDisplay, DCMIRWiseDisplayItem, DeliveryDocumentInfo, DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus, POWiseDisplayItem } from '../components/ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 import { PODeliveryDocuments } from '@/types/NirmaanStack/PODeliveryDocuments';
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -286,6 +286,21 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     return flatList;
   }, [po_item_data, projectEstimates, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap]);
 
+  // --- Vendor lookup by PO (shared by PO-wise and DC/MIR-wise) ---
+  const vendorByPO = useMemo(() => {
+    const allPoItems = [
+      ...(po_item_data?.message?.po_items || []),
+      ...(po_item_data?.message?.custom_items || [])
+    ];
+    const map = new Map<string, string>();
+    allPoItems.forEach(item => {
+      if (item.po_number && !map.has(item.po_number)) {
+        map.set(item.po_number, item.vendor_name);
+      }
+    });
+    return map;
+  }, [po_item_data]);
+
   // --- Compute PO-wise aggregated items ---
   const poWiseItems = useMemo((): POWiseDisplayItem[] => {
     if (!allMaterialUsageItems || allMaterialUsageItems.length === 0) return [];
@@ -462,18 +477,6 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
       }
     }
 
-    // Get vendor names from po_item_data
-    const allPoItems = [
-      ...(po_item_data?.message?.po_items || []),
-      ...(po_item_data?.message?.custom_items || [])
-    ];
-    const vendorByPO = new Map<string, string>();
-    allPoItems.forEach(item => {
-      if (item.po_number && !vendorByPO.has(item.po_number)) {
-        vendorByPO.set(item.po_number, item.vendor_name);
-      }
-    });
-
     return Array.from(poGroupMap.entries()).map(([poNumber, group]) => {
       const deliveryDocs = poDeliveryMap.get(poNumber);
       const categories = Array.from(group.categories);
@@ -482,6 +485,11 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         poNumber,
         vendorName: vendorByPO.get(poNumber) || '',
         category: categories.length === 1 ? categories[0] : `Multiple (${categories.length})`,
+        billingCategory: group.items.some(i => i.billingCategory === "Billable")
+          ? "Billable"
+          : group.items.some(i => i.billingCategory === "Non-Billable")
+            ? "Non-Billable"
+            : "N/A",
         totalOrderedQty: group.totalOrderedQty,
         totalDeliveryNoteQty: group.totalDeliveryNoteQty,
         totalDCQty: group.totalDCQty,
@@ -494,7 +502,74 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         items: group.items,
       };
     });
-  }, [allMaterialUsageItems, po_item_data, poDeliveryMap, poDeliveryDocsData]);
+  }, [allMaterialUsageItems, vendorByPO, poDeliveryMap, poDeliveryDocsData]);
+
+  // --- Compute DC-wise and MIR-wise aggregated items ---
+  const { dcWiseItems, mirWiseItems } = useMemo((): { dcWiseItems: DCMIRWiseDisplayItem[]; mirWiseItems: DCMIRWiseDisplayItem[] } => {
+    const docs = poDeliveryDocsData?.message || [];
+    const dcItems: DCMIRWiseDisplayItem[] = [];
+    const mirItems: DCMIRWiseDisplayItem[] = [];
+
+    // Build PO-item received quantity lookup: "poNumber_category_itemId" → received_quantity
+    const allPoItems = [
+      ...(po_item_data?.message?.po_items || []),
+      ...(po_item_data?.message?.custom_items || [])
+    ];
+    const poItemReceivedMap = new Map<string, number>();
+    allPoItems.forEach(item => {
+      const key = `${item.po_number}_${item.category}_${item.item_id}`;
+      poItemReceivedMap.set(key, (poItemReceivedMap.get(key) || 0) + safeParseFloat(item.received_quantity));
+    });
+
+    for (const doc of docs) {
+      const isStub = doc.is_stub === 1;
+
+      const displayItems: DCMIRItemDisplay[] = (doc.items || []).map(item => {
+        const recvKey = `${doc.procurement_order}_${item.category}_${item.item_id}`;
+        return {
+          itemId: item.item_id,
+          itemName: item.item_name,
+          category: item.category || "",
+          unit: item.unit,
+          receivedQuantity: poItemReceivedMap.get(recvKey) || 0,
+          quantity: item.quantity || 0,
+          make: item.make,
+          billingCategory: billingCategoryMap.get(item.item_id) || "",
+        };
+      });
+
+      const docBillingCategory = displayItems.some(i => i.billingCategory === "Billable")
+        ? "Billable"
+        : displayItems.some(i => i.billingCategory === "Non-Billable")
+          ? "Non-Billable"
+          : "N/A";
+
+      const displayItem: DCMIRWiseDisplayItem = {
+        documentName: doc.name,
+        referenceNumber: doc.reference_number || doc.name,
+        dcReference: doc.dc_reference,
+        poNumber: doc.procurement_order,
+        vendorName: vendorByPO.get(doc.procurement_order) || "",
+        dcDate: doc.dc_date,
+        billingCategory: isStub ? "N/A" : docBillingCategory,
+        totalReceivedQuantity: displayItems.reduce((sum, i) => sum + i.receivedQuantity, 0),
+        totalQuantity: displayItems.reduce((sum, i) => sum + i.quantity, 0),
+        itemCount: displayItems.length,
+        isSignedByClient: doc.is_signed_by_client === 1,
+        attachmentUrl: doc.attachment_url,
+        isStub,
+        items: displayItems,
+      };
+
+      if (doc.type === "Delivery Challan") {
+        dcItems.push(displayItem);
+      } else {
+        mirItems.push(displayItem);
+      }
+    }
+
+    return { dcWiseItems: dcItems, mirWiseItems: mirItems };
+  }, [poDeliveryDocsData, billingCategoryMap, vendorByPO, po_item_data]);
 
   // --- Generate Filter Options ---
   const categoryOptions = useMemo(() => {
@@ -529,6 +604,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
   return {
     allMaterialUsageItems,
     poWiseItems,
+    dcWiseItems,
+    mirWiseItems,
     poDeliveryMap,
     isLoading: po_item_loading || estimatesLoading || itemsLoading || poDeliveryLoading,
     error: po_item_error || estimatesError || itemsError || poDeliveryError,
