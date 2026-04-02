@@ -57,7 +57,8 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         {
             accessorKey: "project",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
-            cell: ({ row }) => <div className="font-medium">{row.original.project_name}</div>,
+            cell: ({ row }) => <div className="font-medium truncate max-w-[180px]" title={row.original.project_name}>{row.original.project_name}</div>,
+            size: 180,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -69,7 +70,8 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         {
             accessorKey: "project_gst",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST Location" />,
-            cell: ({ row }) => <Badge variant="outline" className="bg-slate-50">{row.original.project_gst_display}</Badge>,
+            cell: ({ row }) => <Badge variant="outline" className="bg-slate-50 truncate max-w-[150px]" title={row.original.project_gst_display}>{row.original.project_gst_display}</Badge>,
+            size: 150,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -81,7 +83,8 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         {
             accessorKey: "invoice_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
-            cell: ({ row }) => <div className="tabular-nums">{row.getValue("invoice_date")}</div>,
+            cell: ({ row }) => <div className="tabular-nums whitespace-nowrap">{row.getValue("invoice_date")}</div>,
+            size: 110,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 return String(row.getValue(id)).startsWith(String(value));
@@ -96,8 +99,9 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 if (type === "PO Invoice") color = "text-blue-600 bg-blue-50 border-blue-100";
                 if (type === "SR Invoice") color = "text-purple-600 bg-purple-50 border-purple-100";
                 if (type === "Project Invoice") color = "text-emerald-600 bg-emerald-50 border-emerald-100";
-                return <Badge className={`${color} border shadow-sm px-2 py-0.5`}>{type}</Badge>;
+                return <Badge className={`${color} border shadow-sm px-2 py-0.5 whitespace-nowrap`}>{type}</Badge>;
             },
+            size: 120,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -109,7 +113,8 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         {
             accessorKey: "vendor",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
-            cell: ({ row }) => <div className="font-medium">{row.original.vendor_name}</div>,
+            cell: ({ row }) => <div className="font-medium truncate max-w-[180px]" title={row.original.vendor_name}>{row.original.vendor_name}</div>,
+            size: 180,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -127,20 +132,24 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             accessorKey: "gst_percentage",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST %" />,
             cell: ({ row }) => <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100">{row.original.gst_percentage}%</Badge>,
+            size: 80,
         },
         {
             accessorKey: "gst_amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="GST Amount" className="justify-end w-full" />,
-            cell: ({ row }) => <div className="text-right tabular-nums text-blue-600 font-medium">{formatToRoundedIndianRupee(row.getValue("gst_amount"))}</div>,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="GST Amount" className="justify-end" />,
+            cell: ({ row }) => <div className="text-right tabular-nums text-blue-600 font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("gst_amount"))}</div>,
+            size: 130,
         },
         {
             accessorKey: "total_amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Total Amount" className="justify-end w-full" />,
-            cell: ({ row }) => <div className="text-right tabular-nums font-bold text-slate-900">{formatToRoundedIndianRupee(row.getValue("total_amount"))}</div>,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Total Amount" className="justify-end" />,
+            cell: ({ row }) => <div className="text-right tabular-nums font-bold text-slate-900 whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("total_amount"))}</div>,
+            size: 140,
         },
         {
             accessorKey: "attachment",
             header: "Attachment",
+            size: 100,
             cell: ({ row }) => {
                 const url = row.getValue("attachment") as string;
                 if (!url) return <span className="text-slate-400">-</span>;
@@ -219,7 +228,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
 
         return {
             ...t,
-            avgTax: t.base > 0 ? Math.round((t.gst / t.base) * 100) : 0
+            avgTax: t.base > 0 ? ((t.gst / t.base) * 100).toFixed(2) : "0"
         };
     }, [filteredRows]);
 

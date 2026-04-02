@@ -73,6 +73,12 @@ export const useProjectGSTDetailsData = () => {
     }), []);
     const { data: vendors, isLoading: isLoadingVendorMeta } = useFrappeGetDocList<any>("Vendors", vendorMetadataOptions);
 
+    const attachmentMetadataOptions = useMemo(() => ({
+        fields: ["name", "attachment"] as any,
+        limit: 0
+    }), []);
+    const { data: attachments, isLoading: isLoadingAttachmentMeta } = useFrappeGetDocList<any>("Nirmaan Attachments", attachmentMetadataOptions);
+
     const projectNameMap = useMemo(() => {
         const map: Record<string, string> = {};
         (projects || []).forEach(p => {
@@ -96,6 +102,14 @@ export const useProjectGSTDetailsData = () => {
         });
         return map;
     }, [vendors]);
+
+    const attachmentMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        (attachments || []).forEach(a => {
+            if (a.name && a.attachment) map[a.name] = a.attachment;
+        });
+        return map;
+    }, [attachments]);
 
     const poGstMap = useMemo(() => {
         const map: Record<string, string> = {};
@@ -154,7 +168,7 @@ export const useProjectGSTDetailsData = () => {
                 gst_amount: gstAmt,
                 gst_percentage: totalExcl > 0 ? Math.round((gstAmt / totalExcl) * 100) : 18,
                 total_amount: totalIncl,
-                attachment: vi.invoice_attachment
+                attachment: vi.invoice_attachment ? (attachmentMap[vi.invoice_attachment] || vi.invoice_attachment) : undefined
             } as GSTInvoiceDetail;
         });
 
@@ -182,10 +196,10 @@ export const useProjectGSTDetailsData = () => {
         });
 
         return [...normalizedVendor, ...normalizedProject].sort((a, b) => new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime());
-    }, [vendorInvoices, projectInvoices, poGstMap, srGstMap, procurementOrders, projectNameMap, gstNameMap, vendorNameMap]);
+    }, [vendorInvoices, projectInvoices, poGstMap, srGstMap, procurementOrders, projectNameMap, gstNameMap, vendorNameMap, attachmentMap]);
 
     return {
         combinedData,
-        isLoading: isLoadingVendorInvoices || isLoadingProjectInvoices || isLoadingPOs || isLoadingSRs || isLoadingProjectMeta || isLoadingGSTMeta || isLoadingVendorMeta
+        isLoading: isLoadingVendorInvoices || isLoadingProjectInvoices || isLoadingPOs || isLoadingSRs || isLoadingProjectMeta || isLoadingGSTMeta || isLoadingVendorMeta || isLoadingAttachmentMeta
     };
 };
