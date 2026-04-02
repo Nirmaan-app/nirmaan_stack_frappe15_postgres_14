@@ -19,6 +19,7 @@ export interface MonthlyGST {
 }
 
 export interface ProjectGSTRow {
+    project_id: string;
     project_name: string;
     months: Record<string, MonthlyGST>;
 }
@@ -199,6 +200,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
             });
 
             return {
+                project_id: project.name,
                 project_name: project.project_name || project.name,
                 months: monthlyData,
                 hasAnyValue
