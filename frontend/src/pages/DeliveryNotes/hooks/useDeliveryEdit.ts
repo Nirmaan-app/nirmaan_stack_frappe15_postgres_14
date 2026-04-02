@@ -99,6 +99,7 @@ export function useDeliveryEdit({
 
       const initial: Record<string, string> = {};
       for (const row of rows) {
+        if (row.isOrphaned) continue;
         const qty = row.dnQuantities[dnCol.dnName];
         if (qty != null) {
           initial[row.itemItemId] = String(qty);

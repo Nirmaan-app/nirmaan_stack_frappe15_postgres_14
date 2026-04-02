@@ -17,6 +17,8 @@ export interface PivotRow {
   isOverDelivered: boolean;
   comment?: string;
   make?: string;
+  /** True when this item exists in DN records but was removed from the PO (post-revision) */
+  isOrphaned?: boolean;
 }
 
 /** A single column header — one per Delivery Note */
