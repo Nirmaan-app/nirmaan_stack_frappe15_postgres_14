@@ -688,7 +688,8 @@ export const useApprovePRLogic = ({
 
     // --- (REFACTORED) This is the handler that gets the bug fix ---
     const handleDeleteItem = useCallback(async (itemToDelete: PRItemUIData | EditItemState) => {
-        if (!itemToDelete?.name || !orderData) return;
+        // Allow deletion if the item has a server ID (name) OR a product ID (item_id)
+        if ((!itemToDelete?.name && !itemToDelete?.item_id) || !orderData) return;
 
         const itemNameForToast = itemToDelete.item_name || 'the item';
 
@@ -709,8 +710,8 @@ export const useApprovePRLogic = ({
 
         // --- DRAFT-FIRST APPROACH ---
         if (useDraftFirst && draftManager) {
-            // Use the item's name (docname) to identify the item
-            const deletedItem = draftManager.deleteItem(itemToDelete.name!);
+            // Use the item's name (docname) or item_id to identify the item in the draft
+            const deletedItem = draftManager.deleteItem(itemToDelete.name || itemToDelete.item_id!);
 
             if (deletedItem) {
                 toast({ title: "Item Removed", description: `"${itemNameForToast}" removed. Changes will be saved when you approve.`, variant: "default" });
@@ -724,7 +725,11 @@ export const useApprovePRLogic = ({
 
         // --- LEGACY APPROACH (backwards compatibility) ---
         // 1. Calculate the intended new list of items.
-        const updatedList = orderData.order_list.filter(i => i.name !== itemToDelete.name);
+        // Fallback to item_id if name is not present (for locally added items in legacy mode)
+        const updatedList = orderData.order_list.filter(i => {
+             if (itemToDelete.name) return i.name !== itemToDelete.name;
+             return i.item_id !== itemToDelete.item_id;
+        });
 
         try {
             // 2. Call `updateDoc` to save the new, shorter list to the server.
@@ -736,7 +741,10 @@ export const useApprovePRLogic = ({
             setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
             // 4. Add the item to the undo stack as before.
-            const itemToUndo = orderData.order_list.find(i => i.name === itemToDelete.name);
+            const itemToUndo = orderData.order_list.find(i => {
+                if (itemToDelete.name) return i.name === itemToDelete.name;
+                return i.item_id === itemToDelete.item_id;
+            });
             if (itemToUndo) {
                 setUndoStack(prev => [...prev, itemToUndo]);
             }
@@ -789,14 +797,16 @@ export const useApprovePRLogic = ({
     // In useApprovePRLogic.ts, after other handlers
     // Action required deletion Happens here (for "Request" status items)
     const handleRejectRequestItem = useCallback(async (itemToReject: PRItemUIData) => {
-        if (!itemToReject?.name || !orderData) return;
+        // Allow rejection if the item has a server ID (name) OR a product ID (item_id)
+        if ((!itemToReject?.name && !itemToReject?.item_id) || !orderData) return;
 
         const itemNameForToast = itemToReject.item_name || 'the requested item';
 
         // --- DRAFT-FIRST APPROACH ---
         if (useDraftFirst && draftManager) {
             // Delete the Request item (they don't go to undo stack since they were never approved)
-            draftManager.deleteItem(itemToReject.name!);
+            // Use name or item_id fallback
+            draftManager.deleteItem(itemToReject.name || itemToReject.item_id!);
 
             // REMOVED: category_list update (mutation point 6) - categories derived from items
 
@@ -810,7 +820,10 @@ export const useApprovePRLogic = ({
 
         // --- LEGACY APPROACH (backwards compatibility) ---
         // The new list without the rejected item
-        const updatedList = orderData.order_list.filter(i => i.name !== itemToReject.name);
+        const updatedList = orderData.order_list.filter(i => {
+            if (itemToReject.name) return i.name !== itemToReject.name;
+            return i.item_id !== itemToReject.item_id;
+        });
 
         try {
             // --- 1. Persist the change to the backend ---
@@ -891,9 +904,36 @@ export const useApprovePRLogic = ({
                 status: "Pending",
             };
 
-            const updatedList = [...orderData.order_list, itemToAdd];
-            setOrderData(prev => prev ? { ...prev, order_list: updatedList as PRItemUIData[] } : null);
+            // --- DRAFT-FIRST APPROACH ---
+            if (useDraftFirst && draftManager) {
+                const draftItem: DraftItem = {
+                    name: '', // New items don't have a name yet
+                    item_id: itemToAdd.item_id!,
+                    item_name: itemToAdd.item_name!,
+                    unit: itemToAdd.unit!,
+                    quantity: itemToAdd.quantity!,
+                    category: itemToAdd.category!,
+                    procurement_package: itemToAdd.procurement_package,
+                    make: undefined,
+                    status: itemToAdd.status!,
+                    tax: itemToAdd.tax,
+                    comment: itemToAdd.comment,
+                    _isNew: true,
+                };
 
+                // Add item via draft manager (auto-saves to localStorage)
+                draftManager.addItem(draftItem);
+
+                toast({ title: "Success", description: `Item "${createdItemDoc.item_name}" created and added to draft.`, variant: "success" });
+                setIsNewItemDialogOpen(false);
+                setNewItem({}); // Reset form
+                setCurrentCategoryForNewItem(null);
+                return;
+            }
+
+            // --- LEGACY APPROACH ---
+            const updatedList = [...orderData.order_list, itemToAdd as PRItemUIData];
+            setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
             toast({ title: "Success", description: `Item "${createdItemDoc.item_name}" created and added to PR.`, variant: "success" });
             setIsNewItemDialogOpen(false);
