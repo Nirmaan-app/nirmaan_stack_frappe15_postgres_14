@@ -47,7 +47,6 @@ const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | "name")[] = [
   "project",
   "work_package",
   "order_list",
-  "category_list",
   "workflow_state",
 ];
 
@@ -135,7 +134,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   } = quotesResponse;
 
   const {
-    data: wp_list,
     isLoading: wpLoading,
     error: wpError,
   } = packagesResponse;
@@ -380,17 +378,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           },
         },
       },
-      // {
-      //     accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
-      //     cell: ({ row }) => {
-      //         const categories = row.original.category_list as { list: Category[] } | undefined;
-      //         const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
-      //         return (<div className="flex flex-wrap gap-1">{categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline">{cat.name}</Badge>)}</div>);
-      //     }, size: 180, enableSorting: false,
-      //     meta: {
-      //         excludeFromExport: true
-      //     }
-      // },
       {
         accessorKey: "estimated_total_value", // Use the processed total
         header: ({ column }) => (

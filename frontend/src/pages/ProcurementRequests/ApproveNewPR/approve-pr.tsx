@@ -6,7 +6,6 @@ import {
   useFrappeGetDocList,
   FrappeContext,
   FrappeConfig,
-  useFrappeDocTypeEventListener,
   FrappeDoc,
   GetDocListArgs,
 } from "frappe-react-sdk";
@@ -29,11 +28,7 @@ import {
 } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import {
-  ProcurementRequest,
-  ProcurementItem,
-  Category,
-} from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
@@ -166,7 +161,6 @@ export const ApprovePR: React.FC = () => {
       DEFAULT_PR_FIELDS_TO_FETCH.concat([
         "creation",
         "modified",
-        "category_list",
         "target_value",
       ]),
     []
@@ -313,40 +307,6 @@ export const ApprovePR: React.FC = () => {
         },
       },
       {
-        accessorKey: "category_list",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Categories" />
-        ),
-        cell: ({ row }) => {
-          const categories = row.getValue("category_list") as
-            | { list: Category[] }
-            | undefined;
-          const categoryItems = Array.isArray(categories?.list)
-            ? categories.list
-            : [];
-          return (
-            <div className="flex flex-wrap gap-1 items-start justify-start">
-              {categoryItems.length > 0
-                ? categoryItems.map((obj) => (
-                  <Badge key={obj.name} variant="outline" className="text-xs">
-                    {obj.name}
-                  </Badge>
-                ))
-                : "--"}
-            </div>
-          );
-        },
-        size: 180,
-        enableSorting: false,
-        meta: {
-          exportHeaderName: "Categories",
-          exportValue: (row: ProcurementRequest) => {
-            const categories = (row.category_list as { list: Category[] } | undefined)?.list || [];
-            return categories.map(c => c.name).join(", ");
-          }
-        },
-      },
-      {
         accessorKey: "owner",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Created By" />
@@ -425,19 +385,14 @@ export const ApprovePR: React.FC = () => {
   // --- Use the Server Data Table Hook ---
   const {
     table,
-    data,
     totalCount,
     isLoading: listIsLoading,
     error: listError,
-    // globalFilter, setGlobalFilter,
-    // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Use item search state
     selectedSearchField,
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
     columnFilters,
-    isRowSelectionActive,
-    refetch,
     exportAllRows,
     isExporting,
   } = useServerDataTable<ProcurementRequest>({

@@ -1248,10 +1248,6 @@ export const useApprovePRLogic = ({
                 orderListToSubmit = orderData.order_list;
                 commentToSave = universalComment;
             }
-
-            // Derive category_list from items at submission time (no longer stored as mutable state)
-            const categoryListToSubmit = { list: displayedCategoriesWithMakes };
-
             // Transform items for backend submission
             const payloadOrderList = orderListToSubmit.map(item => {
                 const backendItem: Partial<ProcurementRequestItemDetail> = {
@@ -1274,12 +1270,9 @@ export const useApprovePRLogic = ({
                 return Object.fromEntries(Object.entries(backendItem).filter(([_, v]) => v !== undefined));
             });
 
-            console.log("payloadOrderList", payloadOrderList, "categoryList", categoryListToSubmit);
-
             // 1. Update the PR Document - THIS IS THE SINGLE ATOMIC COMMIT POINT
             const updatedPR = await updateDoc("Procurement Requests", orderData.name, {
                 order_list: payloadOrderList,
-                category_list: categoryListToSubmit,
                 workflow_state: actionText,
             });
 
@@ -1328,7 +1321,7 @@ export const useApprovePRLogic = ({
             });
             setIsConfirmActionDialogOpen(false);
         }
-    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager, isCEOHold, showBlockedToast, displayedCategoriesWithMakes]);
+    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager, isCEOHold, showBlockedToast]);
 
 
     const handleOpenDeletePRDialog = useCallback(() => {
