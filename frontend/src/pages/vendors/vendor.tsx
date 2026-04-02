@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { ConfigProvider, Menu, MenuProps } from "antd";
 
 import { useVendorData } from './hooks/useVendorData';
-import { useVendorProjects, useVendorProcurementRequests, useVendorCategories, useVendorServiceRequestCounts } from './data/useVendorQueries';
+import { useVendorProjects, useVendorCategories, useVendorServiceRequestCounts } from './data/useVendorQueries';
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { OverviewSkeleton2 } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -79,7 +79,6 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
         [projects]);
 
-    const { data: procurementRequests } = useVendorProcurementRequests();
     const { data: allCategories } = useVendorCategories();
 
 
@@ -142,7 +141,6 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     vendorId={vendorId}
                     vendorName={vendor?.vendor_name || vendorId}
                     projectOptions={projectOptions}
-                    procurementRequests={procurementRequests}
                 />;
             case "vendorDeliveryNotes":
                 return <VendorDeliveryNotesTable

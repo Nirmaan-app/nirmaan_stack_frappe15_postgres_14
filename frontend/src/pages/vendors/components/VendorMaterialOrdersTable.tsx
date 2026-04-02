@@ -1,38 +1,34 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import {
   DataTable,
   SearchFieldOption,
-} from "@/components/data-table/new-data-table"; // Your new DataTable
+} from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
-import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useServerDataTable, SimpleAggregationConfig } from "@/hooks/useServerDataTable";
 import { useVendorInvoices } from "../data/useVendorQueries";
 import { formatDate } from "@/utils/FormatDate";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { parseNumber } from "@/utils/parseNumber";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { InvoiceDataDialog } from "@/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { PaymentsDataDialog } from "@/pages/ProjectPayments/PaymentsDataDialog";
-
-// src/components/cells/OrderCategoriesCell.tsx
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { TailSpin } from "react-loader-spinner";
 
 interface VendorMaterialOrdersTableProps {
   vendorId: string;
   vendorName: string;
-  // Pass necessary lookup data as props to avoid re-fetching or prop drilling deeply
   projectOptions: Array<{ label: string; value: string }>;
-  procurementRequests?: ProcurementRequest[]; // For getting work_package
 }
 
 // Fields needed for this specific table
@@ -52,6 +48,13 @@ const PO_TABLE_FIELDS: (keyof ProcurementOrder | "name")[] = [
   "latest_delivery_date",
   "po_amount_delivered",
 ];
+const PO_AGGREGATES_CONFIG: SimpleAggregationConfig[] = [
+  { field: "amount", function: "sum" },
+  { field: "total_amount", function: "sum" },
+  { field: "amount_paid", function: "sum" },
+  { field: "po_amount_delivered", function: "sum" },
+];
+
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "name", label: "PO ID", default: true },
   { value: "project_name", label: "Project" },
@@ -67,21 +70,10 @@ const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 export const VendorMaterialOrdersTable: React.FC<
   VendorMaterialOrdersTableProps
-> = ({ vendorId, vendorName, projectOptions, procurementRequests }) => {
+> = ({ vendorId, vendorName, projectOptions }) => {
   // --- State for Dialogs ---
   const [selectedInvoicePO, setSelectedInvoicePO] = useState<ProcurementOrder | undefined>();
   const [selectedPaymentPO, setSelectedPaymentPO] = useState<ProcurementOrder | undefined>();
-
-  const getWorkPackage = useCallback(
-    (prName?: string) => {
-      if (!prName || !procurementRequests) return "--";
-      return (
-        procurementRequests.find((pr) => pr.name === prName)?.work_package ||
-        "--"
-      );
-    },
-    [procurementRequests]
-  );
 
   // --- Static Filters ---
   const staticFilters = useMemo(() => {
@@ -104,6 +96,13 @@ export const VendorMaterialOrdersTable: React.FC<
     }, new Map<string, number>());
   }, [vendorInvoices]);
 
+  // Total invoiced across all vendor POs (vendor-global, not filter-reactive)
+  const totalInvoiced = useMemo(() => {
+    let sum = 0;
+    invoiceTotalsMap.forEach((v) => { sum += v; });
+    return sum;
+  }, [invoiceTotalsMap]);
+
   // Fetch Project Payments for this vendor (for payments dialog)
   const { data: projectPayments } = useFrappeGetDocList<ProjectPayments>(
     "Project Payments",
@@ -117,6 +116,14 @@ export const VendorMaterialOrdersTable: React.FC<
     } as GetDocListArgs<FrappeDoc<ProjectPayments>>,
     `ProjectPayments-vendor-${vendorId}`
   );
+
+  // Total paid for POs (vendor-global, not filter-reactive — matches totalInvoiced scope)
+  const totalPaidForPOs = useMemo(() => {
+    if (!projectPayments) return 0;
+    return projectPayments
+      .filter((p) => p.document_type === "Procurement Orders" && p.status === "Paid")
+      .reduce((sum, p) => sum + parseNumber(p.amount), 0);
+  }, [projectPayments]);
 
   // --- Dynamic Facet Values ---
   const {
@@ -260,40 +267,20 @@ export const VendorMaterialOrdersTable: React.FC<
       // },
 
       {
+        id: "project",
         accessorKey: "project_name",
-
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Project Name" />
         ),
-
-        cell: ({ row }) => {
-          return (
-            <div
-              className="truncate max-w-[150px]"
-              title={row.original.project_name}
-            >
-              {row.original.project_name}
-            </div>
-          );
-        },
-        size: 180,
-      },
-
-      {
-        id: "work_package",
-        header: "Package",
-        accessorFn: (row) => getWorkPackage(row.procurement_request),
-        cell: (info) => (
-          <div className="truncate max-w-[120px]">
-            {info.getValue<string>()}
+        cell: ({ row }) => (
+          <div
+            className="truncate max-w-[150px]"
+            title={row.original.project_name}
+          >
+            {row.original.project_name}
           </div>
         ),
-        size: 140,
-        meta: {
-          exportHeaderName: "Package",
-          exportValue: (row: ProcurementOrder) =>
-            getWorkPackage(row.procurement_request),
-        },
+        size: 180,
       },
       // {
       //     id: "categories",
@@ -508,7 +495,7 @@ export const VendorMaterialOrdersTable: React.FC<
       //     }, size: 220,
       // }
     ],
-    [projectOptions, procurementRequests, getWorkPackage, invoiceTotalsMap]
+    [projectOptions, invoiceTotalsMap]
   );
 
   const {
@@ -518,11 +505,12 @@ export const VendorMaterialOrdersTable: React.FC<
     totalCount,
     exportAllRows,
     isExporting,
-    // ... other props from useServerDataTable ...
     searchTerm,
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    aggregates,
+    isAggregatesLoading,
   } = useServerDataTable<ProcurementOrder>({
     doctype: "Procurement Orders",
     columns: columns,
@@ -530,21 +518,18 @@ export const VendorMaterialOrdersTable: React.FC<
     searchableFields: PO_SEARCHABLE_FIELDS,
     urlSyncKey: `vendor_po_list_${vendorId}`,
     additionalFilters: staticFilters,
+    aggregatesConfig: PO_AGGREGATES_CONFIG,
   });
 
   if (tableError) return <AlertDestructive error={tableError} />;
 
+  const amountDue = totalInvoiced - totalPaidForPOs;
+
   return (
     <>
-      <Alert className="bg-blue-50 border-blue-200 mb-2">
-        <Info className="h-4 w-4 text-blue-600" />
-        <AlertDescription className="text-blue-800 text-sm">
-          <strong>Note:</strong> Amount Due = Total Invoiced − Amount Paid
-        </AlertDescription>
-      </Alert>
       <DataTable<ProcurementOrder>
         table={table}
-        columns={columns} // Pass the actual column defs for rendering
+        columns={columns}
         isLoading={tableLoading}
         totalCount={totalCount}
         searchFieldOptions={PO_SEARCHABLE_FIELDS}
@@ -559,6 +544,70 @@ export const VendorMaterialOrdersTable: React.FC<
         onExportAll={exportAllRows}
         isExporting={isExporting}
         exportFileName={`${vendorName}_Material_Orders`}
+        summaryCard={
+          <Card className="border shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex flex-col lg:flex-row gap-4">
+                {/* Section 1: Filter-Reactive PO Totals */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2.5">
+                    PO Totals
+                  </p>
+                  {isAggregatesLoading ? (
+                    <div className="flex justify-center items-center h-16">
+                      <TailSpin height={20} width={20} color="#4f46e5" />
+                    </div>
+                  ) : aggregates ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="rounded-md bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-100 dark:border-slate-700/50">
+                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide leading-tight">PO Amt (Excl. GST)</div>
+                        <div className="text-sm font-semibold tabular-nums mt-1 text-blue-600 dark:text-blue-400">{formatToRoundedIndianRupee(aggregates.sum_of_amount)}</div>
+                      </div>
+                      <div className="rounded-md bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-100 dark:border-slate-700/50">
+                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide leading-tight">PO Amt (Incl. GST)</div>
+                        <div className="text-sm font-semibold tabular-nums mt-1 text-blue-600 dark:text-blue-400">{formatToRoundedIndianRupee(aggregates.sum_of_total_amount)}</div>
+                      </div>
+                      <div className="rounded-md bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-100 dark:border-slate-700/50">
+                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide leading-tight">Amount Paid</div>
+                        <div className="text-sm font-semibold tabular-nums mt-1 text-emerald-600 dark:text-emerald-400">{formatToRoundedIndianRupee(aggregates.sum_of_amount_paid)}</div>
+                      </div>
+                      <div className="rounded-md bg-slate-50 dark:bg-slate-800/50 p-2.5 border border-slate-100 dark:border-slate-700/50">
+                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide leading-tight">Amt. Delivered</div>
+                        <div className="text-sm font-semibold tabular-nums mt-1 text-indigo-600 dark:text-indigo-400">{formatToRoundedIndianRupee(aggregates.sum_of_po_amount_delivered)}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-center text-muted-foreground py-4">No data available.</div>
+                  )}
+                </div>
+
+                {/* Separator */}
+                <Separator orientation="vertical" className="hidden lg:block h-auto" />
+                <Separator className="lg:hidden" />
+
+                {/* Section 2: Vendor-Level Invoice Metrics (always global) */}
+                <div className="lg:w-[260px] flex-shrink-0">
+                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2.5">
+                    Invoice Summary{" "}
+                    <span className="text-[9px] text-slate-400 dark:text-slate-500 normal-case">(all POs)</span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="rounded-md bg-amber-50/60 dark:bg-amber-950/20 p-2.5 border border-amber-100 dark:border-amber-900/40">
+                      <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide leading-tight">Total Invoiced</div>
+                      <div className="text-sm font-semibold tabular-nums mt-1 text-amber-600 dark:text-amber-400">{formatToRoundedIndianRupee(totalInvoiced)}</div>
+                    </div>
+                    <div className="rounded-md bg-amber-50/60 dark:bg-amber-950/20 p-2.5 border border-amber-100 dark:border-amber-900/40">
+                      <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide leading-tight">Amount Due</div>
+                      <div className={cn("text-sm font-semibold tabular-nums mt-1", amountDue < 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")}>
+                        {formatToRoundedIndianRupee(amountDue)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        }
       />
 
       <InvoiceDataDialog
