@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from .procurement_requests import get_user_name
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 def after_insert(doc, method):
         proc_admin_account_users = get_allowed_procurement_users(doc) + get_admin_users() + get_allowed_accountants(doc)
@@ -117,6 +118,14 @@ def on_update(doc, method):
         frappe.delete_doc("Procurement Orders", doc.name)
 
 def on_trash(doc, method):
+    # Clean up vendor credit ledger entries referencing this PO
+    if doc.vendor:
+        frappe.db.sql("""
+            DELETE FROM "tabVendor Credit Ledger"
+            WHERE po_id = %s AND parent = %s
+        """, (doc.name, doc.vendor))
+        recalculate_vendor_credit(doc.vendor, "PO Deleted", po_id=doc.name, project=doc.project, exclude_po=doc.name)
+
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })

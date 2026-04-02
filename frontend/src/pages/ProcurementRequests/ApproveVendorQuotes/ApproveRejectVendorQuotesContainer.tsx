@@ -14,6 +14,7 @@ import { useUsersList } from '../ApproveNewPR/hooks/useUsersList';
 import { toast } from '@/components/ui/use-toast';
 import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
+import { useVendorHoldVendors } from '@/hooks/useVendorHoldVendors';
 
 export const ApproveRejectVendorQuotesContainer: React.FC = () => {
     const { id: prId } = useParams<{ id: string }>();
@@ -30,6 +31,9 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
 
     // CEO Hold check
     const { isCEOHold } = useCEOHoldGuard(prData?.project);
+
+    // Vendor Hold check
+    const { onHoldVendorIds } = useVendorHoldVendors();
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
         console.log("Procurement Requests document updated (real-time):", event);
@@ -153,6 +157,7 @@ export const ApproveRejectVendorQuotesContainer: React.FC = () => {
             attachment={null} // Pass attachment data if fetched separately
             handleAttachmentClick={() => { }} // Pass attachment click handler if needed
             isCEOHold={isCEOHold}
+            onHoldVendorIds={onHoldVendorIds}
         // Pass delayed items if calculated separately or handle within view/logic hook
         />
     );

@@ -2,9 +2,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Category, ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
-import { parseCategoryList } from "@/utils/safeJsonParse";
 import { Timeline } from "antd";
 import { FrappeDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig,useFrappePostCall } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
@@ -258,16 +257,14 @@ useEffect(() => {
     }
 
     const categories = useMemo(() => {
-        const uniqueCategories = new Map<string, Category>();
-        const parsedList = parseCategoryList<Category>(pr_data?.category_list);
-
-        parsedList.forEach((cat) => {
-            if (cat && cat.name && !uniqueCategories.has(cat.name)) {
-                uniqueCategories.set(cat.name, cat);
+        const uniqueCategories = new Map<string, { name: string }>();
+        actualPrItems.forEach((item) => {
+            if (item.category && !uniqueCategories.has(item.category)) {
+                uniqueCategories.set(item.category, { name: item.category });
             }
         });
         return Array.from(uniqueCategories.values());
-    }, [pr_data?.category_list]);
+    }, [actualPrItems]);
 
     const deletedItems = useMemo(() => {
         return actualPrItems.filter((item: ProcurementRequestItemDetail) => item.status === "Deleted");

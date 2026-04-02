@@ -8,7 +8,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ChevronDown, ChevronUp, AlertCircle, Info, MapPin, MessagesSquare, FileText, Download, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
 import { Card, CardContent } from '@/components/ui/card';
-import OverallMilestonesReportPDF from './OverallMilestonesReportPDF';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
 
@@ -44,7 +43,7 @@ interface ReportDoc {
 
 interface OverallMilestonesReportProps {
   selectedProject: string;
-  projectData?: any; 
+  projectData?: any;
   selectedZone: string;
 }
 
@@ -54,7 +53,7 @@ const getStatusBadgeClasses = (status: string) => {
     case "Completed": return "bg-green-100 text-green-800 hover:bg-green-200";
     case "WIP": return "bg-yellow-100 text-yellow-800 hover:bg-yellow-200";
     case "Not Started": return "bg-red-100 text-red-800 hover:bg-red-200";
-    case "N/A": 
+    case "N/A":
     case "Not Applicable": return "bg-gray-100 text-gray-800 hover:bg-gray-200";
     default: return "bg-blue-100 text-blue-800 hover:bg-blue-200";
   }
@@ -76,8 +75,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
 
   // Fetch Work Milestones to get the order and weightage for milestones
   const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
-      fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
-      limit: 0
+    fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
+    limit: 0
   });
 
   // const { workHeaderOrderMap } = useWorkHeaderOrder(); // Removed
@@ -88,18 +87,18 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
 
   // --- Filter Photos for Specific Comparison Dates ---
   const currentWorkPhotos = useMemo(() => {
-     if (!latestReport?.attachments) return [];
-     return latestReport.attachments.filter((a: any) => a.attach_type === 'Work');
+    if (!latestReport?.attachments) return [];
+    return latestReport.attachments.filter((a: any) => a.attach_type === 'Work');
   }, [latestReport]);
 
   const sevenDaysAgoWorkPhotos = useMemo(() => {
-     if (!report7DaysAgo?.attachments) return [];
-     return report7DaysAgo.attachments.filter((a: any) => a.attach_type === 'Work');
+    if (!report7DaysAgo?.attachments) return [];
+    return report7DaysAgo.attachments.filter((a: any) => a.attach_type === 'Work');
   }, [report7DaysAgo]);
 
   const fourteenDaysAgoWorkPhotos = useMemo(() => {
-     if (!report14DaysAgo?.attachments) return [];
-     return report14DaysAgo.attachments.filter((a: any) => a.attach_type === 'Work');
+    if (!report14DaysAgo?.attachments) return [];
+    return report14DaysAgo.attachments.filter((a: any) => a.attach_type === 'Work');
   }, [report14DaysAgo]);
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -115,7 +114,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       setIsDownloading(true);
       // Note: toast is not imported, so we'll use console/alert for now
       // If toast is needed, import from '@/components/ui/use-toast'
-      
+
       const headerParam = showPrintHeader ? '1' : '0';
       const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Projects&name=${encodeURIComponent(selectedProject)}&format=Overall%20Milestones%20Report&no_letterhead=0${selectedZone ? `&zone=${encodeURIComponent(selectedZone)}` : ''}&show_header=${headerParam}`;
 
@@ -151,7 +150,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   useEffect(() => {
     if (reportsData?.message) {
       const { current, seven_days, fourteen_days } = reportsData.message;
-      
+
       setLatestReport(current);
       setReport7DaysAgo(seven_days);
       setReport14DaysAgo(fourteen_days);
@@ -184,14 +183,14 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);
-    
+
     // Sort milestones
     Object.keys(grouped).forEach(header => {
-        grouped[header].sort((a, b) => {
-             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
-             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
-             return orderA - orderB;
-        });
+      grouped[header].sort((a, b) => {
+        const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+        const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+        return orderA - orderB;
+      });
     });
 
     return grouped;
@@ -208,14 +207,14 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   // ---------------------------------------------------------------------------
   const groupedManpower = useMemo(() => {
     if (!latestReport?.manpower) return {};
-    
+
     const allManpower = new Set<string>();
     latestReport.manpower.forEach(mp => allManpower.add(mp.label));
     report7DaysAgo?.manpower?.forEach(mp => allManpower.add(mp.label));
     report14DaysAgo?.manpower?.forEach(mp => allManpower.add(mp.label));
-    
+
     const groups: Record<string, { current: number, sevenDays: number, fourteenDays: number }> = {};
-    
+
     Array.from(allManpower).forEach(label => {
       const currentCount = latestReport.manpower.find(mp => mp.label === label)?.count || 0;
       const sevenDaysCount = report7DaysAgo?.manpower?.find(mp => mp.label === label)?.count || 0;
@@ -229,7 +228,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
         };
       }
     });
-    
+
     return groups;
   }, [latestReport, report7DaysAgo, report14DaysAgo]);
 
@@ -293,7 +292,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     }, {} as Record<string, boolean>);
     setExpandedSections(sections);
   };
-  
+
   const areAllSectionsExpanded = useMemo(() => {
     const visibleHeaders = Object.keys(groupedMilestones);
     if (visibleHeaders.length === 0) return false;
@@ -348,7 +347,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   }
 
   const hasHistoricalData = report7DaysAgo || report14DaysAgo;
-  
+
   return (
     <div className="bg-white ">
       {/* Overall Report Summary Header */}
@@ -369,7 +368,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             </div>
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
-                Limited historical data available. Showing current report data only. 
+                Limited historical data available. Showing current report data only.
                 Create more reports over time to enable comparison features.
               </p>
             </div>
@@ -388,13 +387,13 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
               <TableHeader className="bg-gray-100">
                 <TableRow>
                   <TableHead className="w-[25%] font-semibold text-gray-700 text-sm py-2 border-r">Manpower Type</TableHead>
-                  <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> 
+                  <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r">
                     <h3 className="font-semibold text-gray-700">Current</h3>
                     <p className="text-sm text-gray-600 mt-1">
                       {latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'}
                     </p>
                   </TableHead>
-                  <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> 
+                  <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r">
                     <h3 className="font-semibold text-gray-700">7 Days Ago</h3>
                     <p className="text-sm text-gray-600 mt-1">
                       {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
@@ -435,110 +434,110 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
 
         {/* Helper function to render issues for a specific report */}
         {[
-            { report: latestReport, title: "Current Report" },
-            { report: report7DaysAgo, title: "7 Days Ago" },
-            { report: report14DaysAgo, title: "14 Days Ago" }
+          { report: latestReport, title: "Current Report" },
+          { report: report7DaysAgo, title: "7 Days Ago" },
+          { report: report14DaysAgo, title: "14 Days Ago" }
         ].map(({ report, title }) => {
-            if (!report) return null;
+          if (!report) return null;
 
-            return (
-                <div key={title}>
-                    <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
-                        {title}
-                        <span className="text-sm font-normal text-gray-500">
-                            ({report.report_date ? formatDate(report.report_date, { month: 'short', day: 'numeric'}) : '--'})
-                        </span>
-                    </h4>
-                    
-                    <div className="flex flex-col gap-4">
-                      {/* Drawing Issues Card */}
-                      <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
-                        <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
-                          <div className="p-1.5 bg-orange-500 rounded-lg">
-                            <FileText className="h-4 w-4 text-white" />
-                          </div>
-                          <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
-                        </div>
-                        
-                        <div className="p-4 flex-1 flex flex-col gap-4">
-                          {/* Remarks */}
-                          <div className="flex-1">
-                            {report.drawing_remarks && report.drawing_remarks.trim() !== "" ? (
-                              <ul className="space-y-2">
-                                {report.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                                  <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
-                                    <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                                      {idx + 1}
-                                    </span>
-                                    <span className="break-words">{remark.trim()}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                                <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
-                              </div>
-                            )}
-                          </div>
+          return (
+            <div key={title}>
+              <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+                {title}
+                <span className="text-sm font-normal text-gray-500">
+                  ({report.report_date ? formatDate(report.report_date, { month: 'short', day: 'numeric' }) : '--'})
+                </span>
+              </h4>
 
-                          {/* Photos */}
-                          {report.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
-                            <div className="mt-auto pt-4 border-t border-orange-100">
-                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
-                              <ImageBentoGrid
-                                images={(report.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
-                                forPdf={false}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Site Issues Card */}
-                      <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
-                        <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
-                          <div className="p-1.5 bg-red-500 rounded-lg">
-                            <MapPin className="h-4 w-4 text-white" />
-                          </div>
-                          <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
-                        </div>
-                        
-                        <div className="p-4 flex-1 flex flex-col gap-4">
-                          {/* Remarks */}
-                          <div className="flex-1">
-                            {report.site_remarks && report.site_remarks.trim() !== "" ? (
-                              <ul className="space-y-2">
-                                {report.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                                  <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
-                                    <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                                      {idx + 1}
-                                    </span>
-                                    <span className="break-words">{remark.trim()}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                                <p className="text-sm text-gray-400 italic">No site issues reported</p>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Photos */}
-                          {report.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
-                            <div className="mt-auto pt-4 border-t border-red-100">
-                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
-                              <ImageBentoGrid
-                                images={(report.attachments || []).filter((a: any) => a.attach_type === 'Site')}
-                                forPdf={false}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
+              <div className="flex flex-col gap-4">
+                {/* Drawing Issues Card */}
+                <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
+                  <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
+                    <div className="p-1.5 bg-orange-500 rounded-lg">
+                      <FileText className="h-4 w-4 text-white" />
                     </div>
+                    <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
+                  </div>
+
+                  <div className="p-4 flex-1 flex flex-col gap-4">
+                    {/* Remarks */}
+                    <div className="flex-1">
+                      {report.drawing_remarks && report.drawing_remarks.trim() !== "" ? (
+                        <ul className="space-y-2">
+                          {report.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                            <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
+                              <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                                {idx + 1}
+                              </span>
+                              <span className="break-words">{remark.trim()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Photos */}
+                    {report.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
+                      <div className="mt-auto pt-4 border-t border-orange-100">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                        <ImageBentoGrid
+                          images={(report.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
+                          forPdf={false}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-            );
+
+                {/* Site Issues Card */}
+                <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
+                  <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
+                    <div className="p-1.5 bg-red-500 rounded-lg">
+                      <MapPin className="h-4 w-4 text-white" />
+                    </div>
+                    <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
+                  </div>
+
+                  <div className="p-4 flex-1 flex flex-col gap-4">
+                    {/* Remarks */}
+                    <div className="flex-1">
+                      {report.site_remarks && report.site_remarks.trim() !== "" ? (
+                        <ul className="space-y-2">
+                          {report.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                            <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
+                              <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                                {idx + 1}
+                              </span>
+                              <span className="break-words">{remark.trim()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <p className="text-sm text-gray-400 italic">No site issues reported</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Photos */}
+                    {report.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
+                      <div className="mt-auto pt-4 border-t border-red-100">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                        <ImageBentoGrid
+                          images={(report.attachments || []).filter((a: any) => a.attach_type === 'Site')}
+                          forPdf={false}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
         })}
       </div>
 
@@ -585,15 +584,15 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
               <h3 className="text-base md:text-lg font-bold">{header} - {activeMilestones.length.toString().padStart(2, '0')}</h3>
 
               <div className="flex items-center">
-               <span className="text-xs md:text-sm text-gray-500 mr-2">
-                 {(milestones as MilestoneSnapshot[]).length} milestone{(milestones as MilestoneSnapshot[]).length !== 1 ? 's' : ''}
-               </span>
-               {expandedSections[header] ? (
-                 <ChevronUp className="h-5 w-5 text-gray-600" />
-               ) : (
-                 <ChevronDown className="h-5 w-5 text-gray-600" />
-               )}
-             </div>
+                <span className="text-xs md:text-sm text-gray-500 mr-2">
+                  {(milestones as MilestoneSnapshot[]).length} milestone{(milestones as MilestoneSnapshot[]).length !== 1 ? 's' : ''}
+                </span>
+                {expandedSections[header] ? (
+                  <ChevronUp className="h-5 w-5 text-gray-600" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-gray-600" />
+                )}
+              </div>
               {/* <div className="flex items-center">
                 {expandedSections[header] ? (
                   <ChevronUp className="h-5 w-5 text-gray-600" />
@@ -606,137 +605,137 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             {/* Collapsible Content - Comparison Table */}
             {expandedSections[header] && (
               <div className="p-0 overflow-x-auto">
-                <Table className="w-full min-w-[1200px]"> 
+                <Table className="w-full min-w-[1200px]">
                   <TableHeader className="bg-gray-100">
-                  
-                  {/* 1. TOP HEADER ROW */}
-                  <TableRow>
-                      <TableHead 
-                          className="w-[15%] font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
-                          rowSpan={2} 
+
+                    {/* 1. TOP HEADER ROW */}
+                    <TableRow>
+                      <TableHead
+                        className="w-[15%] font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
+                        rowSpan={2}
                       >
-                          Work
-                      </TableHead> 
-                      <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
-                          Current ({latestReport.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric'}) : '--'})
+                        Work
                       </TableHead>
                       <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
-                          7 Days Ago ({report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'})
+                        Current ({latestReport.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'})
                       </TableHead>
                       <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
-                          14 Days Ago ({report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'})
+                        7 Days Ago ({report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'})
+                      </TableHead>
+                      <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
+                        14 Days Ago ({report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'})
                       </TableHead>
                     </TableRow>
-                    
+
                     {/* 2. BOTTOM HEADER ROW */}
                     <TableRow className="bg-gray-200">
                       <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                       <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
                       <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
-                      
+
                       <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                       <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
                       <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
-                      
+
                       <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                       <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
                       <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
                     </TableRow>
                   </TableHeader>
-                  
+
                   {/* TABLE BODY */}
                   <TableBody>
-                    
+
                     {/* --- NEW SUMMARY ROW (Matching PDF Layout) --- */}
                     <TableRow className="bg-gray-50 border-b-2 border-gray-100 bg-gray-300 align-middle">
-                       <TableCell className="py-2 px-4 text-sm font-bold text-gray-800">
-                          Overall Progress
-                       </TableCell>
-                       
-                       {/* Current Overall */}
-                       <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
-                           <div className="flex items-center justify-center gap-2">
-                             <span className="text-xs font-bold text-gray-700">Overall:</span>
-                             <MilestoneProgress
-                                milestoneStatus="Completed" // Always show color for avg
-                                value={currentAvg}
-                                sizeClassName="size-[36px]"
-                                textSizeClassName="text-xs"
-                             />
-                           </div>
-                       </TableCell>
+                      <TableCell className="py-2 px-4 text-sm font-bold text-gray-800">
+                        Overall Progress
+                      </TableCell>
 
-                       {/* 7 Days Overall */}
-                       <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
-                           {report7DaysAgo ? (
-                             <div className="flex items-center justify-center gap-2">
-                               <span className="text-xs font-bold text-gray-700">Overall:</span>
-                               <MilestoneProgress
-                                  milestoneStatus="Completed"
-                                  value={sevenDaysAvg}
-                                  sizeClassName="size-[36px]"
-                                  textSizeClassName="text-xs"
-                               />
-                             </div>
-                           ) : <span className="text-gray-400 text-xs">--</span>}
-                       </TableCell>
+                      {/* Current Overall */}
+                      <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-xs font-bold text-gray-700">Overall:</span>
+                          <MilestoneProgress
+                            milestoneStatus="Completed" // Always show color for avg
+                            value={currentAvg}
+                            sizeClassName="size-[36px]"
+                            textSizeClassName="text-xs"
+                          />
+                        </div>
+                      </TableCell>
 
-                       {/* 14 Days Overall */}
-                       <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
-                           {report14DaysAgo ? (
-                             <div className="flex items-center justify-center gap-2">
-                               <span className="text-xs font-bold text-gray-700">Overall:</span>
-                               <MilestoneProgress
-                                  milestoneStatus="Completed"
-                                  value={fourteenDaysAvg}
-                                  sizeClassName="size-[36px]"
-                                  textSizeClassName="text-xs"
-                               />
-                             </div>
-                           ) : <span className="text-gray-400 text-xs">--</span>}
-                       </TableCell>
+                      {/* 7 Days Overall */}
+                      <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
+                        {report7DaysAgo ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="text-xs font-bold text-gray-700">Overall:</span>
+                            <MilestoneProgress
+                              milestoneStatus="Completed"
+                              value={sevenDaysAvg}
+                              sizeClassName="size-[36px]"
+                              textSizeClassName="text-xs"
+                            />
+                          </div>
+                        ) : <span className="text-gray-400 text-xs">--</span>}
+                      </TableCell>
+
+                      {/* 14 Days Overall */}
+                      <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
+                        {report14DaysAgo ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="text-xs font-bold text-gray-700">Overall:</span>
+                            <MilestoneProgress
+                              milestoneStatus="Completed"
+                              value={fourteenDaysAvg}
+                              sizeClassName="size-[36px]"
+                              textSizeClassName="text-xs"
+                            />
+                          </div>
+                        ) : <span className="text-gray-400 text-xs">--</span>}
+                      </TableCell>
                     </TableRow>
 
                     {/* --- INDIVIDUAL MILESTONES --- */}
                     {(milestones as MilestoneSnapshot[]).map((milestone, idx) => {
-                      
+
                       // Helper to get full data (including remarks)
                       const getFullMilestoneData = (report: ReportDoc | null) => {
-                          const defaultData = { status: "N/A", progress: "N/A", remarks: "" };
-                          if (!report || !report.milestones) return defaultData;
-                          const foundMilestone = report.milestones.find(
-                              m => m.work_milestone_name === milestone.work_milestone_name && m.work_header === milestone.work_header
-                          );
-                          return foundMilestone 
-                              ? { status: foundMilestone.status, progress: foundMilestone.progress, remarks: foundMilestone.remarks }
-                              : defaultData;
+                        const defaultData = { status: "N/A", progress: "N/A", remarks: "" };
+                        if (!report || !report.milestones) return defaultData;
+                        const foundMilestone = report.milestones.find(
+                          m => m.work_milestone_name === milestone.work_milestone_name && m.work_header === milestone.work_header
+                        );
+                        return foundMilestone
+                          ? { status: foundMilestone.status, progress: foundMilestone.progress, remarks: foundMilestone.remarks }
+                          : defaultData;
                       };
-                      
+
                       const currentData = getFullMilestoneData(latestReport);
                       const sevenDaysAgoData = getFullMilestoneData(report7DaysAgo);
                       const fourteenDaysAgoData = getFullMilestoneData(report14DaysAgo);
 
                       const renderRemarksCell = (remarks: string | undefined) => (
-                          <TableCell className="text-center py-3 px-2 text-sm overflow-hidden border-r">
-                              {remarks ? <p className="text-[10px] text-gray-700 " title={remarks}>{remarks}</p> : <span className="text-gray-400 text-xs">--</span>}
-                          </TableCell>
+                        <TableCell className="text-center py-3 px-2 text-sm overflow-hidden border-r">
+                          {remarks ? <p className="text-[10px] text-gray-700 " title={remarks}>{remarks}</p> : <span className="text-gray-400 text-xs">--</span>}
+                        </TableCell>
                       );
-                      
+
                       const renderProgressCell = (data: any) => (
-                          <TableCell className="text-center py-3 px-2 text-sm font-medium ">
-                              <MilestoneProgress
-                                  milestoneStatus={data.status}
-                                  value={data.progress}
-                                  sizeClassName="size-[60px]"
-                                  textSizeClassName="text-md"
-                              />
-                          </TableCell>
+                        <TableCell className="text-center py-3 px-2 text-sm font-medium ">
+                          <MilestoneProgress
+                            milestoneStatus={data.status}
+                            value={data.progress}
+                            sizeClassName="size-[60px]"
+                            textSizeClassName="text-md"
+                          />
+                        </TableCell>
                       );
 
                       return (
                         <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} align-middle`}>
                           <TableCell className="py-3 px-4 text-sm break-words">{idx + 1}. {milestone.work_milestone_name}</TableCell>
-                          
+
                           {/* CURRENT */}
                           <TableCell className="text-center py-3 px-2">
                             <Badge variant="secondary" className={`${getStatusBadgeClasses(currentData.status)} text-xs`}>
@@ -745,7 +744,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                           </TableCell>
                           {renderProgressCell(currentData)}
                           {renderRemarksCell(currentData.remarks)}
-                          
+
                           {/* 7 DAYS */}
                           <TableCell className="text-center py-3 px-2">
                             {report7DaysAgo ? (
@@ -774,60 +773,60 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
           </div>
         );
       })}
-       
+
       <div className="mt-8 space-y-8">
         <h3 className="text-xl font-bold border-b pb-2">Work Images Comparison</h3>
-        
+
         {/* Current Photos */}
         <div>
-           <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
-              Current Report
-              <span className="text-sm font-normal text-gray-500">
-                 ({latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric'}) : '--'})
-              </span>
-           </h4>
-           {currentWorkPhotos.length > 0 ? (
-                <ImageBentoGrid images={currentWorkPhotos} forPdf={false} />
-           ) : (
-                <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for current report</div>
-           )}
+          <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+            Current Report
+            <span className="text-sm font-normal text-gray-500">
+              ({latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'})
+            </span>
+          </h4>
+          {currentWorkPhotos.length > 0 ? (
+            <ImageBentoGrid images={currentWorkPhotos} forPdf={false} />
+          ) : (
+            <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for current report</div>
+          )}
         </div>
 
         {/* 7 Days Ago Photos */}
         {report7DaysAgo && (
-            <div>
-               <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
-                  7 Days Ago
-                  <span className="text-sm font-normal text-gray-500">
-                     ({formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'})})
-                  </span>
-               </h4>
-               {sevenDaysAgoWorkPhotos.length > 0 ? (
-                    <ImageBentoGrid images={sevenDaysAgoWorkPhotos} forPdf={false} />
-               ) : (
-                    <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for 7 days ago</div>
-               )}
-            </div>
+          <div>
+            <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+              7 Days Ago
+              <span className="text-sm font-normal text-gray-500">
+                ({formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' })})
+              </span>
+            </h4>
+            {sevenDaysAgoWorkPhotos.length > 0 ? (
+              <ImageBentoGrid images={sevenDaysAgoWorkPhotos} forPdf={false} />
+            ) : (
+              <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for 7 days ago</div>
+            )}
+          </div>
         )}
 
         {/* 14 Days Ago Photos */}
         {report14DaysAgo && (
-            <div>
-               <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
-                  14 Days Ago
-                  <span className="text-sm font-normal text-gray-500">
-                     ({formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'})})
-                  </span>
-               </h4>
-               {fourteenDaysAgoWorkPhotos.length > 0 ? (
-                    <ImageBentoGrid images={fourteenDaysAgoWorkPhotos} forPdf={false} />
-               ) : (
-                    <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for 14 days ago</div>
-               )}
-            </div>
+          <div>
+            <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+              14 Days Ago
+              <span className="text-sm font-normal text-gray-500">
+                ({formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' })})
+              </span>
+            </h4>
+            {fourteenDaysAgoWorkPhotos.length > 0 ? (
+              <ImageBentoGrid images={fourteenDaysAgoWorkPhotos} forPdf={false} />
+            ) : (
+              <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for 14 days ago</div>
+            )}
+          </div>
         )}
       </div>
-      
+
       {/* PDF Download Button */}
       <div className="mt-8 flex justify-end gap-2">
         {latestReport && projectData && (
@@ -862,7 +861,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             </Button>
           </>
         )}
-        
+
         {/* Client-side PDF Download */}
         {/* <OverallMilestonesReportPDF
           latestReport={latestReport}

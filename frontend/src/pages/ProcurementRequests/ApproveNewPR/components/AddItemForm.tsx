@@ -1,19 +1,19 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react'; // Added useState, useMemo, useCallback, useEffect
-import ReactSelect, { SingleValue } from 'react-select'; // Added SingleValue
+import React, { useState, useCallback, useEffect } from 'react';
+import ReactSelect, { SingleValue } from 'react-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label'; // Added Label
+import { Label } from '@/components/ui/label';
 import { CirclePlus, X } from 'lucide-react';
-import { ItemOption, PRCategory } from '../types'; // Added PRCategory
+import { ItemOption, PRCategory } from '../types';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { parseNumber } from '@/utils/parseNumber';
-import { MakeOption, CategoryMakesMap } from '../../NewPR/types'; // Added Make types
-import { Makelist } from '@/types/NirmaanStack/Makelist'; // Added Makelist type
-import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import CategoryMakelist
-import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategoryMakesDialog'; // Added Manage Makes Dialog
-import { CustomMakeMenuList } from '../../NewPR/components/ItemSelectorControls'; // Added Custom Menu List
-import { FuzzySearchSelect } from '@/components/ui/fuzzy-search-select';
-import { IFuseOptions } from 'fuse.js';
+import { MakeOption, CategoryMakesMap } from '../../NewPR/types';
+import { Makelist } from '@/types/NirmaanStack/Makelist';
+import { ManageCategoryMakesDialog } from '../../NewPR/components/ManageCategoryMakesDialog';
+import { CustomMakeMenuList } from '../../NewPR/components/ItemSelectorControls';
+import { FuzzySearchSelect, TokenSearchConfig } from '@/components/ui/fuzzy-search-select';
+import { useMakeOptions } from '@/hooks/useMakeOptions';
+import { ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 
 
 
@@ -31,27 +31,19 @@ interface AddItemFormProps {
     isLoading: boolean;
     showNewItemsCard: boolean;
 
-    // --- Make Props (NEW) ---
-    allMakeOptions: MakeOption[];
-    initialCategoryMakes: CategoryMakesMap; // Baseline makes for the WP
+    // --- Make Props ---
+    initialCategoryMakes: CategoryMakesMap; // Baseline makes for the WP (used by ManageCategoryMakesDialog fallback)
     orderDataCategoryList: PRCategory[]; // Current derived categories from orderData state in hook
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void; // Function to update local state in hook
     makeList?: Makelist[];
-    makeListMutate: () => Promise<any>;
-    categoryMakelist?: CategoryMakelistType[]; // <<< Add prop
-    categoryMakeListMutate?: () => Promise<any>;
-    itemFuseOptions: IFuseOptions<ItemOption>;
+    projectWpCategoryMakes: ProjectWPCategoryMake[] | undefined;
+    relevantPackages: string[];
+    itemTokenSearchConfig: TokenSearchConfig;
     // --- End Make Props ---
 }
 
 
 export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
-
-    // useEffect(() => {
-    //     console.log("ADD_ITEM_FORM: Received props object:", props);
-    //     // Log the specific prop after checking the object
-    //     console.log("ADD_ITEM_FORM: Received categoryMakelist prop:", props.categoryMakelist ? `Count=${props.categoryMakelist.length}` : props.categoryMakelist);
-    // }, [props]); // Dependency on the whole props object
 
     const {
         itemOptions,
@@ -66,127 +58,27 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
         isLoading,
         showNewItemsCard,
         // Make Props
-        allMakeOptions,
         initialCategoryMakes,
-        orderDataCategoryList, // Use this prop
+        orderDataCategoryList,
         updateCategoryMakesInStore,
         makeList,
-        makeListMutate,
-        categoryMakelist, // <<< Destructure
-        categoryMakeListMutate,
-        itemFuseOptions
+        projectWpCategoryMakes,
+        relevantPackages,
+        itemTokenSearchConfig
     } = props;
     // --- State for Makes ---
     const [currentMakeOption, setCurrentMakeOption] = useState<MakeOption | null>(null);
     const [isManageMakesDialogOpen, setIsManageMakesDialogOpen] = useState(false);
     // --- End State for Makes ---
 
-    // --- Memos for Makes ---
+    // --- Makes via shared hook ---
     const currentItemCategoryName = currentItemOption?.category;
 
-    // --- *** REVISED availableMakeOptions Logic *** ---
-    const availableMakeOptions = useMemo(() => {
-        // console.log(`------- Calculating availableMakeOptions for Category: ${currentItemCategoryName || 'None'} -------`);
-
-        // Guard Clause Check
-        if (!currentItemCategoryName) {
-            // console.log("Step 0: No currentItemCategoryName selected.");
-            return [];
-        }
-        if (!categoryMakelist) {
-            // console.log("Step 0: categoryMakelist prop is missing or undefined.");
-            return [];
-        }
-        if (!allMakeOptions) {
-            // console.log("Step 0: allMakeOptions prop is missing or undefined.");
-            return [];
-        }
-        // console.log(`Step 0: Inputs seem valid. Category: ${currentItemCategoryName}, categoryMakelist count: ${categoryMakelist.length}, allMakeOptions count: ${allMakeOptions.length}`);
-
-        // Step 1: Find the relevant entry in categoryMakelist
-        const categoryMakesData = categoryMakelist.filter(cm => cm.category === currentItemCategoryName);
-        // console.log("CategoryMakesData: ", categoryMakesData);
-        // console.log(`Step 1: Found categoryMakesData for [${currentItemCategoryName}]:`, JSON.stringify(categoryMakesData, null, 2)); // Stringify for structure
-
-        // Step 2: Extract global make values
-        const globalCategoryMakeValues = categoryMakesData?.map(childRow => {
-            // Log each child row and the extracted make
-            // console.log("Step 2a: Processing childRow:", JSON.stringify(childRow), " -> Extracted make:", childRow?.make);
-            return childRow?.make;
-        })
-            .filter(makeValue => {
-                // Log which makes are kept after filtering nulls/undefined
-                const keep = Boolean(makeValue);
-                // console.log(`Step 2b: Filtering makeValue: '${makeValue}', Keeping: ${keep}`);
-                return keep;
-            }) as string[] ?? []; // Provide default empty array
-
-        // Log the final extracted list and the set created from it
-        // console.log(`Step 2c: Final globalCategoryMakeValues for [${currentItemCategoryName}]:`, globalCategoryMakeValues);
-        if (!Array.isArray(globalCategoryMakeValues)) {
-            // console.error(`Step 2 ERROR: globalCategoryMakeValues is NOT an array! Value:`, globalCategoryMakeValues);
-            return [];
-        }
-        const globalCategoryMakesSet = new Set(globalCategoryMakeValues);
-        // console.log(`Step 2d: Created globalCategoryMakesSet:`, globalCategoryMakesSet);
-
-        // Step 3: Get project-specific makes values
-        const projectSpecificMakes = initialCategoryMakes?.[currentItemCategoryName] ?? [];
-        // console.log(`Step 3a: Project specific makes (initialCategoryMakes) for [${currentItemCategoryName}]:`, projectSpecificMakes);
-        if (!Array.isArray(projectSpecificMakes)) {
-            // console.error(`Step 3 ERROR: projectSpecificMakes is NOT an array! Value:`, projectSpecificMakes);
-            // Decide how to handle this, maybe proceed with empty set?
-        }
-        const projectSpecificMakesSet = new Set(projectSpecificMakes);
-        // console.log(`Step 3b: Created projectSpecificMakesSet:`, projectSpecificMakesSet);
-
-
-        // Step 4: Filter allMakeOptions and map/mark
-        const finalOptions = allMakeOptions
-            .filter(option => {
-                const isIncluded = globalCategoryMakesSet.has(option?.value);
-                // console.log(`Step 4a: Filtering option: { label: '${option?.label}', value: '${option?.value}' } -> Included by global set? ${isIncluded}`);
-                return isIncluded;
-            })
-            .map(option => {
-                const isProjectSpecific = projectSpecificMakesSet.has(option.value);
-                const newLabel = isProjectSpecific ? `${option.label} (Project Makelist)` : option.label;
-                // console.log(`Step 4b: Mapping option: { label: '${option.label}', value: '${option.value}' } -> Is project specific? ${isProjectSpecific} -> New Label: '${newLabel}'`);
-                return {
-                    value: option.value, // Keep original value
-                    originalLabel: option.label, // Store original label for secondary sort
-                    label: newLabel, // The potentially modified label for display
-                    // isProjectSpecific: isProjectSpecific // Optional: add flag if preferred over string check
-                };
-            })
-            // --- *** START: Updated Sorting Logic *** ---
-            .sort((a, b) => {
-                const suffix = ' (Project Makelist)';
-                const aIsProject = a.label.endsWith(suffix);
-                const bIsProject = b.label.endsWith(suffix);
-
-                // 1. Primary Sort: Project-specific items first
-                if (aIsProject && !bIsProject) {
-                    return -1; // a (project) comes before b (non-project)
-                }
-                if (!aIsProject && bIsProject) {
-                    return 1; // b (project) comes after a (non-project)
-                }
-
-                // 2. Secondary Sort: Alphabetical by original label
-                // If both are project or both are non-project, sort by the original label
-                // We stored the original label in the map step for this purpose.
-                return a.originalLabel.localeCompare(b.originalLabel);
-            });
-        // --- *** END: Updated Sorting Logic *** ---
-
-        // console.log(`Step 5: Final calculated availableMakeOptions (${finalOptions.length} items):`, finalOptions);
-        // console.log(`--------------------------------------------------------------------`);
-        return finalOptions;
-
-    }, [currentItemCategoryName, categoryMakelist, allMakeOptions, initialCategoryMakes]);
-    // --- *** END REVISED Logic *** ---
-    // --- *** END REVISED Logic *** ---
+    const { makeOptions: availableMakeOptions, categoryMakelist, makeListMutate, categoryMakeListMutate } = useMakeOptions({
+        categoryName: currentItemCategoryName,
+        projectWpCategoryMakes,
+        relevantPackages,
+    });
 
     // --- Effect to reset make when item changes ---
     useEffect(() => {
@@ -225,10 +117,6 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
         setCurrentMakeOption(optionToSelect);
 
     }, [currentItemCategoryName, updateCategoryMakesInStore, setCurrentMakeOption, availableMakeOptions]); // Added availableMakeOptions dependency
-    // Custom props for the Make ReactSelect
-    const makeSelectCustomProps = {
-        onManageMakesClick: handleOpenManageMakesDialog,
-    };
     // --- End Handlers for Makes ---
 
     // --- Modified Add Handler ---
@@ -294,7 +182,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
                                     placeholder="Search or select a product..."
                                     value={currentItemOption}
                                     allOptions={itemOptions}
-                                    fuseOptions={itemFuseOptions}
+                                    tokenSearchConfig={itemTokenSearchConfig}
                                     // options={itemOptions}
                                     onChange={(selected) => setCurrentItemOption(selected as ItemOption)}
                                     isClearable

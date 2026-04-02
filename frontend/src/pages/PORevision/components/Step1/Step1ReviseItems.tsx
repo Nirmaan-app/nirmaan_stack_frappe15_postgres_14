@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import ReactSelect from "react-select";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { ITEM_TOKEN_SEARCH_CONFIG, ItemCatalogOption } from "@/hooks/useItemCatalog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
@@ -26,7 +28,8 @@ interface Step1ReviseItemsProps {
   afterSummary: SummaryData;
   difference: DifferenceData;
   netImpact: number;
-  itemOptions?: { label: string; value: string; item_id: string; item_name: string; make: string; available_makes: string[]; unit: string; category: string; tax: number }[];
+  itemOptions?: ItemCatalogOption[];
+  chargeOptions?: ItemCatalogOption[];
   isCustom?: boolean;
   poTotalAmount: number;
   poAmountPaid: number;
@@ -45,6 +48,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   difference,
   netImpact,
   itemOptions = [],
+  chargeOptions = [],
   isCustom = false,
   poTotalAmount,
   poAmountPaid,
@@ -148,7 +152,11 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
 
                     {/* Item Name */}
                     <TableCell>
-                      {isCustom ? (
+                      {item.category === "Additional Charges" ? (
+                        <div className="flex items-center h-9 px-3 text-xs font-medium text-gray-700 bg-gray-50 border rounded-md cursor-not-allowed w-full">
+                          {item.item_name}
+                        </div>
+                      ) : isCustom ? (
                         <Input
                           value={item.item_name}
                           onChange={(e) => {
@@ -160,21 +168,20 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             }
                             handleUpdateItem(idx, { ...typeUpdates, item_name: val });
                           }}
-                          disabled={isDeleted || item.category === "Additional Charges"}
+                          disabled={isDeleted}
                           placeholder="Item Name..."
                           className="text-xs font-medium h-9"
                         />
                       ) : item.item_type !== "Deleted" && item.item_type !== "Revised" ? (
-                        <ReactSelect
-                          options={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== "Deleted"))}
+                        <FuzzySearchSelect<ItemCatalogOption>
+                          allOptions={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== "Deleted"))}
+                          tokenSearchConfig={ITEM_TOKEN_SEARCH_CONFIG}
                           value={
                             item.item_id
-                              ? itemOptions.find(opt => opt.item_id === item.item_id)
-                              : item.item_name
-                                ? { label: item.item_name, value: item.item_name, item_id: "", item_name: item.item_name, make: item.make || "", unit: item.unit || "", category: "", tax: item.tax || 0 }
-                                : null
+                              ? itemOptions.find(opt => opt.item_id === item.item_id) ?? null
+                              : null
                           }
-                          onChange={(selected: any) => {
+                          onChange={(selected) => {
                             const isOriginal = item.item_type === "Original";
                             let typeUpdates: Partial<RevisionItem> = {};
                             if (selected) {
@@ -199,6 +206,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           isDisabled={isDeleted || isPartiallyDelivered}
                           placeholder="Select Item..."
                           isClearable
+                          menuPortalTarget={document.body}
                           styles={{
                             control: (base) => ({ ...base, minHeight: "36px", height: "36px", fontSize: "12px", fontWeight: 500 }),
                             valueContainer: (base) => ({ ...base, padding: "0 8px" }),
@@ -263,12 +271,11 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 });
                           }}
                           disabled={isDeleted || item.category === "Additional Charges"}
-                          className={`text-xs font-medium h-9 ${
-                            !isDeleted && item.category !== "Additional Charges" &&
+                          className={`text-xs font-medium h-9 ${!isDeleted && item.category !== "Additional Charges" &&
                             (item.quantity === undefined || item.quantity <= 0 || item.quantity < (isPartiallyDelivered ? (item.received_quantity ?? 0) : 0))
-                              ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
-                              : ""
-                          } ${item.category === "Additional Charges" ? "bg-gray-50" : ""}`}
+                            ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
+                            : ""
+                            } ${item.category === "Additional Charges" ? "bg-gray-50" : ""}`}
                         />
                       )}
                     </TableCell>
@@ -285,11 +292,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             value={item.quote}
                             onChange={(e) => handleUpdateItem(idx, { quote: parseFloat(e.target.value) || 0 })}
                             disabled={isDeleted}
-                            className={`text-xs font-medium pl-5 h-9 ${
-                              !isDeleted && (item.quote === undefined || item.quote <= 0)
-                                ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
-                                : ""
-                            }`}
+                            className={`text-xs font-medium pl-5 h-9 ${!isDeleted && (item.quote === undefined || item.quote <= 0)
+                              ? "border-red-400 ring-1 ring-red-400 bg-red-50/30"
+                              : ""
+                              }`}
                           />
                         </div>
                       )}
@@ -334,11 +340,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           handleRemoveItem(idx);
                         }}
                         disabled={item.item_type !== "New" && (item.received_quantity || 0) > 0 && !isDeleted}
-                        className={`p-0 h-7 w-7 rounded ${
-                          isDeleted
-                            ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
-                            : "text-gray-400 hover:text-red-500 hover:bg-red-50"
-                        } disabled:opacity-30 disabled:cursor-not-allowed`}
+                        className={`p-0 h-7 w-7 rounded ${isDeleted
+                          ? "text-blue-600 bg-blue-50 hover:bg-blue-100"
+                          : "text-gray-400 hover:text-red-500 hover:bg-red-50"
+                          } disabled:opacity-30 disabled:cursor-not-allowed`}
                       >
                         {isDeleted ? <Undo className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </Button>
@@ -393,7 +398,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
         onOpenChange={setIsAddChargeDialogOpen}
         onAdd={handleAddItem}
         isCustom={isCustom}
-        itemOptions={itemOptions}
+        chargeOptions={chargeOptions}
         revisionItems={revisionItems}
       />
     </div>

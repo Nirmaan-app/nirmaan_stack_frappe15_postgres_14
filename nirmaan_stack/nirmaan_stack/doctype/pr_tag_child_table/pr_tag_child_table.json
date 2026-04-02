@@ -1,0 +1,41 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-12 16:57:36.500949",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "tag_header",
+  "tag_package"
+ ],
+ "fields": [
+  {
+   "fieldname": "tag_header",
+   "fieldtype": "Link",
+   "label": "Tag Header",
+   "options": "PR Tag Headers"
+  },
+  {
+   "fieldname": "tag_package",
+   "fieldtype": "Link",
+   "label": "Tag Package",
+   "options": "Procurement Packages"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-14 15:03:52.264019",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "PR Tag Child Table",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

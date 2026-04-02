@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { ConfigProvider, Menu, MenuProps } from "antd";
 
 import { useVendorData } from './hooks/useVendorData';
-import { useVendorProjects, useVendorProcurementRequests, useVendorCategories, useVendorServiceRequestCounts } from './data/useVendorQueries';
+import { useVendorProjects, useVendorCategories, useVendorServiceRequestCounts } from './data/useVendorQueries';
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { OverviewSkeleton2 } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -14,6 +14,8 @@ import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
+import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
+import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
 
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
 const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
@@ -23,6 +25,7 @@ const VendorPaymentsTable = React.lazy(() => import("./components/VendorPayments
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
+const AllSRList = React.lazy(() => import("../ServiceRequests/service-request/all-sr-list"));
 import { cn } from "@/lib/utils";
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
 const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTable"));
@@ -45,7 +48,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [editSheetOpen, setEditSheetOpen] = useState(false);
     const toggleEditSheet = useCallback(() => setEditSheetOpen(prev => !prev), []);
-    const [serviceOrderTab, setServiceOrderTab] = useState<"approved" | "finalized">("approved");
+    const [serviceOrderTab, setServiceOrderTab] = useState<"all" | "approved" | "finalized">("all");
 
     // Effect to sync tab state TO URL
     useEffect(() => {
@@ -76,7 +79,6 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
         [projects]);
 
-    const { data: procurementRequests } = useVendorProcurementRequests();
     const { data: allCategories } = useVendorCategories();
 
 
@@ -124,6 +126,13 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                             vendorAddress={vendorAddress}
                             allCategories={allCategories}
                         />
+                        {vendor?.vendor_status === "On-Hold" && (
+                            <VendorHoldBanner
+                                vendorName={vendor.vendor_name}
+                                availableCredit={vendor.available_credit}
+                            />
+                        )}
+                        <VendorCreditManagementCard vendor={vendor} mutateVendor={mutateVendor} />
                         <VendorBankDetailsCard vendor={vendor} mutateVendor={mutateVendor} />
                     </div>
                 );
@@ -132,7 +141,6 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     vendorId={vendorId}
                     vendorName={vendor?.vendor_name || vendorId}
                     projectOptions={projectOptions}
-                    procurementRequests={procurementRequests}
                 />;
             case "vendorDeliveryNotes":
                 return <VendorDeliveryNotesTable
@@ -146,6 +154,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                         <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
                             <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
                                 {[
+                                    { label: "All WO", value: "all", count: approvedCount + finalizedCount },
                                     { label: "Approved WO", value: "approved", count: approvedCount },
                                     { label: "Finalized WO", value: "finalized", count: finalizedCount }
                                 ].map((tab) => {
@@ -154,7 +163,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                                         <button
                                             key={tab.value}
                                             type="button"
-                                            onClick={() => setServiceOrderTab(tab.value as "approved" | "finalized")}
+                                            onClick={() => setServiceOrderTab(tab.value as "all" | "approved" | "finalized")}
                                             className={cn(
                                                 "px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap",
                                                 isActive
@@ -173,6 +182,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                         </div>
 
                         {/* Tab Content */}
+                        {serviceOrderTab === "all" && <AllSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                         {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                         {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                     </div>

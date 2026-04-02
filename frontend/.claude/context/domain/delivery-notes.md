@@ -77,8 +77,9 @@ interface DeliveryNote {
 | PO Status | Can Record DN? | Visible in DN List? |
 |-----------|---------------|-------------------|
 | Drafted / PO Approved | No | No |
-| **Dispatched** | Yes (first delivery) | "Create" view only |
-| **Partially Delivered** | Yes (subsequent) | Both views |
+| **Partially Dispatched** | Yes | "Create" view (with DN count badge) |
+| **Dispatched** | Yes (first delivery) | "Create" view (with DN count badge) |
+| **Partially Delivered** | Yes (subsequent) | Both views (Create + View Existing) |
 | **Delivered** | Yes (corrections) | "View Existing" only |
 | Cancelled | No | No |
 
@@ -230,8 +231,9 @@ Return Notes record items returned to vendor. They use the same `Delivery Notes`
 
 | # | Report | File | DN Fields |
 |---|--------|------|-----------|
-| 12 | DN > DC Quantity Report | `reports/components/DNDCQuantityReport.tsx` | `received_quantity` vs DC |
-| 13 | DN > DC data hook | `reports/hooks/useDNDCQuantityData.ts` | `received_quantity` |
+| 12 | DN > DC Quantity Report | `reports/components/DNDCQuantityReport.tsx` | `received_quantity` vs DC; accepts optional `projectId`/`projectName` for embedded use; 4 statuses: matched/mismatch/no_dc_update/pending_dn |
+| 12b | DN > DC in Project tab | `projects/components/ProjectDCMIRTab.tsx` | First sub-tab in DC & MIR; renders DNDCQuantityReport with project props |
+| 13 | DN > DC data hook | `reports/hooks/useDNDCQuantityData.ts` | `received_quantity`, `is_dispatched`; filters Additional Charges; dispatch-aware for Partially Dispatched POs |
 | 14 | PO Reports — delivery date column | `reports/components/columns/poColumns.tsx:53-79` | `latest_delivery_date` |
 | 15 | PO Reports — DN link icon | `poColumns.tsx:254-260` | Links to DN page |
 | 16 | PO Reports — status filters | `reports/components/POReports.tsx:86, 140-141` | Delivered/Partially Delivered |

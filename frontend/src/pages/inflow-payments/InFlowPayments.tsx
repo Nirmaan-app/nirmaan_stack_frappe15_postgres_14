@@ -133,7 +133,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
       `inflow_${urlContext}_${(customerId || projectId || "all").replace(
         /[^a-zA-Z0-9]/g,
         "_"
-      )} `,
+      )}`,
     [urlContext, customerId, projectId]
   );
 
@@ -326,7 +326,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     </span>
                     <HoverCard>
                       <HoverCardTrigger asChild>
-                        <Link to={`/ projects / ${row.original.project} `}>
+                        <Link to={`/projects/${row.original.project}`}>
                           <Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" />
                         </Link>
                       </HoverCardTrigger>
@@ -365,7 +365,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     </span>
                     <HoverCard>
                       <HoverCardTrigger asChild>
-                        <Link to={`/ customers / ${row.original.customer} `}>
+                        <Link to={`/customers/${row.original.customer}`}>
                           <Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" />
                         </Link>
                       </HoverCardTrigger>
@@ -625,7 +625,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             customerId ||
             projectId ||
             "all"
-          ).replace(/[^a-zA-Z0-9]/g, "_")} `}
+          ).replace(/[^a-zA-Z0-9]/g, "_")}`}
           getRowClassName={getCEOHoldRowClassName}
           // toolbarActions={
           //     !projectId && !customerId && ( // Only show if not in specific project/customer context

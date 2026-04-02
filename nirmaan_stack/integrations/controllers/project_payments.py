@@ -3,6 +3,7 @@
 import frappe
 from frappe import _
 from frappe.utils import nowdate
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -156,6 +157,15 @@ def on_update(doc, method):
             print("No accountants found with push notifications enabled.")
     
     elif old_doc.status == 'Approved' and doc.status == 'Paid':
+        # Vendor credit recalculation on payment fulfillment
+        if doc.document_type == "Procurement Orders":
+            try:
+                po = frappe.get_cached_doc("Procurement Orders", doc.document_name)
+                if po.vendor:
+                    recalculate_vendor_credit(po.vendor, "Payment Fulfilled", po_id=doc.document_name, project=doc.project)
+            except frappe.DoesNotExistError:
+                pass
+
         allowed_users = get_allowed_lead_users(doc) + get_admin_users() + get_allowed_manager_users(doc) + get_allowed_procurement_users(doc)
         project = frappe.get_doc("Projects", doc.project)
         vendor = frappe.get_doc("Vendors", doc.vendor)
@@ -199,6 +209,15 @@ def on_trash(doc, method):
     """
     # Always revert to "Created" - frontend will determine eligibility based on due_date
     _find_and_update_po_term(doc, "Created", clear_link=True)
+
+    # Vendor credit recalculation on payment deletion
+    if doc.document_type == "Procurement Orders":
+        try:
+            po = frappe.get_cached_doc("Procurement Orders", doc.document_name)
+            if po.vendor:
+                recalculate_vendor_credit(po.vendor, "Payment Deleted", po_id=doc.document_name, project=doc.project)
+        except frappe.DoesNotExistError:
+            pass
 
     # --- Existing notification and comment cleanup logic ---
     frappe.db.delete("Nirmaan Comments", {"reference_name": doc.name})

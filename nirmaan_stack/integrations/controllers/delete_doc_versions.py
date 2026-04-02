@@ -37,7 +37,6 @@ def generate_versions(doc, method):
         # JSON fields are usually already strings or dicts/lists that json.dumps can handle
         # but if they contain nested datetime objects, serialize_dates would catch them too.
         # data["changed"].append(["order_list", doc.order_list, []])
-        data["changed"].append(["category_list", doc.category_list, []])
         data["changed"].append(["pr_details", serialize_dates(pr_details), []])
     
     elif doc.doctype == "Project Payments":
@@ -110,7 +109,6 @@ def generate_versions(doc, method):
         }
         data["changed"].append(["item_list", doc.item_list, []])
         data["changed"].append(["sb_details", serialize_dates(sb_details), []])
-        data["changed"].append(["category_list", doc.category_list, []])
         
     # Ensure Project Estimates also serializes dates if needed
     elif doc.doctype == "Project Estimates":

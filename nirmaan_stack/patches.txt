@@ -93,6 +93,11 @@ nirmaan_stack.patches.v3_0.add_is_dispatched_field
 nirmaan_stack.patches.v3_0.migrate_delivery_data_to_delivery_notes #v6
 nirmaan_stack.patches.v3_0.remove_additional_charges_from_delivery_notes
 nirmaan_stack.patches.v3_0.rename_wld_rr_to_critical_room_elv
-
 nirmaan_stack.patches.v3_0.migrate_po_amendment_to_revision
 nirmaan_stack.patches.v3_0.backfill_po_revision_approved_by
+nirmaan_stack.patches.v3_0.migrate_work_package_to_pr_tags #10
+nirmaan_stack.patches.v3_0.add_vendor_credit_fields #v3
+nirmaan_stack.patches.v3_0.migrate_project_gst
+nirmaan_stack.patches.v3_0.migrate_project_invoices_gst
+nirmaan_stack.patches.v3_0.recalculate_po_amount_delivered_with_ac
+nirmaan_stack.patches.v3_0.fix_stale_vendor_category_json

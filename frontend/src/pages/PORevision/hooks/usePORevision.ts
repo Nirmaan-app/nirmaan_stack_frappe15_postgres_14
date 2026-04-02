@@ -7,13 +7,11 @@ import {
   SummaryData
 } from "../types";
 import {
-  useProcurementRequestForRevision,
-  useRevisionCategories,
-  useRevisionItems,
-  useRevisionCategoryMakelist,
+  useProjectForRevision,
   useRevisionVendorInvoices,
 } from "../data/usePORevisionQueries";
 import { useCreateRevision } from "../data/usePORevisionMutations";
+import { useItemCatalog } from "@/hooks/useItemCatalog";
 
 interface UsePORevisionProps {
   po: ProcurementOrder;
@@ -37,20 +35,20 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
 
   const afterSummary = useMemo<SummaryData>(() => {
     const totalExclGst = revisionItems.reduce((sum, item) => {
-        if (item.item_type === "Deleted") return sum;
-        const qty = item.quantity || 0;
-        const rate = item.quote || 0;
-        return sum + (qty * rate);
+      if (item.item_type === "Deleted") return sum;
+      const qty = item.quantity || 0;
+      const rate = item.quote || 0;
+      return sum + (qty * rate);
     }, 0);
 
     const totalInclGst = revisionItems.reduce((sum, item) => {
-        if (item.item_type === "Deleted") return sum;
-        const qty = item.quantity || 0;
-        const rate = item.quote || 0;
-        const tax = item.tax || 0;
-        const amount = qty * rate;
-        const total = amount + (amount * tax / 100);
-        return sum + total;
+      if (item.item_type === "Deleted") return sum;
+      const qty = item.quantity || 0;
+      const rate = item.quote || 0;
+      const tax = item.tax || 0;
+      const amount = qty * rate;
+      const total = amount + (amount * tax / 100);
+      return sum + total;
     }, 0);
 
     return { totalExclGst, totalInclGst };
@@ -77,37 +75,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   }, [open, po]);
 
   // ─── Centralized Data Fetching ────────────────────────────
-  const { data: prData } = useProcurementRequestForRevision(po?.procurement_request);
-  const workPackage = prData?.work_package;
-
-  const { data: categories } = useRevisionCategories(workPackage);
-  const categoryNames = useMemo(() => categories?.map(c => c.name) || [], [categories]);
-
-  const { data: itemsList } = useRevisionItems(workPackage, categoryNames);
-  const { data: categoryMakelist } = useRevisionCategoryMakelist(workPackage, categoryNames);
-
-  const itemOptions = useMemo(() => {
-    if (!itemsList) return [];
-    const categoryMap = new Map(categories?.map(c => [c.name, c]) || []);
-    const categoryMakesMap = new Map<string, string[]>();
-    categoryMakelist?.forEach(m => {
-        if (!categoryMakesMap.has(m.category)) categoryMakesMap.set(m.category, []);
-        categoryMakesMap.get(m.category)!.push(m.make);
-    });
-    return itemsList.map(item => ({
-      label: item.item_name,
-      value: item.name,
-      item_id: item.name,
-      item_name: item.item_name,
-      make: item.make_name || "",
-      available_makes: categoryMakesMap.get(item.category) || (item.make_name ? [item.make_name] : []),
-      unit: item.unit_name || "",
-      category: item.category,
-      procurement_package: categoryMap.get(item.category)?.work_package || "",
-      tax: parseFloat(categoryMap.get(item.category)?.tax || "0")
-    }));
-  }, [itemsList, categories, categoryMakelist]);
-
+  const { data: projectDoc } = useProjectForRevision(po?.project);
+  const { itemOptions, chargeOptions } = useItemCatalog();
   const { data: invoices } = useRevisionVendorInvoices(po?.name, open);
 
   // ─── Centralized Mutations ───────────────────────────────
@@ -132,9 +101,9 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     const item = newItems[index];
 
     if (item.item_type === "Original") {
-       newItems[index] = { ...item, ...updates, item_type: updates.item_type || "Revised" };
+      newItems[index] = { ...item, ...updates, item_type: updates.item_type || "Revised" };
     } else {
-       newItems[index] = { ...item, ...updates };
+      newItems[index] = { ...item, ...updates };
     }
     setRevisionItems(newItems);
   };
@@ -146,15 +115,15 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     if (item.item_type === "Original" || item.item_type === "Revised") {
       newItems[index] = { ...item, item_type: "Deleted" };
     } else if (item.item_type === "Deleted") {
-       // Check if original existed
-       if (item.original_row_id) {
-           const original = po.items.find(i => i.name === item.original_row_id);
-           if (original) {
-               // Check if it was revised before being deleted
-               const isRevised = Object.keys(item).some(k => (item as any)[k] !== (original as any)[k] && k !== 'item_type');
-               newItems[index] = { ...original, item_type: isRevised ? "Revised" : "Original", original_row_id: original.name };
-           }
-       }
+      // Check if original existed
+      if (item.original_row_id) {
+        const original = po.items.find(i => i.name === item.original_row_id);
+        if (original) {
+          // Check if it was revised before being deleted
+          const isRevised = Object.keys(item).some(k => (item as any)[k] !== (original as any)[k] && k !== 'item_type');
+          newItems[index] = { ...original, item_type: isRevised ? "Revised" : "Original", original_row_id: original.name };
+        }
+      }
     } else {
       newItems.splice(index, 1);
     }
@@ -249,5 +218,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     handleRemoveItem,
     handleSave,
     itemOptions,
+    chargeOptions,
+    projectDoc,
   };
 };

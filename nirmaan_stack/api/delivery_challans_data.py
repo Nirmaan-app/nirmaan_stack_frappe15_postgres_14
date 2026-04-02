@@ -6,7 +6,7 @@ from frappe.utils import flt
 @frappe.whitelist()
 def get_delivery_challan_pos_with_categories(project_id=None):
 	"""
-	API to fetch Procurement Orders with 'Partially Delivered' or 'Delivered' status
+	API to fetch Procurement Orders with dispatch or delivery status
 	along with their categories and item details from Purchase Order Item child table.
 
 	Args:
@@ -21,7 +21,7 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 	"""
 	# Build filters for Procurement Orders
 	filters = {
-		"status": ["in", ["Partially Dispatched", "Partially Delivered", "Delivered"]]
+		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]
 	}
 
 	if project_id:
@@ -155,7 +155,7 @@ def get_unique_categories_for_delivery_challans(project_id=None):
 		}
 	"""
 	filters = {
-		"status": ["in", ["Partially Dispatched", "Partially Delivered", "Delivered"]]
+		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]
 	}
 
 	if project_id:

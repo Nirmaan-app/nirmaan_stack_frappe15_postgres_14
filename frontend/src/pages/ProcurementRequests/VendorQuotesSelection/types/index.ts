@@ -1,8 +1,7 @@
-import { 
+import {
     ProcurementRequest as GlobalProcurementRequest, // Original type from NirmaanStack
     ProcurementRequestItemDetail,      // The definitive child table item structure
     RFQData as GlobalRFQData, // Rename original to avoid conflict
-    Category as PRCategoryType // Category structure within PR's category_list JSON
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { 
     SentBackCategory as GlobalSentBackCategory, // Original type
@@ -75,23 +74,6 @@ export function getItemListFromDocument(doc?: ProgressDocument): ProgressItem[] 
     // Since both doctypes use `order_list`, we can unify the logic.
     return doc.order_list || [];
 }
-// Assuming category_list is still JSON in both PR and SBC for now
-export const getCategoryListFromDocument = (doc?: ProgressDocument): PRCategoryType[] => {
-    if (!doc || !doc.category_list) return [];
-    if (typeof doc.category_list === 'string') {
-        try {
-            const parsed = JSON.parse(doc.category_list);
-            return (parsed && Array.isArray(parsed.list)) ? parsed.list : [];
-        } catch (e) {
-            console.error("Failed to parse category_list JSON:", e, doc.category_list);
-            return [];
-        }
-    }
-    if (typeof doc.category_list === 'object' && Array.isArray(doc.category_list.list)) {
-        return doc.category_list.list;
-    }
-    return [];
-};
 
 /**
  * --- NEW ---
@@ -108,8 +90,7 @@ export const getCategoryListFromDocument = (doc?: ProgressDocument): PRCategoryT
 
 // --- RFQ and Form Data Related Types (can remain largely the same if keys are consistent) ---
 // RFQData uses item names/IDs as keys. Ensure these keys match item.item_id from ProgressItem.
-export type { RFQData }; // Assuming RFQData structure itself doesn't need to change
-                         // Its `details` object is keyed by item ID.
+// RFQData is already exported as an interface above (line 50)
 
 // --- Hook Return Type ---
 // This interface defines what useProcurementProgressLogic will return.

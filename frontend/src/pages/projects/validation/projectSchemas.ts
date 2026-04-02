@@ -38,10 +38,6 @@ const projectScopeSchema = z.object({
     work_package: z.string()
 });
 
-const projectGstSchema = z.object({
-    location: z.string(),
-    gst: z.string(), // Add GST validation if needed
-});
 
 export const projectFormSchema = z.object({
     // Section 1: Project Details
@@ -102,10 +98,8 @@ export const projectFormSchema = z.object({
         scopes: z.array(projectScopeSchema) // Add validation if scopes are required based on WPs
     }),
 
-    // Other fields
-    project_gst_number: z.object({
-        list: z.array(projectGstSchema)
-    }),
+    // GST
+    project_gst: z.string().min(1, "Project GST is required"),
 
 }).refine(data => { // Top-level refine for cross-field validation like dates
     if (data.project_start_date && data.project_end_date && data.project_end_date < data.project_start_date) {

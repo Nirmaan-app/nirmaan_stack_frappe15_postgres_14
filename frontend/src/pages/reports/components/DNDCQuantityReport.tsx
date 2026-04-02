@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  Clock,
   ArrowDown,
   ArrowUp,
   ChevronsUpDown,
@@ -61,6 +62,8 @@ function getReconcileRowClasses(status: ReconcileStatus): string {
       return "bg-amber-50 border-l-4 border-l-amber-500";
     case "no_dc_update":
       return "bg-red-50 border-l-4 border-l-red-500";
+    case "pending_dn":
+      return "bg-blue-50 border-l-4 border-l-blue-500";
   }
 }
 
@@ -72,6 +75,8 @@ function getItemRowClasses(status: ReconcileStatus): string {
       return "bg-amber-50/50";
     case "no_dc_update":
       return "bg-red-50/50";
+    case "pending_dn":
+      return "bg-blue-50/50";
   }
 }
 
@@ -104,6 +109,15 @@ function getStatusBadge(status: ReconcileStatus) {
           No DC Update
         </Badge>
       );
+    case "pending_dn":
+      return (
+        <Badge
+          className="bg-blue-100 text-blue-700 border-blue-300"
+          variant="outline"
+        >
+          Pending DN
+        </Badge>
+      );
   }
 }
 
@@ -115,6 +129,8 @@ function getStatusLabel(status: ReconcileStatus): string {
       return "Mismatch";
     case "no_dc_update":
       return "No DC Update";
+    case "pending_dn":
+      return "Pending DN";
   }
 }
 
@@ -319,7 +335,7 @@ function DNDCQuantityReportContent({
   // --- Faceted filters ---
   const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<string>>(
-    new Set(["mismatch", "no_dc_update"])
+    new Set(["mismatch", "no_dc_update", "pending_dn"])
   );
 
   // --- Sort state ---
@@ -502,8 +518,7 @@ function DNDCQuantityReportContent({
   if (poRows && poRows.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-12">
-        No POs with status &quot;Delivered&quot; or &quot;Partially
-        Delivered&quot; found for this project.
+        No POs with dispatch or delivery status found for this project.
       </div>
     );
   }
@@ -512,7 +527,7 @@ function DNDCQuantityReportContent({
     <div className="flex flex-col gap-4">
       {/* Summary cards */}
       {summary && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Card className="border-green-200 bg-green-50">
             <CardContent className="p-3 flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -543,6 +558,17 @@ function DNDCQuantityReportContent({
                   {summary.noDCUpdatePOs}
                 </div>
                 <div className="text-xs text-red-600">No DC Update</div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-blue-200 bg-blue-50">
+            <CardContent className="p-3 flex items-center gap-2">
+              <Clock className="h-5 w-5 text-blue-600" />
+              <div>
+                <div className="text-lg font-semibold text-blue-700">
+                  {summary.pendingDNPOs}
+                </div>
+                <div className="text-xs text-blue-600">Pending DN</div>
               </div>
             </CardContent>
           </Card>
@@ -647,7 +673,7 @@ function DNDCQuantityReportContent({
                   className="h-24 text-center text-muted-foreground"
                 >
                   {poRows && poRows.length === 0
-                    ? "No POs with 'Delivered' or 'Partially Delivered' status found."
+                    ? "No POs with dispatch or delivery status found."
                     : "No results match your filters."}
                 </TableCell>
               </TableRow>
@@ -792,7 +818,12 @@ function DNDCQuantityReportContent({
 // 5. MAIN EXPORTED COMPONENT
 // =================================================================================
 
-export default function DNDCQuantityReport() {
+interface DNDCQuantityReportProps {
+  projectId?: string;
+  projectName?: string;
+}
+
+export default function DNDCQuantityReport({ projectId: propProjectId, projectName: propProjectName }: DNDCQuantityReportProps = {}) {
   const [selectedProject, setSelectedProject] = useState<{
     value: string;
     label: string;
@@ -800,45 +831,51 @@ export default function DNDCQuantityReport() {
 
   const { assignmentsLookup } = useProjectAssignees();
 
+  // When embedded in a project page, use props directly; otherwise use selector state
+  const effectiveProjectId = propProjectId ?? selectedProject?.value ?? null;
+  const effectiveProjectName = propProjectName ?? selectedProject?.label ?? "";
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Project selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
-          Select Project:
-        </span>
-        <div className="w-full max-w-md">
-          <ProjectSelect
-            onChange={(option) => setSelectedProject(option)}
-            universal={false}
-          />
+      {/* Project selector — hidden when embedded inside a project page */}
+      {!propProjectId && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
+            Select Project:
+          </span>
+          <div className="w-full max-w-md">
+            <ProjectSelect
+              onChange={(option) => setSelectedProject(option)}
+              universal={false}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Info alert */}
       <Alert variant="default" className="border-blue-200 bg-blue-50">
         <Info className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-sm text-blue-800">
-          Flags items where Delivery Note (DN) quantities exceed Delivery
-          Challan (DC) quantities for POs with status &quot;Delivered&quot; or
-          &quot;Partially Delivered&quot;. Cases where DC meets or exceeds DN
-          are treated as matched.
+          Compares Delivery Note (DN) vs Delivery Challan (DC) quantities for
+          POs with dispatch or delivery status. Flags mismatches where DN
+          exceeds DC, items with no DC update, and items with DCs but no DN
+          yet (Pending DN).
         </AlertDescription>
       </Alert>
 
       {/* Project team strip */}
-      {selectedProject && (
+      {effectiveProjectId && (
         <ProjectTeamStrip
-          projectId={selectedProject.value}
+          projectId={effectiveProjectId}
           assignmentsLookup={assignmentsLookup}
         />
       )}
 
-      {selectedProject ? (
+      {effectiveProjectId ? (
         <DNDCQuantityReportContent
-          key={selectedProject.value}
-          projectId={selectedProject.value}
-          projectName={selectedProject.label}
+          key={effectiveProjectId}
+          projectId={effectiveProjectId}
+          projectName={effectiveProjectName}
         />
       ) : (
         <div className="text-center text-muted-foreground py-12">

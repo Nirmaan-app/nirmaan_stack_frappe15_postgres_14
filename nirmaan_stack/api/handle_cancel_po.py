@@ -1,5 +1,6 @@
 import frappe
 import json
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 @frappe.whitelist()
 def handle_cancel_po(po_id: str, comment: str = None):
@@ -52,16 +53,7 @@ def handle_cancel_po(po_id: str, comment: str = None):
             new_sent_back_doc.procurement_request = pr_doc.name
             new_sent_back_doc.project = po_doc.project
             
-            # Prepare data for child table and JSON field
-            categories_for_json = []
-            added_categories = set()
-
             for item_doc in regular_items_to_send_back:
-                # Build category list for the JSON field
-                if item_doc.category not in added_categories:
-                    categories_for_json.append({"name": item_doc.category, "makes": []})
-                    added_categories.add(item_doc.category)
-
                 # Prepare the item dictionary for the child table
                 item_dict = item_doc.as_dict()
                 item_dict["status"] = "Pending"
@@ -74,9 +66,6 @@ def handle_cancel_po(po_id: str, comment: str = None):
                 # **DEFINITIVE FIX:** Use .append() to add the item to the child table
                 new_sent_back_doc.append("order_list", item_dict)
 
-            # Set the JSON field for categories
-            new_sent_back_doc.category_list = json.dumps({"list": categories_for_json})
-            
             # Insert the fully populated document
             new_sent_back_doc.insert(ignore_permissions=True)
             sent_back_doc_name = new_sent_back_doc.name
@@ -99,8 +88,12 @@ def handle_cancel_po(po_id: str, comment: str = None):
                 "subject": "PO Cancelled", "comment_by": frappe.session.user
             }).insert(ignore_permissions=True)
         
+        # Vendor credit recalculation after PO cancellation
+        if po_doc.vendor:
+            recalculate_vendor_credit(po_doc.vendor, "PO Cancelled", po_id=po_doc.name, project=po_doc.project)
+
         frappe.db.commit()
-        
+
         message = f"PO {po_id} cancelled successfully."
         if sent_back_doc_name:
             message += f" New Sent Back document {sent_back_doc_name} created for {len(regular_items_to_send_back)} item(s)."

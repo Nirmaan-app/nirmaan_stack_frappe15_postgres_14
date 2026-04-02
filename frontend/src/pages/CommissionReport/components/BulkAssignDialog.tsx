@@ -23,14 +23,17 @@ import { Users, Check, AlertCircle } from 'lucide-react';
 interface DesignerOption {
     value: string; // userId
     label: string; // fullName
+    userName: string;
     email: string;
+    roleLabel: string;
+    searchableLabel: string;
 }
 
 interface BulkAssignDialogProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     selectedTasks: CommissionReportTask[];
-    usersList: { name: string; full_name: string; email?: string }[];
+    usersList: { name: string; full_name: string; email?: string; role_profile?: string }[];
     onBulkAssign: (taskUpdates: Map<string, AssignedDesignerDetail[]>) => Promise<void>;
 }
 
@@ -57,11 +60,18 @@ export const BulkAssignDialog: React.FC<BulkAssignDialogProps> = ({
     // Map usersList to react-select option format
     const designerOptions: DesignerOption[] = useMemo(
         () =>
-            usersList.map((u) => ({
-                value: u.name,
-                label: u.full_name || u.name,
-                email: u.email || '',
-            })),
+            usersList.map((u) => {
+                const userName = u.full_name || u.name;
+                const roleLabel = u.role_profile?.split(" ").slice(1, 3).join(" ") || "";
+                return {
+                    value: u.name,
+                    label: userName,
+                    userName,
+                    email: u.email || '',
+                    roleLabel,
+                    searchableLabel: roleLabel ? `${userName} (${roleLabel})` : userName,
+                };
+            }),
         [usersList]
     );
 
@@ -112,7 +122,7 @@ export const BulkAssignDialog: React.FC<BulkAssignDialogProps> = ({
                     .filter((d) => !item.existingIds.has(d.value))
                     .map((d) => ({
                         userId: d.value,
-                        userName: d.label,
+                        userName: d.userName,
                         userEmail: d.email,
                     }));
                 if (toAdd.length > 0) {
@@ -194,10 +204,10 @@ export const BulkAssignDialog: React.FC<BulkAssignDialogProps> = ({
                         </div>
                     </div>
 
-                    {/* Section 2: Add Designers */}
+                    {/* Section 2: Add Assigner */}
                     <div className="space-y-1.5">
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Add Designers
+                            Add Assigner
                         </p>
                         <ReactSelect<DesignerOption, true>
                             isMulti
@@ -206,11 +216,22 @@ export const BulkAssignDialog: React.FC<BulkAssignDialogProps> = ({
                             onChange={(newValue) =>
                                 setSelectedNewDesigners(newValue as DesignerOption[])
                             }
-                            placeholder="Select designers to assign..."
+                            placeholder="Select assignees to assign..."
                             classNamePrefix="react-select"
+                            formatOptionLabel={(option) => (
+                                <div>
+                                    {option.userName}
+                                    {option.roleLabel && (
+                                        <span className="text-red-700 font-light">
+                                            {" "}({option.roleLabel})
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            getOptionLabel={(option) => option.searchableLabel || option.userName}
                             styles={getSelectStyles<DesignerOption, true>()}
-                            menuPortalTarget={document.body}
-                            menuPosition="fixed"
+                            maxMenuHeight={220}
+                            menuShouldScrollIntoView={false}
                             isDisabled={isSaving}
                         />
                     </div>

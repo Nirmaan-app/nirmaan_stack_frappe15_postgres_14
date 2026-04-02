@@ -42,7 +42,6 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
             rfq_details = rfq_data.get("details", {})
 
             itemlist_for_sent_back_doc = []
-            new_categories = []
             new_rfq_details = {}
 
             # Iterate only over items that need to be sent back
@@ -57,19 +56,13 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                         "quote": flt(item.get("quote")),
                         "unit": item.get("unit"),
                         "category": item.get("category"),
-                        "procurement_package": item.get("procurement_package") or pr_doc.work_package,
+                        "procurement_package": item.get("procurement_package"),
                         "status": "Pending",
                         "comment": item.get("comment"),
                         "make": item.get("make"),
                         "vendor": item.get("vendor"),
                     })
 
-                    if not any(cat["name"] == item.get("category") for cat in new_categories):
-                        category_list_from_pr = frappe.parse_json(pr_doc.category_list).get('list', []) if pr_doc.category_list else []
-                        category_info = next((cat for cat in category_list_from_pr if cat["name"] == item.get("category")), None)
-                        makes = category_info.get("makes", []) if category_info else []
-                        new_categories.append({"name": item.get("category"), "makes": makes})
-                    
                     if item_name in rfq_details:
                         new_rfq_details[item_name] = rfq_details[item_name]
 
@@ -77,7 +70,6 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                 sent_back_doc = frappe.new_doc("Sent Back Category")
                 sent_back_doc.procurement_request = pr_name
                 sent_back_doc.project = project_id
-                sent_back_doc.category_list = {"list": new_categories}
                 sent_back_doc.type = "Rejected"
                 sent_back_doc.rfq_data = {"selectedVendors": selected_vendors, "details": new_rfq_details}
 

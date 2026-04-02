@@ -54,12 +54,15 @@ export function PivotTableBody({
 }: PivotTableBodyProps) {
   return (
     <TableBody>
-      {pivotData.rows.map((row) => (
+      {pivotData.rows
+        .filter((row) => !(viewMode === "create" && row.isOrphaned))
+        .map((row) => (
         <TableRow
           key={row.itemId}
           className={cn(
-            viewMode !== "create" &&
-              row.isOverDelivered
+            viewMode !== "create" && row.isOrphaned
+              ? "bg-red-50/30 dark:bg-red-950/10"
+              : viewMode !== "create" && row.isOverDelivered
                 ? "bg-amber-50 dark:bg-amber-950/30"
                 : viewMode !== "create" && row.isFullyDelivered
                   ? "bg-green-50 dark:bg-green-950/30"
@@ -70,14 +73,19 @@ export function PivotTableBody({
           <TableCell
             className={cn(
               "sticky left-0 z-20 py-1.5 px-1.5 sm:px-2 max-w-[140px] sm:max-w-[180px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]",
-              viewMode !== "create" && row.isOverDelivered
-                ? "bg-amber-50 dark:bg-amber-950/30"
-                : viewMode !== "create" && row.isFullyDelivered
-                  ? "bg-green-50 dark:bg-green-950/30"
-                  : "bg-background"
+              viewMode !== "create" && row.isOrphaned
+                ? "bg-red-50/30 dark:bg-red-950/10"
+                : viewMode !== "create" && row.isOverDelivered
+                  ? "bg-amber-50 dark:bg-amber-950/30"
+                  : viewMode !== "create" && row.isFullyDelivered
+                    ? "bg-green-50 dark:bg-green-950/30"
+                    : "bg-background"
             )}
           >
-            <div className="text-sm line-clamp-2 break-words">
+            <div className={cn(
+              "text-sm line-clamp-2 break-words",
+              row.isOrphaned && "line-through text-red-400 dark:text-red-500"
+            )}>
               {row.itemName}
               {row.make && (
                 <span className="text-red-500 font-light"> - {row.make}</span>
@@ -99,14 +107,20 @@ export function PivotTableBody({
           </TableCell>
 
           {/* Unit */}
-          <TableCell className="py-1.5 px-1.5 sm:px-2 text-center text-xs">
+          <TableCell className={cn(
+            "py-1.5 px-1.5 sm:px-2 text-center text-xs",
+            row.isOrphaned && "line-through text-red-400 dark:text-red-500"
+          )}>
             {row.unit}
           </TableCell>
 
           {/* Ordered Qty */}
           {!isProjectManager && (
-            <TableCell className="py-1.5 px-1.5 sm:px-2 text-right tabular-nums text-xs">
-              {row.orderedQty}
+            <TableCell className={cn(
+              "py-1.5 px-1.5 sm:px-2 text-right tabular-nums text-xs",
+              row.isOrphaned && "text-red-400 dark:text-red-500"
+            )}>
+              {row.isOrphaned ? "N/A" : row.orderedQty}
             </TableCell>
           )}
 
@@ -121,20 +135,31 @@ export function PivotTableBody({
                   key={col.dnName}
                   className="py-1.5 px-2 text-center bg-primary/5"
                 >
-                  <Input
-                    type="number"
-                    className="h-7 w-16 text-xs text-center mx-auto"
-                    value={editedQuantities?.[row.itemItemId] ?? ""}
-                    onChange={(e) =>
-                      onEditQuantityChange?.(
-                        row.itemItemId,
-                        e.target.value,
-                        Infinity
-                      )
-                    }
-                    min={0}
-                    placeholder="0"
-                  />
+                  {row.isOrphaned ? (
+                    <span className={cn(
+                      "text-xs",
+                      currentDnQty !== 0
+                        ? "text-red-400 dark:text-red-500"
+                        : "text-muted-foreground"
+                    )}>
+                      {currentDnQty !== 0 ? currentDnQty : "--"}
+                    </span>
+                  ) : (
+                    <Input
+                      type="number"
+                      className="h-7 w-16 text-xs text-center mx-auto"
+                      value={editedQuantities?.[row.itemItemId] ?? ""}
+                      onChange={(e) =>
+                        onEditQuantityChange?.(
+                          row.itemItemId,
+                          e.target.value,
+                          Infinity
+                        )
+                      }
+                      min={0}
+                      placeholder="0"
+                    />
+                  )}
                 </TableCell>
               );
             }
@@ -162,50 +187,61 @@ export function PivotTableBody({
           {/* New entry column (only when creating, not editing existing) */}
           {showEdit && !editingDnName && (
             <TableCell className="py-1.5 px-2 text-center bg-primary/5">
-              <Input
-                type="number"
-                className="h-7 w-16 text-xs text-center mx-auto"
-                value={submitHook.newlyDeliveredQuantities[row.itemId] || ""}
-                onChange={(e) =>
-                  submitHook.handleNewlyDeliveredChange(
-                    row.itemId,
-                    e.target.value,
-                    Infinity
-                  )
-                }
-                min={0}
-                placeholder="0"
-              />
+              {row.isOrphaned ? (
+                <span className="text-muted-foreground text-xs">--</span>
+              ) : (
+                <Input
+                  type="number"
+                  className="h-7 w-16 text-xs text-center mx-auto"
+                  value={submitHook.newlyDeliveredQuantities[row.itemId] || ""}
+                  onChange={(e) =>
+                    submitHook.handleNewlyDeliveredChange(
+                      row.itemId,
+                      e.target.value,
+                      Infinity
+                    )
+                  }
+                  min={0}
+                  placeholder="0"
+                />
+              )}
             </TableCell>
           )}
 
           {/* Return entry column */}
           {showReturn && !editingDnName && (
             <TableCell className="py-1.5 px-2 text-center bg-red-50/30 dark:bg-red-950/10">
-              <Input
-                type="number"
-                className="h-7 w-16 text-xs text-center mx-auto"
-                value={returnHook?.returnQuantities[row.itemId] || ""}
-                onChange={(e) =>
-                  returnHook?.handleReturnQuantityChange(
-                    row.itemId,
-                    e.target.value,
-                    row.totalReceived
-                  )
-                }
-                disabled={row.totalReceived <= 0}
-                max={row.totalReceived}
-                min={0}
-                placeholder="0"
-              />
+              {row.isOrphaned ? (
+                <span className="text-muted-foreground text-xs">--</span>
+              ) : (
+                <Input
+                  type="number"
+                  className="h-7 w-16 text-xs text-center mx-auto"
+                  value={returnHook?.returnQuantities[row.itemId] || ""}
+                  onChange={(e) =>
+                    returnHook?.handleReturnQuantityChange(
+                      row.itemId,
+                      e.target.value,
+                      row.totalReceived
+                    )
+                  }
+                  disabled={row.totalReceived <= 0}
+                  max={row.totalReceived}
+                  min={0}
+                  placeholder="0"
+                />
+              )}
             </TableCell>
           )}
 
           {/* Total Received */}
           {!hideTotalReceived && (
-            <TableCell className="py-1.5 px-2 text-right tabular-nums text-xs font-medium">
+            <TableCell className={cn(
+              "py-1.5 px-2 text-right tabular-nums text-xs font-medium",
+              row.isOrphaned && "text-red-400 dark:text-red-500"
+            )}>
               {row.totalReceived}
-              {viewMode !== "create" && (
+              {viewMode !== "create" && !row.isOrphaned && (
                 row.isOverDelivered ? (
                   <AlertTriangle className="inline ml-1 h-3 w-3 text-amber-600" />
                 ) : row.isFullyDelivered ? (

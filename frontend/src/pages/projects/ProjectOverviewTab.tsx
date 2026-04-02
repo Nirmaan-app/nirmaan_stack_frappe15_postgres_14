@@ -14,34 +14,26 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
 import ReactSelect from 'react-select';
 
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
-import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
-import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, LinkIcon } from "lucide-react";
+import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { Projects } from "@/types/NirmaanStack/Projects";
-// IMPORT THE NEW COMPONENT AND ITS INTERFACE
-import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerPODialog";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import { ProjectDriveLink } from "./components/ProjectDriveLink";
+import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
+import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
 
 
 interface ProjectOverviewTabProps {
@@ -63,7 +55,14 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   const { role } = useUserData();
   const navigate = useNavigate();
-  const { createDoc, loading: createDocLoading } = useFrappeCreateDoc();
+  const {
+    createUserPermission,
+    createDocLoading,
+    projectInflowsResponse,
+    projectTypeResponse,
+    projectAssigneesResponse,
+  } = useProjectOverviewApi(projectData?.name, projectData?.project_type);
+  const { gstOptions } = useGstOptions();
 
   const [selectedUser, setSelectedUser] = useState<string | undefined>();
   const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
@@ -78,27 +77,17 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   // Accordion state
   const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
 
-  const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
-    fields: ["amount", "name"],
-    filters: [['project', '=', projectData?.name]],
-    limit: 0
-  })
+  const { data: projectInflows, isLoading: projectInflowsLoading } = projectInflowsResponse;
 
   const totalAmountReceived = getTotalInflowAmount(projectInflows || [])
 
-  const { data: projectType, isLoading: projectTypeLoading } = useFrappeGetDoc("Project Types", projectData?.project_type, projectData?.project_type ? undefined : null)
+  const { data: projectType, isLoading: projectTypeLoading } = projectTypeResponse;
 
-  const { data: projectAssignees, isLoading: projectAssigneesLoading, mutate: projectAssigneesMutate } = useFrappeGetDocList("Nirmaan User Permissions",
-    {
-      fields: ["user"],
-      limit: 0,
-      filters: [
-        ["for_value", "=", `${projectData?.name}`],
-        ["allow", "=", "Projects"],
-      ],
-    },
-    projectData?.name ? `User Permission, filters(for_value),=,${projectData?.name}` : null
-  );
+  const {
+    data: projectAssignees,
+    isLoading: projectAssigneesLoading,
+    mutate: projectAssigneesMutate,
+  } = projectAssigneesResponse;
 
   const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate, } = useUsersList()
 
@@ -200,11 +189,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   const handleAssignUserSubmit = async () => {
     try {
-      await createDoc("User Permission", {
-        user: selectedUser,
-        allow: "Projects",
-        for_value: projectData?.name,
-      });
+      if (!selectedUser || !projectData?.name) return;
+      await createUserPermission(selectedUser, projectData.name);
       await projectAssigneesMutate();
       await usersListMutate();
       toggleAssignUserDialog();
@@ -269,7 +255,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           <CardTitle>
             <div className="flex justify-between items-center">
               <p className="text-2xl">Project Details</p>
-              
+
               <div className="flex flex-col md:flex-row items-center gap-2 w-full md:w-auto">
                 {role !== "Nirmaan Accountant Profile" && (
                   <Button onClick={() => navigate("add-estimates")} className="w-full md:w-auto">
@@ -386,14 +372,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               </p>
             </CardDescription> */}
             <CardDescription className="space-y-2 md:text-end">
-              <span>Nirmaan GST(s) for billing</span>
-              <ul className="list-disc list-inside space-y-1">
-                {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
-                  <li key={item?.location}>
-                    <span className="font-bold">{item?.location}</span>
-                  </li>
-                ))}
-              </ul>
+              <span>Nirmaan GST for billing</span>
+              <p className="font-bold text-black">
+                {projectData?.project_gst
+                  ? `${gstOptions.find(opt => opt.value === projectData.project_gst)?.location || "--"} - ${projectData.project_gst}`
+                  : "--"}
+              </p>
             </CardDescription>
           </div>
         </CardContent>
@@ -541,7 +525,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       <Card>
         <ProjectDriveLink projectId={projectData.name} role={role} />
       </Card>
-      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name}/>
+      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name} />
     </div>
   )
 }

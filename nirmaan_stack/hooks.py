@@ -230,6 +230,15 @@ doc_events = {
     "Delivery Notes": {
         "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.delivery_notes.on_trash",
+    },
+    "Category": {
+        "after_rename": "nirmaan_stack.integrations.controllers.category.handle_category_rename"
+    },
+    "PMO Task Category": {
+        "after_rename": "nirmaan_stack.api.pmo_sync.handle_category_rename"
+    },
+    "PMO Task Master": {
+        "on_update": "nirmaan_stack.api.pmo_sync.sync_task_master_update"
     }
 }
 
@@ -244,25 +253,11 @@ scheduler_events = {
 		"nirmaan_stack.populate_target_rates.populate_target_rates_by_unit",
         "nirmaan_stack.tasks.item_status_update.update_item_status"
 	],
-   
-  
-# 	"hourly": [
-# 		"nirmaan_stack.tasks.hourly"
-# 	],
-
-# 	"weekly": [
-# 		"nirmaan_stack.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"nirmaan_stack.tasks.monthly"
-# 	],
-    #  "cron": {
-    #     "12 15 * * *": [
-    #         "nirmaan_stack.tasks.item_status_update.update_item_status"
-    #     ],
-       
-       
-    #  }
+	"cron": {
+		"30 4 * * *": [
+			"nirmaan_stack.tasks.vendor_credit_update.update_all_vendor_credits"
+		]
+	}
 }
 
 # Testing
@@ -363,6 +358,10 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
+    "PR Tag Headers",
+    "Project GST",
+    "PMO Task Category",
+    "PMO Task Master"
     # "Pincodes"
 ]
 

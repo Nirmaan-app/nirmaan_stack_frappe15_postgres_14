@@ -86,6 +86,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
   const [vendorFilter, setVendorFilter] = React.useState<Set<string>>(new Set());
   const [deliveryStatusFilter, setDeliveryStatusFilter] = React.useState<Set<string>>(new Set());
   const [paymentStatusFilter, setPaymentStatusFilter] = React.useState<Set<string>>(new Set());
+  const [billingCategoryFilter, setBillingCategoryFilter] = React.useState<Set<string>>(new Set());
 
   // --- Filter Option Lists (derived from data) ---
   const vendorOptions = React.useMemo(() => {
@@ -100,6 +101,11 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
 
   const paymentStatusOptions = React.useMemo(() => {
     const unique = new Set(items.map(i => i.paymentStatus));
+    return Array.from(unique).sort().map(v => ({ label: v, value: v }));
+  }, [items]);
+
+  const billingCatOptions = React.useMemo(() => {
+    const unique = new Set(items.map(i => i.billingCategory).filter(Boolean));
     return Array.from(unique).sort().map(v => ({ label: v, value: v }));
   }, [items]);
 
@@ -147,7 +153,12 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
       result = result.filter(item => paymentStatusFilter.has(item.paymentStatus));
     }
 
-    // 5. Sort
+    // 5. Billing Category filter
+    if (billingCategoryFilter.size > 0) {
+      result = result.filter(item => billingCategoryFilter.has(item.billingCategory));
+    }
+
+    // 6. Sort
     if (sortKey) {
       const getValue = (po: POWiseDisplayItem): number => {
         if (sortKey === 'dcCount') return po.dcs.length;
@@ -161,7 +172,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
     }
 
     return result;
-  }, [items, searchTerm, vendorFilter, deliveryStatusFilter, paymentStatusFilter, sortKey, sortDirection]);
+  }, [items, searchTerm, vendorFilter, deliveryStatusFilter, paymentStatusFilter, billingCategoryFilter, sortKey, sortDirection]);
 
   const toggleExpand = React.useCallback((poNumber: string) => {
     setExpandedPOs(prev => {
@@ -195,6 +206,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
 
     const headers = [
       'PO Number', 'Vendor', 'Category', 'Item Name', 'Unit',
+      'Billing Category',
       'Ordered Qty', 'Delivery Note Qty', 'DC Qty', 'MIR Qty',
       'Rate', 'Delivery Status', 'Payment Status'
     ];
@@ -209,6 +221,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
           'Category': item.categoryName,
           'Item Name': item.itemName || 'N/A',
           'Unit': item.unit || '-',
+          'Billing Category': item.billingCategory || 'N/A',
           'Ordered Qty': item.orderedQuantity.toFixed(2),
           'Delivery Note Qty': item.deliveredQuantity.toFixed(2),
           'DC Qty': item.dcQuantity.toFixed(2),
@@ -247,6 +260,12 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
               </div>
             </TableHead>
             <TableHead className="text-center min-w-[80px]">Items</TableHead>
+            <TableHead className="min-w-[130px]">
+              <div className="flex items-center gap-1">
+                <SimpleFacetedFilter title="Billing Category" options={billingCatOptions} selectedValues={billingCategoryFilter} onSelectedValuesChange={setBillingCategoryFilter} />
+                <span>Billing Cat.</span>
+              </div>
+            </TableHead>
             <POSortableHeader {...sortProps('totalOrderedQty')} className="text-right min-w-[120px]">Ordered Qty</POSortableHeader>
             <POSortableHeader {...sortProps('totalDeliveryNoteQty')} className="text-right min-w-[120px]">DN Qty</POSortableHeader>
             <POSortableHeader {...sortProps('totalDCQty')} className="text-right min-w-[100px]">DC Qty</POSortableHeader>
@@ -270,7 +289,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
         </TableHeader>
         <TableBody>
           {flatRows.length === 0 && (
-            <TableRow><TableCell colSpan={13} className="h-24 text-center">No POs found.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={14} className="h-24 text-center">No POs found.</TableCell></TableRow>
           )}
 
           {flatRows.map((row: any) => {
@@ -306,6 +325,13 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
                   </TableCell>
                   <TableCell className="py-2 px-3 text-sm text-muted-foreground">{po.vendorName}</TableCell>
                   <TableCell className="text-center py-2 px-3 font-mono text-sm">{po.items.length}</TableCell>
+                  <TableCell className="py-2 px-3 text-sm">
+                    <Badge variant={po.billingCategory === "Billable" ? "default" : "secondary"}
+                      className={po.billingCategory === "Billable" ? "bg-blue-100 text-blue-700 border-blue-300" : ""}
+                    >
+                      {po.billingCategory}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-right py-2 px-3 font-mono text-sm">{po.totalOrderedQty.toFixed(2)}</TableCell>
                   <TableCell className="text-right py-2 px-3 font-mono text-sm">{po.totalDeliveryNoteQty.toFixed(2)}</TableCell>
                   <TableCell className="text-right py-2 px-3 font-mono text-sm">{po.totalDCQty.toFixed(2)}</TableCell>
@@ -369,6 +395,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
                   )}
                 </TableCell>
                 <TableCell className="text-center py-1.5 px-3 text-xs text-muted-foreground">-</TableCell>
+                <TableCell className="py-1.5 px-3 text-xs text-muted-foreground">{item.billingCategory || "N/A"}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.orderedQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.deliveredQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.dcQuantity.toFixed(2)}</TableCell>

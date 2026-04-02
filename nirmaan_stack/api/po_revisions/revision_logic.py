@@ -12,6 +12,7 @@ from nirmaan_stack.api.po_adjustments._payment_utils import (
     _append_return_payment_term,
     _reduce_payment_terms_lifo,
 )
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 PO_REVISION_AUTO_APPROVAL_THRESHOLD = 5000.0
 
@@ -205,6 +206,14 @@ def on_approval_revision(revision_name, _internal=False):
         # Step 3: Create/update PO Adjustment doc
         if diff != 0:
             _create_or_update_adjustment(revision_doc, diff, auto_entries)
+
+        # Vendor credit recalculation after revision approval
+        original_po_for_credit = frappe.get_cached_doc("Procurement Orders", revision_doc.revised_po)
+        if original_po_for_credit.vendor:
+            recalculate_vendor_credit(
+                original_po_for_credit.vendor, "Revision Approved",
+                po_id=revision_doc.revised_po, project=revision_doc.project
+            )
 
         # Step 4: Finalize Status
         revision_doc.status = "Approved"

@@ -1,13 +1,12 @@
 // src/routes.tsx
 import { lazy, Suspense } from "react";
-import { RouteObject } from "react-router-dom";
+import { Navigate, RouteObject } from "react-router-dom";
 
 // --- Import all necessary components used in routes ---
-import { ManPowerOverallSummary } from "@/components/ManPowerOverallSummary";
-import { ManPowerReport } from "@/components/ManPowerReport";
+// import { ManPowerOverallSummary } from "@/components/ManPowerOverallSummary";
+// import { ManPowerReport } from "@/components/ManPowerReport";
 import { MainLayout } from "@/components/layout/main-layout";
 import { NotificationsPage } from "@/components/nav/notifications";
-import { ProcurementPackages } from "@/components/procurement-packages";
 import { LivePRTrackingTable } from "@/components/procurement-request/LivePRTrackingTable";
 import ListPR from "@/components/procurement-request/list-pr";
 import { EstimatedPriceOverview } from "@/components/procurement/EstimatedPriceOverview";
@@ -68,7 +67,6 @@ import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
-import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
@@ -81,10 +79,12 @@ const ProjectCommissionReportDetail = lazy(() => import('@/pages/CommissionRepor
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
-import { DesignPackages } from "../design-packages";
-import { CommissionPackages } from "../commission-packages";
 import { WOServicePackages } from "../wo-service-packages";
-import { CriticalPOCategories } from "../layout/critical-po-categories";
+
+// PMO Dashboard
+import PMODashboardList from "@/pages/PMODashboard/pmo-dashboard-list";
+import PMOProjectDetail from "@/pages/PMODashboard/pmo-project-detail";
+import { PackagesSettings } from "@/pages/PackagesSettings/PackagesSettings";
 
 //Critical PO Tracker
 import CriticalPOTrackerList from "@/pages/CriticalPOTracker/critical-po-tracker-list";
@@ -102,6 +102,10 @@ import MaterialPlanTrackerDetail from "@/pages/MaterialPlanTracker/material-plan
 import CashflowPlanTrackerList from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-list";
 import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-detail";
 
+//PR Tracker
+import { PRTrackerList } from "@/pages/PRTracker";
+import PRTrackerDetail from "@/pages/PRTracker/pr-tracker-detail";
+
 import InventoryItemWisePage from "@/pages/inventory/InventoryItemWisePage";
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
@@ -111,6 +115,7 @@ import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDet
 
 //Help Repository
 import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
+const ProjectGstPage = lazy(() => import("@/pages/ProjectGst/ProjectGstPage"));
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -196,13 +201,13 @@ export const appRoutes: RouteObject[] = [
                   },
                 ],
               },
-              {
-                path: "man-power-report",
-                children: [
-                  { index: true, element: <ManPowerReport /> },
-                  { path: ":projectId", element: <ManPowerOverallSummary /> },
-                ],
-              },
+              // {
+              //   path: "man-power-report",
+              //   children: [
+              //     { index: true, element: <ManPowerReport /> },
+              //     { path: ":projectId", element: <ManPowerOverallSummary /> },
+              //   ],
+              // },
               {
                 path: "milestone-report",
                 children: [
@@ -348,11 +353,11 @@ export const appRoutes: RouteObject[] = [
             children: [
               // 1. List View (e.g., /design-tracker)
               { index: true, element: <DesignTrackerList /> },
-              
+
               // 2. Detail View (e.g., /design-tracker/DT-2024-0001)
-              { 
-                path: ":id", 
-                element: <ProjectDesignTrackerDetail /> 
+              {
+                path: ":id",
+                element: <ProjectDesignTrackerDetail />
               },
             ],
           },
@@ -422,6 +427,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: CASHFLOW PLAN TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: PR TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "pr-tracker",
+            children: [
+              // List View (e.g., /pr-tracker)
+              { index: true, element: <PRTrackerList /> },
+              // Detail View (e.g., /pr-tracker/PROJ-0001)
+              { path: ":projectId", element: <PRTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: PR TRACKER SECTION ---
           // ======================================================
 
           // --- Projects Section ---
@@ -636,15 +657,32 @@ export const appRoutes: RouteObject[] = [
 
           // --- Other Top-Level Routes within MainLayout ---
           { path: "wp", element: <WorkPackages /> },
-          { path: "product-packages", element: <ProcurementPackages /> },
-          // {path:"milestones-packages",element:}
-          { path: "milestone-packages", element: <WorkHeaderMilestones /> },
-          { path: "design-packages", element: <DesignPackages /> },
-          { path: "commission-packages", element: <CommissionPackages /> },
+          { path: "packages-settings", element: <PackagesSettings /> },
+          { path: "product-packages", element: <Navigate to="/packages-settings?tab=product-packages" replace /> },
+          { path: "milestone-packages", element: <Navigate to="/packages-settings?tab=milestone-packages" replace /> },
+          { path: "pr-header-packages", element: <Navigate to="/packages-settings?tab=pr-header-packages" replace /> },
+          { path: "design-packages", element: <Navigate to="/packages-settings?tab=design-packages" replace /> },
+          { path: "commission-packages", element: <Navigate to="/packages-settings?tab=commission-packages" replace /> },
           { path: "work-order-rate-card", element: <WOServicePackages /> },
-          { path: "critical-po-categories", element: <CriticalPOCategories /> },
+          { path: "pmo-packages", element: <Navigate to="/packages-settings?tab=pmo-packages" replace /> },
+          { path: "critical-po-categories", element: <Navigate to="/packages-settings?tab=critical-po-categories" replace /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
+
+          // ======================================================
+          // --- START: PMO DASHBOARD SECTION ---
+          // ======================================================
+          {
+            path: "pmo-dashboard",
+            children: [
+              { index: true, element: <PMODashboardList /> },
+              { path: ":projectId", element: <PMOProjectDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: PMO DASHBOARD SECTION ---
+          // ======================================================
           { path: "help-repository", element: <HelpRepositoryPage /> },
+          { path: "project-gst", element: <Suspense fallback={null}><ProjectGstPage /></Suspense> },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
@@ -658,11 +696,11 @@ export const appRoutes: RouteObject[] = [
           // --- START: TDS APPROVAL SECTION ---
           // ======================================================
           {
-             path: "tds-approval",
-             children: [
-               { index: true, element: <TDSApprovalList /> },
-               { path: ":id", element: <TDSApprovalDetail /> },
-             ],
+            path: "tds-approval",
+            children: [
+              { index: true, element: <TDSApprovalList /> },
+              { path: ":id", element: <TDSApprovalDetail /> },
+            ],
           },
           // ======================================================
           // --- END: TDS APPROVAL SECTION ---

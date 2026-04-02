@@ -299,13 +299,18 @@ export const getProjectExpenseListOptions = (): NonProjectExpenseListParams => (
 // --------------------------------------------------------------------------------
 
 // Helper function to generate standardized Frappe options for reuse
-export const getCategoryListOptions = (workPackage?: string): CategoryListParams => ({
-  fields: ["name", "category_name", "work_package", "tax"], // Specify needed fields
-  filters: workPackage ? [["work_package", "in", [workPackage,"Tool & Equipments"]]] : [],
-  orderBy: { field: "category_name", order: "asc" },
-  limit: 10000, // Consider pagination if needed
-  workPackage: workPackage, // Include the parameter used in filtering for key uniqueness
-});
+export const getCategoryListOptions = (workPackages?: string | string[]): CategoryListParams => {
+  const packages = Array.isArray(workPackages) ? workPackages : (workPackages ? [workPackages] : []);
+  const filterPackages = [...packages, "Tool & Equipments"];
+  
+  return {
+    fields: ["name", "category_name", "work_package", "tax"], 
+    filters: filterPackages.length > 1 ? [["work_package", "in", filterPackages]] : [],
+    orderBy: { field: "category_name", order: "asc" },
+    limit: 10000, 
+    workPackage: Array.isArray(workPackages) ? workPackages.join(',') : workPackages, 
+  };
+};
 
 export const getItemListOptions = (categoryNames?: string[]): ItemListParams => ({
   fields: ["name", "item_name", "make_name", "unit_name", "category", "creation"],

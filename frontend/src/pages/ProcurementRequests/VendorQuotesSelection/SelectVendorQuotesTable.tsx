@@ -15,8 +15,9 @@ import { parseNumber } from "@/utils/parseNumber";
 import { CircleCheck, CircleMinus, MessageCircleMore,AlertTriangle,AlertCircle } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
+import { ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 import {useFrappeGetDocList} from 'frappe-react-sdk';
-import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
+import { ProgressDocument, getItemListFromDocument, ProgressItem } from './types'; // Local feature types
 import { getTargetRateKey } from './hooks/useTargetRatesForItems';
 import { SelectUnit } from '@/components/helpers/SelectUnit';
 import {
@@ -47,6 +48,8 @@ interface SelectVendorQuotesTableProps {
     setFormData: React.Dispatch<React.SetStateAction<RFQData>>; // For MakesSelection to directly update RFQData
     // Callback to update the item list in the parent (currentDocumentState)
     updateCurrentDocumentItemList: (updater: (prevItems: ProgressItem[]) => ProgressItem[]) => void;
+    projectWpCategoryMakes?: ProjectWPCategoryMake[];
+    relevantPackages?: string[];
 }
 
 export function SelectVendorQuotesTable({
@@ -63,11 +66,20 @@ export function SelectVendorQuotesTable({
     onDeleteVendorFromRFQ,
     setFormData,
     updateCurrentDocumentItemList,
+    projectWpCategoryMakes,
+    relevantPackages,
 }: SelectVendorQuotesTableProps) {
 
     // console.log("currentDocument", currentDocument)
     const itemsToDisplay = getItemListFromDocument(currentDocument);
-    const categoriesToDisplay = getCategoryListFromDocument(currentDocument);
+    const categoriesToDisplay = useMemo(() => {
+        const seen = new Set<string>();
+        return itemsToDisplay.filter(item => {
+            if (seen.has(item.category)) return false;
+            seen.add(item.category);
+            return true;
+        }).map(item => ({ name: item.category }));
+    }, [itemsToDisplay]);
 
 
     const [initialTargetRatesMap, setInitialTargetRatesMap] = useState<Map<string, number,any>>(() => new Map());
@@ -451,13 +463,15 @@ const activeMake = selectedVendorId
                                     <Label className="text-xs font-medium text-muted-foreground">Make</Label>
                                     {mode === "edit" && !isReadOnly ? (
                                         // stopPropagation ensures clicking the dropdown doesn't trigger the card selection logic
-                                        <div onClick={(e) => e.stopPropagation()}> 
+                                        <div onClick={(e) => e.stopPropagation()}>
                                             <MakesSelection
                                                 defaultMake={formData.details[item.item_id]?.initialMake}
                                                 vendor={vendor}
                                                 item={item}
                                                 formData={formData}
                                                 setFormData={setFormData}
+                                                projectWpCategoryMakes={projectWpCategoryMakes}
+                                                relevantPackages={relevantPackages}
                                             />
                                         </div>
                                     ) : (

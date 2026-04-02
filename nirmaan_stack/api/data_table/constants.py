@@ -16,6 +16,11 @@ CHILD_TABLE_ITEM_SEARCH_MAP = {
             "link_field_to_parent": "parent",
             "searchable_child_fields": ["item_name", "item_id"],
             "status_field": "status"
+        },
+        "pr_tag_list": {
+            "child_doctype": "PR Tag Child Table",
+            "link_field_to_parent": "parent",
+            "searchable_child_fields": ["tag_package", "tag_header"]
         }
     },
     "Sent Back Category": {

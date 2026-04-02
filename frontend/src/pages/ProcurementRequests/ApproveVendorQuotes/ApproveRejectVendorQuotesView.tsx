@@ -18,6 +18,7 @@ import {
   ProcurementRequestItemDetail,
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
+import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { VendorQuotesAttachmentSummaryPR } from "@/components/common/VendorQuotesAttachmentSummaryPR";
 import { PaymentTermMilestone } from "../VendorQuotesSelection/types/paymentTerms";
 import { useSWRConfig } from "frappe-react-sdk";
@@ -30,6 +31,7 @@ interface ApproveRejectVendorQuotesViewProps
   handleAttachmentClick: (url: string) => void;
   prData?: ProcurementRequest;
   isCEOHold?: boolean;
+  onHoldVendorIds?: Set<string>;
 }
 
 export const ApproveRejectVendorQuotesView: React.FC<
@@ -56,11 +58,17 @@ export const ApproveRejectVendorQuotesView: React.FC<
   handleAttachmentClick,
   setDynamicPaymentTerms, // ✨ RECEIVE the setter function
   isCEOHold = false,
+  onHoldVendorIds = new Set(),
 }) => {
   const { mutate } = useSWRConfig();
   const isCustomPr = !orderData?.work_package;
   const sendBackActionText = isCustomPr ? "Reject" : "Send Back";
   const canPerformActions = selectionMap.size > 0 || isCustomPr;
+
+  const onHoldVendorsInQuotes = useMemo(() =>
+    vendorDataSource.filter((v) => onHoldVendorIds.has(v.vendorId)),
+    [vendorDataSource, onHoldVendorIds]
+  );
 
   const delayedItems = React.useMemo(() => {
     return (
@@ -129,6 +137,15 @@ export const ApproveRejectVendorQuotesView: React.FC<
       </div>
 
       {isCEOHold && <CEOHoldBanner className="mb-4" />}
+
+      {onHoldVendorsInQuotes.length > 0 && onHoldVendorsInQuotes.map((v) => (
+        <VendorHoldBanner
+          key={v.vendorId}
+          vendorName={v.vendorName}
+          compact={false}
+          className="mb-4"
+        />
+      ))}
 
       <VendorApprovalTable
         dataSource={vendorDataSource}

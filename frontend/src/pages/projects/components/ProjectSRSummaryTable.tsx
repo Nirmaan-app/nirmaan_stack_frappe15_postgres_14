@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 
@@ -24,35 +23,37 @@ import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
 import {
-  ServiceItemType,
   ServiceRequests,
 } from "@/types/NirmaanStack/ServiceRequests";
-import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList"; // Adjust path
 import { TailSpin } from "react-loader-spinner";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
+import {
+  useProjectSRAggregates,
+  useProjectSRSupportingData,
+} from "@/pages/projects/data/tab/summary/useProjectSRSummaryApi";
 
 // Fields to fetch for the SR Summary table list view
 export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (
   | keyof ServiceRequests
   | "name"
 )[] = [
-  "name",
-  "creation",
-  "modified",
-  "owner",
-  "project",
-  "vendor",
-  "service_category_list",
-  "status",
-  "service_order_list",
-  "gst",
-  "total_amount",
-  "amount_paid",
-];
+    "name",
+    "creation",
+    "modified",
+    "owner",
+    "project",
+    "vendor",
+    "service_category_list",
+    "status",
+    "service_order_list",
+    "gst",
+    "total_amount",
+    "amount_paid",
+    "is_finalized"
+  ];
 
 // Searchable fields for the SR Summary table
 export const SR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -60,7 +61,7 @@ export const SR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     value: "name",
     label: "WO #",
     placeholder: "Search by WO #...",
-    
+
   },
   // { value: "project_name", label: "Project", placeholder: "Search by Project..." }, // Already filtered by project
   // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." }, // If vendor is relevant here
@@ -100,12 +101,6 @@ interface ProjectSRSummaryTableProps {
   hideFinancialColumns?: boolean;
 }
 
-interface SRAggregates {
-  total_sr_value_inc_gst: number;
-  total_sr_value_excl_gst: number;
-  total_amount_paid_for_srs: number;
-}
-
 // --- Component ---
 export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
   projectId,
@@ -120,49 +115,12 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     [projectId]
   );
 
-  const [srAggregates, setSRAggregates] = useState<SRAggregates>({
-    total_sr_value_inc_gst: 0,
-    total_sr_value_excl_gst: 0,
-    total_amount_paid_for_srs: 0,
-  });
-
-  // --- Fetch Aggregates (Totals) ---
-  const {
-    call: fetchSRAggregates,
-    loading: aggregatesLoading,
-    error: aggregatesError,
-  } = useFrappePostCall<{ message: SRAggregates }>(
-    "nirmaan_stack.api.projects.project_aggregates.get_project_sr_summary_aggregates"
-  );
-
-  useEffect(() => {
-    if (projectId) {
-      fetchSRAggregates({ project_id: projectId })
-        .then((res) => setSRAggregates((prev) => ({ ...prev, ...res.message }))) // Merge with defaults
-        .catch((err) =>
-          console.error("Failed to fetch PR statuses data:", err)
-        );
-    } else {
-      // Reset counts if no projectId (e.g., if component can be shown for all projects)
-      setSRAggregates({
-        total_sr_value_inc_gst: 0,
-        total_sr_value_excl_gst: 0,
-        total_amount_paid_for_srs: 0,
-      });
-    }
-  }, [projectId, fetchSRAggregates]);
+  const { srAggregates, aggregatesLoading, aggregatesError } =
+    useProjectSRAggregates(projectId);
 
   // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
-  const { data: projects, isLoading: projectsLoading } =
-    useFrappeGetDocList<Projects>(
-      "Projects",
-      {
-        fields: ["name", "project_name"],
-        filters: projectId ? [["name", "=", projectId]] : [],
-        limit: projectId ? 1 : 1000,
-      },
-      `ProjectForSRSummary_${projectId || "all"}`
-    );
+  const { projectsResponse } = useProjectSRSupportingData(projectId);
+  const { data: projects, isLoading: projectsLoading } = projectsResponse;
   const {
     data: vendorsList,
     isLoading: vendorsLoading,
@@ -197,7 +155,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
       filters.push(["project", "=", projectId]);
     }
     // // Could add other default static filters here, e.g., status "Approved" for this summary
-    // filters.push(["status", "=", "Approved"]);
+    filters.push(["status", "=", "Approved"]);
     return filters;
   }, [projectId]);
 
@@ -253,23 +211,23 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
       // Project column might be redundant if table is already filtered by projectId
       ...(!projectId
         ? [
-            {
-              accessorKey: "project",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Project" />
-              ),
-              cell: ({ row }) => (
-                <div
-                  className="font-medium truncate"
-                  title={getProjectName(row.original.project)}
-                >
-                  {getProjectName(row.original.project)}
-                </div>
-              ),
-              enableColumnFilter: true,
-              size: 180,
-            } as ColumnDef<ServiceRequests>,
-          ]
+          {
+            accessorKey: "project",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Project" />
+            ),
+            cell: ({ row }) => (
+              <div
+                className="font-medium truncate"
+                title={getProjectName(row.original.project)}
+              >
+                {getProjectName(row.original.project)}
+              </div>
+            ),
+            enableColumnFilter: true,
+            size: 180,
+          } as ColumnDef<ServiceRequests>,
+        ]
         : []),
       {
         accessorKey: "vendor",
@@ -294,87 +252,94 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
         },
       },
       {
-        accessorKey: "status",
+        accessorKey: "is_finalized",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Status" />
         ),
-        cell: ({ row }) => (
-          <Badge
-            variant={row.original.status === "Approved" ? "green" : "outline"}
-          >
-            {row.original.status}
-          </Badge>
-        ), // Example badge
+        cell: ({ row }) => {
+          const isFinalized = row.getValue("is_finalized");
+          return (
+            <Badge
+              variant={isFinalized ? "green" : "outline"}
+            >
+              {isFinalized ? "Finalized" : "Approved"}
+            </Badge>
+          );
+        },
         enableColumnFilter: true,
         size: 120,
+        meta: {
+          enableFacet: true,
+          facetTitle: "Status",
+        }
       },
       // Financial columns - conditionally included based on hideFinancialColumns prop
       ...(!hideFinancialColumns
         ? [
-            {
-              accessorKey: "total_amount",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Total SR Value" />
-              ),
-              cell: ({ row }) => (
-                <div className="font-medium pr-2">
-                  {formatToRoundedIndianRupee(row.original.total_amount)}
-                </div>
-              ),
-              enableColumnFilter: true,
-              size: 120,
-            } as ColumnDef<ServiceRequests>,
-            {
-              accessorKey: "gst",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Incl. GST" />
-              ),
-              cell: ({ row }) => (
-                <Badge variant={row.original.gst === "true" ? "green" : "outline"}>
-                  {row.original.gst === "true" ? "Yes" : "No"}
-                </Badge>
-              ),
-              enableColumnFilter: true,
-              size: 120,
-            } as ColumnDef<ServiceRequests>,
-            {
-              accessorKey: "amount_paid",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Amt. Paid" />
-              ),
-              cell: ({ row }) => (
-                <div className="font-medium pr-2">
-                  {formatToRoundedIndianRupee(row.original.amount_paid)}
-                </div>
-              ),
-              enableColumnFilter: true,
-              size: 120,
-            } as ColumnDef<ServiceRequests>,
-            {
-              id: "amount_payable",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Amt payable" />
-              ),
-              cell: ({ row }) => (
-                <div className="font-medium pr-2">
-                  {formatToRoundedIndianRupee(
-                    parseNumber(row.original.total_amount) -
-                      parseNumber(row.original.amount_paid)
-                  )}
-                </div>
-              ),
-              enableColumnFilter: true,
-              size: 120,
-              meta: {
-                exportHeaderName: "Amt payable",
-                exportValue: (row: ServiceRequests) => {
-                  return formatToRoundedIndianRupee(
-                    parseNumber(row.total_amount) - parseNumber(row.amount_paid)
-                  );
-                },
+          {
+            accessorKey: "total_amount",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Total SR Value" />
+            ),
+            cell: ({ row }) => (
+              <div className="font-medium pr-2">
+                {formatToRoundedIndianRupee(row.original.total_amount)}
+              </div>
+            ),
+            enableColumnFilter: true,
+            size: 120,
+          } as ColumnDef<ServiceRequests>,
+          {
+            accessorKey: "gst",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Incl. GST" />
+            ),
+            cell: ({ row }) => (
+              <Badge variant={row.original.gst === "true" ? "green" : "outline"}>
+                {row.original.gst === "true" ? "Yes" : "No"}
+              </Badge>
+            ),
+            enableColumnFilter: true,
+            size: 120,
+          } as ColumnDef<ServiceRequests>,
+          {
+            accessorKey: "amount_paid",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Amt. Paid" />
+            ),
+            cell: ({ row }) => (
+              <div className="font-medium pr-2">
+                {formatToRoundedIndianRupee(row.original.amount_paid)}
+              </div>
+            ),
+            enableColumnFilter: true,
+            size: 120,
+          } as ColumnDef<ServiceRequests>,
+          {
+            id: "amount_payable",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Amt payable" />
+            ),
+            cell: ({ row }) => (
+              <div className="font-medium pr-2">
+                {formatToRoundedIndianRupee(
+                  parseNumber(row.original.total_amount) -
+                  parseNumber(row.original.amount_paid)
+                )}
+              </div>
+            ),
+            enableColumnFilter: true,
+            size: 120,
+            meta: {
+              exportHeaderName: "Amt payable",
+              exportValue: (row: ServiceRequests) => {
+                return formatToRoundedIndianRupee(
+                  parseNumber(row.total_amount) - parseNumber(row.amount_paid)
+                );
               },
-            } as ColumnDef<ServiceRequests>,
-          ]
+            },
+          } as ColumnDef<ServiceRequests>,
+        ]
         : []),
     ],
     [projectId, getProjectName, getVendorName, hideFinancialColumns]
@@ -406,16 +371,30 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
   });
 
   // --- Dynamic Facet Values ---
-  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
+  const { facetOptions: finalizedFacetOptions, isLoading: isFinalizedFacetLoading } =
     useFacetValues({
       doctype: DOCTYPE,
-      field: "status",
+      field: "is_finalized",
       currentFilters: columnFilters,
       searchTerm,
       selectedSearchField,
       additionalFilters: staticFilters,
       enabled: true,
     });
+
+  const memoizedStatusOptions = useMemo(() => {
+    const baseOptions = [
+      { label: "Approved", value: "0" },
+      { label: "Finalized", value: "1" },
+    ];
+    return baseOptions.map((baseOpt) => {
+      const facetOpt = (finalizedFacetOptions as any[])?.find((f) => String(f.value) === baseOpt.value);
+      return {
+        ...baseOpt,
+        count: facetOpt?.count ?? 0,
+      };
+    });
+  }, [finalizedFacetOptions]);
 
   const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
     useFacetValues({
@@ -439,13 +418,24 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
       enabled: true,
     });
 
+  const memoizedGstOptions = useMemo(() => {
+    const baseOptions = SR_SUMMARY_GST_OPTIONS_MAP;
+    return baseOptions.map((baseOpt) => {
+      const facetOpt = (gstFacetOptions as any[])?.find((f) => String(f.value) === baseOpt.value);
+      return {
+        ...baseOpt,
+        count: facetOpt?.count ?? 0,
+      };
+    });
+  }, [gstFacetOptions]);
+
   // --- Faceted Filter Options ---
   const facetFilterOptions = useMemo(() => {
     const opts: any = {
-      status: {
+      is_finalized: {
         title: "Status",
-        options: statusFacetOptions,
-        isLoading: isStatusFacetLoading,
+        options: memoizedStatusOptions,
+        isLoading: isFinalizedFacetLoading,
       },
       vendor: {
         title: "Vendor",
@@ -454,22 +444,18 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
       },
       gst: {
         title: "GST",
-        options: gstFacetOptions,
+        options: memoizedGstOptions,
         isLoading: isGstFacetLoading,
       },
     };
-    // if (!projectId) { // Only add project facet if not already filtered by a single project
-    //     opts.project = { title: "Project", options: projectOptions };
-    // }
     return opts;
   }, [
-    statusFacetOptions,
-    isStatusFacetLoading,
+    memoizedStatusOptions,
+    isFinalizedFacetLoading,
     vendorFacetOptions,
     isVendorFacetLoading,
-    gstFacetOptions,
+    memoizedGstOptions,
     isGstFacetLoading,
-    projectId,
   ]);
 
   // --- Combined Loading & Error States ---
@@ -531,7 +517,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
                     <span className="text-yellow-600 font-semibold">
                       {formatToRoundedIndianRupee(
                         srAggregates.total_sr_value_inc_gst -
-                          srAggregates.total_amount_paid_for_srs
+                        srAggregates.total_amount_paid_for_srs
                       )}
                     </span>
                   </p>

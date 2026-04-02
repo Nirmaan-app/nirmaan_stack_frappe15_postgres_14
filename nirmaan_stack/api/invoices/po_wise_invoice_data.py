@@ -97,6 +97,17 @@ def generate_all_po_invoice_data(start_date=None, end_date=None):
             )
             vendor_names = {v["name"]: v["vendor_name"] for v in vendors}
 
+        # Get PO project_gst in bulk
+        po_ids = list(set(inv.get("document_name") for inv in invoices if inv.get("document_name")))
+        po_gst_map = {}
+        if po_ids:
+            pos = frappe.get_all(
+                "Procurement Orders",
+                filters={"name": ["in", po_ids]},
+                fields=["name", "project_gst"]
+            )
+            po_gst_map = {p["name"]: p["project_gst"] for p in pos}
+
         # Process invoices and calculate metrics
         invoice_entries = []
         total_fully_reconciled = 0
@@ -140,7 +151,8 @@ def generate_all_po_invoice_data(start_date=None, end_date=None):
                 "reconciled_date": str(inv.get("reconciled_date")) if inv.get("reconciled_date") else None,
                 "reconciled_by": inv.get("reconciled_by"),
                 "reconciliation_proof_attachment_id": inv.get("reconciliation_proof"),
-                "modified_by": inv.get("modified_by")
+                "modified_by": inv.get("modified_by"),
+                "project_gst": po_gst_map.get(inv.get("document_name"))
             }
             invoice_entries.append(entry)
 

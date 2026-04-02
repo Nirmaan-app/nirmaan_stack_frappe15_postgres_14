@@ -42,15 +42,6 @@ export const sectionTitles: Record<SectionKey, string> = {
 };
 
 /**
- * GST Options for project locations
- */
-export const gstOptions = [
-    { location: "Bengaluru", gst: "29ABFCS9095N1Z9" },
-    { location: "Gurugram", gst: "06ABFCS9095N1ZH" },
-    { location: "Noida", gst: "09ABFCS9095N1ZB" },
-] as const;
-
-/**
  * Get next section in the wizard
  */
 export const getNextSection = (currentSection: SectionKey): SectionKey => {

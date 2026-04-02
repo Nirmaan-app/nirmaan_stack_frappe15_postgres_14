@@ -19,8 +19,7 @@ export interface ProcurementRequestItem {
 export interface CategorySelection {
   name: string;   // Category DocName (key)
   status: string; // Status of items within this category in the list
-  // makes: string[]; // List of applicable Make DocNames for this category
-  // Add makes if you decide to store/derive them here later
+  makes?: string[]; // List of applicable Make DocNames for this category
 }
 
 // For React Select options
@@ -40,9 +39,14 @@ export interface ItemOption extends SelectOption<string> {
   tax: number;
 }
 
-export interface MakeOption extends SelectOption<string> { }
+export type { MakeOption } from '@/hooks/useMakeOptions';
 
-export type CategoryMakesMap = Record<string, string[]>; // Map of category names to applicable makes
+export interface SelectedHeaderTag {
+  tag_header: string;
+  tag_package: string;
+}
+
+export type { CategoryMakesMap } from '@/hooks/useMakeOptions';
 
 // Extend Frappe Types if needed (Example - ensure Category has new_items)
 // Assuming Category type is imported from '@/types/NirmaanStack/Category'

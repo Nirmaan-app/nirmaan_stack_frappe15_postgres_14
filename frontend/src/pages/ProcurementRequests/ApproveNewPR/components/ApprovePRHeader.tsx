@@ -5,8 +5,12 @@ import { Badge } from '@/components/ui/badge';
 import { DraftIndicator } from '@/components/ui/draft-indicator';
 import { formatDate } from '@/utils/FormatDate';
 
+import { WPRTagsBadge } from '@/components/helpers/HeaderHoverCard';
+import { ProjectPackageBadge } from '@/components/helpers/ProjectPackageBadge';
+
 interface ApprovePRHeaderProps {
     prName: string;
+    projectId: string; // Added to fetch packages
     projectName: string;
     workPackage: string;
     status: string;
@@ -18,6 +22,7 @@ interface ApprovePRHeaderProps {
     hasDraft?: boolean;
     lastSavedText?: string | null;
     isSaving?: boolean;
+    tags?: { tag_header: string; tag_package: string }[];
 }
 
 /**
@@ -46,6 +51,7 @@ const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destr
 
 export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
     prName,
+    projectId,
     projectName,
     workPackage,
     status,
@@ -56,6 +62,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
     hasDraft = false,
     lastSavedText = null,
     isSaving = false,
+    tags,
 }) => {
     const formattedDate = createdDate ? formatDate(createdDate) : '';
     const showDraftIndicator = hasDraft || isSaving || lastSavedText;
@@ -107,7 +114,9 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
 
                 <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground">Work Package:</span>
-                    <span className="font-medium text-foreground">{workPackage}</span>
+                    <div className='flex items-center gap-1'>
+                        <span className="font-medium text-foreground">{workPackage}</span>
+                    </div>
                 </div>
 
                 <Badge variant={getStatusBadgeVariant(status)}>
@@ -122,6 +131,20 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
                 <div className="flex items-center gap-1.5 text-muted-foreground">
                     <User className="h-3.5 w-3.5" />
                     <span>Created by: {createdBy}</span>
+                </div>
+            </div>
+
+            {/* Filtering Badges Row */}
+            <div className="flex flex-wrap items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100/80 w-full min-h-[44px]">
+                <div className="flex flex-wrap items-center gap-4">
+                    <ProjectPackageBadge projectId={projectId} />
+
+                    {tags && tags.length > 0 && (
+                        <>
+                            <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                            <WPRTagsBadge tags={tags} />
+                        </>
+                    )}
                 </div>
             </div>
         </div>

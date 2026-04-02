@@ -4,6 +4,7 @@ from nirmaan_stack.api.delivery_notes.update_delivery_note import (
     calculate_delivered_amount,
     calculate_order_status,
 )
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 
 def _has_undispatched_items(po):
@@ -20,12 +21,21 @@ def on_update(doc, method):
         return
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)
+        # Vendor credit recalculation after delivery changes
+        po = frappe.get_cached_doc("Procurement Orders", doc.procurement_order)
+        if po.vendor:
+            entry_type = "Return Note" if getattr(doc, "is_return", 0) else "DN Created"
+            recalculate_vendor_credit(po.vendor, entry_type, po_id=doc.procurement_order, project=po.project)
 
 
 def on_trash(doc, method):
     """Recalculate PO delivery fields when a DN is deleted."""
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)
+        # Vendor credit recalculation after DN deletion
+        po = frappe.get_cached_doc("Procurement Orders", doc.procurement_order)
+        if po.vendor:
+            recalculate_vendor_credit(po.vendor, "DN Deleted", po_id=doc.procurement_order, project=po.project)
 
 
 def recalculate_po_delivery_fields(po_name):

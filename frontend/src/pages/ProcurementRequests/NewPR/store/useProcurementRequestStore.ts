@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import { ProcurementRequestItem, CategorySelection, CategoryMakesMap } from '../types';
+import { ProcurementRequestItem, CategorySelection, CategoryMakesMap, SelectedHeaderTag } from '../types';
 
 // Interface for session-added makes state
 type SessionAddedMakes = Record<string, Set<string>>; // CategoryName -> Set<MakeName>
@@ -11,13 +11,14 @@ interface ProcurementRequestState {
     projectId: string | null;
     prId: string | null;
     selectedWP: string;
+    selectedHeaderTags: SelectedHeaderTag[]; // New multi-header support
     procList: ProcurementRequestItem[];
     selectedCategories: CategorySelection[]; // The final derived list with all relevant makes
     undoStack: ProcurementRequestItem[];
     newPRComment: string;
     isInitialized: boolean;
-    initialCategoryMakes: CategoryMakesMap; // Baseline makes from Project for the selected WP
-    sessionAddedMakes: SessionAddedMakes; // <<< NEW: Track makes added via dialog
+    initialCategoryMakes: CategoryMakesMap; // Combined baseline makes from all selected packages
+    sessionAddedMakes: SessionAddedMakes; // Track makes added via dialog
 
     // --- Actions ---
     initialize: (
@@ -25,37 +26,33 @@ interface ProcurementRequestState {
         projectId?: string,
         prId: string | undefined,
         wpSpecificInitialMakes: CategoryMakesMap | undefined,
-        initialPrData?: { workPackage: string, procList: ProcurementRequestItem[], categories: CategorySelection[] }
+        initialPrData?: { workPackage: string, selectedHeaderTags: SelectedHeaderTag[], procList: ProcurementRequestItem[], categories: CategorySelection[] }
     ) => void;
-    setSelectedWP: (wp: string, wpSpecificMakes: CategoryMakesMap) => void;
+    setSelectedHeaders: (headers: SelectedHeaderTag[], combinedMakes: CategoryMakesMap) => void;
     addProcItem: (item: ProcurementRequestItem) => boolean;
     updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { uniqueId: string }) => void;
     deleteProcItem: (itemName: string) => void;
     undoDelete: () => void;
     setNewPRComment: (comment: string) => void;
-    updateCategoryMakes: (categoryName: string, newMake: string) => void; // Signature remains the same
+    updateCategoryMakes: (categoryName: string, newMake: string) => void;
     resetStore: () => void;
     _recalculateCategories: () => void;
 }
 
 // Helper to derive categories, now incorporating sessionAddedMakes
-// REFACTOR: remove the use of makes from this function
 const deriveCategoriesWithMakes = (
     procList: ProcurementRequestItem[],
-    initialMakesMap: CategoryMakesMap, // Baseline makes for the WP
+    initialMakesMap: CategoryMakesMap, // Baseline makes for all packages
     sessionMakesMap: SessionAddedMakes // Explicitly added makes this session
 ): CategorySelection[] => {
-    // console.log("Deriving categories with:", { procList, initialMakesMap, sessionMakesMap });
-    const categoriesMap = new Map<string, { status: string; makes: Set<string> }>(); // Map: categoryName -> {status, makesSet}
+    const categoriesMap = new Map<string, { status: string; makes: Set<string> }>();
 
-    // 1. Process items in the list to determine active categories and makes used
     procList.forEach(item => {
         let categoryEntry = categoriesMap.get(item.category);
         if (!categoryEntry) {
             categoryEntry = { status: item.status, makes: new Set() };
             categoriesMap.set(item.category, categoryEntry);
         }
-        // Update status if needed (e.g., if 'Request' exists, keep it)
         if (item.status === 'Request' && categoryEntry.status !== 'Request') {
             categoryEntry.status = 'Request';
         }
@@ -64,7 +61,6 @@ const deriveCategoriesWithMakes = (
         }
     });
 
-    // 2. Ensure all categories with initial or session makes are included, even if no item uses them yet
     const allConsideredCategories = new Set([
         ...Object.keys(initialMakesMap),
         ...Object.keys(sessionMakesMap),
@@ -78,29 +74,20 @@ const deriveCategoriesWithMakes = (
         const sessionMakes = sessionMakesMap[categoryName] || new Set<string>();
         const makesFromItems = categoriesMap.get(categoryName)?.makes || new Set<string>();
 
-        // Combine all make sources
         const combinedMakes = new Set([...baselineMakes, ...sessionMakes, ...makesFromItems]);
+        const status = categoriesMap.get(categoryName)?.status || 'Pending';
 
-        // Determine status (default to 'Pending' if no item exists for this category yet)
-        const status = categoriesMap.get(categoryName)?.status || 'Pending'; // Or derive more complex status if needed
-
-        if (combinedMakes.size > 0 || categoriesMap.has(categoryName)) { // Only add if there are makes or items
+        if (combinedMakes.size > 0 || categoriesMap.has(categoryName)) {
             finalCategories.push({
                 name: categoryName,
                 status: status,
-                // makes: Array.from(combinedMakes).sort() // Convert Set to sorted array
             });
         }
     });
 
-
-    // 3. Sort final list
     finalCategories.sort((a, b) => a.name.localeCompare(b.name));
-
-    // console.log("Derived Categories Result:", finalCategories);
     return finalCategories;
 };
-
 
 export const useProcurementRequestStore = create<ProcurementRequestState>()(
     persist(
@@ -110,37 +97,34 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             projectId: null,
             prId: null,
             selectedWP: '',
+            selectedHeaderTags: [],
             procList: [],
-            selectedCategories: [], // This will be derived
+            selectedCategories: [],
             undoStack: [],
             newPRComment: '',
             isInitialized: false,
             initialCategoryMakes: {},
-            sessionAddedMakes: {}, // <<< Initialize new state
+            sessionAddedMakes: {},
 
             // --- Actions ---
             initialize: (mode, projectId, prId, wpSpecificInitialMakes = {}, initialPrData) => {
                 const currentState = get();
-
-                // Check if the fundamental context has changed (e.g., navigating to a different PR or project)
-                // Use strict equality for comparison to avoid unexpected type coercion
                 const contextChanged =
                     currentState.projectId !== projectId ||
                     currentState.prId !== (prId || null) ||
                     currentState.mode !== mode;
 
-                // A full re-initialization is needed if context changed OR if the store isn't marked as initialized yet.
-                // This branch ensures a fresh start when the user navigates to a new PR/project/mode.
                 if (contextChanged || !currentState.isInitialized) {
-                    console.log("Store: Full initialization due to context change or first-time setup.");
+                    console.log("Store: Full initialization.");
                     const initialProcList = initialPrData?.procList || [];
                     set({
                         mode,
                         projectId,
                         prId: prId || null,
                         selectedWP: initialPrData?.workPackage || '',
+                        selectedHeaderTags: initialPrData?.selectedHeaderTags || [],
                         procList: initialProcList,
-                        initialCategoryMakes: wpSpecificInitialMakes || {}, // Ensure it's an object
+                        initialCategoryMakes: wpSpecificInitialMakes || {},
                         sessionAddedMakes: {},
                         selectedCategories: [],
                         undoStack: [],
@@ -149,37 +133,41 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
                     });
                     get()._recalculateCategories();
                 } else if (initialPrData && initialPrData.procList) {
-                    // This is the crucial branch for your scenario:
-                    // Context (PR ID, Project ID, mode) is the same, but new `initialPrData` has arrived
-                    // (e.g., `existingPRData` finished loading, or was refreshed).
-                    // In this case, we want to update the `procList` and related data from the backend
-                    // without resetting other session-specific states like `sessionAddedMakes` or `newPRComment`.
-                    console.log("DEBUG 3: Store: Updating procList with fresh initialPrData for existing context.");
+                    console.log("Store: Updating procList with fresh data.");
                     set(state => ({
                         procList: initialPrData.procList,
-                        selectedWP: initialPrData.workPackage || state.selectedWP, // Update WP if it came with initial data
-                        initialCategoryMakes: wpSpecificInitialMakes || state.initialCategoryMakes, // Update makes
-                        // sessionAddedMakes is NOT reset here, it maintains its state for the current PR
-                        // newPRComment is NOT reset here
-                        // undoStack is NOT reset here
+                        selectedWP: initialPrData.workPackage || state.selectedWP,
+                        selectedHeaderTags: initialPrData.selectedHeaderTags || state.selectedHeaderTags,
+                        initialCategoryMakes: wpSpecificInitialMakes || state.initialCategoryMakes,
                     }));
                     get()._recalculateCategories();
-                } else {
-                    console.log("Store: Already initialized with current context, no new data to load.");
                 }
             },
 
-            setSelectedWP: (wp, wpSpecificMakes) => {
-                console.log("Store: Setting WP", wp, "with makes:", wpSpecificMakes);
-                set({
-                    selectedWP: wp,
-                    initialCategoryMakes: wpSpecificMakes,
-                    procList: [],
-                    selectedCategories: [], // Reset derived categories
-                    sessionAddedMakes: {}, // <<< Reset session makes
-                    undoStack: [],
-                })
-                // No immediate recalculate needed as procList is empty
+            setSelectedHeaders: (headers, combinedMakes) => {
+                const currentMode = get().mode;
+                console.log(`Store: Setting selected headers in ${currentMode} mode:`, headers);
+                
+                const updates: any = {
+                    selectedHeaderTags: headers,
+                    selectedWP: headers.length > 0 ? headers[0].tag_package : '',
+                    initialCategoryMakes: combinedMakes,
+                };
+
+                // CRITICAL: Only clear procList if we are in 'create' mode.
+                // In 'edit' or 'resolve' mode, we MUST keep existing items.
+                if (currentMode === 'create') {
+                    updates.procList = [];
+                    updates.selectedCategories = [];
+                    updates.sessionAddedMakes = {};
+                    updates.undoStack = [];
+                }
+
+                set(updates);
+                // No immediate recalculate needed as procList is empty or unchanged
+                if (currentMode !== 'create') {
+                    get()._recalculateCategories();
+                }
             },
 
             _recalculateCategories: () => {

@@ -34,6 +34,7 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
     handleRemoveItem,
     handleSave,
     itemOptions,
+    chargeOptions,
   } = usePORevision(props);
 
   const handleNext = () => {
@@ -101,6 +102,7 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
               difference={difference}
               netImpact={netImpact}
               itemOptions={itemOptions}
+              chargeOptions={chargeOptions}
               isCustom={!!po.custom}
               poTotalAmount={po.total_amount || 0}
               poAmountPaid={po.amount_paid || 0}

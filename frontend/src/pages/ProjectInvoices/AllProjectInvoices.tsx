@@ -33,6 +33,7 @@ import {
 } from "./config/projectInvoices.config";
 import { useUserData } from "@/hooks/useUserData";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useGstOptions } from "@/hooks/useGstOptions";
 import {
   getCustomerListOptions,
   getProjectListOptions,
@@ -119,6 +120,8 @@ export const AllProjectInvoices: React.FC<{
       } // Fetch all users
     );
 
+  const { gstOptions, isLoading: isGstLoading } = useGstOptions();
+
   const { deleteDoc, loading: isDeleting } = useFrappeDeleteDoc();
 
   // =================================================================================
@@ -141,13 +144,20 @@ export const AllProjectInvoices: React.FC<{
     ),
     [customers]
   );
-  // --- (3) NEW: Create a memoized resolver function for user names ---
   const getUserName = useCallback(
     memoize(
       (userId?: string) =>
         users?.find((u) => u.name === userId)?.full_name || userId || "--"
     ),
     [users]
+  );
+
+  const getGstName = useCallback(
+    memoize(
+      (gstId?: string) =>
+        gstOptions?.find((g) => g.value === gstId)?.location || gstId || "--"
+    ),
+    [gstOptions]
   );
 
   const handleOpenDeleteDialog = useCallback((invoice: ProjectInvoice) => {
@@ -193,6 +203,7 @@ export const AllProjectInvoices: React.FC<{
         getProjectName,
         getCustomerName,
         getUserName,
+        getGstName,
         onDelete: handleOpenDeleteDialog,
         onEdit: handleOpenEditDialog,
         hideCustomerColumn: !!customerId, // Hide customer column when viewing from customer page
@@ -202,6 +213,7 @@ export const AllProjectInvoices: React.FC<{
       getProjectName,
       getCustomerName,
       getUserName,
+      getGstName,
       handleOpenDeleteDialog,
       handleOpenEditDialog,
       customerId,
@@ -276,6 +288,16 @@ export const AllProjectInvoices: React.FC<{
       enabled: true,
     });
 
+  const { facetOptions: gstFacetOptions, isLoading: isGstFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "project_gst",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      enabled: true,
+    });
+
   const facetOptionsConfig = useMemo(
     () => ({
       project: {
@@ -293,6 +315,15 @@ export const AllProjectInvoices: React.FC<{
         options: ownerFacetOptions,
         isLoading: isOwnerFacetLoading,
       },
+      project_gst: {
+        title: "Project GST",
+        options: gstFacetOptions.map(opt => {
+          const match = opt.label.match(/\(\d+\)$/);
+          const countString = match ? ` ${match[0]}` : "";
+          return { ...opt, label: `${getGstName(opt.value)}${countString}` };
+        }),
+        isLoading: isGstFacetLoading,
+      },
     }),
     [
       projectFacetOptions,
@@ -301,6 +332,9 @@ export const AllProjectInvoices: React.FC<{
       isCustomerFacetLoading,
       ownerFacetOptions,
       isOwnerFacetLoading,
+      gstFacetOptions,
+      isGstFacetLoading,
+      getGstName,
     ]
   );
 
@@ -308,7 +342,7 @@ export const AllProjectInvoices: React.FC<{
   // 4. RENDER LOGIC
   // =================================================================================
   const isLoadingOverall =
-    isDataLoading || isProjectsLoading || isCustomersLoading || isUsersLoading;
+    isDataLoading || isProjectsLoading || isCustomersLoading || isUsersLoading || isGstLoading;
 
   return (
     <div

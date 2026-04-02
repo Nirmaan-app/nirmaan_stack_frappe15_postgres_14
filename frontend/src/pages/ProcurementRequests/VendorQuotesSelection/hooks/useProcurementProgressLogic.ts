@@ -7,7 +7,7 @@ import { useProcurementActions } from './useProcurementActions';
 import { useTargetRatesForItems } from './useTargetRatesForItems';
 import { useUsersForLookup } from './useUsersForLookup';
 import { useFrappeDocumentEventListener ,useFrappeGetDocList} from 'frappe-react-sdk'; // Only this for events
-import { VendorOption, ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProcurementProgressLogicReturn,getAdditionalChargesTemplates, ProgressItem } from '../types';
+import { VendorOption, ProgressDocument, getItemListFromDocument, ProcurementProgressLogicReturn,getAdditionalChargesTemplates, ProgressItem } from '../types';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { useRFQFormManager } from './useRFQManager';

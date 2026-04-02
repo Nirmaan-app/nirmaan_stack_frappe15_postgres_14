@@ -25,6 +25,7 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
     const [itemName, setItemName] = useState("");
     const [selectedUnit, setSelectedUnit] = useState("");
     const [selectedCategory, setSelectedCategory] = useState("");
+    const [selectedBillingCategory, setSelectedBillingCategory] = useState("Billable");
     const [formError, setFormError] = useState<string | null>(null);
 
     const { toast } = useToast();
@@ -58,7 +59,7 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
     }, [createApiError, toast]);
 
     const resetForm = () => {
-        setItemName(""); setSelectedUnit(""); setSelectedCategory(""); setFormError(null);
+        setItemName(""); setSelectedUnit(""); setSelectedCategory(""); setSelectedBillingCategory("Billable"); setFormError(null);
     };
     const handleDialogStateChange = (open: boolean) => {
         if (!open) resetForm();
@@ -76,6 +77,7 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
                 item_name: itemName.trim(),
                 unit_name: selectedUnit,
                 category: selectedCategory,
+                billing_category: selectedBillingCategory,
             });
             toast({
                 title: "Item Created",
@@ -111,13 +113,25 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
                                                                           options={categoryOptions}
                                                                           // Value needs to be the full option object for react-select
                                                                           value={categoryOptions.find(option => option.value === selectedCategory) || null}
-                                                                          onChange={val => setSelectedCategory(val ? val.value as string : undefined)}
+                                                                          onChange={val => setSelectedCategory(val ? val.value as string : "")}
                                                                           menuPosition="auto"
                                                                           isClearable={true} // Allows clearing the selection
                                                                           placeholder="Select Category"
                                                                
                                                                       />
                                                                   </div>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="billingCategory" className="text-right col-span-1">Billing Cat.<sup className="text-red-500">*</sup></Label>
+                        <Select value={selectedBillingCategory} onValueChange={setSelectedBillingCategory}>
+                            <SelectTrigger className="col-span-3">
+                                <SelectValue placeholder="Select Billing Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="Billable">Billable</SelectItem>
+                                <SelectItem value="Non-Billable">Non-Billable</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="itemName" className="text-right col-span-1">Name<sup className="text-red-500">*</sup></Label>

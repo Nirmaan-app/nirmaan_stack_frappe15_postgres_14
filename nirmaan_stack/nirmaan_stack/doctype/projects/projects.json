@@ -13,6 +13,7 @@
   "carpet_area",
   "project_value_gst",
   "project_gst_number",
+  "project_gst",
   "customer_section",
   "customer_po_details",
   "drive_links_section",
@@ -188,6 +189,13 @@
    "fieldname": "project_gst_number",
    "fieldtype": "JSON",
    "label": "Project GST"
+  },
+  {
+   "fieldname": "project_gst",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Project GST",
+   "options": "Project GST"
   },
   {
    "fieldname": "project_value",

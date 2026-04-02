@@ -30,6 +30,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [isExportingHistory, setIsExportingHistory] = useState(false);
     const [exportProgress, setExportProgress] = useState(0);
     const [exportProgressMessage, setExportProgressMessage] = useState("");
+    const [isConvertingToA4, setIsConvertingToA4] = useState(false);
     const { socket } = React.useContext(FrappeContext) as FrappeConfig;
 
     // Remove the useEffect listener as we'll manage it in the handler like Bulk Download
@@ -158,6 +159,8 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             socket.on("tds_export_progress", (data: any) => {
                 if (data.progress !== undefined) setExportProgress(data.progress);
                 if (data.message) setExportProgressMessage(data.message);
+                if (data.status === "converting") setIsConvertingToA4(true);
+                if (data.status === "completed") setIsConvertingToA4(false);
             });
         }
 
@@ -262,6 +265,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             if (socket) {
                 socket.off("tds_export_progress");
             }
+            setIsConvertingToA4(false);
         }
     };
 
@@ -407,6 +411,12 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                         />
                         </div>
                         <p className="text-sm text-muted-foreground">{exportProgress}% - {exportProgressMessage}</p>
+                        {isConvertingToA4 && (
+                            <div className="flex items-center text-xs text-red-600 font-medium animate-pulse">
+                                <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                                Converting attachment to A4...
+                            </div>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>

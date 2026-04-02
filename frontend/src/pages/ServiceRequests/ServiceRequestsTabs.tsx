@@ -18,6 +18,7 @@ const ApproveSelectAmendSR = React.lazy(() => import("./service-request/approve-
 const SelectServiceVendorList = React.lazy(() => import("./service-request/select-service-vendor-list"));
 const ApprovedSRList = React.lazy(() => import("./service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("./service-request/finalized-sr-list"));
+const AllSRList = React.lazy(() => import("./service-request/all-sr-list"));
 
 export const ServiceRequestsTabs: React.FC = () => {
     const { role } = useUserData();
@@ -53,12 +54,51 @@ export const ServiceRequestsTabs: React.FC = () => {
         return isAdmin ? SR_ADMIN_TAB_OPTIONS : [];
     }, [isAdmin]);
 
+    const [allWOTab, setAllWOTab] = useState<"All" | "Approved" | "Finalized">("All");
+
     // --- Tab Change Handler ---
     const handleTabClick = useCallback((value: string) => {
         if (tab !== value) {
             setTab(value);
         }
     }, [tab]);
+
+    // Render All WO Sub-tabs
+    const renderAllWOSubTabs = () => {
+        const subTabs = [
+            { label: "All", value: "All", count: counts.sr.all },
+            { label: "Approved WO", value: "Approved", count: counts.sr.approved },
+            { label: "Finalized WO", value: "Finalized", count: counts.sr.finalized },
+        ];
+
+        return (
+            <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin mb-2">
+                <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+                    {subTabs.map((sTab) => {
+                        const isActive = allWOTab === sTab.value;
+                        return (
+                            <button
+                                key={sTab.value}
+                                type="button"
+                                onClick={() => setAllWOTab(sTab.value as any)}
+                                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm rounded
+                                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                                    ${isActive
+                                        ? "bg-sky-500 text-white"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                            >
+                                {sTab.label}
+                                <span className={`text-xs font-bold ${isActive ? "opacity-90" : "opacity-70"}`}>
+                                    {sTab.count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
 
     // Render a single tab button
     const renderTabButton = (option: SRTabOption) => {
@@ -109,8 +149,14 @@ export const ServiceRequestsTabs: React.FC = () => {
                 {tab === SR_TABS.APPROVE_WO && <ApproveSelectSR />}
                 {tab === SR_TABS.APPROVE_AMENDED && <ApproveSelectAmendSR />}
                 {tab === SR_TABS.PENDING && <SelectServiceVendorList />}
-                {tab === SR_TABS.APPROVED && <ApprovedSRList />}
-                {tab === SR_TABS.FINALIZED && <FinalizedSRList />}
+                {tab === SR_TABS.ALL && (
+                    <div className="space-y-4">
+                        {renderAllWOSubTabs()}
+                        {allWOTab === "All" && <AllSRList />}
+                        {allWOTab === "Approved" && <ApprovedSRList />}
+                        {allWOTab === "Finalized" && <FinalizedSRList />}
+                    </div>
+                )}
             </Suspense>
 
             {/* New Work Order Dialog */}

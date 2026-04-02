@@ -122,7 +122,10 @@ const ProjectOverviewEditModal: React.FC<ProjectOverviewEditModalProps> = ({ isO
 interface DesignerOption {
     value: string;
     label: string;
+    userName: string;
     email: string;
+    roleLabel: string;
+    searchableLabel: string;
 }
 
 // --- New Task Modal ---
@@ -154,7 +157,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
     const [isSaving, setIsSaving] = useState(false);
 
     const designerOptions: DesignerOption[] = useMemo(() =>
-        usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
+        usersList.map(u => {
+            const userName = u.full_name || u.name;
+            const roleLabel = u.role_profile?.split(" ").slice(1, 3).join(" ") || "";
+            return {
+                label: userName,
+                userName,
+                value: u.name,
+                email: u.email || '',
+                roleLabel,
+                searchableLabel: roleLabel ? `${userName} (${roleLabel})` : userName
+            };
+        })
         , [usersList]);
 
     // Update task_zone when activeZone changes or modal opens
@@ -203,7 +217,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
 
         const assignedDesignerDetails: AssignedDesignerDetail[] = selectedDesigners.map(d => ({
             userId: d.value,
-            userName: d.label,
+            userName: d.userName,
             userEmail: d.email,
         }));
 
@@ -292,16 +306,27 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                         />
                     </div>
 
-                    {/* Assign Designers */}
+                    {/* Assign */}
                     <div className="space-y-1">
-                        <Label htmlFor="designer" className="text-xs font-medium">Assign Designer(s)</Label>
+                        <Label htmlFor="designer" className="text-xs font-medium">Assign</Label>
                         <ReactSelect
                             isMulti
                             value={selectedDesigners}
                             options={designerOptions}
                             onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
-                            placeholder="Select designers..."
+                            placeholder="Select assignees..."
                             classNamePrefix="react-select"
+                            formatOptionLabel={(option) => (
+                                <div>
+                                    {option.userName}
+                                    {option.roleLabel && (
+                                        <span className="text-red-700 font-light">
+                                            {" "}({option.roleLabel})
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            getOptionLabel={(option) => option.searchableLabel || option.userName}
                             styles={{
                                 control: (base) => ({ ...base, minHeight: '36px', fontSize: '14px' }),
                                 option: (base) => ({ ...base, fontSize: '14px' })
@@ -770,6 +795,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
+    const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
 
     const checkIfUserAssigned = useCallback((task: CommissionReportTask) => {
@@ -800,7 +826,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSearchField, setSelectedSearchField] = useState("task_name");
 
-    // "My Tasks" filter state - only relevant for designers
+    // "My Tasks" filter state - relevant for restricted assignee roles
     const [showMyTasksOnly, setShowMyTasksOnly] = useState(false);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
@@ -989,8 +1015,8 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             title: "Status",
             options: statusOptions || [],
         },
-        // Only add assigned designer filter for non-Design Executives (they can't see the column)
-        ...(isDesignExecutive ? {} : {
+        // Only add assigned designer filter for unrestricted users
+        ...(isRestrictedAssigneeRole ? {} : {
             assigned_designers: {
                 title: "Assigned",
                 options: (usersList || []).map(u => ({
@@ -999,7 +1025,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                 })),
             },
         }),
-    }), [activeCategoriesInTracker, statusOptions, isDesignExecutive, usersList]);
+    }), [activeCategoriesInTracker, statusOptions, isRestrictedAssigneeRole, usersList]);
 
     // Search field options
     const searchFieldOptions = [
@@ -1009,8 +1035,8 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
     // Column definitions
     const columns = useMemo(
-        () => getTaskTableColumns(setEditingTask, isDesignExecutive, isProjectManager, checkIfUserAssigned),
-        [isDesignExecutive, isProjectManager, checkIfUserAssigned]
+        () => getTaskTableColumns(setEditingTask, isRestrictedAssigneeRole, checkIfUserAssigned),
+        [isRestrictedAssigneeRole, checkIfUserAssigned]
     );
 
     // Client-side TanStack Table instance
@@ -1213,7 +1239,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     if (error || !trackerDoc) return <AlertDestructive error={error} />;
 
     // Block direct URL access for non-privileged users to hidden trackers
-    const isDependentUser = isDesignExecutive || isProjectManager;
+    const isDependentUser = isRestrictedAssigneeRole;
     const isHiddenTracker = trackerDoc?.hide_commission_report === 1;
 
     if (isDependentUser && isHiddenTracker) {
@@ -1276,7 +1302,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                     <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 rounded border border-red-200">
                                         <span className="text-gray-500">Deadline:</span>
                                         <span className="font-semibold text-red-700">{formatDeadlineShort(trackerDoc.overall_deadline || '')}</span>
-                                        {!isDesignExecutive && !isProjectManager && (
+                                        {!isRestrictedAssigneeRole && (
                                             <Edit
                                                 className="h-3 w-3 text-red-400 hover:text-red-600 cursor-pointer"
                                                 onClick={() => setIsProjectOverviewModalOpen(true)}
@@ -1332,7 +1358,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
                                 {/* Action Buttons */}
                                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
-                                    {hasEditStructureAccess && !isProjectManager && (
+                                    {hasEditStructureAccess && !isRestrictedAssigneeRole && (
                                         <>
                                             <Button
                                                 variant="outline"
@@ -1411,7 +1437,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                             <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 rounded border border-red-200">
                                 <span className="text-gray-500">Deadline:</span>
                                 <span className="font-semibold text-red-700">{formatDeadlineShort(trackerDoc.overall_deadline || '')}</span>
-                                {!isDesignExecutive && !isProjectManager && (
+                                {!isRestrictedAssigneeRole && (
                                     <Edit
                                         className="h-3 w-3 text-red-400 hover:text-red-600 cursor-pointer"
                                         onClick={() => setIsProjectOverviewModalOpen(true)}
@@ -1476,7 +1502,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
                     {/* Row 3: Actions */}
                     {/* Row 3: Actions */}
-                    {hasEditStructureAccess && !isProjectManager && (
+                    {hasEditStructureAccess && !isRestrictedAssigneeRole && (
                         <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
                             {/* Left: Structure Buttons */}
                             <div className="flex items-center gap-2">
@@ -1557,7 +1583,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                             >
                                                 {taskCount}
                                             </Badge>
-                                            {hasEditStructureAccess && !isProjectManager && (
+                                            {hasEditStructureAccess && !isRestrictedAssigneeRole && (
                                                 <Edit
                                                     className={`w-2.5 h-2.5 cursor-pointer ${
                                                         isActive ? 'text-white/70 hover:text-white' : 'text-blue-400 hover:text-blue-700'
@@ -1576,8 +1602,8 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
                         {/* Right: My Tasks Toggle + Create Task + Export Zone */}
                         <div className="flex items-center gap-2">
-                            {/* My Tasks Toggle - Only for Design Executive and Design Lead */}
-                            {(isDesignExecutive || role === "Nirmaan Design Lead Profile") && (
+                            {/* My Tasks Toggle - for restricted assignee roles and Design Lead */}
+                            {(isRestrictedAssigneeRole || role === "Nirmaan Design Lead Profile") && (
                                 <button
                                     onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
                                     className={`
@@ -1606,7 +1632,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                 </button>
                             )}
 
-                            {!isDesignExecutive && !isProjectManager && (
+                            {!isRestrictedAssigneeRole && (
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1651,7 +1677,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             )}
 
             {/* My Tasks filter when no zones exist */}
-            {uniqueZones.length === 0 && (isDesignExecutive || role === "Nirmaan Design Lead Profile") && (
+            {uniqueZones.length === 0 && (isRestrictedAssigneeRole || role === "Nirmaan Design Lead Profile") && (
                 <div className="flex justify-end px-4 md:px-6 pb-2">
                     <button
                         onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
@@ -1741,7 +1767,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
-                    isRestrictedMode={isDesignExecutive}
+                    isRestrictedMode={isRestrictedAssigneeRole}
                 />
             )}
 

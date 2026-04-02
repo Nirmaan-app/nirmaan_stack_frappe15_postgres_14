@@ -60,6 +60,23 @@ const DOCTYPE = "Procurement Requests";
 const URL_SYNC_KEY = "pr_approve"; // Unique key for this specific table instance/view
 
 // --- Component ---
+export const PRTagsCell: React.FC<{ row: any }> = ({ row }) => {
+  const tags = (row.original as any).pr_tag_list || [];
+  return (
+    <div className="flex flex-wrap gap-1 items-start justify-start">
+      {tags.length > 0 ? (
+        tags.map((tag: any, index: number) => (
+          <Badge key={index} variant="outline" className="text-xs bg-white">
+            {tag.tag_header}
+          </Badge>
+        ))
+      ) : (
+        <div className="font-medium text-gray-500 text-xs">Custom</div>
+      )}
+    </div>
+  );
+};
+
 export const ApproveSelectVendor: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
 
@@ -212,7 +229,7 @@ export const ApproveSelectVendor: React.FC = () => {
               >
                 {prId?.slice(-4)} {/* Display last 4 chars */}
               </Link>
-              {!data.work_package && <Badge className="text-xs">Custom</Badge>}
+              {data.work_package?.toLowerCase() === "custom" && <Badge className="text-xs">Custom</Badge>}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 {" "}
                 {/* Show hover card on group hover */}
@@ -278,23 +295,24 @@ export const ApproveSelectVendor: React.FC = () => {
         },
       },
       {
-        accessorKey: "work_package",
+        // Pr_work_Package
+        id: "PR Tag Child Table.tag_header",
+        accessorKey: "pr_tag_list",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Package" />
+          <DataTableColumnHeader column={column} title="Header" />
         ),
-        cell: ({ row }) => (
-          <div className="font-medium truncate">
-            {row.getValue("work_package") || "--"}
-          </div>
-        ),
+        cell: ({ row }) => <PRTagsCell row={row} />,
+        enableColumnFilter: true,
         size: 150,
         meta: {
-          exportHeaderName: "Package",
+          exportHeaderName: "Header Tags",
           exportValue: (row: ProcurementRequest) => {
-            return row.work_package;
+            const tags = (row as any).pr_tag_list || [];
+            return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
           },
         },
       },
+
       {
         accessorKey: "category_list",
         header: ({ column }) => (
@@ -311,10 +329,10 @@ export const ApproveSelectVendor: React.FC = () => {
             <div className="flex flex-wrap gap-1 items-start justify-start">
               {categoryItems.length > 0
                 ? categoryItems.map((obj) => (
-                    <Badge key={obj.name} variant="outline" className="text-xs">
-                      {obj.name}
-                    </Badge>
-                  ))
+                  <Badge key={obj.name} variant="outline" className="text-xs">
+                    {obj.name}
+                  </Badge>
+                ))
                 : "--"}
             </div>
           );
@@ -412,6 +430,7 @@ export const ApproveSelectVendor: React.FC = () => {
     additionalFilters: staticFilters,
     // --- NEW: Add the specific filter flag for this view ---
     requirePendingItems: true,
+    apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
     // ------------------------------------------------------
   });
 
@@ -429,6 +448,20 @@ export const ApproveSelectVendor: React.FC = () => {
     requirePendingItems: true,
   });
 
+  const {
+    facetOptions: tagFacetOptions,
+    isLoading: isTagFacetLoading,
+  } = useFacetValues({
+    doctype: DOCTYPE,
+    field: "tag_header",
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    additionalFilters: staticFilters,
+    enabled: true,
+    requirePendingItems: true,
+  });
+
   // --- Faceted Filter Options ---
   const facetFilterOptions = useMemo(
     () => ({
@@ -437,9 +470,13 @@ export const ApproveSelectVendor: React.FC = () => {
         options: projectFacetOptions,
         isLoading: isProjectFacetLoading,
       },
-      // Add other facets if needed, e.g., work_package if you fetch distinct values
+      "PR Tag Child Table.tag_header": {
+        title: "Header",
+        options: tagFacetOptions,
+        isLoading: isTagFacetLoading,
+      },
     }),
-    [projectFacetOptions, isProjectFacetLoading]
+    [projectFacetOptions, isProjectFacetLoading, tagFacetOptions, isTagFacetLoading]
   );
 
   // --- Combined Loading State ---
@@ -452,9 +489,8 @@ export const ApproveSelectVendor: React.FC = () => {
 
   return (
     <div
-      className={`flex flex-col gap-2 ${
-        totalCount > 0 ? "h-[calc(100vh-80px)] overflow-hidden" : ""
-      }`}
+      className={`flex flex-col gap-2 ${totalCount > 0 ? "h-[calc(100vh-80px)] overflow-hidden" : ""
+        }`}
     >
       {isLoading ? (
         <TableSkeleton />

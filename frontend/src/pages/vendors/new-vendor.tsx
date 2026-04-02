@@ -159,7 +159,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
           if (!ifsc || ifsc.length !== 11) {
             return true;
           }
-    
+
           if (bank_details && !bank_details.message.error) {
             return true;
           }
@@ -167,6 +167,7 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
         }, {
           message: "IFSC Code Not Found",
         }),
+      credit_limit: z.coerce.number().min(0, "Credit limit must be positive").default(10000),
     });
 };
 
@@ -212,7 +213,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
     const VendorFormSchema = getVendorFormSchema(vendorType === "Service", taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data)
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {},
+        defaultValues: {
+            credit_limit: 10000,
+        },
         mode: 'all',
         reValidateMode: 'onChange',
     })
@@ -267,6 +270,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             bank_name: undefined,
             bank_branch: undefined,
             ifsc: undefined,
+            credit_limit: 10000,
         });
         setCategories([]);
         form.clearErrors();
@@ -828,6 +832,26 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                             <FormLabel>Bank Branch</FormLabel>
                                             <FormControl>
                                                 <Input disabled={true} placeholder="Enter Bank Branch" {...field} value={field.value || ""} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <Separator className="my-6 max-md:my-2" />
+                                <p className="text-sky-600 font-semibold pb-2">Credit Settings</p>
+                                <FormField
+                                    control={form.control}
+                                    name="credit_limit"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Credit Limit (&#8377;)</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="Enter credit limit"
+                                                    {...field}
+                                                    onChange={(e) => field.onChange(e.target.value === "" ? 0 : Number(e.target.value))}
+                                                />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>

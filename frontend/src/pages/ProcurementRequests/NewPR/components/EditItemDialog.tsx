@@ -24,17 +24,14 @@ import {
     ProcurementRequestItem,
     CategoryOption,
     MakeOption,
-    CategorySelection,
-    CategoryMakesMap
 } from '../types';
 import { ManageCategoryMakesDialog } from './ManageCategoryMakesDialog'; // Import the makes dialog
 import { CustomMakeMenuList } from './ItemSelectorControls'; // Reuse CustomMakeMenuList if suitable
 import { ItemStatus } from '../constants';
 import { Category } from '@/types/NirmaanStack/Category';
-import { Makelist } from '@/types/NirmaanStack/Makelist';
-import { CategoryMakelist } from '@/types/NirmaanStack/CategoryMakelist';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
-
+import { useMakeOptions } from '@/hooks/useMakeOptions';
+import { ProjectWPCategoryMake } from '@/types/NirmaanStack/Projects';
 
 interface EditItemDialogProps {
     isOpen: boolean;
@@ -44,15 +41,10 @@ interface EditItemDialogProps {
     onSubmitUpdate: (updatedItem: ProcurementRequestItem) => void;
     onDeleteItem: (itemName: string) => void;
     // --- Make Props ---
-    allMakeOptions: MakeOption[];
-    initialCategoryMakes: CategoryMakesMap;
-    selectedCategories: CategorySelection[]; // Current derived categories from store
     updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
-    makeList?: Makelist[];
-    makeListMutate: () => Promise<any>;
-    categoryMakelist?: CategoryMakelist[]; // Optional, if needed for other operations
-    categoryMakeListMutate?: () => Promise<any>;
     // --- End Make Props ---
+    projectWpCategoryMakes: ProjectWPCategoryMake[] | undefined;
+    relevantPackages: string[];
 }
 
 // Extended edit state to include make
@@ -73,14 +65,9 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     onSubmitUpdate,
     onDeleteItem,
     // Make Props Destructuring
-    allMakeOptions,
-    initialCategoryMakes,
-    selectedCategories,
     updateCategoryMakesInStore,
-    makeList,
-    makeListMutate,
-    categoryMakelist,
-    categoryMakeListMutate,
+    projectWpCategoryMakes,
+    relevantPackages,
 }) => {
     const { toast } = useToast();
     const [editState, setEditState] = useState<EditState | null>(null);
@@ -100,89 +87,18 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
     // Get current item's category name (from editState if request, else from itemToEdit)
     const currentItemCategoryName = isRequestItem ? editState?.category : itemToEdit?.category;
 
-    // Calculate available make options for the Make select dropdown
-    // const availableMakeOptions = useMemo(() => {
-    //     if (!currentItemCategoryName) return [];
-    //     let makesForCategory: string[] = [];
-    //     const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
-
-    //     if (derivedCategoryDetails && Array.isArray(derivedCategoryDetails.makes)) {
-    //         makesForCategory = derivedCategoryDetails.makes;
-    //     } else if (initialCategoryMakes && initialCategoryMakes[currentItemCategoryName]) {
-    //         makesForCategory = initialCategoryMakes[currentItemCategoryName];
-    //     }
-    //     const makesSet = new Set(Array.isArray(makesForCategory) ? makesForCategory : []);
-    //     return allMakeOptions.filter(opt => makesSet.has(opt.value));
-    // }, [currentItemCategoryName, selectedCategories, initialCategoryMakes, allMakeOptions]);
-
-    // --- *** FINAL REVISED LOGIC for availableMakeOptions *** ---
-    const availableMakeOptions = useMemo(() => {
-        // --- Logging Start ---
-        console.log("--- ISC useMemo Start ---");
-        // console.log("currentItemCategoryName:", currentItemCategoryName);
-        // console.log("selectedCategories (prop):", JSON.stringify(selectedCategories));
-        // console.log("initialCategoryMakes (prop):", JSON.stringify(initialCategoryMakes));
-        // --- Logging End ---
-
-        if (!currentItemCategoryName) {
-            console.log("ISC useMemo: No category, returning []");
-            return [];
-        }
-
-        // Use a Set to automatically handle unique make names (values)
-        const applicableMakeValues = new Set<string>();
-
-        // 1. Determine the BASE list (Initial Config OR Fallback)
-        const initialMakes = initialCategoryMakes?.[currentItemCategoryName];
-        const hasInitialMakes = Array.isArray(initialMakes) && initialMakes.length > 0;
-
-        if (hasInitialMakes) {
-            // Use initial makes from the WP Project config as the base
-            console.log(`ISC useMemo: Using initialMakes as base:`, initialMakes);
-            initialMakes!.forEach(makeValue => applicableMakeValues.add(makeValue));
-        } else if (categoryMakelist) {
-            // Fallback to CategoryMakelist if initial makes are empty/not defined
-            console.log(`ISC useMemo: Initial makes empty, using CategoryMakelist fallback as base.`);
-            categoryMakelist
-                .filter(entry => entry.category === currentItemCategoryName && entry.make)
-                .forEach(entry => applicableMakeValues.add(entry.make!)); // Add makes from fallback
-        } else {
-            console.log(`ISC useMemo: No initial makes and no categoryMakelist provided for base.`);
-        }
-        console.log(`ISC useMemo: Makes after base determination:`, Array.from(applicableMakeValues));
-
-
-        // 2. ADD makes from Session/procList (selectedCategories)
-        // Ensure makes used in items or explicitly added this session (via Manage Makes)
-        // are *always* included in the available options.
-        // const derivedCategoryDetails = selectedCategories.find(c => c.name === currentItemCategoryName);
-        // if (derivedCategoryDetails?.makes && Array.isArray(derivedCategoryDetails.makes)) {
-        //     console.log(`ISC useMemo: Adding makes from selectedCategories:`, derivedCategoryDetails.makes);
-        //     derivedCategoryDetails.makes.forEach(makeValue => applicableMakeValues.add(makeValue));
-        // } else {
-        //     console.log(`ISC useMemo: No additional makes found in selectedCategories.`);
-        // }
-
-        console.log(`ISC useMemo: Final applicable make values set:`, Array.from(applicableMakeValues));
-
-        // 3. Filter allMakeOptions based on the final applicable set of make values
-        let potentialMakeOptions = allMakeOptions.filter(opt => applicableMakeValues.has(opt.value));
-
-        // 4. Sort the final list alphabetically by label for consistent display
-        potentialMakeOptions.sort((a, b) => a.label.localeCompare(b.label));
-
-        console.log("ISC useMemo: Final potentialMakeOptions (before return):", JSON.stringify(potentialMakeOptions));
-        console.log("--- ISC useMemo End ---");
-        return potentialMakeOptions;
-
-    }, [
-        currentItemCategoryName,
-        selectedCategories,      // Derived makes from store (items + session adds)
-        initialCategoryMakes,    // Baseline makes from project WP config
-        allMakeOptions,          // The complete list of make options
-        categoryMakelist         // Fallback list if initial is empty
-    ]);
-    // --- End FINAL REVISED LOGIC ---
+    const {
+        makeOptions: availableMakeOptions,
+        allMakeOptions,
+        makeList,
+        makeListMutate,
+        categoryMakelist,
+        categoryMakeListMutate,
+    } = useMakeOptions({
+        categoryName: currentItemCategoryName,
+        projectWpCategoryMakes,
+        relevantPackages,
+    });
 
     // Get the currently selected MakeOption object based on editState.makeValue
     const currentMakeOption = useMemo(() => {
@@ -435,16 +351,11 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
                     isOpen={isManageMakesDialogOpen}
                     onOpenChange={setIsManageMakesDialogOpen}
                     categoryName={currentItemCategoryName}
-                    // Pass makes based on the item being edited
-                    associatedMakes={
-                        (selectedCategories.find(c => c.name === currentItemCategoryName)?.makes) ??
-                        (initialCategoryMakes[currentItemCategoryName]) ??
-                        []
-                    }
-                    allMakeOptions={allMakeOptions}
+                    associatedMakes={availableMakeOptions.map(opt => opt.value)}
                     onMakesAssociated={handleMakesManaged}
                     makeList={makeList}
                     makeListMutate={makeListMutate}
+                    categoryMakelist={categoryMakelist}
                     categoryMakeListMutate={categoryMakeListMutate}
                 />
             )}

@@ -8,9 +8,12 @@ from frappe.model.document import Document
 class Items(Document):
 	def after_insert(self):
 		# Set the item code to uppercase
-		self.item_status = "Active"
-		self.billing_category = "Billable"
-		self.order_category = "Local"
+		if not self.item_status:
+			self.item_status = "Active"
+		if not self.billing_category:
+			self.billing_category = "Billable"
+		if not self.order_category:
+			self.order_category = "Local"
 		self.save()
 
 	def on_update(self):

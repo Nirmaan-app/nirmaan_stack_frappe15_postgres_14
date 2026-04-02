@@ -7,10 +7,8 @@ import {
 } from "frappe-react-sdk";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Category } from "@/types/NirmaanStack/Category";
-import { Items } from "@/types/NirmaanStack/Items";
-import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
+import { Projects as Project } from "@/types/NirmaanStack/Projects";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import { poRevisionKeys, PO_REVISION_DOCTYPE, PO_REVISION_APIS } from "./poRevision.constants";
 import useSWR from "swr";
@@ -69,87 +67,20 @@ export const useProcurementRequestForRevision = (prId?: string) => {
   return response;
 };
 
-// ─── Categories by Work Package ──────────────────────────────
+// ─── Project (for work package context) ──────────
 
-export const useRevisionCategories = (workPackage?: string) => {
-  const response = useFrappeGetDocList<Category>(
-    "Category",
-    {
-      fields: ["name", "tax", "work_package"],
-      filters: [
-        [
-          "work_package",
-          "in",
-          [workPackage || "NOT YET DEFINED", "Tool & Equipments", "Additional Charges"],
-        ],
-      ],
-      limit: 0,
-    },
-    poRevisionKeys.categories(workPackage || "default")
+export const useProjectForRevision = (projectId?: string) => {
+  const response = useFrappeGetDoc<Project>(
+    "Projects",
+    projectId || "",
+    projectId ? poRevisionKeys.project(projectId) : null
   );
   useApiErrorLogger(response.error, {
-    hook: "useRevisionCategories",
-    api: "Category List",
+    hook: "useProjectForRevision",
+    api: "Projects GetDoc",
     feature: "po-revision",
-    doctype: "Category",
-  });
-  return response;
-};
-
-// ─── Items by Categories ─────────────────────────────────────
-
-export const useRevisionItems = (
-  workPackage: string | undefined,
-  categoryNames: string[]
-) => {
-  const response = useFrappeGetDocList<Items>(
-    "Items",
-    {
-      fields: ["name", "item_name", "category", "unit_name", "make_name"],
-      filters:
-        categoryNames.length > 0
-          ? [["category", "in", categoryNames]]
-          : [["name", "=", "INVALID"]],
-      limit: 0,
-    },
-    categoryNames.length > 0
-      ? poRevisionKeys.items(workPackage || "default")
-      : null
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useRevisionItems",
-    api: "Items List",
-    feature: "po-revision",
-    doctype: "Items",
-  });
-  return response;
-};
-
-// ─── Category Makelist ───────────────────────────────────────
-
-export const useRevisionCategoryMakelist = (
-  workPackage: string | undefined,
-  categoryNames: string[]
-) => {
-  const response = useFrappeGetDocList<CategoryMakelist>(
-    "Category Makelist",
-    {
-      fields: ["category", "make"],
-      filters:
-        categoryNames.length > 0
-          ? [["category", "in", categoryNames]]
-          : [["category", "=", "INVALID"]],
-      limit: 0,
-    },
-    categoryNames.length > 0
-      ? poRevisionKeys.categoryMakelist(workPackage || "default")
-      : null
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useRevisionCategoryMakelist",
-    api: "Category Makelist",
-    feature: "po-revision",
-    doctype: "Category Makelist",
+    doctype: "Projects",
+    entity_id: projectId,
   });
   return response;
 };

@@ -17,9 +17,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
 import {
   useFrappeDocTypeEventListener,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
   Building2,
@@ -74,13 +71,13 @@ import {
 } from "../../components/ui/select";
 import { Separator } from "../../components/ui/separator";
 import NewCustomer from "../customers/add-new-customer";
-import { ProjectQueryKeys } from "./queries";
-import { Customers } from "@/types/NirmaanStack/Customers";
-import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
-import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
-import { Address } from "@/types/NirmaanStack/Address";
+import {
+  useEditProjectFormApi,
+  useEditProjectFormCategories,
+  useEditProjectFormPincode,
+} from "@/pages/projects/data/tab/project-form/useEditProjectFormApi";
 
-import {MultiSelect} from "./components/multi-select"
+import { useGstOptions } from "@/hooks/useGstOptions";
 
 
 // 1.a Create Form Schema accordingly
@@ -158,14 +155,9 @@ const projectFormSchema = z.object({
       })
     ),
   }),
-  project_gst_number: z.object({
-    list: z.array(z.object({
-      location: z.string(),
-      gst: z.string(),
-    }))
-  }),
-   carpet_area: z.coerce.number().nonnegative().optional(),
-  
+  project_gst: z.string().min(1, { message: "Project GST is required" }),
+  carpet_area: z.coerce.number().nonnegative().optional(),
+
 });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -182,18 +174,6 @@ interface SelectOption {
 //     work_package: string;
 // }
 
-const allGstOptions = [
-  { location: "Bengaluru", gst: "29ABFCS9095N1Z9" },
-  { location: "Gurugram", gst: "06ABFCS9095N1ZH" },
-  { location: "Noida", gst: "09ABFCS9095N1ZB" }, // Include Noida if it's a valid option
-];
-
-// Prepare options for the MultiSelect component
-// MultiSelect expects { label: string, value: string } for options
-const multiSelectGstOptions = allGstOptions.map(option => ({
-  label: `${option.location} (${option.gst})`,
-  value: option.location, // The unique identifier for the MultiSelect
-}));
 
 
 
@@ -272,53 +252,49 @@ interface EditProjectFormProps {
 export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditSheet }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
-  const { data, mutate: projectMutate } = useFrappeGetDoc<ProjectsType>(
-    "Projects",
-    projectId,
-    projectId ? ProjectQueryKeys.project(projectId) : null
-  );
+  const {
+    projectResponse,
+    procurementPackagesResponse,
+    customersResponse,
+    projectTypesResponse,
+    projectAddressResponse,
+    updateDoc,
+    loading,
+  } = useEditProjectFormApi(projectId);
+
+  const { data, mutate: projectMutate } = projectResponse;
 
   // console.log("projectData", data)
 
-  const {
-    data: procuremeent_packages_list,
-  } = useFrappeGetDocList<ProcurementPackages>("Procurement Packages", {
-    fields: ["work_package_name"],
-    filters: [["work_package_name", "not in", ["Tool & Equipments", "Services","Additional Charges"]]],
-    limit: 0,
-  });
+  const { data: procuremeent_packages_list } = procurementPackagesResponse;
 
   const {
     data: company,
     isLoading: company_isLoading,
     error: company_error,
     mutate: company_mutate,
-  } = useFrappeGetDocList<Customers>("Customers", {
-    fields: ["name", "company_name"],
-    limit: 0,
-  });
+  } = customersResponse;
 
   const {
     data: project_types,
     isLoading: project_types_isLoading,
     error: project_types_error,
     mutate: project_types_mutate,
-  } = useFrappeGetDocList<ProjectTypes>("Project Types", {
-    fields: ["name", "project_type_name"],
-    limit: 0,
-  });
+  } = projectTypesResponse;
 
   const {
     data: project_address,
     mutate: project_address_mutate,
-  } = useFrappeGetDoc<Address>("Address", data?.project_address, data?.project_address ? undefined : null);
+  } = projectAddressResponse;
 
   // const { data: user, isLoading: user_isLoading, error: user_error } = useFrappeGetDocList('Nirmaan Users', {
   //     fields: ["*"],
   //     limit: 1000
   // });
 
-  useFrappeDocTypeEventListener("Project Types", async (d) => {
+  const { gstOptions, isLoading: gst_isLoading, error: gst_error } = useGstOptions();
+
+  useFrappeDocTypeEventListener("Project Types", async () => {
     await project_types_mutate();
   });
 
@@ -345,17 +321,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       project_work_packages: {
         work_packages: formatWorkPackagesForForm(data),
       },
-      project_gst_number: data?.project_gst_number
-        ? (typeof data?.project_gst_number === "string" ? JSON.parse(data?.project_gst_number) : data?.project_gst_number)
-        : {
-          list: [
-            {
-              location: "Bengaluru",
-              gst: "29ABFCS9095N1Z9",
-            }
-          ]
-        },
-      carpet_area: data?.carpet_area || "",  
+      project_gst: data?.project_gst || "29ABFCS9095N1Z9",
+      carpet_area: data?.carpet_area || "",
       project_scopes: data?.project_scopes
         ? JSON.parse(data?.project_scopes)
         : {
@@ -391,8 +358,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_work_packages: {
           work_packages: transformedWpConfigForForm,
         },
-        project_gst_number: data?.project_gst_number ? (typeof data.project_gst_number === 'string' ? JSON.parse(data.project_gst_number) : data.project_gst_number) : { list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] },
-        carpet_area: data?.carpet_area || "", 
+        project_gst: data?.project_gst || "29ABFCS9095N1Z9",
+        carpet_area: data?.carpet_area || "",
         project_scopes: data?.project_scopes ? (typeof data.project_scopes === 'string' ? JSON.parse(data.project_scopes) : data.project_scopes) : { scopes: [] },
 
       });
@@ -406,11 +373,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       }
     }
   }, [data, project_address, form.reset]);
-
-  const {
-    updateDoc: updateDoc,
-    loading: loading,
-  } = useFrappeUpdateDoc();
 
   const [city, setCity] = useState(project_address?.city || "");
   const [state, setState] = useState(project_address?.state || "");
@@ -433,9 +395,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     }
   }, [startDate, endDate]);
 
-  const {
-    data: pincode_data,
-  } = useFrappeGetDoc("Pincodes", pincode, pincode ? `Pincodes ${pincode}` : null);
+  const { data: pincode_data } = useEditProjectFormPincode(pincode);
 
   const debouncedFetch = useCallback((value: string) => {
     if (value.length >= 6) {
@@ -558,17 +518,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         await updateDoc("Address", data.project_address, changedAddressValues);
       }
 
-      
-      const gstList = values.project_gst_number?.list; // Use optional chaining for safety
-
-    if (!gstList || gstList.length === 0) {
-        toast({
-            title: "Failed!",
-            description: "At least one Nirmaan GST location must be selected for update.",
-            variant: "destructive"
-        });
-        return; // Prevent update if validation fails
-    }
 
       // --- Prepare Project Update Payload ---
       const projectUpdatePayload: Partial<ProjectsType> & { name: string } = {
@@ -578,7 +527,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_value: parseNumber(values.project_value).toString(), // Frappe might expect string for Data/Currency
         project_value_gst: parseNumber(values.project_value_gst).toString(),
         // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
-        project_gst_number: typeof values.project_gst_number === 'string' ? values.project_gst_number : JSON.stringify(values.project_gst_number),
         project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
         carpet_area: values.carpet_area,
 
@@ -588,6 +536,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         // If you need to update them directly on Project, ensure they are not read-only.
         project_city: city,
         project_state: state,
+        project_gst: values.project_gst,
 
         // NEW: Assign the transformed child table data
         project_wp_category_makes: backendWPCategoryMakes,
@@ -604,7 +553,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       //   customer: values.customer,
       //   project_type: values.project_type,
       //   project_value: parseNumber(values.project_value),
-      //   project_gst_number: values.project_gst_number,
       //   project_start_date: formatted_start_date,
       //   project_end_date: formatted_end_date,
       //   project_city: city,
@@ -874,85 +822,63 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             />
 
 
-<FormField
+            <FormField
+              control={form.control}
+              name="project_gst"
+              render={({ field }) => (
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
+                    Nirmaan GST for Billing<sup className="text-sm text-red-600">*</sup>
+                  </FormLabel>
+                  <div className="flex-1">
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Nirmaan GST" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {gst_isLoading && <div className="p-2 text-xs text-muted-foreground italic">Loading GST options...</div>}
+                        {gst_error && <div className="p-2 text-xs text-destructive italic">Error: {gst_error.message}</div>}
+                        {gstOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.location} - {option.gst}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </div>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="carpet_area"
+              render={({ field }) => {
+                return (
+                  <FormItem className="md:flex md:items-start gap-4">
+                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
+                      Carpet Area (Sqft)
+                    </FormLabel>
+                    <div className="flex-1">
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="Enter Area"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </div>
+                  </FormItem>
+                );
+              }}
+            />
+
+            {/* <FormField
   control={form.control}
-  name="project_gst_number" // Form expects { list: [{ location, gst }] }
-  render={({ field }) => {
-    // 1. Extract the currently selected location's name (the single value we need for the Select component).
-    // This correctly displays the default/current selection if the list has one item.
-    const currentValue = field.value?.list?.[0]?.location || "";
-
-    return (
-      <FormItem className="md:flex md:items-start gap-4">
-        {/* Preserving the md:w-1/4 md:pt-2.5 shrink-0 from your last provided component */}
-        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-        {/* Preserving the flex-1 from your last provided component */}
-        <div className="flex-1">
-          <Select
-            onValueChange={(selectedLocationName: string) => {
-              // 2. Find the full GST object for the selected location name
-              const foundOption = allGstOptions.find(opt => opt.location === selectedLocationName);
-
-              // 3. Update the form field with a new list containing only the selected item.
-              if (foundOption) {
-                  // Set the form value to { list: [the_selected_object] }
-                  field.onChange({ list: [foundOption] });
-              } else {
-                  // Handle case where user might deselect or an unexpected value occurs
-                  field.onChange({ list: [] });
-              }
-            }}
-            value={currentValue}
-            disabled={field.disabled}
-          >
-            <SelectTrigger className="w-full">
-              {/* Display the selected location name or the placeholder */}
-              <SelectValue placeholder="Select Nirmaan GST" />
-            </SelectTrigger>
-            <SelectContent>
-              {/* Map all available options */}
-              {allGstOptions.map((option) => (
-                <SelectItem key={option.location} value={option.location}>
-                  {/* Display both location and GST for user clarity */}
-                  {option.location} - {option.gst} 
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FormMessage />
-        </div>
-      </FormItem>
-    );
-  }}
-/>
-
-<FormField
-  control={form.control}
-  name="carpet_area"
-  render={({ field }) => {
-    return (
-      <FormItem className="md:flex md:items-start gap-4">
-        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-            Carpet Area (Sqft)
-        </FormLabel>
-        <div className="flex-1">
-            <FormControl>
-                <Input
-                    type="number"
-                    placeholder="Enter Area"
-                    {...field}
-                />
-            </FormControl>
-            <FormMessage />
-        </div>
-      </FormItem>
-    );
-  }}
-/>
-
-{/* <FormField
-  control={form.control}
-  name="project_gst_number" // Ensure this matches your form's schema for an array of objects
   render={({ field }) => {
     // Extract currently selected location names from the form field's value.
     // field.value is expected to be { list: [{ location: string, gst: string }, ...] }
@@ -1266,11 +1192,7 @@ interface WorkPackageSelectionProps {
 }
 
 const WorkPackageSelection: React.FC<WorkPackageSelectionProps> = ({ form, wp_list }) => {
-  const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
-    fields: ["category_name", "work_package", "name"],
-    filters: [["work_package", "not in", ["Tool & Equipments", "Services"]]],
-    limit: 10000,
-  });
+  const { data: categoriesList, isLoading: categoriesListLoading } = useEditProjectFormCategories();
 
   type WorkPackageItem = {
     work_package_name: string;

@@ -113,11 +113,11 @@ export const ProjectForm = () => {
         const isValid = await form.trigger(fieldsToValidate as any);
 
         // GST validation
-        const gstList = form.getValues("project_gst_number.list");
-        if (!gstList || gstList.length === 0) {
+        const gstValue = form.getValues("project_gst");
+        if (!gstValue) {
             toast({
                 title: "Failed!",
-                description: "At least one Nirmaan GST location must be selected.",
+                description: "Nirmaan GST must be selected.",
                 variant: "destructive",
             });
             return;

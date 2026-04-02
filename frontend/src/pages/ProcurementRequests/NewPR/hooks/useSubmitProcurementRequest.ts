@@ -13,7 +13,7 @@ import {
     startWorkflowTransaction,
 } from '@/utils/sentry';
 import { invalidateSidebarCounts } from '@/hooks/useSidebarCounts';
-import { BackendPRItemDetail, CategorySelection, ProcurementRequestItem } from '../types';
+import { BackendPRItemDetail, ProcurementRequestItem } from '../types';
 
 interface UseSubmitProcurementRequestResult {
     submitNewPR: (finalCommentFromDialog: string) => Promise<void>;
@@ -54,10 +54,10 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     const projectId = useProcurementRequestStore(state => state.projectId);
 
     // CEO Hold guard
-    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId || undefined);
     const selectedWP = useProcurementRequestStore(state => state.selectedWP);
+    const selectedHeaderTags = useProcurementRequestStore(state => state.selectedHeaderTags);
     const procList = useProcurementRequestStore(state => state.procList);
-    const selectedCategories = useProcurementRequestStore(state => state.selectedCategories);
     // const newPRComment = useProcurementRequestStore(state => state.newPRComment);
     const resetStore = useProcurementRequestStore(state => state.resetStore);
     // --- End of individual selection ---
@@ -118,20 +118,6 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     }, [userData?.user_id, createDoc, toast]);
 
 
-    const getRefinedCategoriesList = useCallback((procList: ProcurementRequestItem[]) => {
-        const categoriesList: CategorySelection[] = []
-        procList.forEach(item => {
-            const category = selectedCategories.find(c => c.name === item.category && c.status === item.status);
-            if (category) {
-                if (category?.name && categoriesList?.some(c => c.name === category.name && c.status === category.status)) {
-                    return;
-                }
-                categoriesList.push(category!);
-            }
-        });
-        return categoriesList;
-    }, [selectedCategories]);
-
     // --- Submission Functions ---
 
     const submitNewPR = useCallback(async (finalCommentFromDialog: string) => {
@@ -156,9 +142,14 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             const backendOrderList = transformToBackendOrderList(procList);
             const payload = {
                 project: projectId,
-                work_package: selectedWP,
-                category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }),
+                work_package: "Normal",
                 order_list: backendOrderList,
+                pr_tag_list: selectedHeaderTags
+                    .filter(tag => tag.tag_header)
+                    .map(tag => ({
+                        tag_header: tag.tag_header,
+                        tag_package: tag.tag_package
+                    }))
             };
 
             const res = await createDoc("Procurement Requests", payload);
@@ -185,7 +176,6 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         projectId,
         selectedWP,
         procList,
-        getRefinedCategoriesList,
         createDoc,
         addCommentIfNeeded,
         handleSuccess,
@@ -219,9 +209,14 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         try {
             const backendOrderList = transformToBackendOrderList(procList);
             const updateData: any = {
-                category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }),
                 order_list: backendOrderList,
                 workflow_state: "Pending",
+                pr_tag_list: selectedHeaderTags
+                    .filter(tag => tag.tag_header)
+                    .map(tag => ({
+                        tag_header: tag.tag_header,
+                        tag_package: tag.tag_package
+                    }))
             };
 
             await updateDoc("Procurement Requests", prId, updateData);
@@ -248,7 +243,6 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     }, [
         prId,
         procList,
-        getRefinedCategoriesList,
         mode,
         updateDoc,
         addCommentIfNeeded,

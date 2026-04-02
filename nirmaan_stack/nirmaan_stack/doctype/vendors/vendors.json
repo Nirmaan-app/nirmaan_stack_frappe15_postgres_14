@@ -25,6 +25,14 @@
   "ifsc",
   "bank_name",
   "bank_branch",
+  "vendor_credit_section",
+  "vendor_status",
+  "credit_limit",
+  "column_break_credit",
+  "credit_used",
+  "available_credit",
+  "credit_ledger_section",
+  "credit_ledger",
   "vendor_taxation_details_section",
   "invoice_balancing",
   "vendor_gst",
@@ -103,6 +111,55 @@
    "label": "Vendor Email"
   },
   {
+   "fieldname": "vendor_credit_section",
+   "fieldtype": "Section Break",
+   "label": "Credit Management"
+  },
+  {
+   "default": "Active",
+   "fieldname": "vendor_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Vendor Status",
+   "options": "Active\nOn-Hold"
+  },
+  {
+   "default": "10000",
+   "fieldname": "credit_limit",
+   "fieldtype": "Currency",
+   "label": "Credit Limit"
+  },
+  {
+   "fieldname": "column_break_credit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "credit_used",
+   "fieldtype": "Currency",
+   "label": "Credit Used",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "available_credit",
+   "fieldtype": "Currency",
+   "label": "Available Credit",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "credit_ledger_section",
+   "fieldtype": "Section Break",
+   "label": "Credit Ledger"
+  },
+  {
+   "fieldname": "credit_ledger",
+   "fieldtype": "Table",
+   "label": "Credit Ledger",
+   "options": "Vendor Credit Ledger"
+  },
+  {
    "fieldname": "vendor_taxation_details_section",
    "fieldtype": "Section Break",
    "label": "Vendor Taxation Details"
@@ -176,7 +233,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.755990",
+ "modified": "2026-03-24 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

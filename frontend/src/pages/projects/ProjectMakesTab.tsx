@@ -13,15 +13,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { cn } from "@/lib/utils";
-import { Category } from "@/types/NirmaanStack/Category";
-import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { Projects, ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { FrappeDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { FrappeDoc } from "frappe-react-sdk";
 import { Check, Pencil, Package, Tag } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import ReactSelect from "react-select";
 import { KeyedMutator } from "swr";
+import { useProjectMakesTabData } from "./data/tab/makes/useProjectMakesTabApi";
 
 interface ProjectMakesTabProps {
   projectData?: Projects;
@@ -56,25 +55,16 @@ export const ProjectMakesTab: React.FC<ProjectMakesTabProps> = ({
   const [dialogReactSelectOptions, setDialogReactSelectOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
-
-  const { data: allCategories, isLoading: categoriesLoading } = useFrappeGetDocList<Category>("Category", {
-    fields: ["name", "category_name"],
-    limit: 0,
-  });
-
-  const { data: allMakesList, isLoading: makesListLoading } = useFrappeGetDocList("Makelist", {
-    fields: ["name", "make_name"],
-    limit: 0,
-  });
-
-  const { data: categoryMakeList, isLoading: categoryMakeListLoading } = useFrappeGetDocList<CategoryMakelist>(
-    "Category Makelist",
-    {
-      fields: ["make", "category"],
-      limit: 0,
-    }
-  );
+  const {
+    updateProjectMakes,
+    updateLoading,
+    categoriesResponse,
+    makesListResponse,
+    categoryMakeListResponse,
+  } = useProjectMakesTabData();
+  const { data: allCategories, isLoading: categoriesLoading } = categoriesResponse;
+  const { data: allMakesList, isLoading: makesListLoading } = makesListResponse;
+  const { data: categoryMakeList, isLoading: categoryMakeListLoading } = categoryMakeListResponse;
 
   // Sync tab state TO URL
   useEffect(() => {
@@ -192,7 +182,7 @@ export const ProjectMakesTab: React.FC<ProjectMakesTabProps> = ({
 
       const finalMakesPayload = [...otherMakes, ...newMakesForThisCategory];
 
-      await updateDoc("Projects", projectData.name, {
+      await updateProjectMakes(projectData.name, {
         project_wp_category_makes: finalMakesPayload,
       });
 

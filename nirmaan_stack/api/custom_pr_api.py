@@ -2,19 +2,18 @@ import frappe
 import json
 
 @frappe.whitelist()
-def new_custom_pr(project_id: str, order: list, categories: list, comment: str = None, attachment: dict = None, payment_terms: str = None):
+def new_custom_pr(project_id: str, order: list, categories: list = None, comment: str = None, attachment: dict = None, payment_terms: str = None, tags: list = None):
     """
     Creates a new Procurement Request using the child table for items, and optionally adds a comment/attachment.
     """
     try:
         if isinstance(order, str):
             order = json.loads(order)
-        if isinstance(categories, str):
-            categories = json.loads(categories)
 
         frappe.db.begin()
         pr_doc = frappe.new_doc("Procurement Requests")
         pr_doc.project = project_id
+        pr_doc.work_package = "Custom"
         
         # Populate the 'order_list' child table
         for fe_item in order:
@@ -31,7 +30,14 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
                 "quote": fe_item.get("quote")
             })
         
-        pr_doc.category_list = {"list": categories}
+        if tags:
+            if isinstance(tags, str):
+                tags = json.loads(tags)
+            for tag in tags:
+                pr_doc.append("pr_tag_list", {
+                    "tag_header": tag.get("tag_header"),
+                    "tag_package": tag.get("tag_package")
+                })
 
         if payment_terms:
             pr_doc.payment_terms = payment_terms
@@ -85,18 +91,17 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
         return {"error": f"Unable to create Custom PR: {str(e)}", "status": 400}
 
 @frappe.whitelist()
-def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list, comment: str = None, attachment: dict = None, payment_terms: str = None):
+def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list = None, comment: str = None, attachment: dict = None, payment_terms: str = None, tags: list = None):
     """
     Updates an existing Procurement Request's child table items, and optionally comment/attachment.
     """
     try:
         if isinstance(order, str):
             order = json.loads(order)
-        if isinstance(categories, str):
-            categories = json.loads(categories)
 
         frappe.db.begin()
         pr_doc = frappe.get_doc("Procurement Requests", pr_id, for_update=True)
+        pr_doc.work_package = "Custom"
 
         pr_doc.set("order_list", [])
 
@@ -113,8 +118,6 @@ def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list
                 "vendor": fe_item.get("vendor"),
                 "quote": fe_item.get("quote")
             })
-
-        pr_doc.category_list = {"list": categories}
 
         if payment_terms:
             pr_doc.payment_terms = payment_terms

@@ -1,6 +1,7 @@
 import frappe
 import json
 from frappe.utils import flt,getdate, nowdate
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 @frappe.whitelist()
 def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_terms: list):
@@ -132,6 +133,10 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
             frappe.db.set_value("Procurement Orders", po_name, "status", "Merged")
             frappe.db.set_value("Procurement Orders", po_name, "merged", new_po_doc.name)
         
+        # Vendor credit recalculation after PO merge
+        if po_doc.vendor:
+            recalculate_vendor_credit(po_doc.vendor, "PO Merged", po_id=new_po_doc.name, project=po_doc.project)
+
         frappe.db.commit()
 
         return {

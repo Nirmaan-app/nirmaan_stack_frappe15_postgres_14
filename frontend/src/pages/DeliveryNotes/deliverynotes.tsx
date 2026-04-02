@@ -189,7 +189,7 @@ const DeliveryNotes: React.FC = () => {
       fields: ["name", "project", "vendor_name", "dispatch_date", "status"],
       filters: [
         ["project", "=", selectedProject || ""],
-        ["status", "in", ["Delivered", "Partially Delivered"]],
+        ["status", "in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]],
       ],
       orderBy: { field: "creation", order: "desc" },
       limit: 1000,
@@ -199,15 +199,17 @@ const DeliveryNotes: React.FC = () => {
     dnsByPO,
     isLoading: dnsLoading,
   } = useProjectDeliveryNotes(
-    activeView === "VIEW_EXISTING" ? selectedProject : null
+    ["CREATE", "VIEW_EXISTING"].includes(activeView) ? selectedProject : null
   );
 
   const enrichedViewPOs = useMemo(() => {
     if (!viewExistingPOs) return [];
-    return viewExistingPOs.map((po) => ({
-      ...po,
-      dns: dnsByPO[po.name] || [],
-    }));
+    return viewExistingPOs
+      .map((po) => ({
+        ...po,
+        dns: dnsByPO[po.name] || [],
+      }))
+      .filter((po) => po.dns.length > 0);
   }, [viewExistingPOs, dnsByPO]);
 
   const filteredViewPOs = useMemo(() => {
@@ -322,11 +324,14 @@ const DeliveryNotes: React.FC = () => {
                           <TableHead>Vendor</TableHead>
                           <TableHead>Dispatch Date</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead className="text-center">DNs</TableHead>
                           <TableHead className="w-[40px]"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredCreatePOs.map((po) => (
+                        {filteredCreatePOs.map((po) => {
+                          const dnCount = dnsByPO[po.name]?.length || 0;
+                          return (
                           <TableRow key={po.name}>
                             <TableCell>
                               <Link
@@ -347,6 +352,13 @@ const DeliveryNotes: React.FC = () => {
                                 {po.status}
                               </Badge>
                             </TableCell>
+                            <TableCell className="text-center">
+                              {dnCount > 0 && (
+                                <Badge variant="secondary">
+                                  {dnCount}
+                                </Badge>
+                              )}
+                            </TableCell>
                             <TableCell>
                               <Link
                                 to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
@@ -355,13 +367,16 @@ const DeliveryNotes: React.FC = () => {
                               </Link>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
 
                     {/* Mobile Cards */}
                     <div className="md:hidden space-y-3">
-                      {filteredCreatePOs.map((po) => (
+                      {filteredCreatePOs.map((po) => {
+                        const dnCount = dnsByPO[po.name]?.length || 0;
+                        return (
                         <Link
                           key={po.name}
                           to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
@@ -369,9 +384,16 @@ const DeliveryNotes: React.FC = () => {
                         >
                           <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
                             <div className="flex items-start justify-between mb-2">
-                              <span className="font-semibold text-blue-600 text-lg">
-                                {`PO-${po.name.split("/")[1]}`}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-blue-600 text-lg">
+                                  {`PO-${po.name.split("/")[1]}`}
+                                </span>
+                                {dnCount > 0 && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {dnCount} DN{dnCount !== 1 ? "s" : ""}
+                                  </Badge>
+                                )}
+                              </div>
                               <Badge
                                 variant={
                                   ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
@@ -400,7 +422,8 @@ const DeliveryNotes: React.FC = () => {
                             </div>
                           </div>
                         </Link>
-                      ))}
+                        );
+                      })}
                     </div>
                   </>
                 )}

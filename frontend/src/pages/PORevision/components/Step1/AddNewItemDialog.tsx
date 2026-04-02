@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { ITEM_TOKEN_SEARCH_CONFIG, ItemCatalogOption } from "@/hooks/useItemCatalog";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { RevisionItem } from "../../types";
@@ -133,10 +135,11 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
                 className="text-xs h-9"
               />
             ) : (
-              <ReactSelect
-                options={itemOptions.filter(opt => !revisionItems.some(ri => (ri.item_id === opt.item_id || ri.item_name === opt.item_name) && ri.item_type !== 'Deleted'))}
-                value={item_id ? itemOptions.find(opt => opt.item_id === item_id) : null}
-                onChange={(selected: any) => {
+              <FuzzySearchSelect<ItemCatalogOption>
+                allOptions={itemOptions.filter(opt => !revisionItems.some(ri => (ri.item_id === opt.item_id || ri.item_name === opt.item_name) && ri.item_type !== 'Deleted'))}
+                tokenSearchConfig={ITEM_TOKEN_SEARCH_CONFIG}
+                value={item_id ? itemOptions.find(opt => opt.item_id === item_id) ?? null : null}
+                onChange={(selected) => {
                   if (selected) {
                     setItemId(selected.item_id);
                     setItemName(selected.item_name);
@@ -157,6 +160,7 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
                 }}
                 placeholder="Select Item..."
                 isClearable
+                menuPortalTarget={document.body}
                 styles={{
                   control: (base) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '12px' }),
                 }}

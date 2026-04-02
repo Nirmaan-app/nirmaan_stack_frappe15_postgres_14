@@ -8,14 +8,11 @@ import { PRDocType } from './types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
-import { parseCategoryList } from '@/utils/safeJsonParse';
+// REMOVED: parseCategoryList import - category_list no longer maintained as state
 
 // Import the new individual hooks
-import { useUsersList } from './hooks/useUsersList';
-import { useCategoryList } from './hooks/useCategoryList';
-import { useItemList } from './hooks/useItemList';
-import { usePRComments } from './hooks/usePRComments';
 import { useRelatedPRData } from './hooks/useRelatedPRData';
+import { useItemList } from './hooks/useItemList';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { toast } from '@/components/ui/use-toast';
 
@@ -58,17 +55,15 @@ export const ApprovePRContainer: React.FC = () => {
     );
 
     useFrappeDocumentEventListener("Procurement Requests", prId || '', (event) => {
-          console.log("Procurement Requests document updated (real-time):", event?.name);
-          toast({
-              title: "Document Updated",
-              description: `Procurement Requests ${event?.name} has been modified.`,
-          });
-          prMutate(); // Re-fetch this specific document
-        },
+        console.log("Procurement Requests document updated (real-time):", event?.name);
+        toast({
+            title: "Document Updated",
+            description: `Procurement Requests ${event?.name} has been modified.`,
+        });
+        prMutate(); // Re-fetch this specific document
+    },
         true // emitOpenCloseEventsOnMount (default)
-        );
-
-    const { make_list, makeListMutate, allMakeOptions, categoryMakelist, categoryMakeListMutate } = useRelatedPRData({ prDoc });
+    );
 
     // --- 2. Fetch Project Document (conditional) ---
     const projectQueryKey = prDoc?.project ? queryKeys.projects.doc(prDoc.project) : null;
@@ -78,24 +73,54 @@ export const ApprovePRContainer: React.FC = () => {
         projectQueryKey
     );
 
-    // --- 3. Fetch Related Data using Individual Hooks ---
-    const workPackage = useMemo(() => prDoc?.work_package, [prDoc]);
+    // --- 3. Derive All Relevant Packages ---
+    const allRelevantPackages = useMemo(() => {
+        const packages = new Set<string>();
+        
+        // 1. Add from project work packages (Master list)
+        if (projectDoc?.project_work_packages) {
+            const projectWPs = (typeof projectDoc.project_work_packages === 'string' 
+                ? JSON.parse(projectDoc.project_work_packages) 
+                : projectDoc.project_work_packages)?.work_packages ?? [];
+            projectWPs.forEach((wp: any) => {
+                if (wp.work_package_name) packages.add(wp.work_package_name);
+            });
+        }
+
+        // 2. Add current work package from PR (as fallback/safety)
+        if (prDoc?.work_package) packages.add(prDoc.work_package);
+        
+        // 3. Add from tags
+        (prDoc?.pr_tag_list || []).forEach(tag => {
+            if (tag.tag_package) packages.add(tag.tag_package);
+        });
+
+        // 4. Add from project category-make configuration (legacy/fallback)
+        (projectDoc?.project_wp_category_makes || []).forEach(item => {
+            if (item.procurement_package) packages.add(item.procurement_package);
+        });
+
+        return Array.from(packages);
+    }, [prDoc?.work_package, prDoc?.pr_tag_list, projectDoc?.project_work_packages, projectDoc?.project_wp_category_makes]);
+
+    // --- 4. Fetch Related Data (items, categories, users, comments via useItemCatalog) ---
+    const {
+        itemOptions: catalogItemOptions,
+        categoryList,
+        itemMutate,
+        categoryMakeListMutate,
+        usersList,
+        universalComments,
+        isLoading: relatedDataLoading,
+        error: relatedDataError,
+    } = useRelatedPRData({ prDoc, workPackages: allRelevantPackages });
+
     const prName = useMemo(() => prDoc?.name, [prDoc]);
+    const workPackage = useMemo(() => prDoc?.work_package, [prDoc]); // Keep for other hooks/props if needed
 
-    // Fetch Users
-    const { data: usersList, isLoading: usersLoading, error: usersError } = useUsersList();
-
-    // Fetch Categories (depends on workPackage)
-    const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useCategoryList({ workPackage });
-
-    // Derive category names for item fetching
-    const categoryNames = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
-
-    // Fetch Items (depends on categoryNames)
-    const { data: itemList, isLoading: itemsLoading, error: itemsError, mutate: itemMutate } = useItemList({ categoryNames });
-
-    // Fetch Comments (depends on prName)
-    const { data: universalComments, isLoading: commentsLoading, error: commentsError } = usePRComments({ prName });
+    // Fetch raw Items for fuseInstance (fuzzy matching in New/Request Item dialogs)
+    const categoryNamesForItemFetch = useMemo(() => categoryList?.map(c => c.name) ?? [], [categoryList]);
+    const { data: itemList } = useItemList({ categoryNames: categoryNamesForItemFetch });
 
     // --- 4. Initialize Draft Manager Hook ---
     // Converts server data to draft format and manages local edits with auto-save
@@ -107,23 +132,18 @@ export const ApprovePRContainer: React.FC = () => {
         orderListLength: prDoc?.order_list?.length ?? 0,
     });
 
-    // Derive parsed category list during render (following rerender-derived-state-no-effect)
-    const parsedCategoryList = parseCategoryList(prDoc?.category_list);
-
     // IMPORTANT: Memoize serverData to prevent infinite re-renders
     // Without useMemo, a new object is created on every render, causing useEffect loops
     const serverDataForDraft = useMemo(() => {
         const data = {
             orderList: prDoc?.order_list || [],
-            categoryList: parsedCategoryList,
             modifiedAt: prDoc?.modified || '',
         };
         log('serverDataForDraft memoized:', {
             orderListLength: data.orderList.length,
-            categoryListLength: data.categoryList.length,
         });
         return data;
-    }, [prDoc?.order_list, parsedCategoryList, prDoc?.modified]);
+    }, [prDoc?.order_list, prDoc?.modified]);
 
     const draftManager = useApproveNewPRDraftManager({
         prId: prDoc?.name || '',
@@ -159,12 +179,10 @@ export const ApprovePRContainer: React.FC = () => {
             deleteItem: draftManager.deleteItem,
             undoDelete: draftManager.undoDelete,
             updateOrderList: draftManager.updateOrderList,
-            updateCategoryList: draftManager.updateCategoryList,
             getDataForSubmission: draftManager.getDataForSubmission,
             clearDraftAfterSubmit: draftManager.clearDraftAfterSubmit,
             setUniversalComment: draftManager.setUniversalComment,
             orderList: draftManager.orderList,
-            categoryList: draftManager.categoryList,
             universalComment: draftManager.universalComment,
             undoStack: draftManager.undoStack,
             isInitialized: draftManager.isInitialized,
@@ -177,12 +195,10 @@ export const ApprovePRContainer: React.FC = () => {
         draftManager.deleteItem,
         draftManager.undoDelete,
         draftManager.updateOrderList,
-        draftManager.updateCategoryList,
         draftManager.getDataForSubmission,
         draftManager.clearDraftAfterSubmit,
         draftManager.setUniversalComment,
         draftManager.orderList,
-        draftManager.categoryList,
         draftManager.universalComment,
         draftManager.undoStack,
         draftManager.isInitialized,
@@ -195,14 +211,14 @@ export const ApprovePRContainer: React.FC = () => {
         projectDoc,
         usersList: usersList || [], // Provide default empty array
         categoryList: categoryList || [], // Provide default empty array
-        itemList: itemList || [],       // Provide default empty array
+        catalogItemOptions: catalogItemOptions || [], // Pre-built from useItemCatalog
+        itemList: itemList || [],       // Raw items for fuseInstance (fuzzy matching)
         comments: universalComments || [], // Provide default empty array
         itemMutate: itemMutate!, // Assert mutate is available when needed
         prMutate: prMutate!,     // Assert mutate is available when needed
-        allMakeOptions,
-        makeList: make_list,
-        makeListMutate,
-        categoryMakelist: categoryMakelist,
+        allMakeOptions: [], // Makes now handled by useMakeOptions inside AddItemForm
+        makeList: undefined,
+        makeListMutate: async () => {},
         categoryMakeListMutate,
         // Pass draft manager for draft-first editing approach
         // Only enable draft-first when PR is in Pending state and draft manager is initialized
@@ -210,10 +226,10 @@ export const ApprovePRContainer: React.FC = () => {
     });
 
     // --- Combined Loading State ---
-    const isDataLoading = prLoading || projectLoading || usersLoading || categoriesLoading || itemsLoading || commentsLoading;
+    const isDataLoading = prLoading || projectLoading || relatedDataLoading;
 
     // --- Combined Error State ---
-    const error = prError || projectError || usersError || categoriesError || itemsError || commentsError;
+    const error = prError || projectError || relatedDataError;
 
     // --- Handle cancel/back navigation ---
     const handleCancelNavigation = useCallback(() => {
@@ -325,6 +341,7 @@ export const ApprovePRContainer: React.FC = () => {
                 {...logicProps} // Spread all state and handlers from the logic hook
                 projectDoc={projectDoc}
                 categoryList={categoryList}
+                allRelevantPackages={allRelevantPackages}
                 // Draft-related props
                 hasDraft={draftManager.hasDraft}
                 lastSavedText={draftManager.lastSavedText}

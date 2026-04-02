@@ -1,5 +1,8 @@
-import frappe
+import json
 from collections import defaultdict
+
+import frappe
+from frappe.utils import getdate
 
 @frappe.whitelist()
 def get_all_master_data():
@@ -30,11 +33,56 @@ def get_all_master_data():
         limit=0, 
         as_list=False
     )
+
+    # Derive date when project status changed to "Handover" from Version history.
+    # Fallback is handled on the frontend when this value is unavailable.
+    project_names = [p.get("name") for p in projects if p.get("name")]
+    handover_dates = {}
+    if project_names:
+        versions = frappe.get_all(
+            "Version",
+            filters={
+                "ref_doctype": "Projects",
+                "docname": ["in", project_names],
+            },
+            fields=["docname", "creation", "data"],
+            order_by="creation asc",
+        )
+
+        for version in versions:
+            raw_data = version.get("data")
+            if not raw_data:
+                continue
+
+            try:
+                data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
+            except Exception:
+                continue
+
+            changes = data.get("changed") if isinstance(data, dict) else None
+            if not isinstance(changes, list):
+                continue
+
+            for change in changes:
+                if (
+                    isinstance(change, list)
+                    and len(change) >= 3
+                    and change[0] == "status"
+                    and change[2] == "Handover"
+                ):
+                    creation = version.get("creation")
+                    if creation:
+                        handover_dates[version.get("docname")] = getdate(creation).strftime("%Y-%m-%d")
+
+        for project in projects:
+            project["handover_date"] = handover_dates.get(project.get("name"))
     
     # 2. Fetch Users
     allowed_profiles = [
-        "Nirmaan Design Executive Profile","Nirmaan Design Lead Profile"
-    ] # Need to verify if these roles change for commission
+        "Nirmaan Design Executive Profile",
+        "Nirmaan Project Manager Profile",
+        "Nirmaan Design Lead Profile",
+    ] # Commission assignee options
 
     users = frappe.get_list(
         "Nirmaan Users", 

@@ -13,6 +13,7 @@ from ._payment_utils import (
     _append_return_payment_term,
     _split_target_po_term,
 )
+from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
 
 @frappe.whitelist()
@@ -150,6 +151,10 @@ def execute_adjustment(po_id, adjustments_json):
         original_po.save(ignore_permissions=True)
 
         _recalculate_amount_paid(original_po.name)
+
+        # Vendor credit recalculation after adjustment resolution
+        if adj_doc.vendor:
+            recalculate_vendor_credit(adj_doc.vendor, "Adjustment Resolved", po_id=po_id, project=adj_doc.project)
 
         # Recalculate remaining impact
         adj_doc.recalculate_remaining_impact()

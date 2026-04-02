@@ -307,50 +307,15 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                 po_doc.project_name = project_doc_for_po.project_name
                 po_doc.project_address = project_doc_for_po.project_address
                 # --- START FINAL REVISED LOGIC: Set Project GST (Header Field) ---
-                # Field name is 'project_gst_number'
-                if hasattr(project_doc_for_po, 'project_gst_number') and project_doc_for_po.project_gst_number:
-                    
-                    gst_source = project_doc_for_po.project_gst_number
-                    gst_json_data = None
-
-                    if isinstance(gst_source, str):
-                        try:
-                            # 1. Parse the JSON string: {"list": [...]}
-                            gst_json_data = json.loads(gst_source)
-                        except json.JSONDecodeError:
-                            frappe.log_error(
-                                f"Could not parse project_gst_number JSON string from Projects {pr_doc.project}", 
-                                "generate_pos_from_selection"
-                            )
-                    elif isinstance(gst_source, dict):
-                        # It's already parsed (e.g., by Frappe ORM), use it directly
-                        gst_json_data = gst_source
-
-
-                    if gst_json_data and isinstance(gst_json_data, dict):
-                        # 2. Extract the actual list of GST details from the "list" key
-                        project_gst_details_list = gst_json_data.get("list")
-                        
-                        if isinstance(project_gst_details_list, list):
-                            
-                            po_gst_to_set = None
-                            # Requirement: Update po_doc.project_gst ONLY if the list has exactly one item.
-                            if len(project_gst_details_list) == 1:
-                                # If there is exactly one item, get its 'gst' value
-                                single_gst_entry = project_gst_details_list[0]
-                                po_gst_to_set = single_gst_entry.get("gst") 
-                            
-                            # Set the header field (po_doc.project_gst). 
-                            po_doc.project_gst = po_gst_to_set
-                            
-                            # The logic to append to a child table ('project_gst_details') is removed as requested.
-                                
+                if hasattr(project_doc_for_po, 'project_gst') and project_doc_for_po.project_gst:
+                    po_doc.project_gst = project_doc_for_po.project_gst
                 # --- END FINAL REVISED LOGIC ---
             po_doc.vendor = vendor_name
             po_doc.vendor_name = vendor_doc.vendor_name
             po_doc.vendor_address = vendor_doc.vendor_address
             po_doc.vendor_gst = vendor_doc.vendor_gst
-            if not frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package"):
+            # Check if the work_package is explicitly "Custom"
+            if frappe.db.get_value("Procurement Requests", sb_doc.procurement_request, "work_package") == "Custom":
                  po_doc.custom = "true"
             if vendor_name in payment_terms_by_vendor:
                 milestones = payment_terms_by_vendor[vendor_name]
@@ -361,7 +326,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                         term_status = "Created"
                         if milestone.get('type') == "Credit" and milestone.get('due_date'):
                             if getdate(milestone.get('due_date')) <= today:
-                                term_status = "Scheduled"
+                                term_status = "Created"
                         po_doc.append("payment_terms", {"payment_type": milestone.get('type'), "label": milestone.get('name'), "percentage": milestone.get('percentage'), "amount": milestone.get('amount'), "due_date": milestone.get('due_date'), "term_status": term_status})
             for item_dict in items_list:
                 po_doc.append("items", item_dict)
@@ -438,13 +403,11 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
         rfq_data_sb = frappe.parse_json(sb_doc.rfq_data or '{}')
         selected_vendors_sb = rfq_data_sb.get("selectedVendors", [])
         rfq_details_sb = rfq_data_sb.get("details", {})
-        category_list_sb = frappe.parse_json(sb_doc.category_list or '{}').get("list", [])
 
 
         print(f"Selected Items for creating new sent back: {selected_items}")
 
         items_for_new_sb_doc = []
-        categories_for_new_sb_doc = []
         rfq_details_for_new_sb_doc = {}
 
         parent_pr_work_package = frappe.get_value("Procurement Requests", sb_doc.procurement_request, "work_package")
@@ -470,18 +433,11 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "tax": flt(item_in_source_sb.tax),
                     "status": "Pending", # New SB items are always Pending
                     "category": item_in_source_sb.category,
-                    "procurement_package": item_in_source_sb.procurement_package or parent_pr_work_package,
+                    "procurement_package": item_in_source_sb.procurement_package,
                     "comment": item_in_source_sb.comment, # Carry over comment
                     "make": item_in_source_sb.make,
                     "vendor": item_in_source_sb.vendor, # Carry over selected vendor
                 })
-
-                # Build category list for the new SB doc
-                if not any(cat_dict.get("name") == item_in_source_sb.category for cat_dict in categories_for_new_sb_doc):
-                    # Find original makes for this category from the source SB's category_list
-                    source_category_info = next((cat_dict for cat_dict in category_list_sb if cat_dict.get("name") == item_in_source_sb.category), None)
-                    makes_for_category = source_category_info.get("makes", []) if source_category_info else []
-                    categories_for_new_sb_doc.append({"name": item_in_source_sb.category, "makes": makes_for_category})
 
                 # Copy RFQ details for this item to the new SB doc's RFQ data
                 if selected_item_id in rfq_details_sb:
@@ -499,7 +455,6 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
             new_sent_back_doc = frappe.new_doc("Sent Back Category")
             new_sent_back_doc.procurement_request = sb_doc.procurement_request
             new_sent_back_doc.project = sb_doc.project
-            new_sent_back_doc.category_list = json.dumps({"list": categories_for_new_sb_doc}) # Still JSON
             new_sent_back_doc.type = "Rejected" # Or based on context
             new_sent_back_doc.rfq_data = json.dumps({"selectedVendors": selected_vendors_sb, "details": rfq_details_for_new_sb_doc}) # Still JSON
 

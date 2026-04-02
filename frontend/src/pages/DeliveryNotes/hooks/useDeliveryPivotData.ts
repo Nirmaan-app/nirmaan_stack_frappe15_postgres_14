@@ -65,6 +65,58 @@ export function useDeliveryPivotData(
       };
     });
 
-    return { rows, dnColumns };
+    // 5. Detect orphaned DN items (in DNs but removed from PO after revision)
+    // Use regularItems (not eligibleItems) so undispatched items aren't falsely flagged as orphaned
+    const poItemIds = new Set(regularItems.map((item) => item.item_id));
+
+    const orphanMap = new Map<string, {
+      itemName: string;
+      unit: string;
+      make?: string;
+      dnQuantities: Record<string, number>;
+    }>();
+
+    for (const dn of dnRecords) {
+      for (const item of dn.items) {
+        if (poItemIds.has(item.item_id)) continue;
+        if (item.category === ADDITIONAL_CHARGES_CATEGORY) continue;
+
+        let entry = orphanMap.get(item.item_id);
+        if (!entry) {
+          entry = {
+            itemName: item.item_name,
+            unit: item.unit,
+            make: item.make,
+            dnQuantities: {},
+          };
+          orphanMap.set(item.item_id, entry);
+        }
+        entry.dnQuantities[dn.name] = item.delivered_quantity;
+      }
+    }
+
+    const orphanRows: PivotRow[] = Array.from(orphanMap.entries()).map(
+      ([itemId, info]) => {
+        const totalReceived = Object.values(info.dnQuantities).reduce(
+          (sum, qty) => sum + qty, 0
+        );
+        return {
+          itemId: `orphan-${itemId}`,
+          itemItemId: itemId,
+          itemName: info.itemName,
+          unit: info.unit,
+          orderedQty: 0,
+          dnQuantities: info.dnQuantities,
+          totalReceived,
+          remainingQty: 0,
+          isFullyDelivered: false,
+          isOverDelivered: false,
+          make: info.make,
+          isOrphaned: true,
+        };
+      }
+    );
+
+    return { rows: [...rows, ...orphanRows], dnColumns };
   }, [po?.items, po?.status, dnRecords]);
 }

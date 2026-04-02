@@ -60,6 +60,7 @@ def generate_po_summary(project_id: str):
                 "tax_amount": item.get("tax_amount"),
                 "total_amount": item.get("total_amount"),
                 "make": item.get("make"),
+                "is_dispatched": item.get("is_dispatched", 0),
             }
             print(f"DEBUGGPS7: item_data:{item}")
             # Append to the correct list

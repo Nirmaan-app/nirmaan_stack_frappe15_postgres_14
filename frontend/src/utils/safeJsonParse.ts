@@ -18,14 +18,3 @@ export const safeJsonParse = <T>(
   }
   return jsonString as T;
 };
-
-/**
- * Parse category_list field from Frappe - handles both string and object
- * Returns the unwrapped list array, not the wrapper object
- */
-export const parseCategoryList = <T = { name: string; status?: string; makes?: string[] }>(
-  categoryList: string | { list: T[] } | undefined | null
-): T[] => {
-  const parsed = safeJsonParse(categoryList, { list: [] as T[] });
-  return parsed?.list || [];
-};

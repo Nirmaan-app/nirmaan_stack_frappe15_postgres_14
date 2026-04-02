@@ -34,6 +34,9 @@ import { CustomPRSummary } from './CustomPRSummary';
 import { PaymentTermsDialog } from '../VendorQuotesSelection/components/PaymentTermsDialog';
 import { PaymentTermsData, VendorPaymentTerm } from '@/pages/ProcurementRequests/VendorQuotesSelection/types/paymentTerms';
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { WorkPackageSelector } from "./components/WorkPackageSelector";
+import { SelectedHeaderTag } from "./types";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 // Local type definitions for this component
 interface CustomPRItem extends ProcurementItem {
@@ -59,6 +62,8 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     prId ? `Procurement Request ${prId}` : null
   );
 
+  const { data: project } = useFrappeGetDoc<Projects>("Projects", projectId, projectId ? `Project ${projectId}` : null);
+
   const { data: vendor_list, isLoading: vendorListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["*"],
     limit: 10000,
@@ -83,11 +88,11 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const { upload } = useFrappeFileUpload();
 
   // --- Component State ---
-  const [section, setSection] = useState("choose-vendor");
+  const [section, setSection] = useState(resolve ? "choose-vendor" : "header-selection");
+  const [selectedHeaderTags, setSelectedHeaderTags] = useState<SelectedHeaderTag[]>([]);
   const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
   const [order, setOrder] = useState<CustomPRItem[]>([]);
   const [amounts, setAmounts] = useState<{ [key: string]: number }>({});
-  const [categories, setCategories] = useState<{ list: { name: string, makes: string[] }[] }>({ list: [] });
   const [comment, setComment] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermsData>({});
@@ -160,7 +165,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
       })) as CustomPRItem[];
 
       setOrder(transformedOrder);
-      setCategories(request?.category_list);
 
       const amounts: { [key: string]: number } = {};
       transformedOrder.forEach(item => { amounts[item.name] = item.quote; });
@@ -182,6 +186,13 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
           console.error("Failed to parse payment_terms from PR", e);
         }
       }
+
+      if (request.pr_tag_list) {
+        setSelectedHeaderTags((request.pr_tag_list || []).map((tag: any) => ({
+          tag_header: tag.tag_header,
+          tag_package: tag.tag_package
+        })));
+      }
     }
   }, [resolve, prId, prDoc, vendor_list]);
 
@@ -194,13 +205,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     let newOrderData = order.map(item => ({ ...item, quote: amounts[item.name], vendor: selectedVendor?.value }));
     setOrder(newOrderData);
     setSection("summary");
-    const newCategories: { name: string, makes: string[] }[] = [];
-    order.forEach((item) => {
-      if (!newCategories.some(category => category.name === item.category)) {
-        newCategories.push({ name: item.category, makes: [] });
-      }
-    });
-    setCategories({ list: newCategories });
   }, [order, amounts, selectedVendor]);
 
   const handleInputChange = useCallback((id: string, field: keyof CustomPRItem, value: string | number) => {
@@ -233,10 +237,10 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
       const response = await newCustomPRCall({
         project_id: projectId,
         order: order,
-        categories: categories.list,
         comment: comment,
         attachment: attachment ? { file_url: file_url } : null,
-        payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null
+        payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null,
+        tags: selectedHeaderTags
       });
 
       if (response.message.status === 200) {
@@ -267,10 +271,10 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         project_id: prDoc?.project,
         pr_id: prId,
         order: order,
-        categories: categories.list,
         comment: comment,
         attachment: attachment ? { file_url: file_url } : null,
-        payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null
+        payment_terms: Object.keys(paymentTerms).length > 0 ? JSON.stringify({ list: paymentTerms }) : null,
+        tags: selectedHeaderTags
       });
 
       if (response.message.status === 200) {
@@ -292,8 +296,20 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   return (
     <div className="flex-1 space-y-4">
       {/* The Header Card is now only rendered here, at the top level */}
+      {section === "header-selection" && (
+        <div className="px-4 py-4">
+          <WorkPackageSelector
+            onSelectHeaders={(headers) => {
+              setSelectedHeaderTags(headers);
+              setSection("choose-vendor");
+            }}
+            project={project}
+          />
+        </div>
+      )}
+
       {section === "choose-vendor" && (
-        <ProcurementHeaderCard orderData={prDoc} customPr />
+        <ProcurementHeaderCard orderData={prDoc} customPr headers={selectedHeaderTags} />
       )}
 
       {section === "choose-vendor" && (
@@ -378,7 +394,10 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
             </div>
           </div>
           <div className="flex justify-between items-center mt-4 pl-2">
-            <Button onClick={() => setOrder(prev => [...prev, { name: uuidv4(), procurement_package: "", category: "", item: "", quantity: 0, unit: "", quote: 0, tax: 18, status: "Pending" }])}>New Item</Button>
+            <div className="flex gap-2">
+              <Button onClick={() => setOrder(prev => [...prev, { name: uuidv4(), procurement_package: "", category: "", item: "", quantity: 0, unit: "", quote: 0, tax: 18, status: "Pending" }])}>New Item</Button>
+              <Button variant="outline" onClick={() => setSection("header-selection")}>Back to Header</Button>
+            </div>
             <div className="flex items-center gap-2"><Button disabled={!checkNextButtonStatus()} onClick={handleSaveAmounts}>Next</Button></div>
           </div>
         </>

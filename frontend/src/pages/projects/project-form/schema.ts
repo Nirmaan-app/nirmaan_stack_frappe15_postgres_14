@@ -145,12 +145,7 @@ export const projectFormSchema = z.object({
         }),
 
     // GST
-    project_gst_number: z.object({
-        list: z.array(z.object({
-            location: z.string(),
-            gst: z.string(),
-        })),
-    }),
+    project_gst: z.string().min(1, { message: "Project GST is required" }),
 
     // Daily Progress Report Setup (Optional - Phase 5, Section 2)
     daily_progress_setup: z.object({
@@ -194,14 +189,7 @@ export const defaultFormValues: ProjectFormValues = {
     project_work_packages: {
         work_packages: []
     },
-    project_gst_number: {
-        list: [
-            {
-                location: "Bengaluru",
-                gst: "29ABFCS9095N1Z9",
-            }
-        ]
-    },
+    project_gst: "29ABFCS9095N1Z9", // Default to Bengaluru GSTIN (the record name)
     carpet_area: undefined as unknown as number, // Will be validated on submit
     project_scopes: {
         scopes: []

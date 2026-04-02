@@ -173,8 +173,7 @@ const dateFilterFn = (row: any, columnId: string, filterValue: DateFilterValue) 
 // Column definitions factory
 export const getTaskTableColumns = (
     handleEditClick: (task: CommissionReportTask) => void,
-    isDesignExecutive: boolean,
-    isProjectManager: boolean,
+    isRestrictedUser: boolean,
     checkIfUserAssigned: (task: CommissionReportTask) => boolean
 ): ColumnDef<CommissionReportTask>[] => {
     return [
@@ -200,8 +199,8 @@ export const getTaskTableColumns = (
             minSize: 150,
             maxSize: 280,
         },
-        // Conditionally show Assigned Designer column (hidden for Design Executives)
-        ...(isDesignExecutive ? [] : [{
+        // Conditionally show Assigned Designer column (hidden for restricted assignee roles)
+        ...(isRestrictedUser ? [] : [{
             id: "assigned_designers",
             accessorKey: "assigned_designers",
             header: ({ column }: { column: any }) => (
@@ -284,38 +283,35 @@ export const getTaskTableColumns = (
             maxSize: 100,
             meta: { excludeFromExport: true },
         },
-        // Actions column (hidden for Project Managers)
-        ...(isProjectManager
-            ? []
-            : [{
-                id: "actions",
-                header: ({ column }: { column: any }) => (
-                    <div className="flex justify-center px-5">
-                        <DataTableColumnHeader column={column} title="Edit" />
-                    </div>
-                ),
-                cell: ({ row }: { row: any }) => {
-                    const canEdit = !isDesignExecutive ||
-                        (isDesignExecutive && checkIfUserAssigned(row.original));
+        {
+            id: "actions",
+            header: ({ column }: { column: any }) => (
+                <div className="flex justify-center px-5">
+                    <DataTableColumnHeader column={column} title="Edit" />
+                </div>
+            ),
+            cell: ({ row }: { row: any }) => {
+                const canEdit = !isRestrictedUser ||
+                    (isRestrictedUser && checkIfUserAssigned(row.original));
 
-                    return (
-                        <div className="flex justify-center">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => canEdit && handleEditClick(row.original)}
-                                className={`h-6 px-1.5 ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                disabled={!canEdit}
-                            >
-                                <Edit className="h-3 w-3" />
-                            </Button>
-                        </div>
-                    );
-                },
-                size: 80,
-                minSize: 70,
-                maxSize: 100,
-                meta: { excludeFromExport: true },
-            }] as ColumnDef<CommissionReportTask>[]),
+                return (
+                    <div className="flex justify-center">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => canEdit && handleEditClick(row.original)}
+                            className={`h-6 px-1.5 ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!canEdit}
+                        >
+                            <Edit className="h-3 w-3" />
+                        </Button>
+                    </div>
+                );
+            },
+            size: 80,
+            minSize: 70,
+            maxSize: 100,
+            meta: { excludeFromExport: true },
+        },
     ];
 };
