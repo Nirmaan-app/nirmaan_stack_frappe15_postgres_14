@@ -321,7 +321,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             const formattedDynamicCategories = dynamicCategories?.map((item) => item?.category_name);
 
             const response = await createVendorAndAddress({
-                values: values,
+                values: { ...values, credit_limit: String(values.credit_limit) },
                 vendorType: vendorType,
                 category_json: category_json,
                 service_categories: SERVICECATEGORIES,

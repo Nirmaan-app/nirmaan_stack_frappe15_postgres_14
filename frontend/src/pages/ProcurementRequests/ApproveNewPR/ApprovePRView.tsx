@@ -393,7 +393,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 prName={orderData.name}
                 onConfirm={handleConfirmAction}
                 isLoading={isLoading}
-                totalItemsCount={orderData?.order_list?.length ?? 0}
             />
 
         </>
