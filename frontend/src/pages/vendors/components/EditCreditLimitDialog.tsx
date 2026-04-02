@@ -42,8 +42,14 @@ export const EditCreditLimitDialog: React.FC<EditCreditLimitDialogProps> = ({
             return;
         }
         try {
-            await call({ vendor_id: vendorId, new_limit: value });
-            toast({ title: "Success", description: "Credit limit updated successfully." });
+            const res = await call({ vendor_id: vendorId, new_limit: value });
+            const newStatus = res?.message?.vendor_status;
+            toast({
+                title: "Success",
+                description: newStatus
+                    ? `Credit limit updated. Vendor is now ${newStatus}.`
+                    : "Credit limit updated successfully.",
+            });
             onSuccess();
         } catch (err: any) {
             toast({

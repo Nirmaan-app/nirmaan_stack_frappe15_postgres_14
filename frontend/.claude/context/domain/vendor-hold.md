@@ -24,7 +24,7 @@ credit_used = SUM(max(po_amount_delivered - amount_paid, 0))  [post-April 2025 P
             + SUM(max(total_invoiced - amount_paid, 0))        [pre-April 2025 POs]
 
 available_credit = credit_limit - credit_used
-vendor_status = "On-Hold" if available_credit <= 0 else "Active"  [set by daily cron only]
+vendor_status = "On-Hold" if available_credit <= 0 else "Active"  [set by daily cron + update_credit_limit]
 ```
 
 **Default credit limit:** 10,000 for new vendors. Migration sets `max(20% of FY 25-26 PO volume, 10000)` for existing vendors.
@@ -105,11 +105,11 @@ if (isVendorHoldBlocked) {
 ### Credit Recalculation Engine — `api/vendor_credit.py`
 - `recalculate_vendor_credit(vendor_id, entry_type, ...)` — updates credit metrics + appends ledger entry. **Does NOT change vendor_status.**
 - `_compute_credit_used(vendor_doc, exclude_po=None)` — dual-era formula
-- `update_credit_limit(vendor_id, new_limit)` — whitelisted API for admin
+- `update_credit_limit(vendor_id, new_limit)` — whitelisted API for admin; also recalculates `vendor_status` immediately
 
 ### Daily Cron — `tasks/vendor_credit_update.py`
 - Runs at 10 AM IST (`cron: "30 4 * * *"`)
-- **Sole authority** for auto-setting `vendor_status`
+- Primary authority for auto-setting `vendor_status` (also set by `update_credit_limit`)
 - Recalculates ALL vendors, sets On-Hold if `available_credit <= 0`
 
 ### Trigger Points (9 events call `recalculate_vendor_credit`):

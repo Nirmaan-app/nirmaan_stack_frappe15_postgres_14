@@ -107,13 +107,18 @@ def update_credit_limit(vendor_id, new_limit):
     vendor.credit_used = credit_used
     vendor.available_credit = new_limit - credit_used
 
+    old_status = vendor.vendor_status or "Active"
+    new_status = "On-Hold" if vendor.available_credit <= 0 else "Active"
+    vendor.vendor_status = new_status
+
+    status_note = f" Status: {old_status} → {new_status}." if old_status != new_status else ""
     vendor.append("credit_ledger", {
         "entry_type": "Credit Limit Updated",
         "delta_amount": 0,
         "credit_used_after": vendor.credit_used,
         "available_credit_after": vendor.available_credit,
         "timestamp": now_datetime(),
-        "description": f"Credit limit changed from {old_limit} to {new_limit}",
+        "description": f"Credit limit changed from {old_limit} to {new_limit}.{status_note}",
         "triggered_by": frappe.session.user,
     })
 
@@ -124,4 +129,5 @@ def update_credit_limit(vendor_id, new_limit):
         "credit_limit": vendor.credit_limit,
         "available_credit": vendor.available_credit,
         "credit_used": vendor.credit_used,
+        "vendor_status": vendor.vendor_status,
     }
