@@ -57,7 +57,6 @@
   {
    "fieldname": "category_list",
    "fieldtype": "JSON",
-   "hidden": 1,
    "label": "Category List"
   },
   {
@@ -123,7 +122,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-03-13 12:30:14.771395",
+ "modified": "2026-04-02 08:25:47.241558",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Requests",
