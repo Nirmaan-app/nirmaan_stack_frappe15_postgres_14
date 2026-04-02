@@ -188,7 +188,6 @@ export const ApproveSelectVendor: React.FC = () => {
       DEFAULT_PR_FIELDS_TO_FETCH.concat([
         "creation",
         "modified",
-        "category_list",
         "estimated_value", // Fetch workflow_state if needed for display/logic
       ]),
     []
@@ -305,7 +304,7 @@ export const ApproveSelectVendor: React.FC = () => {
         enableColumnFilter: true,
         size: 150,
         meta: {
-          exportHeaderName: "Header Tags",
+          exportHeaderName: "Headers",
           exportValue: (row: ProcurementRequest) => {
             const tags = (row as any).pr_tag_list || [];
             return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
@@ -313,40 +312,6 @@ export const ApproveSelectVendor: React.FC = () => {
         },
       },
 
-      {
-        accessorKey: "category_list",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Categories" />
-        ),
-        cell: ({ row }) => {
-          const categories = row.getValue("category_list") as
-            | { list: Category[] }
-            | undefined;
-          const categoryItems = Array.isArray(categories?.list)
-            ? categories.list
-            : [];
-          return (
-            <div className="flex flex-wrap gap-1 items-start justify-start">
-              {categoryItems.length > 0
-                ? categoryItems.map((obj) => (
-                  <Badge key={obj.name} variant="outline" className="text-xs">
-                    {obj.name}
-                  </Badge>
-                ))
-                : "--"}
-            </div>
-          );
-        },
-        size: 180,
-        enableSorting: false,
-        meta: {
-          exportHeaderName: "Categories",
-          exportValue: (row: ProcurementRequest) => {
-            const categories = (row.category_list as { list: Category[] } | undefined)?.list || [];
-            return categories.map(c => c.name).join(", ");
-          }
-        },
-      },
       {
         accessorKey: "owner",
         header: ({ column }) => (
