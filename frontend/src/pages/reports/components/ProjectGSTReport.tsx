@@ -8,8 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { unparse } from "papaparse";
 
+import { ProjectGSTReportDetails } from "./GSTReport/ProjectGSTReportDetails";
+
 export const ProjectGSTReport: React.FC = () => {
     const [selectedGST, setSelectedGST] = useState<string>("");
+    const [selectedProject, setSelectedProject] = useState<{
+        id: string, 
+        name: string, 
+        month?: string, 
+        invoiceType?: string[]
+    } | null>(null);
     const { months, reportData, totals, isLoading } = useProjectGSTData(selectedGST);
     const { gstOptions, isLoading: isLoadingGstOptions } = useGstOptions();
 
@@ -53,6 +61,19 @@ export const ProjectGSTReport: React.FC = () => {
         link.click();
         document.body.removeChild(link);
     };
+
+    if (selectedProject) {
+        return (
+            <ProjectGSTReportDetails 
+                projectId={selectedProject.id} 
+                projectName={selectedProject.name} 
+                initialGST={selectedGST}
+                initialMonth={selectedProject.month}
+                initialInvoiceType={selectedProject.invoiceType}
+                onBack={() => setSelectedProject(null)} 
+            />
+        );
+    }
 
     return (
         <div className="p-4 bg-white min-h-screen">
@@ -138,16 +159,37 @@ export const ProjectGSTReport: React.FC = () => {
                                 return (
                                     <tr key={row.project_name} className={`group hover:bg-blue-50/40 transition-colors ${rowBg}`}>
                                         <td className={`sticky left-0 z-10 px-4 py-3 font-semibold text-slate-800 border-b border-r-2 border-slate-200 shadow-[2px_0_0_rgba(0,0,0,0.03)] transition-colors transform translate-z-0 ${projectBg}`}>
-                                            {row.project_name}
+                                            <button 
+                                                onClick={() => setSelectedProject({ id: row.project_id, name: row.project_name })}
+                                                className="text-blue-600 hover:text-blue-800 hover:underline text-left font-bold transition-all"
+                                            >
+                                                {row.project_name}
+                                            </button>
                                         </td>
                                         {months.map((month) => {
                                             const mData = row.months[month.name];
                                             return (
                                                 <React.Fragment key={`${row.project_name}-${month.id}`}>
-                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>{formatCurrency(mData.vendor.incl)}</td>
+                                                    <td className={`px-3 py-2 text-right border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>
+                                                        <button 
+                                                            disabled={mData.vendor.incl === 0}
+                                                            onClick={() => setSelectedProject({ id: row.project_id, name: row.project_name, month: month.id, invoiceType: ["PO Invoice", "SR Invoice"] })}
+                                                            className="text-slate-500 hover:text-blue-600 hover:underline transition-colors disabled:hover:no-underline disabled:cursor-not-allowed"
+                                                        >
+                                                            {formatCurrency(mData.vendor.incl)}
+                                                        </button>
+                                                    </td>
                                                     <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.vendor.excl)}</td>
                                                     <td className={`px-3 py-2 text-right text-blue-600/80 border-b border-r-2 border-slate-100 tabular-nums font-medium ${month.bg} bg-opacity-30`}>{formatCurrency(mData.vendor.gst)}</td>
-                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>{formatCurrency(mData.client.incl)}</td>
+                                                    <td className={`px-3 py-2 text-right border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>
+                                                        <button 
+                                                            disabled={mData.client.incl === 0}
+                                                            onClick={() => setSelectedProject({ id: row.project_id, name: row.project_name, month: month.id, invoiceType: ["Project Invoice"] })}
+                                                            className="text-slate-500 hover:text-emerald-600 hover:underline transition-colors disabled:hover:no-underline disabled:cursor-not-allowed"
+                                                        >
+                                                            {formatCurrency(mData.client.incl)}
+                                                        </button>
+                                                    </td>
                                                     <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.client.excl)}</td>
                                                     <td className={`px-3 py-2 text-right text-emerald-600/80 border-b border-r-2 border-slate-100 tabular-nums font-medium ${month.bg} bg-opacity-30`}>{formatCurrency(mData.client.gst)}</td>
                                                     <td className={`px-3 py-2 text-right font-bold text-slate-900 border-b border-r-2 border-slate-100 tabular-nums ${month.bg} bg-opacity-40`}>{formatCurrency(mData.gstPay)}</td>
