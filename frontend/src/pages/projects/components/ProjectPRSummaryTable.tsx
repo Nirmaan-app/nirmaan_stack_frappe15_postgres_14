@@ -252,6 +252,9 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
                 childTableName="order_list"
                 isPR
               />
+              {data.work_package?.toLowerCase() === "custom" && (
+                <Badge className="text-xs">Custom</Badge>
+              )}
             </div>
           );
         },
@@ -349,7 +352,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         id: "PR Tag Child Table.tag_header",
         accessorKey: "pr_tag_list",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PR Tags" />
+          <DataTableColumnHeader column={column} title="Headers" />
         ),
         cell: ({ row }) => {
           const tags = (row.original as any).pr_tag_list || [];
@@ -363,7 +366,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
                   </Badge>
                 ))
               ) : (
-                <div className="font-medium text-gray-500">Custom</div>
+                <div className="font-medium text-gray-500">--</div>
               )}
             </div>
           );
@@ -371,10 +374,10 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         size: 150,
         enableColumnFilter: true,
         meta: {
-          exportHeaderName: "PR Tags",
+          exportHeaderName: "Headers",
           exportValue: (row: any) => {
             const tags = row.pr_tag_list || [];
-            return tags.map((t: any) => t.tag_header).join(", ") || "Custom";
+            return tags.map((t: any) => t.tag_header).join(", ") || "--";
           },
         },
       },

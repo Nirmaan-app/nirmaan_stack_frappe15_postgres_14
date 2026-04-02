@@ -401,11 +401,11 @@ export const ProcurementRequests: React.FC = () => {
         {
             // Pr_work_Package
             id: "PR Tag Child Table.tag_header",
-            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
+            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Headers" />,
             cell: ({ row }) => <PRTagsCell row={row} />,
             enableColumnFilter: true, size: 150,
             meta: {
-                exportHeaderName: "Header Tags",
+                exportHeaderName: "Headers",
                 exportValue: (row: ProcurementRequest) => {
                     const tags = (row as any).pr_tag_list || [];
                     return tags.map((t: any) => `• ${t.tag_header}`).join("\n");

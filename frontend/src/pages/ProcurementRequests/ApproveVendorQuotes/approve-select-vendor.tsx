@@ -302,7 +302,7 @@ export const ApproveSelectVendor: React.FC = () => {
         enableColumnFilter: true,
         size: 150,
         meta: {
-          exportHeaderName: "Header Tags",
+          exportHeaderName: "Headers",
           exportValue: (row: ProcurementRequest) => {
             const tags = (row as any).pr_tag_list || [];
             return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
