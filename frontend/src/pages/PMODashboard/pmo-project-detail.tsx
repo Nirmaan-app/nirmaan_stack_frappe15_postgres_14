@@ -128,7 +128,7 @@ const PMOProjectDetail: React.FC = () => {
   // Compute progress
   const allTasks = Object.values(tasks).flat();
   const totalTasks = allTasks.length;
-  const completedTasks = allTasks.filter((t) => t.status === "Done").length;
+  const completedTasks = allTasks.filter((t) => t.status === "Approve by client").length;
   const pendingTasks = totalTasks - completedTasks;
   const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
@@ -148,23 +148,29 @@ const PMOProjectDetail: React.FC = () => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "Done":
+      case "Approve by client":
         return (
           <span className="inline-flex min-w-[84px] items-center justify-center gap-1 rounded-md bg-green-50 border border-green-100 px-2 py-1 text-xs font-medium text-green-600">
             <Check className="h-3 w-3" />
-            Done
+            Approved
           </span>
         );
-      case "Not Done":
+      case "Sent/Submision":
         return (
-          <span className="inline-flex min-w-[84px] items-center justify-center rounded-md bg-red-50 border border-red-100 px-2 py-1 text-xs font-bold text-red-600">
-            Not Done
+          <span className="inline-flex min-w-[84px] items-center justify-center rounded-md bg-blue-50 border border-blue-100 px-2 py-1 text-xs font-bold text-blue-600">
+            Submitted
+          </span>
+        );
+      case "WIP":
+        return (
+          <span className="inline-flex min-w-[84px] items-center justify-center rounded-md bg-orange-50 border border-orange-100 px-2 py-1 text-xs font-bold text-orange-600">
+            WIP
           </span>
         );
       default:
         return (
           <span className="inline-flex min-w-[84px] items-center justify-center rounded-md bg-gray-50 border border-gray-200 px-2 py-1 text-xs font-medium text-gray-400">
-            ---
+            {status || "---"}
           </span>
         );
     }
@@ -306,11 +312,13 @@ const PMOProjectDetail: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <span
                             className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${
-                              task.status === "Done"
+                              task.status === "Approve by client"
                                 ? "bg-green-500"
-                                : task.status === "Not Done"
-                                  ? "bg-red-500"
-                                  : "bg-gray-300"
+                                : task.status === "Sent/Submision"
+                                  ? "bg-blue-500"
+                                  : task.status === "WIP"
+                                    ? "bg-orange-500"
+                                    : "bg-gray-300"
                             }`}
                           />
                           {task.task_name}

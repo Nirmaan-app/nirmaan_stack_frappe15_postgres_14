@@ -67,7 +67,7 @@ def get_pmo_projects():
                 category_summary[cat] = {"total": 0, "done": 0}
 
             project_task_counts[cat] = project_task_counts.get(cat, 0) + 1
-            if task.status == "Done":
+            if task.status == "Approve by client":
                 category_summary[cat]["done"] += 1
 
         # Keep package totals by default, but if project has more rows than master
@@ -141,12 +141,15 @@ def update_task_status(task_name, status, expected_completion_date=None, complet
 
     doc.status = status
 
-    if status == "Done":
+    if status == "Approve by client":
+        # Triggers progress, keep existing dates
+        pass
+    elif status == "Sent/Submision":
         doc.completion_date = completion_date or today()
-        doc.expected_completion_date = doc.expected_completion_date  # keep existing
-    elif status == "Not Done":
+        # Keep expected_completion_date as is
+    elif status == "WIP":
         if not expected_completion_date:
-            frappe.throw("Expected Completion Date is required when status is Not Done.")
+            frappe.throw("Expected Completion Date is required when status is WIP.")
         doc.expected_completion_date = expected_completion_date
         doc.completion_date = None
     else:

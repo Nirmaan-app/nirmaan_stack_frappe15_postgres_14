@@ -51,7 +51,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
 
   useEffect(() => {
     if (task && open) {
-      setStatus(task.status === "Done" || task.status === "Not Done" ? task.status : "");
+      setStatus(task.status || "");
       setExpectedDate(task.expected_completion_date || "");
       setCompletionDate(
         task.completion_date || new Date().toISOString().split("T")[0]
@@ -69,10 +69,10 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
       return;
     }
 
-    if (status === "Not Done" && !expectedDate) {
+    if (status === "WIP" && !expectedDate) {
       toast({
         title: "Validation Error",
-        description: "Expected Completion Date is required for Not Done status.",
+        description: "Expected Completion Date is required for WIP status.",
         variant: "destructive",
       });
       return;
@@ -83,8 +83,9 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
         task_name: task?.name,
         status: status,
         expected_completion_date:
-          status === "Not Done" ? expectedDate || null : null,
-        completion_date: status === "Done" ? completionDate || null : null,
+          status === "WIP" ? expectedDate || null : null,
+        completion_date:
+          status === "Sent/Submision" ? completionDate || null : null,
       });
       toast({
         title: "Success",
@@ -127,14 +128,15 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Not Done">Not Done</SelectItem>
-                <SelectItem value="Done">Done</SelectItem>
+                <SelectItem value="WIP">WIP</SelectItem>
+                <SelectItem value="Sent/Submision">Sent/Submision</SelectItem>
+                <SelectItem value="Approve by client">Approve by client</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {/* Expected Completion Date — shown when "Not Done" */}
-          {status === "Not Done" && (
+          {/* Expected Completion Date — shown when "WIP" */}
+          {status === "WIP" && (
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">
                 Expected Completion Date
@@ -149,11 +151,11 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
             </div>
           )}
 
-          {/* Completion Date — shown when "Done" */}
-          {status === "Done" && (
+          {/* Submison Date — shown when "Sent/Submision" */}
+          {status === "Sent/Submision" && (
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">
-                Completion Date
+                Submison Date
               </label>
               <Input
                 type="date"
@@ -162,6 +164,16 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
                 className="border-gray-300"
               />
             </div>
+          )}
+          
+          {/* Info shown for "Approve by client" */}
+          {status === "Approve by client" && (
+             <div className="bg-green-50 border border-green-200 rounded-md p-3">
+               <p className="text-sm text-green-800">
+                 This will approve the task and update status progress. 
+                 {task.completion_date && ` Submission Date: ${task.completion_date}`}
+               </p>
+             </div>
           )}
         </div>
 

@@ -58,7 +58,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Not Defined\nNot Done\nDone"
+   "options": "Not Defined\nWIP\nSent/Submision\nApprove by client"
   },
   {
    "fieldname": "expected_completion_date",
