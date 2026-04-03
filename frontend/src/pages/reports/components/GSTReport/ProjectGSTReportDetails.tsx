@@ -15,7 +15,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { useProjectGSTDetailsData, GSTInvoiceDetail } from "../../hooks/useProjectGSTDetailsData";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink, FileText, Receipt, Wallet, Calculator, Percent } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, Receipt, Wallet, Calculator, Percent, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
@@ -287,28 +287,37 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
     const totals = useMemo(() => {
         const t = filteredRows.reduce((acc, row) => {
             const data = row.original;
+            const isProjectInvoice = data.invoice_type === "Project Invoice";
             return {
                 base: acc.base + (data.base_amount || 0),
                 gst: acc.gst + (data.gst_amount || 0),
-                total: acc.total + (data.total_amount || 0)
+                total: acc.total + (data.total_amount || 0),
+                vendorGst: acc.vendorGst + (isProjectInvoice ? 0 : (data.gst_amount || 0)),
+                clientGst: acc.clientGst + (isProjectInvoice ? (data.gst_amount || 0) : 0),
             };
-        }, { base: 0, gst: 0, total: 0 });
+        }, { base: 0, gst: 0, total: 0, vendorGst: 0, clientGst: 0 });
 
         // Round the totals at the end to match Summary View logic
         const roundedBase = Math.round(t.base);
         const roundedGst = Math.round(t.gst);
         const roundedTotal = Math.round(t.total);
+        const roundedGstPayable = Math.round(t.clientGst) - Math.round(t.vendorGst);
 
         return {
             base: roundedBase,
             gst: roundedGst,
             total: roundedTotal,
+            gstPayable: roundedGstPayable,
             avgTax: roundedBase > 0 ? ((roundedGst / roundedBase) * 100).toFixed(2) : "0"
         };
     }, [filteredRows]);
 
+    const allInvoiceTypes = useMemo(() => Array.from(new Set(combinedData.map(d => d.invoice_type))), [combinedData]);
+    const typeFilter = table.getColumn("invoice_type")?.getFilterValue() as string[] | undefined;
+    const showGstPayable = !typeFilter || typeFilter.length === 0 || typeFilter.length === allInvoiceTypes.length;
+
     const summaryCard = (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <div className={`grid grid-cols-1 md:grid-cols-${showGstPayable ? "5" : "4"} gap-4 mb-4`}>
             {[
                 {
                     label: "Total GST",
@@ -337,6 +346,15 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                     text: "text-blue-700",
                     iconBg: "bg-blue-100 text-blue-600",
                 },
+                ...(showGstPayable ? [{
+                    label: "GST Payable",
+                    value: formatToRoundedIndianRupee(totals.gstPayable),
+                    icon: <Landmark className="w-4 h-4" />,
+                    bg: "bg-emerald-50/50",
+                    border: "border-emerald-100",
+                    text: "text-emerald-700",
+                    iconBg: "bg-emerald-100 text-emerald-600",
+                }] : []),
                 {
                     label: "Grand Total Amount",
                     value: formatToRoundedIndianRupee(totals.total),
