@@ -340,14 +340,8 @@ scheduler_events = {
 
 fixtures = [
 	# All Data
-    "Work Packages",
-    "Procurement Packages",
-    "Category",
-    "Scopes of Work",
-    "Milestones",
     {"dt": "Role", "filters": [["role_name", "like", "Nirmaan %"]]},
     {"dt": "Role Profile", "filters": [["role_profile", "like", "Nirmaan %"]]},
-    {"dt": "Items", "filters": [["category", "=", "Additional Charges"]]},
     "Workflow",
     "Workflow State",
     "Workflow Action Master",
