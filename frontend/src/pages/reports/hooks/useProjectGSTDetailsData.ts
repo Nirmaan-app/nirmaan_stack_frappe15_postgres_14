@@ -19,6 +19,8 @@ export interface GSTInvoiceDetail {
     gst_percentage: number;
     total_amount: number;
     attachment?: string;
+    document_name?: string;
+    document_type?: string;
 }
 
 export const useProjectGSTDetailsData = () => {
@@ -168,7 +170,9 @@ export const useProjectGSTDetailsData = () => {
                 gst_amount: gstAmt,
                 gst_percentage: totalExcl > 0 ? Math.round((gstAmt / totalExcl) * 100) : 18,
                 total_amount: totalIncl,
-                attachment: vi.invoice_attachment ? (attachmentMap[vi.invoice_attachment] || vi.invoice_attachment) : undefined
+                attachment: vi.invoice_attachment ? (attachmentMap[vi.invoice_attachment] || vi.invoice_attachment) : undefined,
+                document_name: vi.document_name,
+                document_type: vi.document_type
             } as GSTInvoiceDetail;
         });
 
@@ -191,7 +195,9 @@ export const useProjectGSTDetailsData = () => {
                 gst_amount: gstAmt,
                 gst_percentage: totalExcl > 0 ? Math.round((gstAmt / totalExcl) * 100) : 18,
                 total_amount: totalIncl,
-                attachment: pi.attachment
+                attachment: pi.attachment,
+                document_name: pi.name,
+                document_type: "Project Invoice"
             } as GSTInvoiceDetail;
         });
 
