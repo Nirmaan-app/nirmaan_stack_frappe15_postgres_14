@@ -192,7 +192,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         {
             accessorKey: "gst_percentage",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST %" />,
-            cell: ({ row }) => <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100">{row.original.gst_percentage}%</Badge>,
+            cell: ({ row }) => <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100">{Math.round(row.original.gst_percentage)}%</Badge>,
             size: 80,
             meta: { exportHeaderName: "GST %" }
         },
@@ -294,9 +294,16 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             };
         }, { base: 0, gst: 0, total: 0 });
 
+        // Round the totals at the end to match Summary View logic
+        const roundedBase = Math.round(t.base);
+        const roundedGst = Math.round(t.gst);
+        const roundedTotal = Math.round(t.total);
+
         return {
-            ...t,
-            avgTax: t.base > 0 ? ((t.gst / t.base) * 100).toFixed(2) : "0"
+            base: roundedBase,
+            gst: roundedGst,
+            total: roundedTotal,
+            avgTax: roundedBase > 0 ? ((roundedGst / roundedBase) * 100).toFixed(2) : "0"
         };
     }, [filteredRows]);
 
