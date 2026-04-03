@@ -17,6 +17,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ExternalLink, FileText, Receipt, Wallet, Calculator, Percent } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 
 interface ProjectGSTReportDetailsProps {
@@ -69,7 +70,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         },
         {
             accessorKey: "project_gst",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="GST Location" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="GST Type" />,
             cell: ({ row }) => <Badge variant="outline" className="bg-slate-50 truncate max-w-[150px]" title={row.original.project_gst_display}>{row.original.project_gst_display}</Badge>,
             size: 150,
             filterFn: (row, id, value) => {
@@ -84,7 +85,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             accessorKey: "invoice_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
             cell: ({ row }) => <div className="tabular-nums whitespace-nowrap">{row.getValue("invoice_date")}</div>,
-            size: 110,
+            size: 150,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 return String(row.getValue(id)).startsWith(String(value));
@@ -101,7 +102,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 if (type === "Project Invoice") color = "text-emerald-600 bg-emerald-50 border-emerald-100";
                 return <Badge className={`${color} border shadow-sm px-2 py-0.5 whitespace-nowrap`}>{type}</Badge>;
             },
-            size: 120,
+            size: 150,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -111,10 +112,40 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             },
         },
         {
+            accessorKey: "document_name",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO / SR ID" />,
+            cell: ({ row }) => {
+                const docName = row.original.document_name;
+                const docType = row.original.document_type;
+                if (!docName) return <span className="text-slate-400">-</span>;
+
+                let linkPath = "";
+                if (docType === "Procurement Orders") linkPath = `/all-AQs/${docName?.replaceAll("/", "&=")}`;
+                else if (docType === "Service Requests") linkPath = `/service-requests-list/${docName}`;
+
+                if (!linkPath) return <div className="font-mono text-xs font-medium text-slate-500">{docName}</div>;
+
+                return (
+                    <Link
+                        to={linkPath}
+                        className="group inline-flex items-center gap-1 font-mono text-xs font-bold text-slate-700 hover:text-indigo-600 transition-all duration-200"
+                    >
+                        <span className="group-hover:underline decoration-indigo-300 underline-offset-2">{docName}</span>
+                        <ExternalLink className="w-2.5 h-2.5 opacity-0 -translate-x-1 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0 group-hover:text-indigo-400" />
+                    </Link>
+                );
+            },
+            size: 150,
+            filterFn: (row, id, value) => {
+                if (!value) return true;
+                return String(row.getValue(id)).toLowerCase().includes(String(value).toLowerCase());
+            },
+        },
+        {
             accessorKey: "vendor",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
             cell: ({ row }) => <div className="font-medium truncate max-w-[180px]" title={row.original.vendor_name}>{row.original.vendor_name}</div>,
-            size: 180,
+            size: 200,
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -125,8 +156,9 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         },
         {
             accessorKey: "base_amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-            cell: ({ row }) => <div className="font-medium">{formatToRoundedIndianRupee(row.getValue("base_amount"))}</div>,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
+            cell: ({ row }) => <div className="text-center tabular-nums  font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("base_amount"))}</div>,
+            size: 130,
         },
         {
             accessorKey: "gst_percentage",
@@ -137,13 +169,13 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         {
             accessorKey: "gst_amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST Amount" className="justify-end" />,
-            cell: ({ row }) => <div className="text-right tabular-nums text-blue-600 font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("gst_amount"))}</div>,
+            cell: ({ row }) => <div className="text-center tabular-nums text-blue-600 font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("gst_amount"))}</div>,
             size: 130,
         },
         {
             accessorKey: "total_amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Total Amount" className="justify-end" />,
-            cell: ({ row }) => <div className="text-right tabular-nums font-bold text-slate-900 whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("total_amount"))}</div>,
+            cell: ({ row }) => <div className="text-center tabular-nums font-bold text-slate-900 whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("total_amount"))}</div>,
             size: 140,
         },
         {
