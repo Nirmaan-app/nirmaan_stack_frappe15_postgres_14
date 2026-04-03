@@ -5,26 +5,36 @@ import frappe
 @frappe.whitelist()
 def get_active_projects_for_progress_report():
     try:
-        # Step 1: Get list of active projects (basic fields only)
+        from frappe.utils import nowdate
+        today = nowdate()
+
+        # Step 1: Get list of active projects with deactivation filtering in database
+        # This handles:
+        # 1. Not Cancelled
+        # 2. Milestone tracking enabled
+        # 3. NOT (disabled_dpr = 1 AND disabled_dpr_date <= today)
         projects = frappe.get_all(
             "Projects",
-            filters={
-                "status": ["not in", ["Completed", "Cancelled"]],
-                "enable_project_milestone_tracking": 1
-            }
+            filters=[
+                ["status", "not in", ["Cancelled"]],
+                ["enable_project_milestone_tracking", "=", 1],
+                [
+                    "OR",
+                    [["disabled_dpr", "in", [0, None]]],
+                    [
+                        ["disabled_dpr", "=", 1],
+                        ["disabled_dpr_date", ">", today]
+                    ]
+                ]
+            ],
+            fields=["name", "project_name", "status", "enable_project_milestone_tracking", "disabled_dpr", "disabled_dpr_date"]
         )
 
-        # Step 2: For each project, load full doc using get_doc()
+        # Step 2: For each project, fetch zones
         for project in projects:
             full_doc = frappe.get_doc("Projects", project["name"])
-
-            # Child table automatically available
-            project["project_name"] = full_doc.project_name
-            project["status"] = full_doc.status
-            project["enable_project_milestone_tracking"] = full_doc.enable_project_milestone_tracking
             project["project_zones"] = full_doc.get("project_zones") or []
             
-
         return {
             "success": True,
             "data": projects,

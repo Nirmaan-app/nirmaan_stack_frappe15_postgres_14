@@ -43,7 +43,12 @@
   "project_milestone_details_section",
   "enable_project_milestone_tracking",
   "project_work_header_entries",
-  "project_zones"
+  "project_zones",
+  "status_based_disabled_section",
+  "disabled_dpr",
+  "disabled_dpr_date",
+  "disabled_inventory",
+  "disabled_inventory_date"
  ],
  "fields": [
   {
@@ -263,12 +268,39 @@
    "fieldtype": "Table",
    "label": "Drive Links",
    "options": "Project Drive Link Child Table"
+  },
+  {
+   "fieldname": "status_based_disabled_section",
+   "fieldtype": "Section Break",
+   "label": "Status Based Disabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled_dpr",
+   "fieldtype": "Check",
+   "label": "Disabled DPR "
+  },
+  {
+   "fieldname": "disabled_dpr_date",
+   "fieldtype": "Date",
+   "label": "Disabled DPR Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled_inventory",
+   "fieldtype": "Check",
+   "label": "Disabled Inventory"
+  },
+  {
+   "fieldname": "disabled_inventory_date",
+   "fieldtype": "Date",
+   "label": "Disabled Inventory Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.753294",
+ "modified": "2026-04-03 16:25:37.181237",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",
@@ -353,25 +385,26 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   }
  ],
  "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

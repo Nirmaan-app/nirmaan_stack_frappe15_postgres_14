@@ -111,9 +111,15 @@ export interface Projects {
 	// NEW Child Table field
 	project_wp_category_makes?: ProjectWPCategoryMake[]; // Array of child table rows
 
-	  // --- NEW FIELDS ---
-    enable_project_milestone_tracking: boolean;
-    project_work_header_entries?: ProjectWorkHeaderEntry[]; // Child table for work headers
-		project_zones?: ProjectZoneEntry[]; // Child table for project zones
-		customer_po_details?: CustomerPODetail[]; // Child table for Customer PO Details
+	// --- NEW FIELDS ---
+	enable_project_milestone_tracking: boolean;
+	project_work_header_entries?: ProjectWorkHeaderEntry[]; // Child table for work headers
+	project_zones?: ProjectZoneEntry[]; // Child table for project zones
+	customer_po_details?: CustomerPODetail[]; // Child table for Customer PO Details
+
+	// Modular Deactivation Fields
+	disabled_dpr?: 0 | 1;
+	disabled_dpr_date?: string | null;
+	disabled_inventory?: 0 | 1;
+	disabled_inventory_date?: string | null;
 }
