@@ -148,8 +148,8 @@ export const useProjectGSTDetailsData = () => {
         const normalizedVendor = (vendorInvoices || []).map(vi => {
             const viAmt = parseNumber(vi.invoice_amount);
             const ratio = vi.document_name ? (documentRatioMap[vi.document_name] || 1.18) : 1.18;
-            const totalIncl = Math.round(viAmt);
-            const totalExcl = Math.round(viAmt / ratio);
+            const totalIncl = viAmt;
+            const totalExcl = viAmt / ratio;
             const gstAmt = totalIncl - totalExcl;
 
             const gstID = vi.document_type === "Procurement Orders" 
@@ -168,7 +168,7 @@ export const useProjectGSTDetailsData = () => {
                 vendor_name: (vi.vendor && vendorNameMap[vi.vendor]) || vi.vendor || "N/A",
                 base_amount: totalExcl,
                 gst_amount: gstAmt,
-                gst_percentage: totalExcl > 0 ? Math.round((gstAmt / totalExcl) * 100) : 18,
+                gst_percentage: totalExcl > 0 ? (gstAmt / totalExcl) * 100 : 18,
                 total_amount: totalIncl,
                 attachment: vi.invoice_attachment ? (attachmentMap[vi.invoice_attachment] || vi.invoice_attachment) : undefined,
                 document_name: vi.document_name,
@@ -177,8 +177,8 @@ export const useProjectGSTDetailsData = () => {
         });
 
         const normalizedProject = (projectInvoices || []).map(pi => {
-            const totalIncl = Math.round(parseNumber(pi.amount));
-            const totalExcl = Math.round(totalIncl / 1.18);
+            const totalIncl = parseNumber(pi.amount);
+            const totalExcl = totalIncl / 1.18;
             const gstAmt = totalIncl - totalExcl;
 
             return {
@@ -193,7 +193,7 @@ export const useProjectGSTDetailsData = () => {
                 vendor_name: "N/A",
                 base_amount: totalExcl,
                 gst_amount: gstAmt,
-                gst_percentage: totalExcl > 0 ? Math.round((gstAmt / totalExcl) * 100) : 18,
+                gst_percentage: totalExcl > 0 ? (gstAmt / totalExcl) * 100 : 18,
                 total_amount: totalIncl,
                 attachment: pi.attachment,
                 document_name: pi.name,
