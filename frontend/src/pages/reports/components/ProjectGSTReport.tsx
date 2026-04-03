@@ -55,29 +55,36 @@ export const ProjectGSTReport: React.FC = () => {
             const gst = getUrlStringParam("pgst_gst", "");
             const id = getUrlStringParam("pgst_project_id", null);
             const name = getUrlStringParam("pgst_project_name", null);
+            const month = getUrlStringParam("pgst_month", null) || undefined;
+            const types = getUrlStringParam("pgst_types", null)?.split(",") || undefined;
 
-            setSelectedGST(gst);
-            if (id && name) {
-                setSelectedProject({
-                    id,
-                    name,
-                    month: getUrlStringParam("pgst_month", null) || undefined,
-                    invoiceType: getUrlStringParam("pgst_types", null)?.split(",")
-                });
-            } else {
-                setSelectedProject(null);
-            }
+            // Update GST if changed
+            setSelectedGST(prev => prev !== gst ? gst : prev);
+
+            // Update Project Detail state only if actually different to avoid render loops
+            setSelectedProject(prev => {
+                const hasUrlData = id && name;
+                if (!hasUrlData) return null;
+
+                // Check for equality
+                const isSame = prev?.id === id && 
+                               prev?.name === name && 
+                               prev?.month === month && 
+                               JSON.stringify(prev?.invoiceType) === JSON.stringify(types);
+                
+                return isSame ? prev : { id: id!, name: name!, month, invoiceType: types };
+            });
         };
 
-        const unsubGst = urlStateManager.subscribe("pgst_gst", handleUrlChange);
-        const unsubId = urlStateManager.subscribe("pgst_project_id", handleUrlChange);
-        const unsubMonth = urlStateManager.subscribe("pgst_month", handleUrlChange);
+        const subscriptions = [
+            urlStateManager.subscribe("pgst_gst", handleUrlChange),
+            urlStateManager.subscribe("pgst_project_id", handleUrlChange),
+            urlStateManager.subscribe("pgst_project_name", handleUrlChange),
+            urlStateManager.subscribe("pgst_month", handleUrlChange),
+            urlStateManager.subscribe("pgst_types", handleUrlChange),
+        ];
 
-        return () => {
-            unsubGst();
-            unsubId();
-            unsubMonth();
-        };
+        return () => subscriptions.forEach(unsub => unsub());
     }, []);
 
     if (isLoading || isLoadingGstOptions) {

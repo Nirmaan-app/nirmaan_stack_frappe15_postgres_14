@@ -19,6 +19,7 @@ import { ArrowLeft, ExternalLink, FileText, Receipt, Wallet, Calculator, Percent
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { subMonths, format } from "date-fns";
 
 interface ProjectGSTReportDetailsProps {
     projectId: string;
@@ -32,6 +33,11 @@ interface ProjectGSTReportDetailsProps {
 export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = ({ projectId, projectName, initialGST, initialInvoiceType, initialMonth, onBack }) => {
     const { combinedData, isLoading } = useProjectGSTDetailsData();
 
+    // Calculate last 6 months as default if none provided
+    const defaultMonths = useMemo(() => {
+        return Array.from({ length: 6 }, (_, i) => format(subMonths(new Date(), i), "yyyy-MM"));
+    }, []);
+
     const [sorting, setSorting] = useState<SortingState>([{ id: "invoice_date", desc: true }]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
         const filters: ColumnFiltersState = [{ id: "project", value: [projectId] }];
@@ -41,8 +47,12 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         if (initialInvoiceType && initialInvoiceType.length > 0) {
             filters.push({ id: "invoice_type", value: initialInvoiceType });
         }
+
+        // If a specific month was provided, use it. Otherwise, use the last 6 months.
         if (initialMonth) {
             filters.push({ id: "invoice_date", value: initialMonth });
+        } else {
+            filters.push({ id: "invoice_date", value: defaultMonths });
         }
         return filters;
     });
@@ -60,6 +70,10 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
             cell: ({ row }) => <div className="font-medium truncate max-w-[180px]" title={row.original.project_name}>{row.original.project_name}</div>,
             size: 180,
+            meta: {
+                exportHeaderName: "Project Name",
+                exportValue: (row: any) => row.project_name
+            },
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -73,6 +87,10 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST Type" />,
             cell: ({ row }) => <Badge variant="outline" className="bg-slate-50 truncate max-w-[150px]" title={row.original.project_gst_display}>{row.original.project_gst_display}</Badge>,
             size: 150,
+            meta: {
+                exportHeaderName: "GST Type",
+                exportValue: (row: any) => row.project_gst_display
+            },
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -86,8 +104,12 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
             cell: ({ row }) => <div className="tabular-nums whitespace-nowrap">{row.getValue("invoice_date")}</div>,
             size: 150,
+            meta: { exportHeaderName: "Invoice Date" },
             filterFn: (row, id, value) => {
                 if (!value) return true;
+                if (Array.isArray(value)) {
+                    return value.some(v => String(row.getValue(id)).startsWith(v));
+                }
                 return String(row.getValue(id)).startsWith(String(value));
             },
         },
@@ -103,6 +125,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 return <Badge className={`${color} border shadow-sm px-2 py-0.5 whitespace-nowrap`}>{type}</Badge>;
             },
             size: 150,
+            meta: { exportHeaderName: "Invoice Type" },
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -136,6 +159,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 );
             },
             size: 150,
+            meta: { exportHeaderName: "PO / SR ID" },
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 return String(row.getValue(id)).toLowerCase().includes(String(value).toLowerCase());
@@ -146,6 +170,10 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" />,
             cell: ({ row }) => <div className="font-medium truncate max-w-[180px]" title={row.original.vendor_name}>{row.original.vendor_name}</div>,
             size: 200,
+            meta: {
+                exportHeaderName: "Vendor",
+                exportValue: (row: any) => row.vendor_name
+            },
             filterFn: (row, id, value) => {
                 if (!value) return true;
                 if (Array.isArray(value)) {
@@ -159,32 +187,37 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
             cell: ({ row }) => <div className="text-center tabular-nums  font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("base_amount"))}</div>,
             size: 130,
+            meta: { exportHeaderName: "Amount" }
         },
         {
             accessorKey: "gst_percentage",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST %" />,
             cell: ({ row }) => <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100">{row.original.gst_percentage}%</Badge>,
             size: 80,
+            meta: { exportHeaderName: "GST %" }
         },
         {
             accessorKey: "gst_amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST Amount" className="justify-end" />,
             cell: ({ row }) => <div className="text-center tabular-nums text-blue-600 font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("gst_amount"))}</div>,
             size: 130,
+            meta: { exportHeaderName: "GST Amount" }
         },
         {
             accessorKey: "total_amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Total Amount" className="justify-end" />,
             cell: ({ row }) => <div className="text-center tabular-nums font-bold text-slate-900 whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("total_amount"))}</div>,
             size: 140,
+            meta: { exportHeaderName: "Total Amount" }
         },
         {
             accessorKey: "attachment",
             header: "Attachment",
             size: 100,
             cell: ({ row }) => {
-                const url = row.getValue("attachment") as string;
-                if (!url) return <span className="text-slate-400">-</span>;
+                const url = row.original.attachment;
+                if (!url) return <span className="text-slate-400">No file</span>;
+
                 return (
                     <a
                         href={url}
@@ -198,6 +231,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                     </a>
                 );
             },
+
         }
     ], []);
 
@@ -236,12 +270,14 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
     const isFilteredToSingleProject = projectFilter && projectFilter.length === 1;
 
     // Format Month for Title
-    const monthFilter = columnFilters.find(f => f.id === "invoice_date")?.value as string | undefined;
+    const monthFilter = columnFilters.find(f => f.id === "invoice_date")?.value as string | string[] | undefined;
     let monthDisplay = "";
-    if (monthFilter && monthFilter.length === 7) { // yyyy-MM
+    if (typeof monthFilter === "string" && monthFilter.length === 7) { // Single Month
         const [year, month] = monthFilter.split("-");
         const date = new Date(parseInt(year), parseInt(month) - 1);
         monthDisplay = ` - ${date.toLocaleString('default', { month: 'short' })} ${year}`;
+    } else if (Array.isArray(monthFilter) && monthFilter.length > 1) { // Multiple/Default
+        monthDisplay = ` - Last ${monthFilter.length} Months`;
     }
 
     const currentProjectTitle = (isFilteredToSingleProject ? (projectFilter[0] === projectId ? projectName : projectFilter[0]) : "All Projects") + monthDisplay;
@@ -349,11 +385,20 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 if (vals && vals.length > 0) labels.push(`Type: ${vals.join(", ")}`);
             }
             if (filter.id === "invoice_date") {
-                const val = filter.value as string;
-                if (val && val.length === 7) {
+                const val = filter.value;
+                if (typeof val === "string" && val.length === 7) {
                     const [year, month] = val.split("-");
                     const date = new Date(parseInt(year), parseInt(month) - 1);
                     labels.push(`Date: ${date.toLocaleString('default', { month: 'short' })} ${year}`);
+                } else if (Array.isArray(val) && val.length > 0) {
+                    // Show "Last X Months" or a range
+                    if (val.length === 1) {
+                        const [year, month] = val[0].split("-");
+                        const date = new Date(parseInt(year), parseInt(month) - 1);
+                        labels.push(`Date: ${date.toLocaleString('default', { month: 'short' })} ${year}`);
+                    } else {
+                        labels.push(`Date: Last ${val.length} Months`);
+                    }
                 }
             }
             if (filter.id === "vendor") {
