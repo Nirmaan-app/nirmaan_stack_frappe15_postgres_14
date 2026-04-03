@@ -16,8 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { FileText } from "lucide-react";
 
 interface TaskData {
   name: string;
@@ -26,6 +28,7 @@ interface TaskData {
   status: string;
   expected_completion_date: string | null;
   completion_date: string | null;
+  attachment: string | null;
 }
 
 interface EditTaskModalProps {
@@ -44,10 +47,12 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   const [status, setStatus] = useState<string>("");
   const [expectedDate, setExpectedDate] = useState("");
   const [completionDate, setCompletionDate] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
 
   const { call, loading } = useFrappePostCall(
     "nirmaan_stack.api.pmo_dashboard.update_task_status"
   );
+  const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
   useEffect(() => {
     if (task && open) {
@@ -56,6 +61,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
       setCompletionDate(
         task.completion_date || new Date().toISOString().split("T")[0]
       );
+      setAttachment(null);
     }
   }, [task, open]);
 
@@ -78,7 +84,27 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
       return;
     }
 
+    if ((status === "Sent/Submision" || status === "Approve by client") && !attachment && !task?.attachment) {
+      toast({
+        title: "Validation Error",
+        description: `Attachment is required for ${status}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
+      let fileUrl = "";
+      if (attachment) {
+        const fileArgs = {
+          doctype: "PMO Project Task",
+          docname: task?.name,
+          fieldname: "attachment",
+          isPrivate: true,
+        };
+        const uploadedFile = await upload(attachment, fileArgs);
+        fileUrl = uploadedFile.file_url;
+      }
       await call({
         task_name: task?.name,
         status: status,
@@ -86,6 +112,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
           status === "WIP" ? expectedDate || null : null,
         completion_date:
           status === "Sent/Submision" ? completionDate || null : null,
+        attachment: fileUrl || undefined,
       });
       toast({
         title: "Success",
@@ -168,12 +195,33 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
           
           {/* Info shown for "Approve by client" */}
           {status === "Approve by client" && (
-             <div className="bg-green-50 border border-green-200 rounded-md p-3">
-               <p className="text-sm text-green-800">
-                 This will approve the task and update status progress. 
-                 {task.completion_date && ` Submission Date: ${task.completion_date}`}
-               </p>
-             </div>
+            <div className="bg-green-50 border border-green-200 rounded-md p-3">
+              <p className="text-sm text-green-800">
+                This will approve the task and update status progress.
+                {task.completion_date && ` Submission Date: ${task.completion_date}`}
+              </p>
+            </div>
+          )}
+
+          {/* Attachment UI — shown for "Sent/Submision" or "Approve by client" */}
+          {(status === "Sent/Submision" || status === "Approve by client") && (
+            <div className="space-y-1.5 mt-4">
+              <label className="text-sm font-medium text-gray-700 block mb-1.5 flex items-center gap-2">
+                <FileText className="w-3.5 h-3.5 text-gray-400" />
+                Proof of Submission / Approval
+                {(status === "Sent/Submision" || status === "Approve by client") && <span className="text-red-500">*</span>}
+              </label>
+              <CustomAttachment
+                selectedFile={attachment}
+                onFileSelect={setAttachment}
+                maxFileSize={5 * 1024 * 1024}
+              />
+              {task?.attachment && (
+                <p className="text-[10px] text-gray-500 italic mt-1">
+                  Current attachment: {task.attachment.split("/").pop()}
+                </p>
+              )}
+            </div>
           )}
         </div>
 
@@ -187,10 +235,10 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={loading}
+            disabled={loading || uploadLoading}
             className="bg-red-600 hover:bg-red-700 text-white"
           >
-            {loading ? (
+            {loading || uploadLoading ? (
               <TailSpin height={16} width={16} color="white" />
             ) : (
               "Save Changes"

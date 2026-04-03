@@ -14,7 +14,8 @@
   "category",
   "status",
   "expected_completion_date",
-  "completion_date"
+  "completion_date",
+  "attachment"
  ],
  "fields": [
   {
@@ -69,6 +70,11 @@
    "fieldname": "completion_date",
    "fieldtype": "Date",
    "label": "Completion Date"
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Attachment"
   }
  ],
  "index_web_pages_for_search": 1,

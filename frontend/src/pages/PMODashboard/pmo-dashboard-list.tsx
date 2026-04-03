@@ -46,11 +46,6 @@ const STYLE_PALETTE = [
     countText: "text-gray-700",
   },
   {
-    bg: "bg-amber-50/80 border border-amber-100",
-    text: "text-amber-700",
-    countText: "text-amber-900",
-  },
-  {
     bg: "bg-blue-50/80 border border-blue-100",
     text: "text-blue-700",
     countText: "text-blue-900",
@@ -59,6 +54,11 @@ const STYLE_PALETTE = [
     bg: "bg-green-50/80 border border-green-100",
     text: "text-green-700",
     countText: "text-green-900",
+  },
+  {
+    bg: "bg-amber-50/80 border border-amber-100",
+    text: "text-amber-700",
+    countText: "text-amber-900",
   },
 ];
 
@@ -136,11 +136,11 @@ const PMODashboardList: React.FC = () => {
     });
   }, []);
 
-  // Derive unique project names for filter dropdown
-  const projectFilterOptions = useMemo(() => {
+  // Derive unique project statuses for filter dropdown
+  const projectStatusOptions = useMemo(() => {
     if (!projects) return [];
-    const names = projects.map((p) => p.project_name).filter(Boolean);
-    return Array.from(new Set(names)).sort();
+    const statuses = projects.map((p) => p.status).filter(Boolean);
+    return Array.from(new Set(statuses)).sort();
   }, [projects]);
 
   const filteredProjects = useMemo(() => {
@@ -154,7 +154,7 @@ const PMODashboardList: React.FC = () => {
       );
     }
     if (selectedProjectFilters.length > 0) {
-      list = list.filter((p) => selectedProjectFilters.includes(p.project_name));
+      list = list.filter((p) => selectedProjectFilters.includes(p.status));
     }
     return list;
   }, [projects, searchQuery, selectedProjectFilters]);
@@ -222,11 +222,11 @@ const PMODashboardList: React.FC = () => {
           </PopoverTrigger>
           <PopoverContent className="w-[280px] p-0" align="end">
             <Command>
-              <CommandInput placeholder="Search projects..." className="h-9" />
+              <CommandInput placeholder="Filter by status..." className="h-9" />
               <CommandList>
                 <CommandEmpty>No project found.</CommandEmpty>
                 <CommandGroup>
-                  {projectFilterOptions.map((option) => {
+                  {projectStatusOptions.map((option) => {
                     const isSelected = selectedProjectFilters.includes(option);
                     return (
                       <CommandItem
@@ -338,9 +338,14 @@ const PMODashboardList: React.FC = () => {
                   {/* Card Header */}
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1 flex flex-col gap-1 pr-2">
-                      <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
-                        {project.project_name || project.name}
-                      </h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
+                            {project.project_name || project.name}
+                        </h3>
+                        <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-100 shadow-sm leading-none shrink-0">
+                            {project.status}
+                        </span>
+                      </div>
                     </div>
                     <ProgressCircle
                       value={project.progress}

@@ -22,7 +22,7 @@ def get_pmo_projects():
         "Projects",
         filters=[["status", "not in", ["Completed"]]],
         fields=["name", "project_name", "project_city", "project_state", "status"],
-        order_by="project_name asc",
+        order_by="creation desc",
     )
 
     # Build package totals once from PMO masters.
@@ -108,7 +108,7 @@ def get_project_tasks(project):
         filters={"project": project},
         fields=[
             "name", "task_name", "category", "status",
-            "expected_completion_date", "completion_date"
+            "expected_completion_date", "completion_date", "attachment"
         ],
         order_by="category asc, task_name asc",
     )
@@ -130,7 +130,7 @@ def get_project_tasks(project):
 
 
 @frappe.whitelist()
-def update_task_status(task_name, status, expected_completion_date=None, completion_date=None):
+def update_task_status(task_name, status, expected_completion_date=None, completion_date=None, attachment=None):
     """
     Update a PMO task's status and dates.
     - If status is "Done", completion_date defaults to today
@@ -156,6 +156,9 @@ def update_task_status(task_name, status, expected_completion_date=None, complet
         # Not Defined
         doc.expected_completion_date = None
         doc.completion_date = None
+
+    if attachment:
+        doc.attachment = attachment
 
     doc.save(ignore_permissions=True)
     frappe.db.commit()
@@ -329,6 +332,7 @@ def get_project_status_overview(project):
                     status_counts[normalized_status] = 1
 
         result["drawing"] = {
+            "tracker_id": design_tracker[0].name,
             "total": applicable_drawing_tasks,
             "status_counts": status_counts,
             "excluded_not_applicable": not_applicable_tasks,
@@ -338,7 +342,7 @@ def get_project_status_overview(project):
     latest_dpr = frappe.get_all(
         "Project Progress Reports",
         filters={"project": project},
-        fields=["report_date", "modified"],
+        fields=["report_date", "modified", "report_zone"],
         order_by="report_date desc",
         limit=1,
     )
@@ -346,6 +350,7 @@ def get_project_status_overview(project):
     if latest_dpr:
         result["dpr"] = {
             "last_updated": str(latest_dpr[0].report_date or latest_dpr[0].modified),
+            "zone": latest_dpr[0].report_zone,
         }
 
     # 3. Inventory status - last updated from Remaining Items Report

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
-import { ArrowLeft, Pencil, Check } from "lucide-react";
+import { ArrowLeft, Pencil, Check, FileText, ExternalLink } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -20,15 +20,17 @@ interface TaskItem {
   status: string;
   expected_completion_date: string | null;
   completion_date: string | null;
+  attachment: string | null;
 }
 
 interface StatusOverview {
   drawing: {
+    tracker_id?: string;
     total: number;
     status_counts: Record<string, number>;
     excluded_not_applicable?: number;
   } | null;
-  dpr: { last_updated: string } | null;
+  dpr: { last_updated: string; zone?: string } | null;
   inventory: { last_updated: string } | null;
 }
 
@@ -118,6 +120,18 @@ const PMOProjectDetail: React.FC = () => {
     } catch (err) {
       console.error("Error loading overview:", err);
     }
+  };
+
+  const handleNavigateToProjectMaterialUsage = () => {
+    if (!projectId) return;
+    const params = new URLSearchParams({ page: "projectmaterialusage" });
+    navigate(`/projects/${projectId}?${params.toString()}`);
+  };
+
+  const handleNavigateToDesignTracker = () => {
+    const trackerId = statusOverview?.drawing?.tracker_id;
+    if (!trackerId) return;
+    navigate(`/design-tracker/${trackerId}`);
   };
 
   useEffect(() => {
@@ -288,6 +302,9 @@ const PMOProjectDetail: React.FC = () => {
                 <TableHead className="text-xs font-semibold uppercase text-gray-500">
                   Completion Date
                 </TableHead>
+                <TableHead className="text-xs font-semibold uppercase text-gray-500">
+                  Attachment
+                </TableHead>
                 <TableHead className="text-xs font-semibold uppercase text-gray-500 text-right">
                   Actions
                 </TableHead>
@@ -299,7 +316,7 @@ const PMOProjectDetail: React.FC = () => {
                   {/* Category Header Row */}
                   <TableRow className="bg-[#fffcfc] hover:bg-[#fffcfc]">
                     <TableCell
-                      colSpan={5}
+                      colSpan={6}
                       className="pb-2 pt-4 text-xs font-bold uppercase tracking-wider text-red-500"
                     >
                       {cat}
@@ -331,6 +348,21 @@ const PMOProjectDetail: React.FC = () => {
                       <TableCell className="text-sm text-gray-600">
                         {formatDate(task.completion_date)}
                       </TableCell>
+                      <TableCell className="text-sm text-gray-600">
+                         {task.attachment ? (
+                           <a 
+                             href={task.attachment} 
+                             target="_blank" 
+                             rel="noreferrer"
+                             className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                           >
+                              <FileText className="h-4 w-4" />
+                              View
+                           </a>
+                         ) : (
+                           "---"
+                         )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <button
                           onClick={() => {
@@ -349,7 +381,7 @@ const PMOProjectDetail: React.FC = () => {
               {categoryOrder.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="py-8 text-center text-sm text-gray-500"
                   >
                     No tasks configured. Please set up PMO Packages first.
@@ -376,25 +408,14 @@ const PMOProjectDetail: React.FC = () => {
                 <div className="inline-flex rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
                   {(() => {
                     const statusCounts = statusOverview.drawing!.status_counts || {};
-                    const orderedBaseStatuses = [
-                      "Not Started",
-                      "Submitted",
-                      "In Progress",
-                      "Approved",
-                    ];
-                    const extraStatuses = Object.keys(statusCounts).filter(
-                      (status) => !orderedBaseStatuses.includes(status)
-                    );
-                    const statusesToRender = [...orderedBaseStatuses, ...extraStatuses];
+                    const statusesToRender = ["Submitted", "In Progress", "Approved"];
                     const total = statusOverview.drawing!.total;
 
-                    return statusesToRender.map((status, index) => {
+                    const badges = statusesToRender.map((status, index) => {
                       const count = statusCounts[status] || 0;
 
                       let colorClasses = "bg-white text-gray-600";
-                      if (status === "Not Started") {
-                        colorClasses = "bg-white text-gray-500";
-                      } else if (status === "Submitted") {
+                      if (status === "Submitted") {
                         colorClasses = "bg-green-50 text-green-700";
                       } else if (status === "In Progress") {
                         colorClasses = "bg-blue-50 text-blue-700";
@@ -413,6 +434,23 @@ const PMOProjectDetail: React.FC = () => {
                         </span>
                       );
                     });
+
+                    if (statusOverview.drawing?.tracker_id) {
+                      return (
+                        <button
+                          onClick={handleNavigateToDesignTracker}
+                          className="inline-flex items-center hover:bg-blue-50 transition-colors"
+                          title="View Design Tracker"
+                        >
+                          {badges}
+                          <span className="px-2 text-blue-600 border-l border-gray-200">
+                            <ExternalLink className="h-3 w-3" />
+                          </span>
+                        </button>
+                      );
+                    }
+
+                    return badges;
                   })()}
                 </div>
               ) : (
@@ -426,9 +464,20 @@ const PMOProjectDetail: React.FC = () => {
                 DPR Status
               </h3>
               {statusOverview?.dpr ? (
-                <span className="inline-block bg-white text-[11px] font-medium text-gray-500 px-2.5 py-1 rounded-lg border border-gray-200 shadow-sm">
+                <button
+                  onClick={() => {
+                    const detailPath = `/prs&milestones/milestone-report/daily-summary`;
+                    const date = statusOverview.dpr?.last_updated;
+                    const zone = statusOverview.dpr?.zone;
+                    const url = `${detailPath}?report_date=${date}&project_id=${projectId}${zone ? `&zone=${zone}` : ""}`;
+                    navigate(url);
+                  }}
+                  className="inline-flex items-center gap-1.5 bg-white text-[11px] font-medium text-blue-600 px-2.5 py-1 rounded-lg border border-blue-100 shadow-sm hover:bg-blue-50 transition-colors"
+                  title="View Daily Progress Report Summary"
+                >
                   Last Updated: {formatDate(statusOverview.dpr.last_updated)}
-                </span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
               ) : (
                 <p className="text-xs text-gray-400">No DPR data</p>
               )}
@@ -440,9 +489,14 @@ const PMOProjectDetail: React.FC = () => {
                 Inventory Status
               </h3>
               {statusOverview?.inventory ? (
-                <span className="inline-block bg-white text-[11px] font-medium text-gray-500 px-2.5 py-1 rounded-lg border border-gray-200 shadow-sm">
+                <button
+                  onClick={handleNavigateToProjectMaterialUsage}
+                  className="inline-flex items-center gap-1.5 bg-white text-[11px] font-medium text-blue-600 px-2.5 py-1 rounded-lg border border-blue-100 shadow-sm hover:bg-blue-50 transition-colors"
+                  title="View Project Material Usage"
+                >
                   Last Updated: {formatDate(statusOverview.inventory.last_updated)}
-                </span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
               ) : (
                 <p className="text-xs text-gray-400">No inventory data</p>
               )}
