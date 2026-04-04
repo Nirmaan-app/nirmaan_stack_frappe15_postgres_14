@@ -25,6 +25,7 @@ export interface PurchaseOrderItem {
 	quote: number;
 	total_amount?: number;
 	amount?: number;
+	tax_amount?: number;
 	note_points?: string;// remove
 	make?: string;
 	status: string;

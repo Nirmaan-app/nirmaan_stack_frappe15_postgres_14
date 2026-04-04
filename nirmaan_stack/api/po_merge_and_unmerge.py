@@ -99,8 +99,15 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
          # --- STEP 3: Use .append() to build the 'items' child table ---
         # This is the KEY CHANGE. Instead of direct assignment, we loop and append.
         for item_dict in order_data:
+            # Recalculate per-item tax_amount to ensure consistency
+            qty = float(item_dict.get('quantity', 0))
+            rate = float(item_dict.get('quote', 0))
+            tax_pct = float(item_dict.get('tax', 0))
+            item_dict['tax_amount'] = (qty * rate) * (tax_pct / 100)
+            item_dict['amount'] = qty * rate
+            item_dict['total_amount'] = item_dict['amount'] + item_dict['tax_amount']
             item_dict["po"] = item_dict.get('parent')
-            new_po_doc.append("items",item_dict)
+            new_po_doc.append("items", item_dict)
         
         # NOTE: If you merge freight/loading charges, add them here too.
         # Example: grand_total_amount += float(po_doc.loading_charges or 0)
