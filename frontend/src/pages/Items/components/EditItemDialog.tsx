@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast";
 import { useFrappeUpdateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
-import { ListChecks } from "lucide-react";
+import { ListChecks, CheckCircle2, XCircle } from "lucide-react";
+import { cn } from '@/lib/utils';
 import ReactSelect from 'react-select';
 
 import { CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH } from '../items.constants';
@@ -132,13 +133,22 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                     <div className="flex flex-col gap-4">
                         <div className="flex flex-col items-start">
                             <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Product Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                            <Input
-                                type="text"
-                                id="itemName"
-                                value={itemName}
-                                onChange={(e) => setItemName(e.target.value)}
-                                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            />
+                            <div className="relative w-full mt-1">
+                                <Input
+                                    type="text"
+                                    id="itemName"
+                                    value={itemName}
+                                    onChange={(e) => setItemName(e.target.value)}
+                                    className={cn(
+                                        "block w-full p-2 pr-8 border rounded-md shadow-sm sm:text-sm",
+                                        itemName.trim() ? (isDuplicate ? "border-red-500 focus-visible:ring-red-500" : "border-green-500 focus-visible:ring-green-500") : "border-gray-300"
+                                    )}
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                    {itemName.trim() && !isDuplicate && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                                    {itemName.trim() && isDuplicate && <XCircle className="h-4 w-4 text-red-600" />}
+                                </div>
+                            </div>
                         </div>
 
                         <div className="flex flex-col items-start">
@@ -190,7 +200,6 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                         </div>
                     </div>
 
-                    {isDuplicate && <p className="text-sm text-red-600 text-center pt-2 font-medium">Product name already exists for another item.</p>}
                     {formError && !isDuplicate && <p className="text-sm text-red-600 text-center pt-2 font-medium">{formError}</p>}
 
                     <div className="flex justify-center mt-3">
