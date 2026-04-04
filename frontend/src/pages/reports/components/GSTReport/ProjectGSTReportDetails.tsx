@@ -41,15 +41,16 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
     const [sorting, setSorting] = useState<SortingState>([{ id: "invoice_date", desc: true }]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
         const filters: ColumnFiltersState = [{ id: "project", value: [projectId] }];
-        if (initialGST && initialGST !== "all") {
+        // Only apply if we have a valid non-empty string/array
+        if (initialGST && initialGST !== "all" && initialGST !== "") {
             filters.push({ id: "project_gst", value: [initialGST] });
         }
-        if (initialInvoiceType && initialInvoiceType.length > 0) {
+        if (initialInvoiceType && initialInvoiceType.length > 0 && initialInvoiceType[0] !== "") {
             filters.push({ id: "invoice_type", value: initialInvoiceType });
         }
 
         // If a specific month was provided, use it. Otherwise, use the last 6 months.
-        if (initialMonth) {
+        if (initialMonth && initialMonth !== "") {
             filters.push({ id: "invoice_date", value: initialMonth });
         } else {
             filters.push({ id: "invoice_date", value: defaultMonths });
@@ -143,7 +144,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 if (!docName) return <span className="text-slate-400">-</span>;
 
                 let linkPath = "";
-                if (docType === "Procurement Orders") linkPath = `/all-AQs/${docName?.replaceAll("/", "&=")}`;
+                if (docType === "Procurement Orders") linkPath = `/all-AQs/${docName?.replace(/\//g, "&=")}`;
                 else if (docType === "Service Requests") linkPath = `/service-requests-list/${docName}`;
 
                 if (!linkPath) return <div className="font-mono text-xs font-medium text-slate-500">{docName}</div>;
@@ -403,7 +404,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             if (filter.id === "project_gst") {
                 const vals = filter.value as string[];
                 const displayVals = (vals || []).map(v => gMap[v] || v);
-                if (displayVals.length > 0) labels.push(`GST: ${displayVals.join(", ")}`);
+                if (displayVals.length > 0) labels.push(`Location: ${displayVals.join(", ")}`);
             }
             if (filter.id === "invoice_type") {
                 const vals = filter.value as string[];
@@ -449,9 +450,9 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                         <ArrowLeft className="w-4 h-4 mr-1.5" />
                         Back
                     </Button>
-                    {/* <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-                        Project GST REPORT
-                    </h2> */}
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">
+                        GST REPORT
+                    </h2>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                     <Badge variant="secondary" className="px-3 py-1 font-semibold">

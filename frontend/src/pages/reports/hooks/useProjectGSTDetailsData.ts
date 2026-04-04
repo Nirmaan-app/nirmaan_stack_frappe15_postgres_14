@@ -64,7 +64,7 @@ export const useProjectGSTDetailsData = () => {
     const { data: projects, isLoading: isLoadingProjectMeta } = useFrappeGetDocList<any>("Projects", projectMetadataOptions);
 
     const gstMetadataOptions = useMemo(() => ({
-        fields: ["name", "gst_name"] as any,
+        fields: ["name", "gst_name", "state"] as any,
         limit: 0
     }), []);
     const { data: gstMeta, isLoading: isLoadingGSTMeta } = useFrappeGetDocList<any>("Project GST", gstMetadataOptions);
@@ -92,7 +92,9 @@ export const useProjectGSTDetailsData = () => {
     const gstNameMap = useMemo(() => {
         const map: Record<string, string> = {};
         (gstMeta || []).forEach(g => {
-            if (g.name && g.gst_name) map[g.name] = g.gst_name;
+            if (g.name) {
+                map[g.name] = g.state || g.gst_name || g.name;
+            }
         });
         return map;
     }, [gstMeta]);

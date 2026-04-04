@@ -21,14 +21,16 @@ export const ProjectGSTReport: React.FC = () => {
         month?: string,
         invoiceType?: string[]
     } | null>(() => {
-        const id = getUrlStringParam("pgst_project_id", null);
-        const name = getUrlStringParam("pgst_project_name", null);
+        const id = getUrlStringParam("pgst_project_id", "");
+        const name = getUrlStringParam("pgst_project_name", "");
         if (id && name) {
+            const month = getUrlStringParam("pgst_month", "");
+            const types = getUrlStringParam("pgst_types", "");
             return {
                 id,
                 name,
-                month: getUrlStringParam("pgst_month", null) || undefined,
-                invoiceType: getUrlStringParam("pgst_types", null)?.split(",")
+                month: month || undefined,
+                invoiceType: types ? types.split(",").filter(Boolean) : undefined
             };
         }
         return null;
@@ -53,10 +55,10 @@ export const ProjectGSTReport: React.FC = () => {
     useEffect(() => {
         const handleUrlChange = () => {
             const gst = getUrlStringParam("pgst_gst", "");
-            const id = getUrlStringParam("pgst_project_id", null);
-            const name = getUrlStringParam("pgst_project_name", null);
-            const month = getUrlStringParam("pgst_month", null) || undefined;
-            const types = getUrlStringParam("pgst_types", null)?.split(",") || undefined;
+            const id = getUrlStringParam("pgst_project_id", "");
+            const name = getUrlStringParam("pgst_project_name", "");
+            const month = getUrlStringParam("pgst_month", "") || undefined;
+            const types = getUrlStringParam("pgst_types", "")?.split(",") || undefined;
 
             // Update GST if changed
             setSelectedGST(prev => prev !== gst ? gst : prev);
@@ -67,11 +69,11 @@ export const ProjectGSTReport: React.FC = () => {
                 if (!hasUrlData) return null;
 
                 // Check for equality
-                const isSame = prev?.id === id && 
-                               prev?.name === name && 
-                               prev?.month === month && 
-                               JSON.stringify(prev?.invoiceType) === JSON.stringify(types);
-                
+                const isSame = prev?.id === id &&
+                    prev?.name === name &&
+                    prev?.month === month &&
+                    JSON.stringify(prev?.invoiceType) === JSON.stringify(types);
+
                 return isSame ? prev : { id: id!, name: name!, month, invoiceType: types };
             });
         };
@@ -144,7 +146,7 @@ export const ProjectGSTReport: React.FC = () => {
     return (
         <div className="p-4 bg-white min-h-screen">
             {/* Options Selection Row */}
-            <div className="mb-4 flex items-end justify-between gap-4">
+            <div className="relative z-[100] mb-4 flex items-end justify-between gap-4">
                 <div className="w-64">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Select Project GST</label>
                     <Select value={selectedGST} onValueChange={setSelectedGST}>
@@ -155,7 +157,7 @@ export const ProjectGSTReport: React.FC = () => {
                             <SelectItem value="all">All GST Locations</SelectItem>
                             {gstOptions.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
-                                    {opt.location || opt.value}
+                                    {opt.state || opt.location || opt.value}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -204,7 +206,7 @@ export const ProjectGSTReport: React.FC = () => {
                                 ))}
                             </tr>
                             {/* Level 3: Fields */}
-                            <tr className="sticky top-[64px] z-20 text-[9px] uppercase tracking-tighter">
+                            <tr className="sticky top-[75px] z-30 text-[9px] uppercase tracking-tighter">
                                 {months.map((month) => (
                                     <React.Fragment key={`${month.id}-fields`}>
                                         <th className={`text-slate-400 px-3 py-1 text-center font-medium border-b border-r border-slate-100/50 ${month.bg} transform translate-z-0`}>Incl</th>
@@ -219,6 +221,24 @@ export const ProjectGSTReport: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
+                            {/* Grand Totals Row at Top */}
+                            <tr className="sticky top-[93px] z-50 bg-slate-900 text-white font-bold transform translate-z-0">
+                                <td className="sticky left-0 z-[60] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0">TOTALS</td>
+                                {months.map((month) => {
+                                    const mTotal = totals[month.name];
+                                    return (
+                                        <React.Fragment key={`total-${month.id}`}>
+                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900">{formatCurrency(mTotal.vendor.incl)}</td>
+                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900 font-light opacity-70">{formatCurrency(mTotal.vendor.excl)}</td>
+                                            <td className="px-3 py-2 text-right border-r-2 border-slate-700 bg-slate-900 text-blue-300">{formatCurrency(mTotal.vendor.gst)}</td>
+                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900">{formatCurrency(mTotal.client.incl)}</td>
+                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900 font-light opacity-70">{formatCurrency(mTotal.client.excl)}</td>
+                                            <td className="px-3 py-2 text-right border-r-2 border-slate-700 bg-slate-900 text-emerald-300">{formatCurrency(mTotal.client.gst)}</td>
+                                            <td className="px-3 py-2 text-right border-r-2 border-slate-700 bg-slate-900 font-black">{formatCurrency(mTotal.gstPay)}</td>
+                                        </React.Fragment>
+                                    );
+                                })}
+                            </tr>
                             {reportData.map((row, idx) => {
                                 const rowBg = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60";
                                 const projectBg = idx % 2 === 0 ? "bg-white" : "bg-white";
@@ -269,25 +289,6 @@ export const ProjectGSTReport: React.FC = () => {
                                 );
                             })}
                         </tbody>
-                        <tfoot>
-                            <tr className="sticky bottom-0 z-50 bg-slate-900 text-white font-bold transform translate-z-0">
-                                <td className="sticky left-0 z-[60] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0">Total Project Total</td>
-                                {months.map((month) => {
-                                    const mTotal = totals[month.name];
-                                    return (
-                                        <React.Fragment key={`total-${month.id}`}>
-                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900">{formatCurrency(mTotal.vendor.incl)}</td>
-                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900 font-light opacity-70">{formatCurrency(mTotal.vendor.excl)}</td>
-                                            <td className="px-3 py-2 text-right border-r-2 border-slate-700 bg-slate-900 text-blue-300">{formatCurrency(mTotal.vendor.gst)}</td>
-                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900">{formatCurrency(mTotal.client.incl)}</td>
-                                            <td className="px-3 py-2 text-right border-r border-slate-700 bg-slate-900 font-light opacity-70">{formatCurrency(mTotal.client.excl)}</td>
-                                            <td className="px-3 py-2 text-right border-r-2 border-slate-700 bg-slate-900 text-emerald-300">{formatCurrency(mTotal.client.gst)}</td>
-                                            <td className="px-3 py-2 text-right border-r-2 border-slate-700 bg-slate-900 font-black">{formatCurrency(mTotal.gstPay)}</td>
-                                        </React.Fragment>
-                                    );
-                                })}
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
             </div>
