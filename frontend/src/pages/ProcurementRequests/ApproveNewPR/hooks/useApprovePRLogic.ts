@@ -31,6 +31,7 @@ import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/C
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { DraftItem } from '@/zustand/useApproveNewPRDraftStore';
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { getFrappeError } from '@/utils/frappeErrors';
 
 /* ─────────────────────────────────────────────────────────────
    DRAFT MANAGER INTERFACE
@@ -943,7 +944,8 @@ export const useApprovePRLogic = ({
 
         } catch (error: any) {
             console.error("Error creating item:", error);
-            toast({ title: "Creation Failed", description: error?.message || "Could not create the new item.", variant: "destructive" });
+            const errorMessage = getFrappeError(error);
+            toast({ title: "Creation Failed", description: errorMessage, variant: "destructive" });
         }
     }, [newItem, currentCategoryForNewItem, orderData, createDoc, itemMutate, toast]);
 
@@ -1101,7 +1103,8 @@ export const useApprovePRLogic = ({
 
         } catch (error: any) {
             console.error("Error approving requested item:", error);
-            toast({ title: "Approval Failed", description: error?.message || "Could not approve the requested item.", variant: "destructive" });
+            const errorMessage = getFrappeError(error);
+            toast({ title: "Approval Failed", description: errorMessage, variant: "destructive" });
         }
 
     }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches, workPackage, useDraftFirst, draftManager]);
