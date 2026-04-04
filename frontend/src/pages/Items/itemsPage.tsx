@@ -10,6 +10,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 
 import { AddItemDialog } from "./components/AddItemDialog"; // Adjust path
+import { EditItemDialog } from "./components/EditItemDialog"; // Added
 import { ItemsSummaryCard } from "./components/ItemsSummaryCard"; // Adjust path
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
@@ -17,6 +18,8 @@ import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
+import { FilePenLine } from "lucide-react";
+import { useState } from "react";
 
 import {
   ITEM_DOCTYPE,
@@ -34,7 +37,12 @@ export default function ItemsPage() {
 
   const { newItemDialog, toggleNewItemDialog } = useDialogStore();
 
-  // Keep category list for display purposes (showing work package in table)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editItem, setEditItem] = useState<ItemsType | null>(null);
+
+  const canManageItems =
+    userData?.role === "Nirmaan Admin Profile" ||
+    userData?.role === "Nirmaan PMO Executive Profile"; // Define roles that can add/edit
   const {
     data: categoryList,
     isLoading: categoryUiLoading,
@@ -49,8 +57,8 @@ export default function ItemsPage() {
     "category_list_for_item_page_ui"
   );
 
-  const columns = useMemo<ColumnDef<ItemsType>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<ItemsType>[]>(() => {
+    const baseColumns: ColumnDef<ItemsType>[] = [
       {
         accessorKey: "name",
         header: ({ column }) => (
@@ -192,9 +200,29 @@ export default function ItemsPage() {
           exportValue: (row: ItemsType) => formatDate(row.creation),
         },
       },
-    ],
-    [categoryList]
-  ); // Dependency on categoryList for rendering category names
+    ];
+
+    if (canManageItems) {
+      baseColumns.push({
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => (
+          <div className="flex items-center justify-center">
+            <FilePenLine
+              className="w-5 h-5 text-blue-500 cursor-pointer hover:text-blue-700 transition-colors"
+              onClick={() => {
+                setEditItem(row.original);
+                setIsEditDialogOpen(true);
+              }}
+            />
+          </div>
+        ),
+        size: 80,
+      });
+    }
+
+    return baseColumns;
+  }, [categoryList, canManageItems]); // Dependency on categoryList and role
 
   const {
     table,
@@ -301,9 +329,6 @@ export default function ItemsPage() {
     ]
   );
 
-  const canManageItems =
-    userData?.role === "Nirmaan Admin Profile" ||
-    userData?.role === "Nirmaan PMO Executive Profile"; // Define roles that can add/edit
 
   return (
     <div
@@ -343,11 +368,19 @@ export default function ItemsPage() {
       />
 
       {canManageItems && (
-        <AddItemDialog
-          isOpen={newItemDialog}
-          onOpenChange={toggleNewItemDialog}
-          onItemAdded={refetchTable}
-        />
+        <>
+          <AddItemDialog
+            isOpen={newItemDialog}
+            onOpenChange={toggleNewItemDialog}
+            onItemAdded={refetchTable}
+          />
+          <EditItemDialog
+            item={editItem}
+            isOpen={isEditDialogOpen}
+            onOpenChange={setIsEditDialogOpen}
+            onItemUpdated={refetchTable}
+          />
+        </>
       )}
     </div>
   );
