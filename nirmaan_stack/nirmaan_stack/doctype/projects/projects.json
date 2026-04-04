@@ -48,7 +48,8 @@
   "disabled_dpr",
   "disabled_dpr_date",
   "disabled_inventory",
-  "disabled_inventory_date"
+  "disabled_inventory_date",
+  "disabled_pmo"
  ],
  "fields": [
   {
@@ -295,12 +296,18 @@
    "fieldname": "disabled_inventory_date",
    "fieldtype": "Date",
    "label": "Disabled Inventory Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled_pmo",
+   "fieldtype": "Check",
+   "label": "Disabled PMO Dashboard"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-03 16:25:37.181237",
+ "modified": "2026-04-04 12:42:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

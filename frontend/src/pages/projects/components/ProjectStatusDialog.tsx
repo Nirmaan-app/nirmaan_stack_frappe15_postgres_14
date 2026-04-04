@@ -22,6 +22,7 @@ export interface HaltedOptions {
   isDesignTrackerDisabled: boolean;
   isCommissionReportDisabled: boolean;
   isInventoryDisabled: boolean;
+  isPMODisabled: boolean;
 
   inventoryDisableDate?: string;
 }
@@ -60,6 +61,7 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
 
   const [isInventoryDisabled, setIsInventoryDisabled] = useState(true);
   const [inventoryDisableDate, setInventoryDisableDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [isPMODisabled, setIsPMODisabled] = useState(true);
 
   // Handle status-based defaults
   useEffect(() => {
@@ -80,6 +82,7 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
       isDesignTrackerDisabled,
       isCommissionReportDisabled,
       isInventoryDisabled,
+      isPMODisabled,
 
       inventoryDisableDate: isInventoryDisabled ? inventoryDisableDate : undefined,
     });
@@ -193,6 +196,17 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
                   />
                 </div>
               )}
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="pmo-checkbox"
+                  checked={isPMODisabled}
+                  onCheckedChange={(checked) => setIsPMODisabled(checked === true)}
+                />
+                <Label htmlFor="pmo-checkbox" className="text-sm cursor-pointer font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  PMO Dashboard
+                </Label>
+              </div>
 
             </div>
           )}

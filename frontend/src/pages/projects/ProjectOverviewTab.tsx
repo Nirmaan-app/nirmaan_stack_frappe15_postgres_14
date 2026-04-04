@@ -34,6 +34,7 @@ import { ProjectDriveLink } from "./components/ProjectDriveLink";
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
+import { ProjectModuleDeactivationStatus } from "./components/ProjectModuleDeactivationStatus";
 
 
 interface ProjectOverviewTabProps {
@@ -250,6 +251,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </AlertDescription>
         </Alert>
       )}
+      <ProjectModuleDeactivationStatus projectId={projectData.name} projectStatus={projectData.status} />
       <Card>
         <CardHeader>
           <CardTitle>

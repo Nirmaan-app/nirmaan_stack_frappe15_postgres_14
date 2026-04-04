@@ -122,4 +122,5 @@ export interface Projects {
 	disabled_dpr_date?: string | null;
 	disabled_inventory?: 0 | 1;
 	disabled_inventory_date?: string | null;
+	disabled_pmo?: 0 | 1;
 }

@@ -27,6 +27,7 @@ interface PMOProject {
   pending_tasks: number;
   progress: number;
   categories: Record<string, CategorySummary>;
+  disabled_pmo: 0 | 1;
 }
 
 
@@ -75,7 +76,6 @@ const PMODashboardList: React.FC = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
-  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
   const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
 
   const { data: masterCategories } = useFrappeGetDocList("PMO Task Category", {
@@ -114,27 +114,33 @@ const PMODashboardList: React.FC = () => {
     "nirmaan_stack.api.pmo_dashboard.get_pmo_projects"
   );
 
+  const { call: toggleVisibility } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.update_project_pmo_visibility"
+  );
+
   const [projects, setProjects] = React.useState<PMOProject[]>([]);
   const [loaded, setLoaded] = React.useState(false);
 
-  React.useEffect(() => {
+  const fetchProjects = useCallback(() => {
     call({}).then((res: any) => {
       setProjects(res?.message || []);
       setLoaded(true);
     });
-  }, []);
+  }, [call]);
 
-  const toggleHide = useCallback((projectName: string) => {
-    setHiddenProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(projectName)) {
-        next.delete(projectName);
-      } else {
-        next.add(projectName);
-      }
-      return next;
+  React.useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  const toggleHide = useCallback((projectName: string, currentStatus: number) => {
+    const newStatus = currentStatus === 1 ? 0 : 1;
+    toggleVisibility({
+      project_name: projectName,
+      disabled: newStatus
+    }).then(() => {
+      fetchProjects();
     });
-  }, []);
+  }, [toggleVisibility, fetchProjects]);
 
   // Derive unique project statuses for filter dropdown
   const projectStatusOptions = useMemo(() => {
@@ -159,8 +165,8 @@ const PMODashboardList: React.FC = () => {
     return list;
   }, [projects, searchQuery, selectedProjectFilters]);
 
-  const activeProjects = useMemo(() => filteredProjects.filter((p) => !hiddenProjects.has(p.name)), [filteredProjects, hiddenProjects]);
-  const hiddenProjectsList = useMemo(() => filteredProjects.filter((p) => hiddenProjects.has(p.name)), [filteredProjects, hiddenProjects]);
+  const activeProjects = useMemo(() => filteredProjects.filter((p) => p.disabled_pmo === 0), [filteredProjects]);
+  const hiddenProjectsList = useMemo(() => filteredProjects.filter((p) => p.disabled_pmo === 1), [filteredProjects]);
 
   if (loading && !loaded) {
     return (
@@ -377,22 +383,20 @@ const PMODashboardList: React.FC = () => {
                     </div>
 
                     {/* Card Footer */}
-                    <div className="border-t border-gray-100 pt-3 mt-auto">
-                      <div className="flex justify-between items-center text-xs font-medium">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleHide(project.name);
-                          }}
-                          className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
-                        >
-                          <EyeOff className="h-3 w-3" />
-                          Hide
-                        </button>
-                        <div className="flex items-center gap-1 text-red-500 hover:text-red-600 transition-colors group/link">
-                          <span>View Details</span>
-                          <ArrowUpRight className="w-3.5 h-3.5 group-hover/link:-translate-y-[2px] group-hover/link:translate-x-[2px] transition-transform" />
-                        </div>
+                    <div className="border-t border-gray-100 pt-3 mt-auto flex justify-between items-center text-xs font-medium">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleHide(project.name, project.disabled_pmo);
+                        }}
+                        className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
+                      >
+                        <EyeOff className="h-3 w-3" />
+                        Hide
+                      </button>
+                      <div className="flex items-center gap-1 text-red-500 hover:text-red-600 transition-colors group/link">
+                        <span>View Details</span>
+                        <ArrowUpRight className="w-3.5 h-3.5 group-hover/link:-translate-y-[2px] group-hover/link:translate-x-[2px] transition-transform" />
                       </div>
                     </div>
                   </div>
@@ -491,22 +495,20 @@ const PMODashboardList: React.FC = () => {
                           </div>
 
                           {/* Card Footer */}
-                          <div className="border-t border-gray-100 pt-3 mt-auto">
-                            <div className="flex justify-between items-center text-xs font-medium">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleHide(project.name);
-                                }}
-                                className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
-                              >
-                                <Eye className="h-3 w-3" />
-                                Unhide
-                              </button>
-                              <div className="flex items-center gap-1 text-red-500 hover:text-red-600 transition-colors group/link">
-                                <span>View Details</span>
-                                <ArrowUpRight className="w-3.5 h-3.5 group-hover/link:-translate-y-[2px] group-hover/link:translate-x-[2px] transition-transform" />
-                              </div>
+                          <div className="border-t border-gray-100 pt-3 mt-auto flex justify-between items-center text-xs font-medium">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleHide(project.name, project.disabled_pmo);
+                              }}
+                              className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
+                            >
+                              <Eye className="h-3 w-3" />
+                              Unhide
+                            </button>
+                            <div className="flex items-center gap-1 text-red-500 hover:text-red-600 transition-colors group/link">
+                              <span>View Details</span>
+                              <ArrowUpRight className="w-3.5 h-3.5 group-hover/link:-translate-y-[2px] group-hover/link:translate-x-[2px] transition-transform" />
                             </div>
                           </div>
                         </div>

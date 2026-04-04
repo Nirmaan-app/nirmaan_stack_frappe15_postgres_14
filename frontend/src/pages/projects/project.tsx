@@ -1108,6 +1108,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         updateFields.disabled_dpr_date = options.isDPRDisabled ? options.dprDisableDate : null;
         updateFields.disabled_inventory = options.isInventoryDisabled ? 1 : 0;
         updateFields.disabled_inventory_date = options.isInventoryDisabled ? options.inventoryDisableDate : null;
+        updateFields.disabled_pmo = options.isPMODisabled ? 1 : 0;
 
 
         // Synchronize with Design Tracker
@@ -1128,6 +1129,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         updateFields.disabled_dpr_date = null;
         updateFields.disabled_inventory = 0;
         updateFields.disabled_inventory_date = null;
+        updateFields.disabled_pmo = 0;
 
 
         if (designTrackerId) {
