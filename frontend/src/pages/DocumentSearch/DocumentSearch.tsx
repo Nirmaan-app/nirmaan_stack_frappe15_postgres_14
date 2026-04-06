@@ -163,11 +163,18 @@ export default function DocumentSearch() {
                                     </div>
                                     {hasFileUrl && (
                                         <div className="mt-3 flex justify-end">
-                                          <a href={result.file_url || undefined} target="_blank" rel="noreferrer" className="text-xs text-gray-500 hover:underline inline-flex items-center">
-                                              Download / View Original File
-                                          </a>
+                                        <a 
+                                            href={result.file_url || undefined} 
+                                            download={result.file_name} 
+                                            target="_blank" 
+                                            rel="noreferrer" 
+                                            className="text-xs text-gray-500 hover:underline inline-flex items-center"
+                                        >
+                                            Download Original File
+                                        </a>
                                         </div>
                                     )}
+
                                 </CardContent>
                             </Card>
                         )})}
