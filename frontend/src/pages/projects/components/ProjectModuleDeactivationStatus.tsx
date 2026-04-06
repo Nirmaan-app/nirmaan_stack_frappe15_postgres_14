@@ -80,7 +80,7 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
         date: projectData?.disabled_dpr_date ? formatDate(projectData.disabled_dpr_date) : undefined
       });
     } else {
-      modules.push({ type: "dpr", icon: FileStack, state: "enabled", label: "DPR", statusLabel: "Active", shortLabel: "DPR", route: "/dpr" });
+      modules.push({ type: "dpr", icon: FileStack, state: "enabled", label: "DPR", statusLabel: "Active", shortLabel: "DPR" });
     }
 
     // 2. Inventory
@@ -95,7 +95,7 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
         date: projectData?.disabled_inventory_date ? formatDate(projectData.disabled_inventory_date) : undefined
       });
     } else {
-      modules.push({ type: "inventory", icon: Package, state: "enabled", label: "Inventory", statusLabel: "Active", shortLabel: "Inventory", route: "/inventory" });
+      modules.push({ type: "inventory", icon: Package, state: "enabled", label: "Inventory", statusLabel: "Active", shortLabel: "Inventory" });
     }
 
     // 3. Design Tracker
@@ -103,29 +103,29 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
     if (isDesignDisabled) {
       modules.push({ type: "design_tracker", icon: PenTool, state: "disabled", label: "Design Tracker", statusLabel: "Inactive", shortLabel: "Design Tracker" });
     } else if (!designTrackers || designTrackers.length === 0) {
-      modules.push({ type: "design_tracker", icon: PenTool, state: "not_setup", label: "Design Tracker", statusLabel: "Not Setup", shortLabel: "Design Tracker", route: dtRoute });
+      modules.push({ type: "design_tracker", icon: PenTool, state: "not_setup", label: "Design Tracker", statusLabel: "Not Setup", shortLabel: "Design Tracker", route: isAdminOrPMO ? dtRoute : undefined });
     } else {
-      modules.push({ type: "design_tracker", icon: PenTool, state: "enabled", label: "Design Tracker", statusLabel: "Active", shortLabel: "Design Tracker", route: dtRoute });
+      modules.push({ type: "design_tracker", icon: PenTool, state: "enabled", label: "Design Tracker", statusLabel: "Active", shortLabel: "Design Tracker" });
     }
 
     // 4. Commission Report
     if (isCommissionDisabled) {
       modules.push({ type: "commission_report", icon: ClipboardCheck, state: "disabled", label: "Commission Report", statusLabel: "Inactive", shortLabel: "Commission Report" });
     } else if (!commissionReports || commissionReports.length === 0) {
-      modules.push({ type: "commission_report", icon: ClipboardCheck, state: "not_setup", label: "Commission Report", statusLabel: "Not Setup", shortLabel: "Commission Report", route: "/commission-tracker?tab=project" });
+      modules.push({ type: "commission_report", icon: ClipboardCheck, state: "not_setup", label: "Commission Report", statusLabel: "Not Setup", shortLabel: "Commission Report", route: isAdminOrPMO ? "/commission-tracker?tab=project" : undefined });
     } else {
-      modules.push({ type: "commission_report", icon: ClipboardCheck, state: "enabled", label: "Commission Report", statusLabel: "Active", shortLabel: "Commission Report", route: "/commission-tracker?tab=project" });
+      modules.push({ type: "commission_report", icon: ClipboardCheck, state: "enabled", label: "Commission Report", statusLabel: "Active", shortLabel: "Commission Report" });
     }
 
     // 5. PMO Dashboard
     if (projectData?.disabled_pmo === 1) {
       modules.push({ type: "pmo", icon: LayoutDashboard, state: "disabled", label: "PMO Dashboard", statusLabel: "Inactive", shortLabel: "PMO Dashboard" });
     } else {
-      modules.push({ type: "pmo", icon: LayoutDashboard, state: "enabled", label: "PMO Dashboard", statusLabel: "Active", shortLabel: "PMO Dashboard", route: "/pmo-dashboard" });
+      modules.push({ type: "pmo", icon: LayoutDashboard, state: "enabled", label: "PMO Dashboard", statusLabel: "Active", shortLabel: "PMO Dashboard" });
     }
 
     return modules;
-  }, [isDPRDisabled, isInventoryDisabled, isDesignDisabled, isCommissionDisabled, projectData, designTrackers, commissionReports, projectId]);
+  }, [isDPRDisabled, isInventoryDisabled, isDesignDisabled, isCommissionDisabled, projectData, designTrackers, commissionReports, projectId, isAdminOrPMO]);
 
   const handleModuleAction = async (action: "enable" | "disable") => {
     if (!selectedModule || !projectId) return;
@@ -189,32 +189,32 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
         <Activity className="h-4 w-4 text-indigo-600 animate-pulse" /> Module Status:
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
-        {moduleStatuses.map((m, idx) => (
-          <div key={`${m.type}-${m.state}`} className="flex items-center">
-            <Badge
-              variant="outline"
-              onClick={() => {
-                if (m.state === "disabled" && isAdminOrPMO) {
-                  setSelectedModule({ type: m.type, label: m.label, shortLabel: m.shortLabel, state: m.state, route: m.route });
-                  setConfirmDialog(true);
-                } else if (m.state === "enabled" && isAdminOrPMO) {
-                  setSelectedModule({ type: m.type, label: m.label, shortLabel: m.shortLabel, state: m.state, route: m.route });
-                  setConfirmDialog(true);
-                } else if (m.type === "commission_report" && m.state === "not_setup") {
-                  setSelectedModule({ type: m.type, label: m.label, shortLabel: m.shortLabel, state: m.state, route: m.route });
-                  setConfirmDialog(true);
-                } else if (m.route) {
-                  navigate(m.route);
-                }
-              }}
-              className={`
+        {moduleStatuses.map((m) => {
+          const isClickable = (isAdminOrPMO && (m.state === "enabled" || m.state === "disabled")) || (m.type === "commission_report" && m.state === "not_setup") || !!m.route;
+
+          return (
+            <div key={`${m.type}-${m.state}`} className="flex items-center">
+              <Badge
+                variant="outline"
+                onClick={() => {
+                  if (isAdminOrPMO && (m.state === "disabled" || m.state === "enabled")) {
+                    setSelectedModule({ type: m.type, label: m.label, shortLabel: m.shortLabel, state: m.state, route: m.route });
+                    setConfirmDialog(true);
+                  } else if (m.type === "commission_report" && m.state === "not_setup") {
+                    setSelectedModule({ type: m.type, label: m.label, shortLabel: m.shortLabel, state: m.state, route: m.route });
+                    setConfirmDialog(true);
+                  } else if (m.route) {
+                    navigate(m.route);
+                  }
+                }}
+                className={`
                 flex items-center gap-1.5 text-[10px] h-6 px-2 transition-all duration-200
-                cursor-pointer select-none rounded-md border shadow-sm
-                hover:bg-slate-100 hover:shadow-md
+                select-none rounded-md border shadow-sm
+                ${isClickable ? "cursor-pointer hover:bg-slate-100 hover:shadow-md" : "cursor-default"}
                 ${getVariantStyles(m.state)}
               `}
-              title={`${isAdminOrPMO ? "Click to manage" : "Click to view"} ${m.label} (${m.statusLabel})`}
-            >
+                title={isClickable ? `${isAdminOrPMO ? "Click to manage" : "Click to view"} ${m.label} (${m.statusLabel})` : `${m.label} (${m.statusLabel})`}
+              >
               <m.icon className="h-3 w-3" />
               <span className="font-semibold text-slate-700">{m.label}</span>
               <div className="flex items-center gap-1.5 ml-1 border-l border-black/10 pl-1.5">
@@ -235,7 +235,8 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
               </div>
             </Badge>
           </div>
-        ))}
+        );
+      })}
       </div>
 
       <Dialog open={confirmDialog} onOpenChange={setConfirmDialog}>
