@@ -15,7 +15,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { useProjectGSTDetailsData, GSTInvoiceDetail } from "../../hooks/useProjectGSTDetailsData";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink, FileText, Receipt, Wallet, Calculator, Percent, Landmark } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, Receipt, Wallet, Calculator, Percent, Landmark, ArrowUpRight, ArrowDownLeft, Banknote } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
@@ -188,33 +188,46 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className="justify-end" />,
             cell: ({ row }) => <div className="text-center tabular-nums  font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("base_amount"))}</div>,
             size: 130,
-            meta: { exportHeaderName: "Amount" }
+            meta: {
+                exportHeaderName: "Base Amount",
+                exportValue: (row: any) => Number(row.base_amount || 0).toFixed(2)
+            }
         },
         {
             accessorKey: "gst_percentage",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST %" />,
-            cell: ({ row }) => <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100">{Math.round(row.original.gst_percentage)}%</Badge>,
+            cell: ({ row }) => <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100">{Math.round(Number(row.original.gst_percentage || 0))}%</Badge>,
             size: 80,
-            meta: { exportHeaderName: "GST %" }
+            meta: {
+                exportHeaderName: "GST %",
+                exportValue: (row: any) => Number(row.gst_percentage || 0).toFixed(2)
+            }
         },
         {
             accessorKey: "gst_amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="GST Amount" className="justify-end" />,
             cell: ({ row }) => <div className="text-center tabular-nums text-blue-600 font-medium whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("gst_amount"))}</div>,
             size: 130,
-            meta: { exportHeaderName: "GST Amount" }
+            meta: {
+                exportHeaderName: "GST Amount",
+                exportValue: (row: any) => Number(row.gst_amount || 0).toFixed(2)
+            }
         },
         {
             accessorKey: "total_amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Total Amount" className="justify-end" />,
             cell: ({ row }) => <div className="text-center tabular-nums font-bold text-slate-900 whitespace-nowrap">{formatToRoundedIndianRupee(row.getValue("total_amount"))}</div>,
             size: 140,
-            meta: { exportHeaderName: "Total Amount" }
+            meta: {
+                exportHeaderName: "Total Amount",
+                exportValue: (row: any) => Number(row.total_amount || 0).toFixed(2)
+            }
         },
         {
             accessorKey: "attachment",
             header: "Attachment",
             size: 100,
+            meta: { excludeFromExport: true },
             cell: ({ row }) => {
                 const url = row.original.attachment;
                 if (!url) return <span className="text-slate-400">No file</span>;
@@ -298,18 +311,21 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             };
         }, { base: 0, gst: 0, total: 0, vendorGst: 0, clientGst: 0 });
 
-        // Round the totals at the end to match Summary View logic
         const roundedBase = Math.round(t.base);
         const roundedGst = Math.round(t.gst);
         const roundedTotal = Math.round(t.total);
-        const roundedGstPayable = Math.round(t.clientGst) - Math.round(t.vendorGst);
+        const clientGst = Math.round(t.clientGst);
+        const vendorGst = Math.round(t.vendorGst);
+        const roundedGstPayable = clientGst - vendorGst;
 
         return {
             base: roundedBase,
             gst: roundedGst,
             total: roundedTotal,
+            clientGst: clientGst,
+            vendorGst: vendorGst,
             gstPayable: roundedGstPayable,
-            avgTax: roundedBase > 0 ? ((roundedGst / roundedBase) * 100).toFixed(2) : "0"
+            avgTax: roundedBase > 0 ? ((roundedGstPayable / roundedBase) * 100).toFixed(2) : "0.00"
         };
     }, [filteredRows]);
 
@@ -317,69 +333,90 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
     const typeFilter = table.getColumn("invoice_type")?.getFilterValue() as string[] | undefined;
     const showGstPayable = !typeFilter || typeFilter.length === 0 || typeFilter.length === allInvoiceTypes.length;
 
+    const actualFilters = (!typeFilter || typeFilter.length === 0) ? allInvoiceTypes : typeFilter;
+    const hasClient = actualFilters.includes("Project Invoice");
+    const hasVendor = actualFilters.includes("PO Invoice") || actualFilters.includes("SR Invoice");
+    const showFormula = hasClient && hasVendor;
+
     const summaryCard = (
-        <div className={`grid grid-cols-1 md:grid-cols-${showGstPayable ? "5" : "4"} gap-4 mb-4`}>
-            {[
-                {
-                    label: "Total GST",
-                    value: formatToRoundedIndianRupee(totals.gst),
-                    icon: <Receipt className="w-4 h-4" />,
-                    bg: "bg-indigo-50/50",
-                    border: "border-indigo-100",
-                    text: "text-indigo-700",
-                    iconBg: "bg-indigo-100 text-indigo-600",
-                },
-                {
-                    label: "Overall Tax %",
-                    value: `${totals.avgTax}%`,
-                    icon: <Percent className="w-4 h-4" />,
-                    bg: "bg-amber-50/50",
-                    border: "border-amber-100",
-                    text: "text-amber-700",
-                    iconBg: "bg-amber-100 text-amber-600",
-                },
-                {
-                    label: "Grand Amount",
-                    value: formatToRoundedIndianRupee(totals.base),
-                    icon: <Wallet className="w-4 h-4" />,
-                    bg: "bg-blue-50/50",
-                    border: "border-blue-100",
-                    text: "text-blue-700",
-                    iconBg: "bg-blue-100 text-blue-600",
-                },
-                ...(showGstPayable ? [{
-                    label: "GST Payable",
-                    value: formatToRoundedIndianRupee(totals.gstPayable),
-                    icon: <Landmark className="w-4 h-4" />,
-                    bg: "bg-emerald-50/50",
-                    border: "border-emerald-100",
-                    text: "text-emerald-700",
-                    iconBg: "bg-emerald-100 text-emerald-600",
-                }] : []),
-                {
-                    label: "Grand Total Amount",
-                    value: formatToRoundedIndianRupee(totals.total),
-                    icon: <Calculator className="w-4 h-4" />,
-                    bg: "bg-slate-50",
-                    border: "border-slate-200",
-                    text: "text-slate-900",
-                    iconBg: "bg-slate-200 text-slate-700",
-                }
-            ].map((card, i) => (
-                <div key={i} className={`${card.bg} ${card.border} border rounded-xl p-3.5 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden group`}>
-                    <div className="flex items-center justify-between relative z-10">
-                        <div>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">{card.label}</p>
-                            <p className={`text-xl font-bold tabular-nums tracking-tight ${card.text}`}>
-                                {card.value}
-                            </p>
+        <div className="flex flex-col gap-4 mb-6">
+            <div className="flex flex-wrap md:flex-nowrap items-center gap-3 bg-white/40 backdrop-blur-sm border border-slate-200/60 rounded-xl p-3 shadow-sm">
+                
+                {/* CI - GST */}
+                {hasClient && (
+                    <div className="flex-1 min-w-[140px] bg-blue-50/40 border border-blue-100/60 rounded-lg p-2.5 transition-all hover:bg-blue-50/60 group">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">Client GST</span>
+                            <ArrowUpRight className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform" />
                         </div>
-                        <div className={`${card.iconBg} p-1.5 rounded-lg`}>
-                            {card.icon}
+                        <p className="text-lg font-bold text-slate-900 tabular-nums lowercase -tracking-tight">
+                            {formatToRoundedIndianRupee(totals.clientGst)}
+                        </p>
+                    </div>
+                )}
+
+                {showFormula && (
+                    <div className="hidden md:flex items-center justify-center w-6 h-6 rounded-full bg-white border border-slate-200 text-xs text-slate-400 font-bold">-</div>
+                )}
+
+                {/* VI - GST */}
+                {hasVendor && (
+                    <div className="flex-1 min-w-[140px] bg-amber-50/40 border border-amber-100/60 rounded-lg p-2.5 transition-all hover:bg-amber-50/60 group">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-[9px] font-bold text-amber-600 uppercase tracking-widest">Vendor GST</span>
+                            <ArrowDownLeft className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                        </div>
+                        <p className="text-lg font-bold text-slate-900 tabular-nums">
+                            {formatToRoundedIndianRupee(totals.vendorGst)}
+                        </p>
+                        <p className="text-[8px] font-bold text-amber-600 mt-1 uppercase">
+                            Approx: {totals.avgTax}%
+                        </p>
+                    </div>
+                )}
+
+                {showFormula && (
+                    <div className="hidden md:flex items-center justify-center w-6 h-6 rounded-full bg-white border border-slate-200 text-xs text-slate-400 font-bold">=</div>
+                )}
+
+                {/* Payable */}
+                {showFormula && (
+                    <div className="flex-[1.2] min-w-[180px] bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-lg p-2.5 shadow-md shadow-emerald-100 transition-all hover:brightness-105 group relative overflow-hidden">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-50">GST Payable</span>
+                            <Landmark className="w-3.5 h-3.5 text-emerald-100/80 group-hover:scale-110 transition-transform" />
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                            <p className="text-xl font-bold tabular-nums">{formatToRoundedIndianRupee(totals.gstPayable)}</p>
                         </div>
                     </div>
+                )}
+
+                {/* Separator for clarity */}
+                <div className="hidden lg:block w-px h-10 bg-slate-200 mx-1"></div>
+
+                {/* Grand Base */}
+                <div className="flex-1 min-w-[140px] bg-slate-50/50 border border-slate-200/60 rounded-lg p-2.5 transition-all hover:bg-slate-100/50 group">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Grand Base</p>
+                    <div className="flex items-center justify-between">
+                        <p className="text-base font-bold text-slate-800 tabular-nums lowercase -tracking-tight">
+                            {formatToRoundedIndianRupee(totals.base)}
+                        </p>
+                        <Wallet className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                    </div>
                 </div>
-            ))}
+
+                {/* Grand Total */}
+                <div className="flex-1 min-w-[140px] bg-slate-50/50 border border-slate-200/60 rounded-lg p-2.5 transition-all hover:bg-slate-100/50 group">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Grand Total</p>
+                    <div className="flex items-center justify-between">
+                        <p className="text-base font-bold text-slate-800 tabular-nums lowercase -tracking-tight">
+                            {formatToRoundedIndianRupee(totals.total)}
+                        </p>
+                        <Calculator className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-900 transition-colors" />
+                    </div>
+                </div>
+            </div>
         </div>
     );
 
@@ -440,6 +477,23 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
         return labels;
     }, [columnFilters, combinedData]);
 
+    const exportFileName = useMemo(() => {
+        const today = format(new Date(), "dd-MM-yyyy");
+        const cleanProject = projectName.replace(/\s+/g, '_');
+        
+        // Find state name from initialGST if possible
+        let stateName = "Details";
+        if (initialGST && initialGST !== "all" && combinedData.length > 0) {
+            const match = combinedData.find(d => d.project_gst === initialGST);
+            if (match) {
+                // Extract just the state/location name from the display string
+                stateName = match.project_gst_display.split('-')[0].trim().replace(/\s+/g, '_');
+            }
+        }
+
+        return `GSTrepot_${cleanProject}_${stateName}_${today}`;
+    }, [projectName, initialGST, combinedData]);
+
     if (isLoading) return <LoadingFallback />;
 
     return (
@@ -493,7 +547,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                     onSearchTermChange={setSearchTerm}
                     showExportButton={true}
                     onExport="default"
-                    exportFileName={`GST_Details_${projectName.replace(/\s+/g, '_')}`}
+                    exportFileName={exportFileName}
                     facetFilterOptions={{
                         project: {
                             title: "Project Name",

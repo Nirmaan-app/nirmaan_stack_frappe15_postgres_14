@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Download, ExternalLink } from "lucide-react";
 import { unparse } from "papaparse";
 
+import { format } from "date-fns";
+
 import { ProjectGSTReportDetails } from "./GSTReport/ProjectGSTReportDetails";
 
 export const ProjectGSTReport: React.FC = () => {
@@ -124,7 +126,18 @@ export const ProjectGSTReport: React.FC = () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `Project_GST_Report_${selectedGST || "all"}.csv`);
+
+        // --- Filename Construction ---
+        const today = format(new Date(), "dd-MM-yyyy");
+        let stateName = "all Location";
+        if (selectedGST && selectedGST !== "all") {
+            const gstOption = gstOptions.find(opt => opt.value === selectedGST);
+            stateName = gstOption?.state || gstOption?.location || selectedGST;
+        }
+        const fileName = `GSTrepot_${stateName}_${today}.csv`;
+        // ------------------------------
+
+        link.setAttribute("download", fileName);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -146,7 +159,7 @@ export const ProjectGSTReport: React.FC = () => {
     return (
         <div className="p-4 bg-white min-h-screen">
             {/* Options Selection Row */}
-            <div className="relative z-[100] mb-4 flex items-end justify-between gap-4">
+            <div className="relative z-10 mb-4 flex items-end justify-between gap-4">
                 <div className="w-64">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Select Project GST</label>
                     <Select value={selectedGST} onValueChange={setSelectedGST}>
@@ -222,7 +235,7 @@ export const ProjectGSTReport: React.FC = () => {
                         </thead>
                         <tbody>
                             {/* Grand Totals Row at Top */}
-                            <tr className="sticky top-[93px] z-50 bg-slate-900 text-white font-bold transform translate-z-0">
+                            <tr className="sticky top-[93px] z-30 bg-slate-900 text-white font-bold transform translate-z-0">
                                 <td className="sticky left-0 z-[60] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0">TOTALS</td>
                                 {months.map((month) => {
                                     const mTotal = totals[month.name];
