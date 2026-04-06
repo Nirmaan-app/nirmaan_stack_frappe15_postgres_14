@@ -159,7 +159,7 @@ export const ProjectGSTReport: React.FC = () => {
     return (
         <div className="p-4 bg-white min-h-screen">
             {/* Options Selection Row */}
-            <div className="relative z-10 mb-4 flex items-end justify-between gap-4">
+            <div className="relative z-100 mb-4 flex items-end justify-between gap-4">
                 <div className="w-64">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Select Project GST</label>
                     <Select value={selectedGST} onValueChange={setSelectedGST}>

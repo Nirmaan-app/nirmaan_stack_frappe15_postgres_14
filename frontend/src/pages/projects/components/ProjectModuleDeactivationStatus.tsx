@@ -248,7 +248,7 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
               {selectedModule?.state === "disabled"
                 ? `Are you sure you want to re-enable the ${selectedModule?.shortLabel} module for this project?`
                 : selectedModule?.state === "not_setup"
-                  ? `This project doesn't have a ${selectedModule?.shortLabel.toLowerCase()}. Do you want to create it? Note: Creating a commission report will change the project status to handover state.`
+                  ? "When the Project status is changed from any state to Handover, a Commission Report will be generated as part of the transition. However, this is permitted only after the Design Tracker has been Created."
                   : `Are you sure you want to deactivate the ${selectedModule?.shortLabel} module?`
               }
             </DialogDescription>
