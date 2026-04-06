@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
-import ProjectSelect from "@/components/custom-select/project-select";
+import ProjectInventorySelect from "@/components/custom-select/ProjectInventorySelect";
 import { RemainingItemsForm } from "./components/RemainingItemsForm";
 import DateMetadataBar from "./components/DateMetadataBar";
 import { ReportSummaryCard } from "./components/ReportSummaryCard";
@@ -23,7 +23,7 @@ export function Component() {
       <h2 className="text-lg font-semibold tracking-tight">Update Inventory</h2>
       {!selectedProject && <DateMetadataBar hasProject={false} lastReport={null} todayReportExists={false} />}
       <div className="max-w-sm">
-        <ProjectSelect onChange={handleProjectChange} universal={false} />
+        <ProjectInventorySelect onChange={handleProjectChange} />
       </div>
       {selectedProject ? (
         <UpdateInventoryContent projectId={selectedProject.value} projectName={selectedProject.label} />

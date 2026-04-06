@@ -21,7 +21,7 @@ def get_pmo_projects():
     projects = frappe.get_all(
         "Projects",
         filters=[["status", "not in", ["Completed"]]],
-        fields=["name", "project_name", "project_city", "project_state", "status"],
+        fields=["name", "project_name", "project_city", "project_state", "status", "disabled_pmo"],
         order_by="creation desc",
     )
 
@@ -92,6 +92,7 @@ def get_pmo_projects():
             "pending_tasks": pending_tasks,
             "progress": progress,
             "categories": category_summary,
+            "disabled_pmo": project.disabled_pmo,
         })
 
     return result
@@ -368,3 +369,14 @@ def get_project_status_overview(project):
         }
 
     return result
+
+
+@frappe.whitelist()
+def update_project_pmo_visibility(project_name, disabled):
+    """
+    Update the disabled_pmo status for a project.
+    disabled should be 0 or 1.
+    """
+    frappe.db.set_value("Projects", project_name, "disabled_pmo", disabled)
+    frappe.db.commit()
+    return {"status": "success"}

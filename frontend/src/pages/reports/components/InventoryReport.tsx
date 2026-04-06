@@ -11,7 +11,7 @@ import {
   ColumnFiltersState,
 } from "@tanstack/react-table";
 
-import ProjectSelect from "@/components/custom-select/project-select";
+import ProjectInventorySelect from "@/components/custom-select/ProjectInventorySelect";
 import { DataTable, SearchFieldOption } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
@@ -121,7 +121,7 @@ export default function InventoryReport() {
   return (
     <div className="space-y-4">
       <div className="max-w-sm">
-        <ProjectSelect onChange={handleProjectChange} universal={false} />
+        <ProjectInventorySelect onChange={handleProjectChange} />
       </div>
 
       <Alert variant="default" className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">

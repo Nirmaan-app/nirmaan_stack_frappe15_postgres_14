@@ -37,9 +37,9 @@ export const WorkPackageSelector: React.FC<WorkPackageSelectorProps> = ({ onSele
     });
 
     const filteredHeaders = React.useMemo(() => {
-        if (!headers || !project?.project_wp_category_makes) return [];
-        const projectPackages = new Set(project.project_wp_category_makes.map(m => m.procurement_package));
-        return headers.filter(h => projectPackages.has(h.tag_package));
+        if (!headers) return [];
+        const projectPackages = new Set(project?.project_wp_category_makes?.map(m => m.procurement_package) || []);
+        return headers.filter(h => projectPackages.has(h.tag_package) || h.tag_package === "Tool & Equipments");
     }, [headers, project]);
 
     if (isLoading) {

@@ -24,6 +24,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { FuseResult } from 'fuse.js';
 import { Items } from '@/types/NirmaanStack/Items';
 import { Category } from '@/types/NirmaanStack/Category';
+import { getFrappeError } from '@/utils/frappeErrors';
 
 
 interface NewItemDialogProps {
@@ -184,9 +185,11 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
 
             } catch (error: any) {
                 console.error("Failed to create item:", error);
+                const errorMessage = getFrappeError(error);
+
                 toast({
                     title: "Item Creation Failed",
-                    description: error.message || "Could not create the new item.",
+                    description: errorMessage,
                     variant: "destructive",
                 });
             }

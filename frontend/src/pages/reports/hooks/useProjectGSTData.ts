@@ -19,6 +19,7 @@ export interface MonthlyGST {
 }
 
 export interface ProjectGSTRow {
+    project_id: string;
     project_name: string;
     months: Record<string, MonthlyGST>;
 }
@@ -93,12 +94,12 @@ export const useProjectGSTData = (selectedGST?: string) => {
             "bg-rose-50"
         ];
 
-        for (let i = 5; i >= 0; i--) {
+        for (let i = 0; i <= 5; i++) {
             const date = subMonths(new Date(), i);
             result.push({
                 name: format(date, "MMM yyyy"),
                 id: format(date, "yyyy-MM"),
-                bg: backgroundColors[5 - i]
+                bg: backgroundColors[i]
             });
         }
         return result;
@@ -199,6 +200,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
             });
 
             return {
+                project_id: project.name,
                 project_name: project.project_name || project.name,
                 months: monthlyData,
                 hasAnyValue

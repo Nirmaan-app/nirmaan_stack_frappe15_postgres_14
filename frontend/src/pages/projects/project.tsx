@@ -20,6 +20,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { ProjectStatusDialog, HaltedOptions } from "./components/ProjectStatusDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { toast } from "@/components/ui/use-toast";
 import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
@@ -1098,9 +1099,53 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const getAllSRsTotalWithGST = useMemo(() => getAllSRsTotal(approvedServiceRequestsData || [])?.withGST, [approvedServiceRequestsData])
 
-  const handleConfirmStatus = async () => {
+  const handleConfirmStatus = async (options?: HaltedOptions) => {
     try {
-      await updateDoc("Projects", data?.name, { status: newStatus });
+      const updateFields: any = { status: newStatus };
+
+      if ((newStatus === "Halted" || newStatus === "Handover" || newStatus === "Completed") && options) {
+        updateFields.disabled_dpr = options.isDPRDisabled ? 1 : 0;
+        updateFields.disabled_dpr_date = options.isDPRDisabled ? options.dprDisableDate : null;
+        updateFields.disabled_inventory = options.isInventoryDisabled ? 1 : 0;
+        updateFields.disabled_inventory_date = options.isInventoryDisabled ? options.inventoryDisableDate : null;
+        updateFields.disabled_pmo = options.isPMODisabled ? 1 : 0;
+
+
+        // Synchronize with Design Tracker
+        if (designTrackerId) {
+          await updateDoc("Project Design Tracker", designTrackerId, {
+            hide_design_tracker: options.isDesignTrackerDisabled ? 1 : 0
+          });
+        }
+        // Synchronize with Commission Report
+        if (commissionReportId) {
+          await updateDoc("Project Commission Report", commissionReportId, {
+            hide_commission_report: options.isCommissionReportDisabled ? 1 : 0
+          });
+        }
+      } else if (newStatus === "WIP") {
+        // Reset disabling flags when resuming to WIP (Auto-Resume)
+        updateFields.disabled_dpr = 0;
+        updateFields.disabled_dpr_date = null;
+        updateFields.disabled_inventory = 0;
+        updateFields.disabled_inventory_date = null;
+        updateFields.disabled_pmo = 0;
+
+
+        if (designTrackerId) {
+          await updateDoc("Project Design Tracker", designTrackerId, {
+            hide_design_tracker: 0
+          });
+        }
+        if (commissionReportId) {
+          await updateDoc("Project Commission Report", commissionReportId, {
+            hide_commission_report: 0
+          });
+        }
+      }
+
+      await updateDoc("Projects", data?.name, updateFields);
+
       await project_mutate();
 
       if (newStatus === "Handover") {
@@ -1252,6 +1297,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               handover_generated: 1,
               zone: zoneChildRows,
               commission_report_task: commissionTasks,
+              hide_commission_report: options?.isCommissionReportDisabled ? 1 : 0,
             });
 
             await commissionReportResponse.mutate();
@@ -1463,46 +1509,21 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               {isCEOHoldStatus && !canChangeStatus && (
                 <span className="text-xs text-red-600 ml-2">Locked by CEO Hold</span>
               )}
-              <AlertDialog
+
+              <ProjectStatusDialog
                 open={showStatusChangeDialog}
                 onOpenChange={setShowStatusChangeDialog}
-              >
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {newStatus === "Handover" ? (
-                        designTrackerId
-                          ? "This will change the project status to Handover, generate handover copies of all applicable design tasks with a 7-day deadline, and initialize the project Commission Report if it does not exist."
-                          : "This will change the project status to Handover and initialize the project Commission Report. No Design Tracker exists for this project, so no design handover tasks will be generated."
-                      ) : (
-                        <>
-                          This action will change the status from "{data.status} "
-                          to "
-                          {projectStatuses.find((s) => s.value === newStatus)
-                            ?.label || "Unknown"}
-                          ".
-                        </>
-                      )}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    {(updateDocLoading || handoverTasksLoading || createCommissionReportLoading) ? (
-                      <TailSpin color="red" width={26} height={26} />
-                    ) : (
-                      <>
-                        <AlertDialogCancel onClick={handleCancelStatus}>
-                          Cancel
-                        </AlertDialogCancel>
-                        <Button onClick={handleConfirmStatus}>
-                          Continue
-                        </Button>
-                      </>
-                    )}
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                currentStatus={data.status}
+                newStatus={newStatus}
+                projectName={data.project_name}
+                projectStatuses={projectStatuses}
+                designTrackerId={designTrackerId}
+                onConfirm={handleConfirmStatus}
+                onCancel={handleCancelStatus}
+                isLoading={updateDocLoading || handoverTasksLoading || createCommissionReportLoading}
+              />
             </>
+
           )}
           {/* <div className="flex flex-col items-start ml-2 text-sm max-sm:text-xs">
             <CustomHoverCard

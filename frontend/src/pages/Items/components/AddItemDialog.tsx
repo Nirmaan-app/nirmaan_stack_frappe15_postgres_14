@@ -1,19 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
-import { ListChecks } from "lucide-react";
+import { ListChecks, CheckCircle2, XCircle } from "lucide-react";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 import ReactSelect from 'react-select';
+import { cn } from '@/lib/utils';
 
 import { CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH } from '../items.constants';
+import { getFrappeError } from '@/utils/frappeErrors';
 
 interface AddItemDialogProps {
     isOpen: boolean;
@@ -29,7 +30,7 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
     const [formError, setFormError] = useState<string | null>(null);
 
     const { toast } = useToast();
-    const { data: categoryList, isLoading: categoryLoading, error: categoryFetchError } = useFrappeGetDocList<CategoryType>(
+    const { data: categoryList } = useFrappeGetDocList<CategoryType>(
         CATEGORY_DOCTYPE,
         {
             fields: CATEGORY_LIST_FIELDS_TO_FETCH,
@@ -38,6 +39,16 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
         },
         'category_list_for_add_item_dialog'
     );
+
+    // Check for duplicate item name
+    const { data: existingItems } = useFrappeGetDocList("Items", {
+        fields: ["name", "item_name"],
+        filters: [["item_name", "=", itemName.trim()]],
+        limit: 1
+    }, itemName.trim().length > 0 ? `existing_item_${itemName.trim()}` : null);
+
+    const isDuplicate = existingItems && existingItems.length > 0;
+
     const { createDoc, loading: createLoading, error: createApiError } = useFrappeCreateDoc();
 
     const categoryOptions = useMemo(() =>
@@ -50,9 +61,10 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
 
     useEffect(() => {
         if (createApiError) {
+            const errorMessage = getFrappeError(createApiError);
             toast({
                 title: "Error Creating Item",
-                description: createApiError.message || "An unknown error occurred.",
+                description: errorMessage,
                 variant: "destructive",
             });
         }
@@ -69,6 +81,10 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
     const handleSubmit = async () => {
         if (!itemName.trim() || !selectedUnit || !selectedCategory) {
             setFormError("All fields marked with * are required.");
+            return;
+        }
+        if (isDuplicate) {
+            setFormError("A product with this name already exists.");
             return;
         }
         setFormError(null);
@@ -97,55 +113,69 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
         <Dialog open={isOpen} onOpenChange={handleDialogStateChange}>
             <DialogContent className="sm:max-w-[450px]">
                 <DialogHeader><DialogTitle className="text-center mb-4">Add New Product</DialogTitle></DialogHeader>
-                <div className="grid gap-5 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="category" className="text-right col-span-1">Category<sup className="text-red-500">*</sup></Label>
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-col items-start">
+                            <label htmlFor="itemCategory" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                            <div className="w-full mt-1">
+                                <ReactSelect
+                                    options={categoryOptions}
+                                    value={categoryOptions.find(option => option.value === selectedCategory) || null}
+                                    onChange={val => setSelectedCategory(val ? (val as any).value : "")}
+                                    // menuPosition="fixed"
+                                    isClearable={true}
+                                    placeholder="Select Category"
+                                />
+                            </div>
+                        </div>
 
-                        {/* <Select value={selectedCategory} onValueChange={setSelectedCategory} disabled={categoryLoading}>
-                            <SelectTrigger className="col-span-3"><SelectValue placeholder={categoryLoading ? "Loading..." : "Select Category"} /></SelectTrigger>
-                            <SelectContent>
-                                {categoryFetchError && <SelectItem value="error" disabled>Error loading categories</SelectItem>}
-                                {categoryOptions.map(cat => <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>)}
-                            </SelectContent>
-                        </Select> */}
-                         <div className="col-span-3"> {/* Wrap ReactSelect to fit grid */}
-                                                                      <ReactSelect
-                                                                          options={categoryOptions}
-                                                                          // Value needs to be the full option object for react-select
-                                                                          value={categoryOptions.find(option => option.value === selectedCategory) || null}
-                                                                          onChange={val => setSelectedCategory(val ? val.value as string : "")}
-                                                                          menuPosition="auto"
-                                                                          isClearable={true} // Allows clearing the selection
-                                                                          placeholder="Select Category"
-                                                               
-                                                                      />
-                                                                  </div>
+                        <div className="flex flex-col items-start w-full">
+                            <label htmlFor="billingCategory" className="block text-sm font-medium text-gray-700">Billing Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                            <Select value={selectedBillingCategory} onValueChange={setSelectedBillingCategory}>
+                                <SelectTrigger className="w-full mt-1">
+                                    <SelectValue placeholder="Select Billing Category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Billable">Billable</SelectItem>
+                                    <SelectItem value="Non-Billable">Non-Billable</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="flex flex-col items-start">
+                            <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Product Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                            <div className="relative w-full mt-1">
+                                <Input
+                                    type="text"
+                                    id="itemName"
+                                    value={itemName}
+                                    onChange={(e) => setItemName(e.target.value)}
+                                    className={cn(
+                                        "block w-full p-2 pr-8 border rounded-md shadow-sm sm:text-sm",
+                                        itemName.trim() ? (isDuplicate ? "border-red-500 focus-visible:ring-red-500" : "border-green-500 focus-visible:ring-green-500") : "border-gray-300"
+                                    )}
+                                    placeholder="Product name"
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                    {itemName.trim() && !isDuplicate && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                                    {itemName.trim() && isDuplicate && <XCircle className="h-4 w-4 text-red-600" />}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col items-start">
+                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Product Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
+                            <div className="w-full mt-1">
+                                <SelectUnit value={selectedUnit} onChange={(value) => setSelectedUnit(value)} />
+                            </div>
+                        </div>
                     </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="billingCategory" className="text-right col-span-1">Billing Cat.<sup className="text-red-500">*</sup></Label>
-                        <Select value={selectedBillingCategory} onValueChange={setSelectedBillingCategory}>
-                            <SelectTrigger className="col-span-3">
-                                <SelectValue placeholder="Select Billing Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="Billable">Billable</SelectItem>
-                                <SelectItem value="Non-Billable">Non-Billable</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="itemName" className="text-right col-span-1">Name<sup className="text-red-500">*</sup></Label>
-                        <Input id="itemName" value={itemName} onChange={e => setItemName(e.target.value)} className="col-span-3" placeholder="Product name"/>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="itemUnit" className="text-right col-span-1">Unit<sup className="text-red-500">*</sup></Label>
-                        <div className="col-span-3"><SelectUnit value={selectedUnit} onChange={setSelectedUnit} /></div>
-                    </div>
-                    {formError && <p className="col-span-4 text-sm text-red-600 text-center pt-2">{formError}</p>}
+
+                    {formError && !isDuplicate && <p className="text-sm text-red-600 text-center pt-2 font-medium">{formError}</p>}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleSubmit} disabled={createLoading || !itemName || !selectedUnit || !selectedCategory}>
+                    <Button onClick={handleSubmit} disabled={createLoading || !itemName || !selectedUnit || !selectedCategory || isDuplicate}>
                         {createLoading ? "Submitting..." : "Submit"} <ListChecks className="ml-2 h-4 w-4" />
                     </Button>
                 </DialogFooter>

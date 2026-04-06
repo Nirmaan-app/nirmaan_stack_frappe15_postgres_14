@@ -101,3 +101,4 @@ nirmaan_stack.patches.v3_0.migrate_project_gst
 nirmaan_stack.patches.v3_0.migrate_project_invoices_gst
 nirmaan_stack.patches.v3_0.recalculate_po_amount_delivered_with_ac
 nirmaan_stack.patches.v3_0.fix_stale_vendor_category_json
+nirmaan_stack.patches.v3_0.disabled_module_completed_project
