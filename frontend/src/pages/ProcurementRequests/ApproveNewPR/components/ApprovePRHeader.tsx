@@ -90,7 +90,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
                             isSaving={isSaving}
                         />
                     )}
-                    {onCancel && (
+                    {/* {onCancel && (
                         <Button
                             variant="ghost"
                             size="sm"
@@ -100,7 +100,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
                             <X className="h-4 w-4" />
                             <span className="hidden sm:inline">Cancel</span>
                         </Button>
-                    )}
+                    )} */}
                 </div>
             </div>
 
