@@ -54,7 +54,7 @@ interface ProjectOverviewTabProps {
 
 export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
 
-  const { role } = useUserData();
+  const { role, user_id } = useUserData();
   const navigate = useNavigate();
   const {
     createUserPermission,
@@ -251,7 +251,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </AlertDescription>
         </Alert>
       )}
-      <ProjectModuleDeactivationStatus projectId={projectData.name} projectStatus={projectData.status} />
+      {role == "Nirmaan Admin Profile" && (
+        <ProjectModuleDeactivationStatus projectId={projectData.name} projectStatus={projectData.status} />)}
       <Card>
         <CardHeader>
           <CardTitle>

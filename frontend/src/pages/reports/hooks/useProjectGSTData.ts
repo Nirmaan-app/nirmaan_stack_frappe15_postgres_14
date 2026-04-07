@@ -220,18 +220,20 @@ export const useProjectGSTData = (selectedGST?: string) => {
 
             reportData.forEach((row) => {
                 const mData = row.months[month.name];
-                vIncl += mData.vendor.incl;
-                vExcl += mData.vendor.excl;
-                vGst += mData.vendor.gst;
-                cIncl += mData.client.incl;
-                cExcl += mData.client.excl;
-                cGst += mData.client.gst;
+                if (mData) {
+                    vIncl += (mData.vendor.incl || 0);
+                    vExcl += (mData.vendor.excl || 0);
+                    vGst += (mData.vendor.gst || 0);
+                    cIncl += (mData.client.incl || 0);
+                    cExcl += (mData.client.excl || 0);
+                    cGst += (mData.client.gst || 0);
+                }
             });
 
             result[month.name] = {
-                vendor: { incl: vIncl, excl: vExcl, gst: vGst },
-                client: { incl: cIncl, excl: cExcl, gst: cGst },
-                gstPay: cGst - vGst
+                vendor: { incl: Math.round(vIncl), excl: Math.round(vExcl), gst: Math.round(vGst) },
+                client: { incl: Math.round(cIncl), excl: Math.round(cExcl), gst: Math.round(cGst) },
+                gstPay: Math.round(cGst - vGst)
             };
         });
 
