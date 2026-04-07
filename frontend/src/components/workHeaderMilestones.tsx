@@ -447,7 +447,7 @@ export const WorkHeaderMilestones: React.FC = () => {
                 className="text-slate-600 border-slate-300"
               >
                 <GripVertical className="w-4 h-4 mr-1.5" />
-                Reorder
+                Reorder Work Header
               </Button>
               <CreateWorkHeaderDialog
                 mutate={workHeadersMutate}
@@ -1307,7 +1307,7 @@ const BulkEditMilestonesDialog: React.FC<BulkEditMilestonesDialogProps> = ({
           setIsSaving(false);
           return;
         }
-        if (m.weightage <= 0) {
+        if ((m.weightage || 0) <= 0) {
           toast({ title: "Validation Error", description: `"${m.work_milestone_name}" must have a positive weightage.`, variant: "destructive" });
           setIsSaving(false);
           return;
@@ -1338,7 +1338,7 @@ const BulkEditMilestonesDialog: React.FC<BulkEditMilestonesDialogProps> = ({
           let lastWeekNum = 0;
           for (let j = 0; j < firstInvalid - 1; j++) {
             if ((weeks[j] || 0) > 0) {
-              lastVal = weeks[j];
+              lastVal = weeks[j] || 0;
               lastWeekNum = j + 1;
             }
           }
@@ -1422,6 +1422,24 @@ const BulkEditMilestonesDialog: React.FC<BulkEditMilestonesDialogProps> = ({
             <DialogDescription className="text-sm text-slate-500 m-0">
               Editing {editedMilestones.length} milestones for <strong className="text-slate-700">{headerName}</strong>
             </DialogDescription>
+            <div className="mt-2 flex gap-4 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                Drag handle to reorder
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                Weekly values are cumulative %
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                Weightage must be &gt; 0
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                We can Add New Milestone.
+              </span>
+            </div>
           </div>
           <Button
             variant="outline"
@@ -1430,11 +1448,10 @@ const BulkEditMilestonesDialog: React.FC<BulkEditMilestonesDialogProps> = ({
             disabled={isSaving || editedMilestones.some(m => (m as any).is_new && !m.work_milestone_name.trim())}
             className="text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <PlusCircle className="w-3.5 h-3.5 mr-1.5" />
+            <PlusCircle className="w-3.5 h-3.5 mr-2" />
             Add Milestone
           </Button>
         </div>
-
         <div
           ref={scrollContainerRef}
           className="flex-1 overflow-auto bg-slate-50/30"
@@ -1442,15 +1459,15 @@ const BulkEditMilestonesDialog: React.FC<BulkEditMilestonesDialogProps> = ({
         >
           <div className="bg-white">
             <Table className="min-w-[1000px] border-collapse">
-              <TableHeader>
-                <TableRow className="bg-slate-50 text-[10px] uppercase text-slate-500 hover:bg-slate-50">
-                  <TableHead className="w-[40px] text-center">Order</TableHead>
-                  <TableHead className="w-[280px]">Milestone Name</TableHead>
-                  <TableHead className="w-[90px]">Weightage</TableHead>
+              <TableHeader className="sticky top-0 z-10 shadow-sm">
+                <TableRow className="bg-slate-50 text-[10px] uppercase text-slate-500 hover:bg-slate-50 border-b border-slate-200">
+                  <TableHead className="w-[40px] text-center sticky top-0 bg-slate-50 z-10">Order</TableHead>
+                  <TableHead className="w-[280px] sticky top-0 bg-slate-50 z-10">Milestone Name</TableHead>
+                  <TableHead className="w-[90px] sticky top-0 bg-slate-50 z-10">Weightage</TableHead>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((w) => (
-                    <TableHead key={w} className="w-[70px] text-center">W{w}</TableHead>
+                    <TableHead key={w} className="w-[70px] text-center sticky top-0 bg-slate-50 z-10">W{w}</TableHead>
                   ))}
-                  <TableHead className="w-[40px]"></TableHead>
+                  <TableHead className="w-[40px] sticky top-0 bg-slate-50 z-10"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2098,7 +2115,7 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({
             </div>
           ) : (
             <>
-              <Button
+              {/* <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsReordering(true)}
@@ -2107,14 +2124,14 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({
               >
                 <GripVertical className="w-3.5 h-3.5 mr-1" />
                 Reorder
-              </Button>
+              </Button> */}
 
               <div className="flex flex-col items-stretch border border-slate-200 rounded-md shadow-sm overflow-hidden bg-white w-36">
-                <CreateWorkMilestoneDialog
+                {/* <CreateWorkMilestoneDialog
                   workHeaderId={header.name}
                   mutate={workMilestonesMutate}
                   nextOrder={maxOrder + 1}
-                />
+                /> */}
                 <BulkEditMilestonesDialog
                   workHeaderId={header.name}
                   headerName={header.work_header_name}
@@ -2182,8 +2199,8 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({
                     onDragEnd={isReordering ? handleDragEnd : undefined}
                     onDragOver={(e) => isReordering && e.preventDefault()}
                     className={`border-b border-slate-50 last:border-0 transition-colors ${isReordering
-                        ? "cursor-move hover:bg-slate-50"
-                        : "hover:bg-slate-50/50"
+                      ? "cursor-move hover:bg-slate-50"
+                      : "hover:bg-slate-50/50"
                       }`}
                   >
                     {isReordering && (
