@@ -20,7 +20,7 @@ def get_pmo_projects():
     """
     projects = frappe.get_all(
         "Projects",
-        filters=[["status", "not in", ["Completed"]]],
+        # filters=[["status", "not in", ["Completed"]]],
         fields=["name", "project_name", "project_city", "project_state", "status", "disabled_pmo"],
         order_by="creation desc",
     )

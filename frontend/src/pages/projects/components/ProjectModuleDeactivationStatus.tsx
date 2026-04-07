@@ -60,6 +60,13 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
   const [selectedModule, setSelectedModule] = useState<{ type: string; label: string; shortLabel: string; state: string; route?: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Force re-fetch data when project status changes
+  React.useEffect(() => {
+    projectMutate();
+    designMutate();
+    commissionMutate();
+  }, [projectStatus, projectMutate, designMutate, commissionMutate]);
+
   const isDPRDisabled = projectData?.disabled_dpr === 1;
   const isInventoryDisabled = projectData?.disabled_inventory === 1;
   const isDesignDisabled = designTrackers?.[0]?.hide_design_tracker === 1;
@@ -215,28 +222,28 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
               `}
                 title={isClickable ? `${isAdminOrPMO ? "Click to manage" : "Click to view"} ${m.label} (${m.statusLabel})` : `${m.label} (${m.statusLabel})`}
               >
-              <m.icon className="h-3 w-3" />
-              <span className="font-semibold text-slate-700">{m.label}</span>
-              <div className="flex items-center gap-1.5 ml-1 border-l border-black/10 pl-1.5">
-                <div className={`h-1.5 w-1.5 rounded-full ${m.state === "enabled" ? "bg-emerald-500 animate-pulse" :
-                  m.state === "disabled" ? "bg-red-500" : "bg-amber-500"
-                  }`} />
-                <span className="text-[9px] font-bold opacity-80">
-                  {m.state === "enabled" ? "Active" : m.state === "disabled" ? "InActive" : "Not Set"}
-                </span>
-                {m.date && (
-                  <span className="text-[9px] font-black opacity-60">({m.date})</span>
-                )}
-                {isAdminOrPMO ? (
-                  <Settings className="h-2 w-2 ml-0.5 opacity-40" />
-                ) : m.route ? (
-                  <ExternalLink className="h-2 w-2 ml-0.5 opacity-40" />
-                ) : null}
-              </div>
-            </Badge>
-          </div>
-        );
-      })}
+                <m.icon className="h-3 w-3" />
+                <span className="font-semibold text-slate-700">{m.label}</span>
+                <div className="flex items-center gap-1.5 ml-1 border-l border-black/10 pl-1.5">
+                  <div className={`h-1.5 w-1.5 rounded-full ${m.state === "enabled" ? "bg-emerald-500 animate-pulse" :
+                    m.state === "disabled" ? "bg-red-500" : "bg-amber-500"
+                    }`} />
+                  <span className="text-[9px] font-bold opacity-80">
+                    {m.state === "enabled" ? "Active" : m.state === "disabled" ? "InActive" : "Not Set"}
+                  </span>
+                  {m.date && (
+                    <span className="text-[9px] font-black opacity-60">({m.date})</span>
+                  )}
+                  {isAdminOrPMO ? (
+                    <Settings className="h-2 w-2 ml-0.5 opacity-40" />
+                  ) : m.route ? (
+                    <ExternalLink className="h-2 w-2 ml-0.5 opacity-40" />
+                  ) : null}
+                </div>
+              </Badge>
+            </div>
+          );
+        })}
       </div>
 
       <Dialog open={confirmDialog} onOpenChange={setConfirmDialog}>
@@ -249,7 +256,7 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
               {selectedModule?.state === "disabled"
                 ? `Are you sure you want to re-enable the ${selectedModule?.shortLabel} module for this project?`
                 : selectedModule?.state === "not_setup"
-                  ? "When the Project status is changed from any state to Handover, a Commission Report will be generated as part of the transition. However, this is permitted only after the Design Tracker has been Created."
+                  ? "When the Project status is changed from any state to Handover, a Commission Report will be generated as part of the transition."
                   : `Are you sure you want to deactivate the ${selectedModule?.shortLabel} module?`
               }
             </DialogDescription>
