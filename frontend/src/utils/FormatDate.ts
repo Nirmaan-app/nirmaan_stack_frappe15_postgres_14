@@ -44,3 +44,14 @@ export const formatDateToDDMMYYYY = (date: Date, underscore = false) => {
 
     return formattedDate;
 };
+
+export function isCreatedToday(creationDate?: string): boolean {
+  if (!creationDate) return false;
+  const created = new Date(creationDate);
+  const today = new Date();
+  return (
+    created.getFullYear() === today.getFullYear() &&
+    created.getMonth() === today.getMonth() &&
+    created.getDate() === today.getDate()
+  );
+}

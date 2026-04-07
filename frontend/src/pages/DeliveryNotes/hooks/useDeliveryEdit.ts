@@ -5,6 +5,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { DNColumn, PivotRow } from "../components/pivot-table/types";
 import { parseNumber } from "@/utils/parseNumber";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { isCreatedToday } from "@/utils/FormatDate";
 
 const ALWAYS_EDIT_ROLES = [
   "Nirmaan Admin Profile",
@@ -31,17 +32,6 @@ export interface UseDeliveryEditReturn {
   submitEdit: () => Promise<void>;
   canEditDn: (col: DNColumn) => boolean;
   hasEditChanges: boolean;
-}
-
-function isCreatedToday(creationDate?: string): boolean {
-  if (!creationDate) return false;
-  const created = new Date(creationDate);
-  const today = new Date();
-  return (
-    created.getFullYear() === today.getFullYear() &&
-    created.getMonth() === today.getMonth() &&
-    created.getDate() === today.getDate()
-  );
 }
 
 export function useDeliveryEdit({
