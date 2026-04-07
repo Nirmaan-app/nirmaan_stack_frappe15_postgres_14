@@ -1459,7 +1459,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
         {/* </div> */}
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
-          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
+          {(role === "Nirmaan Admin Profile") && (
             <>
               <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
                 <PopoverTrigger asChild>
