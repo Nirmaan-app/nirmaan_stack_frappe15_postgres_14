@@ -203,7 +203,7 @@ export const ProjectGSTReport: React.FC = () => {
                                 ))}
                             </tr>
                             {/* Level 2: Invoice Types */}
-                            <tr className="sticky top-[35px] z-30">
+                            <tr className="sticky top-[45px] z-30">
                                 {months.map((month) => (
                                     <React.Fragment key={`${month.id}-types`}>
                                         <th colSpan={3} className={`text-slate-600 p-2 text-center font-semibold border-b border-r border-slate-100 ${month.bg} transform translate-z-0`}>
@@ -219,7 +219,7 @@ export const ProjectGSTReport: React.FC = () => {
                                 ))}
                             </tr>
                             {/* Level 3: Fields */}
-                            <tr className="sticky top-[75px] z-30 text-[9px] uppercase tracking-tighter">
+                            <tr className="sticky top-[85px] z-30 text-[9px] uppercase tracking-tighter">
                                 {months.map((month) => (
                                     <React.Fragment key={`${month.id}-fields`}>
                                         <th className={`text-slate-400 px-3 py-1 text-center font-medium border-b border-r border-slate-100/50 ${month.bg} transform translate-z-0`}>Incl</th>
@@ -235,8 +235,8 @@ export const ProjectGSTReport: React.FC = () => {
                         </thead>
                         <tbody>
                             {/* Grand Totals Row at Top */}
-                            <tr className="sticky top-[93px] z-30 bg-slate-900 text-white font-bold transform translate-z-0">
-                                <td className="sticky left-0 z-[60] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0">TOTALS</td>
+                            <tr className="sticky top-[109px] z-30 bg-slate-900 text-white font-bold transform translate-z-0">
+                                <td className="sticky left-0 z-[70] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0 !bg-slate-900">TOTALS</td>
                                 {months.map((month) => {
                                     const mTotal = totals[month.name];
                                     return (
@@ -277,7 +277,7 @@ export const ProjectGSTReport: React.FC = () => {
                                                             className="group inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/80 transition-all duration-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed font-medium"
                                                         >
                                                             <span>{formatCurrency(mData.vendor.incl)}</span>
-                                                            <ExternalLink className="w-2.5 h-2.5 text-blue-400 group-hover:text-blue-600 transition-colors" />
+                                                            {mData.vendor.incl > 0 && <ExternalLink className="w-2.5 h-2.5 text-blue-400 group-hover:text-blue-600 transition-colors" />}
                                                         </button>
                                                     </td>
                                                     <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.vendor.excl)}</td>
@@ -289,7 +289,7 @@ export const ProjectGSTReport: React.FC = () => {
                                                             className="group inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-slate-600 hover:text-emerald-600 hover:bg-emerald-50/80 transition-all duration-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed font-medium"
                                                         >
                                                             <span>{formatCurrency(mData.client.incl)}</span>
-                                                            <ExternalLink className="w-2.5 h-2.5 text-blue-400 group-hover:text-blue-600 transition-colors" />
+                                                            {mData.client.incl > 0 && <ExternalLink className="w-2.5 h-2.5 text-emerald-400 group-hover:text-emerald-600 transition-colors" />}
                                                         </button>
                                                     </td>
                                                     <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.client.excl)}</td>

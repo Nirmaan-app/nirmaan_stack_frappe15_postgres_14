@@ -307,9 +307,10 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                 gst: acc.gst + (data.gst_amount || 0),
                 total: acc.total + (data.total_amount || 0),
                 vendorGst: acc.vendorGst + (isProjectInvoice ? 0 : (data.gst_amount || 0)),
+                vendorBase: acc.vendorBase + (isProjectInvoice ? 0 : (data.base_amount || 0)),
                 clientGst: acc.clientGst + (isProjectInvoice ? (data.gst_amount || 0) : 0),
             };
-        }, { base: 0, gst: 0, total: 0, vendorGst: 0, clientGst: 0 });
+        }, { base: 0, gst: 0, total: 0, vendorGst: 0, vendorBase: 0, clientGst: 0 });
 
         const roundedBase = Math.round(t.base);
         const roundedGst = Math.round(t.gst);
@@ -325,7 +326,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
             clientGst: clientGst,
             vendorGst: vendorGst,
             gstPayable: roundedGstPayable,
-            avgTax: roundedBase > 0 ? ((roundedGstPayable / roundedBase) * 100).toFixed(2) : "0.00"
+            vendorAvgTax: t.vendorBase > 0 ? ((t.vendorGst / t.vendorBase) * 100).toFixed(2) : "0.00"
         };
     }, [filteredRows]);
 
@@ -370,7 +371,7 @@ export const ProjectGSTReportDetails: React.FC<ProjectGSTReportDetailsProps> = (
                             {formatToRoundedIndianRupee(totals.vendorGst)}
                         </p>
                         <p className="text-[8px] font-bold text-amber-600 mt-1 uppercase">
-                            Approx: {totals.avgTax}%
+                            Approx: {totals.vendorAvgTax}%
                         </p>
                     </div>
                 )}
