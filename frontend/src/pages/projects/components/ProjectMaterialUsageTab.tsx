@@ -60,7 +60,28 @@ export interface POWiseDisplayItem {
   paymentStatus: POStatus;
   dcs: DeliveryDocumentInfo[];
   mirs: DeliveryDocumentInfo[];
-  items: MaterialUsageDisplayItem[];
+  items: POWiseChildItem[];
+}
+
+// Per-PO child item with quantities scoped to a single PO
+export interface POWiseChildItem {
+  itemId: string;
+  itemName: string;
+  categoryName: string;
+  unit: string;
+  billingCategory: string;
+  orderedQuantity: number;      // per-PO from po_item_data
+  deliveredQuantity: number;    // per-PO from po_item_data
+  dcQuantity: number;           // per-PO from DC docs scoped to this PO
+  mirQuantity: number;          // per-PO from MIR docs scoped to this PO
+  quote: number;                // per-PO rate
+  tax: number;                  // per-PO tax %
+  amount: number;               // per-PO amount with tax
+  deliveryChallans: DeliveryDocumentInfo[];
+  dcCount: number;
+  mirs: DeliveryDocumentInfo[];
+  mirCount: number;
+  isOrphanDCItem?: boolean;
 }
 
 // The main data structure for each row in the table.

@@ -214,7 +214,6 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
     const rows: Record<string, string>[] = [];
     for (const po of processedItems) {
       for (const item of po.items) {
-        const rate = item.poNumbers?.find(p => p.po === po.poNumber)?.quote || 0;
         rows.push({
           'PO Number': po.poNumber,
           'Vendor': po.vendorName,
@@ -226,7 +225,7 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
           'Delivery Note Qty': item.deliveredQuantity.toFixed(2),
           'DC Qty': item.dcQuantity.toFixed(2),
           'MIR Qty': item.mirQuantity.toFixed(2),
-          'Rate': rate.toFixed(2),
+          'Rate': item.quote.toFixed(2),
           'Delivery Status': po.deliveryStatus,
           'Payment Status': po.paymentStatus,
         });
@@ -401,14 +400,14 @@ export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, P
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.dcQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.mirQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">
-                  {formatToIndianRupee(item.poNumbers?.find(p => p.po === po.poNumber)?.quote || 0)}
+                  {formatToIndianRupee(item.quote)}
                 </TableCell>
                 <TableCell className="py-1.5 px-3"></TableCell>
                 <TableCell className="text-center py-1.5 px-3" onClick={(e) => e.stopPropagation()}>
-                  <DeliveryDocumentCountCell type="dc" documents={item.deliveryChallans || []} count={item.dcCount || 0} />
+                  <DeliveryDocumentCountCell type="dc" documents={item.deliveryChallans} count={item.dcCount} />
                 </TableCell>
                 <TableCell className="text-center py-1.5 px-3" onClick={(e) => e.stopPropagation()}>
-                  <DeliveryDocumentCountCell type="mir" documents={item.mirs || []} count={item.mirCount || 0} />
+                  <DeliveryDocumentCountCell type="mir" documents={item.mirs} count={item.mirCount} />
                 </TableCell>
                 <TableCell className="py-1.5 px-3"></TableCell>
               </TableRow>
