@@ -31,6 +31,7 @@ const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
 const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
+    { label: 'Payable > PO Amount', value: 'Payable > PO Amount' },
     { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },

@@ -525,6 +525,63 @@ export const dispatchedDateColumn: ColumnDef<POReportRowData> = {
 
 
 
+// --- Column for "Payable > PO Amount" report: PO Amount Delivered ---
+export const poAmountDeliveredColumn: ColumnDef<POReportRowData> = {
+  accessorKey: "poAmountDelivered",
+  header: ({ column }) => (
+    <DataTableColumnHeader
+      column={column}
+      title={
+        <div className="text-center whitespace-normal">
+          PO Amt Delivered
+        </div>
+      }
+    />
+  ),
+  cell: ({ row }) => (
+    <div className="tabular-nums">
+      {formatToRoundedIndianRupee(row.original.poAmountDelivered)}
+    </div>
+  ),
+  meta: {
+    exportValue: (row: POReportRowData) =>
+      formatForReport(row.poAmountDelivered),
+    exportHeaderName: "PO Amt Delivered",
+    isNumeric: true,
+  },
+};
+
+// --- Column for "Payable > PO Amount" report: Excess Delivered ---
+export const excessDeliveredColumn: ColumnDef<POReportRowData> = {
+  id: "excessDelivered",
+  accessorFn: (row) => row.poAmountDelivered - (row as any).totalAmount,
+  header: ({ column }) => (
+    <DataTableColumnHeader
+      column={column}
+      title={
+        <div className="text-center whitespace-normal">
+          Excess Delivered
+        </div>
+      }
+    />
+  ),
+  cell: ({ row }) => {
+    const excess =
+      row.original.poAmountDelivered - (row.original as any).totalAmount;
+    return (
+      <div className="tabular-nums text-red-600 font-medium">
+        {formatToRoundedIndianRupee(excess)}
+      </div>
+    );
+  },
+  meta: {
+    exportValue: (row: POReportRowData) =>
+      formatForReport(row.poAmountDelivered - (row as any).totalAmount),
+    exportHeaderName: "Excess Delivered",
+    isNumeric: true,
+  },
+};
+
 import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
 import { ProjectAssignee } from "@/hooks/useProjectAssignees";
 
@@ -548,6 +605,15 @@ export const getPOReportColumns = (
 
     // Insert the 'dispatchedDateColumn' at the second position (index 1)
     columnsToDisplay.splice(1, 0, dispatchedDateColumn);
+  }
+
+  if (reportType === "Payable > PO Amount") {
+    // Insert PO Amt Delivered and Excess Delivered after Total PO Amt column
+    const totalAmtIndex = columnsToDisplay.findIndex(
+      (col) => (col as any).accessorKey === "totalAmount"
+    );
+    const insertAt = totalAmtIndex !== -1 ? totalAmtIndex + 1 : columnsToDisplay.length;
+    columnsToDisplay.splice(insertAt, 0, poAmountDeliveredColumn, excessDeliveredColumn);
   }
   
   if (reportType !== "2B Reconcile Report") {
