@@ -4,14 +4,9 @@ import { cn } from "@/lib/utils";
 interface VendorHoldBannerProps {
   className?: string;
   compact?: boolean;  // For inline usage in cards/tables
-  vendorName?: string;
-  availableCredit?: number;
 }
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amount);
-
-export function VendorHoldBanner({ className, compact = false, vendorName, availableCredit }: VendorHoldBannerProps) {
+export function VendorHoldBanner({ className, compact = false }: VendorHoldBannerProps) {
   if (compact) {
     return (
       <div className={cn(
@@ -66,16 +61,10 @@ export function VendorHoldBanner({ className, compact = false, vendorName, avail
         {/* Content */}
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-amber-900 tracking-tight">
-            Vendor On Hold — Credit Limit Exceeded
+            Vendor On Hold
           </h3>
           <p className="mt-1 text-sm text-amber-700 leading-relaxed">
-            Dispatch and pre-dispatch payment operations are restricted.
-            {vendorName && (
-              <span className="block mt-1 text-amber-600 font-medium">
-                {vendorName}{availableCredit !== undefined ? ` · Available credit: ${formatCurrency(availableCredit)}` : ""}
-                {" · "}Contact Admin/PMO to adjust credit limit.
-              </span>
-            )}
+            Contact Admin for resolution.
           </p>
         </div>
       </div>

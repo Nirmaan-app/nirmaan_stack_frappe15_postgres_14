@@ -143,7 +143,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(po?.project);
-  const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast, availableCredit } = useVendorHoldGuard(po?.vendor);
+  const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(po?.vendor);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
   const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } =
@@ -572,7 +572,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
     <div>
       {isCEOHold && <CEOHoldBanner className="mb-4" />}
       {isVendorOnHold && (
-        <VendorHoldBanner vendorName={po?.vendor_name} availableCredit={availableCredit} className="mb-4" />
+        <VendorHoldBanner className="mb-4" />
       )}
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
         {/* ═══════════════════════════════════════════════════════════════════

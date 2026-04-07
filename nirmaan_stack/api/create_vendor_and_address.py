@@ -61,9 +61,8 @@ def create_vendor_and_address(
         vendorDoc.bank_name = values.get("bank_name")
         vendorDoc.bank_branch = values.get("bank_branch")
         vendorDoc.ifsc = values.get("ifsc")
-        if values.get("credit_limit") is not None:
-            vendorDoc.credit_limit = float(values.get("credit_limit"))
-            vendorDoc.available_credit = vendorDoc.credit_limit
+        vendorDoc.credit_limit = 50000
+        vendorDoc.available_credit = 50000
 
         if vendorType == "Service":
             vendorDoc.vendor_category = {"categories": service_categories}

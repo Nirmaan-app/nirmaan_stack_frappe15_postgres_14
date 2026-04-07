@@ -38,7 +38,7 @@ export const VendorCreditManagementCard: React.FC<VendorCreditManagementCardProp
 
     const { updateDoc, loading: statusLoading } = useFrappeUpdateDoc();
 
-    const canEdit = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
+    const canEdit = role === "Nirmaan Admin Profile";
 
     const currentStatus = vendorStatuses.find((s) => s.value === vendor.vendor_status) || vendorStatuses[0];
 

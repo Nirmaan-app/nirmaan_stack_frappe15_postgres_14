@@ -124,7 +124,7 @@
    "options": "Active\nOn-Hold"
   },
   {
-   "default": "10000",
+   "default": "50000",
    "fieldname": "credit_limit",
    "fieldtype": "Currency",
    "label": "Credit Limit"

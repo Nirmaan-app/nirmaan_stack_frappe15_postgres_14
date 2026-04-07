@@ -141,8 +141,6 @@ export const ApproveRejectVendorQuotesView: React.FC<
       {onHoldVendorsInQuotes.length > 0 && onHoldVendorsInQuotes.map((v) => (
         <VendorHoldBanner
           key={v.vendorId}
-          vendorName={v.vendorName}
-          compact={false}
           className="mb-4"
         />
       ))}
