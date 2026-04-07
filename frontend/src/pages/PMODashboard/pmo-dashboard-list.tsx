@@ -189,7 +189,7 @@ const PMODashboardList: React.FC = () => {
   return (
     <div className="flex-1 md:space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-1 mb-2">
+      {/* <div className="flex items-center gap-1 mb-2">
         <ArrowLeft
           className="h-5 w-5 cursor-pointer text-gray-500 hover:text-gray-700"
           onClick={() => navigate(-1)}
@@ -197,7 +197,7 @@ const PMODashboardList: React.FC = () => {
         <span className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
           PMO DASHBOARD
         </span>
-      </div>
+      </div> */}
 
       <div className="mb-6">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
