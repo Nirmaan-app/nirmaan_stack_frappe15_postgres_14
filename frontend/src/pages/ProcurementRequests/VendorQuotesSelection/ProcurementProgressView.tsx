@@ -20,6 +20,7 @@ import {VendorChargesTable} from "./components/VendorChargesTable";
 type ProcurementProgressViewProps = ProcurementProgressLogicReturn & {
     projectWpCategoryMakes?: ProjectWPCategoryMake[];
     relevantPackages?: string[];
+    onHoldVendorIds?: Set<string>;
 };
 
 export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = ({
@@ -64,6 +65,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     updateCurrentDocumentStateItemList, // For SelectVendorQuotesTable
     projectWpCategoryMakes,
     relevantPackages,
+    onHoldVendorIds,
 }) => {
 
 
@@ -204,6 +206,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                 onVendorSelect={handleTempVendorSelectionInDialog}
                 onConfirm={handleConfirmAddVendorsToRFQ}
                 onOpenVendorSheet={toggleVendorSheet}
+                onHoldVendorIds={onHoldVendorIds}
             />
             <RevertPRDialog
                 isOpen={isRevertDialogOpen}
