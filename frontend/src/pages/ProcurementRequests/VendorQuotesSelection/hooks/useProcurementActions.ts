@@ -1,7 +1,7 @@
 
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
 import { RFQData, ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { ProgressDocument, getItemListFromDocument, ProgressItem } from '../types';
 import { parseNumber } from '@/utils/parseNumber';
@@ -19,6 +19,7 @@ interface UseProcurementActionsProps {
 
 export const useProcurementActions = ({ docId, docMutate, projectId }: UseProcurementActionsProps) => {
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    const { call: cleanupAttachments } = useFrappePostCall("nirmaan_stack.api.cleanup_pr_attachments.cleanup_pr_attachments");
     const { mutate: globalSWRMutate } = useSWRConfig(); // For mutating list keys
     const navigate = useNavigate();
 
@@ -295,13 +296,20 @@ export const useProcurementActions = ({ docId, docMutate, projectId }: UseProcur
 
     //-------
     const handleRevertPRChanges = useCallback(async (currentDoc: ProgressDocument) => {
+        // Clean up vendor quote attachments before reverting status
+        try {
+            await cleanupAttachments({ pr_id: docId });
+        } catch (e) {
+            console.error("Error cleaning up PR attachments during revert:", e);
+            // Continue with revert even if cleanup fails — on_trash hook is the safety net
+        }
+
         const success = await _updateDocument(currentDoc, null, "Approved"); // Pass null to clear rfq_data
         if (success) {
             toast({ title: "Reverted", description: `PR ${docId} reverted successfully. RFQ data cleared.`, variant: "success" });
-            // Navigate to a previous state or list page
-            navigate(`/procurement-requests?tab=New%20PR%20Request`); // Example
+            navigate(`/procurement-requests?tab=New%20PR%20Request`);
         }
-    }, [_updateDocument, docId, navigate, toast]);
+    }, [_updateDocument, cleanupAttachments, docId, navigate, toast]);
 
     // If you need a function just to save the draft without navigation or workflow change:
     const handleSaveDraft = useCallback(async (

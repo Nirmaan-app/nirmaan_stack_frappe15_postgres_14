@@ -1005,6 +1005,18 @@ def get_user_name(id):
 
 
 def on_trash(doc, method):
+    # Delete Nirmaan Attachments (Dynamic Link) BEFORE Frappe's link check runs
+    attachments = frappe.db.get_all(
+        "Nirmaan Attachments",
+        filters={"associated_docname": doc.name, "associated_doctype": "Procurement Requests"},
+        fields=["name", "attachment"],
+    )
+    for att in attachments:
+        if att.get("attachment"):
+            # Delete the underlying Frappe File record linked to this attachment
+            frappe.db.delete("File", {"file_url": att["attachment"], "attached_to_name": doc.name})
+        frappe.delete_doc("Nirmaan Attachments", att["name"], force=True)
+
     frappe.db.delete("Nirmaan Comments", {
         "reference_name" : ("=", doc.name)
     })

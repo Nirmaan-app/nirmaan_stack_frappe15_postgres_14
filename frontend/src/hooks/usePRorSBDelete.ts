@@ -24,11 +24,11 @@ export const usePRorSBDelete = (mutate : any = undefined) => {
                 navigate("/procurement-requests?tab=New PR Request")
               }
             invalidateSidebarCounts();
-          } catch (error) {
+          } catch (error: any) {
               console.log("error while deleting procurement request", error);
               toast({
                   title: "Failed!",
-                  description: `Procurement Request: ${id} Deletion Failed!`,
+                  description: error?.message || `Procurement Request: ${id} Deletion Failed!`,
                   variant: "destructive"
               })
           }
