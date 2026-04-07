@@ -115,9 +115,14 @@ def on_update(doc, method):
             _create_approved_quotations(doc, custom)
 
     if(doc.status=="Cancelled"):
+        cleanup_po_linked_docs(doc.name)
         frappe.delete_doc("Procurement Orders", doc.name)
 
 def on_trash(doc, method):
+    # Clean up linked PO Revisions, PO Adjustments, and their Project Payments
+    # (defense-in-depth — handle_cancel_po also does this before status change)
+    cleanup_po_linked_docs(doc.name)
+
     # Clean up vendor credit ledger entries referencing this PO
     if doc.vendor:
         frappe.db.sql("""
@@ -161,6 +166,33 @@ def delete_existing_aq_docs(doc):
     frappe.db.delete("Approved Quotations", {
         "procurement_order" : ("=", doc.name)
     })
+
+
+def cleanup_po_linked_docs(po_name):
+    """Delete PO Revisions, PO Adjustments, and their linked Project Payments.
+
+    Must run BEFORE frappe.delete_doc("Procurement Orders") so the
+    link-existence check doesn't block PO deletion.
+    Order: payments → adjustments → revisions (respects referential integrity).
+    """
+    # 1. Clean up PO Adjustments and their linked Project Payments
+    adjustments = frappe.get_all("PO Adjustments", filters={"po_id": po_name}, pluck="name")
+    for adj_name in adjustments:
+        linked_payments = frappe.get_all(
+            "PO Adjustment Items",
+            filters={"parent": adj_name, "project_payment": ["is", "set"]},
+            pluck="project_payment",
+        )
+        for pp_name in linked_payments:
+            if frappe.db.exists("Project Payments", pp_name):
+                frappe.delete_doc("Project Payments", pp_name, force=True, ignore_permissions=True)
+
+        frappe.delete_doc("PO Adjustments", adj_name, force=True, ignore_permissions=True)
+
+    # 2. Clean up PO Revisions
+    revisions = frappe.get_all("PO Revisions", filters={"revised_po": po_name}, pluck="name")
+    for rev_name in revisions:
+        frappe.delete_doc("PO Revisions", rev_name, force=True, ignore_permissions=True)
 
 
 def _all_items_dispatched(doc):

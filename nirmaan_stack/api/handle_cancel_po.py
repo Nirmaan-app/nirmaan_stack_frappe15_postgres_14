@@ -1,6 +1,7 @@
 import frappe
 import json
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.integrations.controllers.procurement_orders import cleanup_po_linked_docs
 
 @frappe.whitelist()
 def handle_cancel_po(po_id: str, comment: str = None):
@@ -57,20 +58,27 @@ def handle_cancel_po(po_id: str, comment: str = None):
                 # Prepare the item dictionary for the child table
                 item_dict = item_doc.as_dict()
                 item_dict["status"] = "Pending"
-                
+
                 # Clean internal Frappe fields to prevent errors on insert
                 for field in ['name', 'parent', 'parentfield', 'parenttype', 'doctype', 'owner', 'creation', 'modified', 'modified_by', 'idx']:
                     if field in item_dict:
                         del item_dict[field]
-                
+
                 # **DEFINITIVE FIX:** Use .append() to add the item to the child table
                 new_sent_back_doc.append("order_list", item_dict)
 
+            # Skip after_insert notifications (their frappe.db.commit() would
+            # prematurely commit and break rollback on subsequent failure).
+            new_sent_back_doc.flags.from_cancel = True
             # Insert the fully populated document
             new_sent_back_doc.insert(ignore_permissions=True)
             sent_back_doc_name = new_sent_back_doc.name
 
-        # 4. Finalize Actions
+        # 4. Clean up linked PO Revisions, PO Adjustments, and their Project Payments
+        #    so that frappe.delete_doc() in on_update doesn't fail the link check.
+        cleanup_po_linked_docs(po_id)
+
+        # 5. Finalize Actions
         po_doc.status = "Cancelled"
         po_doc.save(ignore_permissions=True)
 
