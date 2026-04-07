@@ -60,6 +60,13 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
   const [selectedModule, setSelectedModule] = useState<{ type: string; label: string; shortLabel: string; state: string; route?: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Force re-fetch data when project status changes
+  React.useEffect(() => {
+    projectMutate();
+    designMutate();
+    commissionMutate();
+  }, [projectStatus, projectMutate, designMutate, commissionMutate]);
+
   const isDPRDisabled = projectData?.disabled_dpr === 1;
   const isInventoryDisabled = projectData?.disabled_inventory === 1;
   const isDesignDisabled = designTrackers?.[0]?.hide_design_tracker === 1;
