@@ -86,6 +86,8 @@ export default function POReports() {
         return `POs with status "Partially Delivered" or "Delivered" where Amount Paid − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`;
       case "PO with Excess Payments":
         return `POs with status "Partially Delivered" or "Delivered" where Amount Paid > Total PO Amount + ₹${payment_delta.toLocaleString("en-IN")}`;
+      case "Payable > PO Amount":
+        return `POs where PO Amount Delivered exceeds Total PO Amount by more than ₹${payment_delta.toLocaleString("en-IN")}`;
       case "Dispatched for 1 days":
         return 'POs with status "Dispatched" or "Partially Dispatched" where dispatch date is 1 or more days ago';
       default:
@@ -121,6 +123,7 @@ export default function POReports() {
         "Pending Invoices",
         "PO with Excess Payments",
         "Dispatched for 1 days",
+        "Payable > PO Amount",
       ].includes(selectedReportType)
     ) {
       // console.log(`POReports: Invalid or non-PO report type selected: ${selectedReportType}`);
@@ -161,6 +164,15 @@ export default function POReports() {
             );
           }
           return false;
+        });
+        break;
+      case "Payable > PO Amount":
+        filtered = allPOsForReports.filter((row) => {
+          const poAmountDelivered = parseNumber(row.poAmountDelivered);
+          return (
+            poAmountDelivered > 0 &&
+            poAmountDelivered > parseNumber((row as any).totalAmount) + payment_delta
+          );
         });
         break;
       case "Dispatched for 1 days":
@@ -330,12 +342,14 @@ export default function POReports() {
         po_id: row.name,
         creation: formatDate(row.creation),
         project_name: (row as any).projectName || row.project,
-        assignees: formattedAssignees || "--", // New Field
+        assignees: formattedAssignees || "--",
         vendor_name: (row as any).vendorName || row.vendor,
         total_po_amt: formatForReport((row as any).totalAmount),
+        po_amt_delivered: formatForReport(row.poAmountDelivered),
+        excess_delivered: formatForReport(row.poAmountDelivered - parseNumber((row as any).totalAmount)),
         total_invoice_amt: formatForReport(row.invoiceAmount),
         amt_paid: formatForReport(row.amountPaid),
-        pending_invoice_amt: formatForReport(pendingInvoiceAmt), // New Field
+        pending_invoice_amt: formatForReport(pendingInvoiceAmt),
         remarks: (row.originalDoc as any).notes || "-",
         dispatch_date: row.originalDoc.dispatch_date
           ? formatDate(row.originalDoc.dispatch_date)
@@ -375,6 +389,18 @@ export default function POReports() {
         header: "Dispatched Date",
         accessorKey: "dispatch_date",
       });
+    }
+
+    if (selectedReportType === "Payable > PO Amount") {
+      // Insert PO Amt Delivered and Excess Delivered after Total PO Amt
+      const totalPoAmtIdx = exportColumnsConfig.findIndex(
+        (c) => c.accessorKey === "total_po_amt"
+      );
+      const insertAt = totalPoAmtIdx !== -1 ? totalPoAmtIdx + 1 : exportColumnsConfig.length;
+      exportColumnsConfig.splice(insertAt, 0,
+        { header: "PO Amt Delivered", accessorKey: "po_amt_delivered" },
+        { header: "Excess Delivered", accessorKey: "excess_delivered" },
+      );
     }
 
     try {

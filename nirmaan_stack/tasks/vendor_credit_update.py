@@ -17,7 +17,7 @@ def update_all_vendor_credits():
         old_credit_used = flt(vendor_doc.credit_used)
 
         credit_used = _compute_credit_used(vendor_doc)
-        credit_limit = flt(vendor_doc.credit_limit) if vendor_doc.credit_limit is not None else 10000
+        credit_limit = flt(vendor_doc.credit_limit) if vendor_doc.credit_limit is not None else 50000
         available_credit = credit_limit - credit_used
 
         # Status decision

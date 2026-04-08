@@ -105,7 +105,7 @@ export interface ProcurementRequest {
 	/**	Amended From : Link - Procurement Requests	*/
 	amended_from?: string
 	/**	Category List : JSON	*/
-	category_list: {
+	category_list?: {
 		list: Category[]
 	}
 	/**	Comment : Long Text	*/

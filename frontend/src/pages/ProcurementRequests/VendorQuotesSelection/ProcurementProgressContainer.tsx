@@ -12,6 +12,7 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
 import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 import { CEOHoldBanner } from '@/components/ui/ceo-hold-banner';
+import { useVendorHoldVendors } from '@/hooks/useVendorHoldVendors';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { Projects } from '@/types/NirmaanStack/Projects';
 
@@ -41,6 +42,7 @@ export const ProcurementProgressContainer: React.FC = () => {
 
     // CEO Hold check - must be called unconditionally before any early returns
     const { isCEOHold } = useCEOHoldGuard(initialDoc?.project);
+    const { onHoldVendorIds } = useVendorHoldVendors();
 
     // Fetch project doc for project_wp_category_makes (qualified makes per package/category)
     const { data: projectDoc } = useFrappeGetDoc<Projects>(
@@ -179,6 +181,7 @@ export const ProcurementProgressContainer: React.FC = () => {
                 {...logicProps}
                 projectWpCategoryMakes={projectDoc?.project_wp_category_makes}
                 relevantPackages={relevantPackages}
+                onHoldVendorIds={onHoldVendorIds}
             />
         </>
     );

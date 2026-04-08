@@ -5,6 +5,11 @@ from .procurement_requests import get_user_name
 import json
 
 def after_insert(doc, method):
+        # Skip notifications (and their frappe.db.commit()) when created from
+        # handle_cancel_po — preserves outer transaction rollback capability.
+        if doc.flags.from_cancel:
+            return
+
         proc_admin_users = get_allowed_procurement_users(doc) + get_admin_users()
         pr = frappe.get_doc("Procurement Requests", doc.procurement_request)
         

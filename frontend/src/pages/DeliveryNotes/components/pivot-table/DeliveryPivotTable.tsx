@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -24,6 +24,8 @@ import { PivotTableBody } from "./PivotTableBody";
 import { VendorDCDialog } from "../VendorDCDialog";
 import { DeliveryPivotTableProps, DNColumn } from "./types";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
+import { isCreatedToday } from "@/utils/FormatDate";
+import { SameDayDNWarningDialog } from "../SameDayDNWarningDialog";
 
 export function DeliveryPivotTable({
   po,
@@ -59,12 +61,19 @@ export function DeliveryPivotTable({
   // In "view-only" mode, override canEdit to false
   const effectiveCanEdit = viewMode === "view-only" ? false : canEdit;
   const hideTotalReceived = isProjectManager && viewMode === "create";
+
+  // Regular DNs created today for this PO (for same-day warning)
+  const sameDayDNs = useMemo(
+    () => dnRecords.filter((dn) => !dn.is_return && isCreatedToday(dn.creation)),
+    [dnRecords]
+  );
   // In "create" mode, auto-open the new entry form
   const [showEdit, setShowEdit] = useState(viewMode === "create");
   const [showReturn, setShowReturn] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [editConfirmDialog, setEditConfirmDialog] = useState(false);
   const [returnConfirmDialog, setReturnConfirmDialog] = useState(false);
+  const [sameDayWarningOpen, setSameDayWarningOpen] = useState(false);
   const [vendorDCOpen, setVendorDCOpen] = useState(false);
   const [selectedDnForDC, setSelectedDnForDC] = useState<DeliveryNote | null>(null);
 
@@ -76,6 +85,20 @@ export function DeliveryPivotTable({
     editHook.cancelEdit();
     setShowEdit((prev) => !prev);
   }, [showEdit, submitHook.resetForm, editHook.cancelEdit]);
+
+  // Check for same-day DNs before opening the confirmation dialog
+  const handleUpdateClick = useCallback(() => {
+    if (sameDayDNs.length > 0) {
+      setSameDayWarningOpen(true);
+    } else {
+      setConfirmDialog(true);
+    }
+  }, [sameDayDNs.length]);
+
+  const handleWarningContinue = useCallback(() => {
+    setSameDayWarningOpen(false);
+    setConfirmDialog(true);
+  }, []);
 
   // Start editing an existing DN — close create mode if active
   const handleStartEdit = useCallback(
@@ -160,7 +183,7 @@ export function DeliveryPivotTable({
                 <>
                   <Button
                     size="sm"
-                    onClick={() => setConfirmDialog(true)}
+                    onClick={handleUpdateClick}
                     disabled={!submitHook.hasChanges || isLocked}
                   >
                     Update
@@ -392,6 +415,14 @@ export function DeliveryPivotTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Same-day DN warning dialog */}
+      <SameDayDNWarningDialog
+        sameDayDNs={sameDayDNs}
+        open={sameDayWarningOpen}
+        onCancel={() => setSameDayWarningOpen(false)}
+        onContinue={handleWarningContinue}
+      />
 
       <VendorDCDialog
         dn={selectedDnForDC}

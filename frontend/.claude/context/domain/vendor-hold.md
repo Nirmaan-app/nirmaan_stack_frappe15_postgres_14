@@ -27,7 +27,7 @@ available_credit = credit_limit - credit_used
 vendor_status = "On-Hold" if available_credit <= 0 else "Active"  [set by daily cron + update_credit_limit]
 ```
 
-**Default credit limit:** 10,000 for new vendors. Migration sets `max(20% of FY 25-26 PO volume, 10000)` for existing vendors.
+**Default credit limit:** 50,000 for all vendors (hardcoded in `create_vendor_and_address.py`, doctype default in `vendors.json`). Credit limit field removed from new vendor form. Migration patch `v3_0/update_vendor_credit_limits.py` raised all existing vendors below 50,000.
 
 ---
 
@@ -96,21 +96,24 @@ if (isVendorHoldBlocked) {
 
 ### Vendor Detail — `vendor.tsx`
 - `VendorHoldBanner` on overview tab when On-Hold
-- `VendorCreditManagementCard` — status toggle (Admin/PMO), credit metrics, ledger
+- `VendorCreditManagementCard` — status toggle (**Admin-only**), credit metrics, ledger
 
 ---
 
 ## Backend Architecture
 
 ### Credit Recalculation Engine — `api/vendor_credit.py`
-- `recalculate_vendor_credit(vendor_id, entry_type, ...)` — updates credit metrics + appends ledger entry. **Does NOT change vendor_status.**
+- `recalculate_vendor_credit(vendor_id, entry_type, ...)` — updates credit metrics + appends ledger entry. **Auto-transitions On-Hold → Active** when `available_credit > 0`.
 - `_compute_credit_used(vendor_doc, exclude_po=None)` — dual-era formula
-- `update_credit_limit(vendor_id, new_limit)` — whitelisted API for admin; also recalculates `vendor_status` immediately
+- `update_credit_limit(vendor_id, new_limit)` — whitelisted API for **Admin only**; also recalculates `vendor_status` immediately
 
 ### Daily Cron — `tasks/vendor_credit_update.py`
 - Runs at 10 AM IST (`cron: "30 4 * * *"`)
-- Primary authority for auto-setting `vendor_status` (also set by `update_credit_limit`)
-- Recalculates ALL vendors, sets On-Hold if `available_credit <= 0`
+- **Sole authority for Active → On-Hold** transitions. Recalculates ALL vendors, sets On-Hold if `available_credit <= 0`
+
+### Asymmetric Status Transitions
+- **On-Hold → Active**: Real-time via `recalculate_vendor_credit()` (9 trigger events) + `update_credit_limit()`
+- **Active → On-Hold**: Daily cron only (10 AM IST)
 
 ### Trigger Points (9 events call `recalculate_vendor_credit`):
 | Event | File | Entry Type |
@@ -137,7 +140,7 @@ if (isVendorHoldBlocked) {
 |--------|----------|-------------|
 | Scope | Per-project | Per-vendor |
 | Status field | `project.status = "CEO Hold"` | `vendor.vendor_status = "On-Hold"` |
-| Trigger | Manual only (`nitesh@nirmaan.app`) | Auto (credit exhaustion) + manual (Admin/PMO) |
+| Trigger | Manual only (`nitesh@nirmaan.app`) | Auto (credit exhaustion) + manual (Admin only) |
 | Backend enforcement | Yes (`projects.py validate`) | No (frontend-only) |
 | Operations blocked | ALL procurement + payments | Dispatch + payments on **PO Approved only** |
 | DN exempt | Yes (explicit exemption) | N/A (DNs are post-dispatch) |
@@ -148,6 +151,7 @@ if (isVendorHoldBlocked) {
 ## Key Gotchas
 
 1. **`useFrappeGetDoc` third arg is `swrKey`, not options.** Use `vendorId ? undefined : null` to conditionally fetch. `{ enabled: !!vendorId }` breaks SWR caching (all vendors share one cache key).
-2. **Daily cron overrides manual status** — if admin sets vendor Active but credit is still exhausted, next cron at 10 AM will revert to On-Hold.
+2. **Daily cron overrides manual Active status** — if admin sets vendor Active but credit is still exhausted (`available_credit <= 0`), next cron at 10 AM will revert to On-Hold.
 3. **No backend enforcement** — vendor hold blocking is frontend-only. API calls bypass guards.
 4. **Banner vs blocking** — Banner shows on ALL PO statuses (informational). Blocking only on "PO Approved" status.
+5. **Toast message stale** — `useVendorHoldGuard.ts` toast still says "Contact Admin/PMO" but PMO can no longer edit credit settings (Admin-only since commit d42467b2).

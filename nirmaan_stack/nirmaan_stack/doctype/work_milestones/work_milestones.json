@@ -10,7 +10,16 @@
   "work_milestone_name",
   "work_header",
   "work_milestone_order",
-  "weightage"
+  "weightage",
+  "week_1",
+  "week_2",
+  "week_3",
+  "week_4",
+  "week_5",
+  "week_6",
+  "week_7",
+  "week_8",
+  "week_9"
  ],
  "fields": [
   {
@@ -40,6 +49,60 @@
    "fieldname": "weightage",
    "fieldtype": "Float",
    "label": "Weightage"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_1",
+   "fieldtype": "Int",
+   "label": "Week 1"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_2",
+   "fieldtype": "Int",
+   "label": "Week 2"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_3",
+   "fieldtype": "Int",
+   "label": "Week 3"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_4",
+   "fieldtype": "Int",
+   "label": "Week 4"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_5",
+   "fieldtype": "Int",
+   "label": "Week 5"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_6",
+   "fieldtype": "Int",
+   "label": "Week 6"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_7",
+   "fieldtype": "Int",
+   "label": "Week 7"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_8",
+   "fieldtype": "Int",
+   "label": "Week 8"
+  },
+  {
+   "default": "0",
+   "fieldname": "week_9",
+   "fieldtype": "Int",
+   "label": "Week 9"
   }
  ],
  "grid_page_length": 50,

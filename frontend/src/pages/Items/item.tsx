@@ -1,22 +1,25 @@
-import { SelectUnit } from "@/components/helpers/SelectUnit"
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription } from "@/components/ui/card"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
 import { Items } from "@/types/NirmaanStack/Items"
-import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappeGetCall } from "frappe-react-sdk"
-import { FilePenLine, ListChecks } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { FilePenLine } from "lucide-react"
+import { useState } from "react"
 import { useParams, useLocation } from "react-router-dom"
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
-import ReactSelect from 'react-select';
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
+import { EditItemDialog } from "./components/EditItemDialog";
+
+interface TargetRates {
+    name: string;
+    item_id: string;
+    unit: string;
+    make: string;
+    rate: number;
+}
 
 const ApprovedQuotationsTable = React.lazy(() => import("../ApprovedQuotationsFlow/ApprovedQuotationsTable"));
 
@@ -83,72 +86,11 @@ const ItemView = ({ productId }: { productId: string }) => {
         true // emitOpenCloseEventsOnMount (default)
     )
 
-    const { data: category_list, isLoading: category_loading, error: category_error } = useFrappeGetDocList("Category", {
-        fields: ["category_name", "work_package"],
-        orderBy: { field: 'work_package', order: 'asc' },
-        limit: 1000
-    })
-    // console.log("category",data)
-
-    interface SelectOption {
-        label: string;
-        value: string;
-    }
-
-    const category_options: SelectOption[] = useMemo(() => category_list
-        ?.map(item => ({
-            label: `${item.category_name}-(${item.work_package})`,
-            value: item.category_name
-        })) || [], [category_list]);
 
 
-    const [curItem, setCurItem] = useState('');
-    const [unit, setUnit] = useState('');
-    const [category, setCategory] = useState('');
-    const [billingCategory, setBillingCategory] = useState('');
-    const [itemStatus, setItemStatus] = useState('');
-
-    const { updateDoc: updateDoc, loading: update_loading, error: update_submit_error } = useFrappeUpdateDoc()
-
-    useEffect(() => {
-        if (data) {
-            setCurItem(data?.item_name)
-            setCategory(data?.category)
-            setUnit(data?.unit_name)
-            setBillingCategory(data?.billing_category)
-            setItemStatus(data?.item_status)
-        }
-    }, [data])
+    const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
 
-    const handleEditItem = () => {
-        updateDoc('Items', productId, {
-            category: category ? category : data?.category,
-            unit_name: unit ? unit : data.unit_name,
-            item_name: curItem ? curItem : data.item_name,
-            billing_category: billingCategory ? billingCategory : data?.billing_category,
-            item_status: itemStatus ? itemStatus : data?.item_status
-        })
-            .then(() => {
-                mutate()
-                toast({
-                    title: "Success!",
-                    description: `Product ${data?.name} updated successfully!`,
-                    variant: "success"
-                })
-                setUnit('')
-                setCurItem('')
-                setCategory('')
-                setBillingCategory('')
-            }).catch(() => {
-                toast({
-                    title: "Failed!",
-                    description: `Unable to update Product ${data?.name}.`,
-                    variant: "destructive"
-                })
-                console.log("update_submit_error", update_submit_error)
-            })
-    }
 
     if (error) return <AlertDestructive error={error} />
 
@@ -158,93 +100,10 @@ const ItemView = ({ productId }: { productId: string }) => {
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
                 {(userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && (
-                    <Dialog>
-                        <DialogTrigger>
-                            {!unitFromQuery && (<FilePenLine className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />)}
-
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle className="mb-2">Edit Product</DialogTitle>
-                                <DialogDescription className="flex flex-col gap-2">
-                                    <div className="flex flex-col gap-4 ">
-
-                                        <div className="flex flex-col items-start">
-                                            <label htmlFor="itemName" className="block text-sm font-medium text-gray-700">Product Name<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            <Input
-                                                type="text"
-                                                id="itemName"
-                                                value={curItem}
-                                                onChange={(e) => setCurItem(e.target.value)}
-                                                className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col items-start">
-                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Product Unit<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            <SelectUnit value={unit} onChange={(value) => setUnit(value)} />
-                                        </div>
-                                        <div className="flex flex-col items-start w-full">
-                                            <label htmlFor="billingCategory" className="block text-sm font-medium text-gray-700">Billing Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            <Select value={billingCategory} onValueChange={setBillingCategory}>
-                                                <SelectTrigger className="w-full">
-                                                    <SelectValue placeholder="Select Billing Category" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="Billable">Billable</SelectItem>
-                                                    <SelectItem value="Non-Billable">Non-Billable</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="flex flex-col items-start">
-                                            <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            {/* <Select onValueChange={(value) => setCategory(value)} defaultValue={category}>
-                                                <SelectTrigger className="">
-                                                    <SelectValue className="text-gray-200" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {category_options?.map((item) => {
-                                                        return (
-                                                            <SelectItem value={item.value}>{item.label}</SelectItem>
-                                                        )
-                                                    })}
-                                                </SelectContent>
-                                            </Select> */}
-                                            <div className="w-full"> {/* Wrap ReactSelect to fit grid */}
-                                                <ReactSelect
-                                                    options={category_options}
-                                                    // Value needs to be the full option object for react-select
-                                                    value={category_options.find(option => option.value === category) || null}
-                                                    onChange={val => setCategory(val ? val.value as string : undefined)}
-                                                    menuPosition="auto"
-                                                    isClearable={true} // Allows clearing the selection
-                                                    placeholder="Select Category"
-
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-col items-start pt-2">
-                                            <label htmlFor="itemStatus" className="block text-sm font-medium text-gray-700">Item Status<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            <Select value={itemStatus} onValueChange={setItemStatus}>
-                                                <SelectTrigger className="w-full">
-                                                    <SelectValue placeholder={data?.item_status || "Select Status"} />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="Active">Active</SelectItem>
-                                                    <SelectItem value="Inactive">Inactive</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-                                    <DialogClose className="flex justify-center mt-3">
-                                        <Button disabled={update_loading || (data?.item_name === curItem && data?.category === category && data?.unit_name === unit && data?.billing_category === billingCategory && data?.item_status === itemStatus)} className="flex items-center gap-1" onClick={() => handleEditItem()}>
-                                            <ListChecks className="h-4 w-4" />
-                                            {update_loading ? "Submitting..." : "Submit"}</Button>
-                                    </DialogClose>
-                                </DialogDescription>
-                            </DialogHeader>
-                        </DialogContent>
-                    </Dialog>
+                    <FilePenLine
+                        className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer"
+                        onClick={() => setIsEditDialogOpen(true)}
+                    />
                 )}
             </div>
             {isLoading ? <OverviewSkeleton /> : (
@@ -277,7 +136,7 @@ const ItemView = ({ productId }: { productId: string }) => {
                                     )} */}
                                     <CardDescription className="space-y-2">
                                         <span>Unit</span>
-                                        {unitFromQuery ? <p className="font-bold text-black">{FilterTargetRateUnit?.length > 0 ? FilterTargetRateUnit[0]?.unit : data?.unit_name}</p> : <p className="font-bold text-black">{data?.unit_name}</p>}
+                                        {unitFromQuery ? <p className="font-bold text-black">{(FilterTargetRateUnit && FilterTargetRateUnit.length > 0) ? FilterTargetRateUnit[0]?.unit : data?.unit_name}</p> : <p className="font-bold text-black">{data?.unit_name}</p>}
                                     </CardDescription>
 
 
@@ -361,9 +220,16 @@ const ItemView = ({ productId }: { productId: string }) => {
             )}
             <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
 
-                <ApprovedQuotationsTable productId={productId} item_name={curItem} />
+                <ApprovedQuotationsTable productId={productId} item_name={data?.item_name} />
 
             </Suspense>
+
+            <EditItemDialog
+                item={data as any}
+                isOpen={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+                onItemUpdated={mutate}
+            />
 
         </div>
     )

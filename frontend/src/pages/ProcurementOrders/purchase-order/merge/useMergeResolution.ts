@@ -162,6 +162,7 @@ export function useMergeResolution(
           quote: resolution.resolvedQuote,
           tax: resolution.resolvedTax,
           amount: amt,
+          tax_amount: taxAmt,
           total_amount: amt + taxAmt,
         });
       } else {
@@ -172,6 +173,7 @@ export function useMergeResolution(
           ...template,
           quantity: totalQty,
           amount: amt,
+          tax_amount: taxAmt,
           total_amount: amt + taxAmt,
         });
       }
@@ -219,6 +221,7 @@ export function useMergeResolution(
         quote: resolvedQuote,
         tax: resolvedTax,
         amount: amt,
+        tax_amount: taxAmt,
         total_amount: amt + taxAmt,
       });
     }

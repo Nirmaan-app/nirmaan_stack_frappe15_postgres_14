@@ -247,6 +247,9 @@ Merged POs (`status = "Merged"`) are filtered out of:
 10. **`window.location.reload()`** after both operations — should use SWR cache invalidation instead.
 11. **Sidebar counts stale** — no explicit `invalidateSidebarCounts()` call after merge/unmerge; relies on page reload.
 
+### Fixed (April 2026)
+12. **~~`tax_amount` stale on merged items~~** — `buildResolvedOrderData()` spread `...template` leaked stale `tax_amount` from first source item. Fixed: frontend now explicitly sets `tax_amount` in all merge paths; backend recalculates per-item financials before `.append()`.
+
 ---
 
 ## File Reference

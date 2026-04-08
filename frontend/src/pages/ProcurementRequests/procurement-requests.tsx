@@ -1,7 +1,7 @@
 import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeGetDoc, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
 
 // --- Tab Configuration ---
@@ -43,13 +43,12 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Types ---
-import { ProcurementRequest, Category } from "@/types/NirmaanStack/ProcurementRequests";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-import { HeaderHoverCard } from "@/components/helpers/HeaderHoverCard";
 import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
@@ -326,7 +325,7 @@ export const ProcurementRequests: React.FC = () => {
     //     "work_package", "procurement_list", "category_list", "workflow_state",
     // ], []);
 
-    const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'category_list', 'order_list']), [])
+    const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'order_list']), [])
 
     const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." },
     ...(tab === PR_TABS.ALL_PRS ? [
@@ -402,33 +401,14 @@ export const ProcurementRequests: React.FC = () => {
         {
             // Pr_work_Package
             id: "PR Tag Child Table.tag_header",
-            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
+            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Headers" />,
             cell: ({ row }) => <PRTagsCell row={row} />,
             enableColumnFilter: true, size: 150,
             meta: {
-                exportHeaderName: "Header Tags",
+                exportHeaderName: "Headers",
                 exportValue: (row: ProcurementRequest) => {
                     const tags = (row as any).pr_tag_list || [];
                     return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
-                }
-            }
-        },
-        {
-            accessorKey: "category_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Categories" />,
-            cell: ({ row }) => {
-                const categories = row.getValue("category_list") as { list: Category[] } | undefined;
-                const categoryItems = Array.isArray(categories?.list) ? categories.list : [];
-                return (
-                    <div className="flex flex-wrap gap-1 items-start justify-start">
-                        {categoryItems.length > 0 ? categoryItems.map((cat, index) => <Badge key={`${row.original.name}-${cat.name}_${index}`} variant="outline" className="text-xs">{cat.name}</Badge>) : '--'}
-                    </div>
-                );
-            }, size: 180, enableSorting: false,
-            meta: {
-                exportHeaderName: "Categories",
-                exportValue: (row: ProcurementRequest) => {
-                    const categories = (row.category_list as { list: Category[] } | undefined)?.list || [];
-                    return categories.map(c => c.name).join(", ");
                 }
             }
         },

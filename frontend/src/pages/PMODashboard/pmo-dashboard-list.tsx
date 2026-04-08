@@ -27,6 +27,7 @@ interface PMOProject {
   pending_tasks: number;
   progress: number;
   categories: Record<string, CategorySummary>;
+  disabled_pmo: 0 | 1;
 }
 
 
@@ -46,11 +47,6 @@ const STYLE_PALETTE = [
     countText: "text-gray-700",
   },
   {
-    bg: "bg-amber-50/80 border border-amber-100",
-    text: "text-amber-700",
-    countText: "text-amber-900",
-  },
-  {
     bg: "bg-blue-50/80 border border-blue-100",
     text: "text-blue-700",
     countText: "text-blue-900",
@@ -59,6 +55,11 @@ const STYLE_PALETTE = [
     bg: "bg-green-50/80 border border-green-100",
     text: "text-green-700",
     countText: "text-green-900",
+  },
+  {
+    bg: "bg-amber-50/80 border border-amber-100",
+    text: "text-amber-700",
+    countText: "text-amber-900",
   },
 ];
 
@@ -75,7 +76,7 @@ const PMODashboardList: React.FC = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
-  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
+  const [filtersInitialized, setFiltersInitialized] = useState(false);
   const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
 
   const { data: masterCategories } = useFrappeGetDocList("PMO Task Category", {
@@ -114,34 +115,49 @@ const PMODashboardList: React.FC = () => {
     "nirmaan_stack.api.pmo_dashboard.get_pmo_projects"
   );
 
+  const { call: toggleVisibility } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.update_project_pmo_visibility"
+  );
+
   const [projects, setProjects] = React.useState<PMOProject[]>([]);
   const [loaded, setLoaded] = React.useState(false);
 
-  React.useEffect(() => {
+  const fetchProjects = useCallback(() => {
     call({}).then((res: any) => {
       setProjects(res?.message || []);
       setLoaded(true);
     });
-  }, []);
+  }, [call]);
 
-  const toggleHide = useCallback((projectName: string) => {
-    setHiddenProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(projectName)) {
-        next.delete(projectName);
-      } else {
-        next.add(projectName);
-      }
-      return next;
+  React.useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  const toggleHide = useCallback((projectName: string, currentStatus: number) => {
+    const newStatus = currentStatus === 1 ? 0 : 1;
+    toggleVisibility({
+      project_name: projectName,
+      disabled: newStatus
+    }).then(() => {
+      fetchProjects();
     });
-  }, []);
+  }, [toggleVisibility, fetchProjects]);
 
-  // Derive unique project names for filter dropdown
-  const projectFilterOptions = useMemo(() => {
+  // Derive unique project statuses for filter dropdown
+  const projectStatusOptions = useMemo(() => {
     if (!projects) return [];
-    const names = projects.map((p) => p.project_name).filter(Boolean);
-    return Array.from(new Set(names)).sort();
+    const statuses = projects.map((p) => p.status).filter(Boolean);
+    return Array.from(new Set(statuses)).sort();
   }, [projects]);
+
+  // Auto-select all statuses except "Completed" on first load
+  React.useEffect(() => {
+    if (loaded && projects.length > 0 && !filtersInitialized) {
+      const initialFilters = projectStatusOptions.filter((status) => status !== "Completed");
+      setSelectedProjectFilters(initialFilters);
+      setFiltersInitialized(true);
+    }
+  }, [loaded, projects.length, projectStatusOptions, filtersInitialized]);
 
   const filteredProjects = useMemo(() => {
     let list = projects;
@@ -154,13 +170,13 @@ const PMODashboardList: React.FC = () => {
       );
     }
     if (selectedProjectFilters.length > 0) {
-      list = list.filter((p) => selectedProjectFilters.includes(p.project_name));
+      list = list.filter((p) => selectedProjectFilters.includes(p.status));
     }
     return list;
   }, [projects, searchQuery, selectedProjectFilters]);
 
-  const activeProjects = useMemo(() => filteredProjects.filter((p) => !hiddenProjects.has(p.name)), [filteredProjects, hiddenProjects]);
-  const hiddenProjectsList = useMemo(() => filteredProjects.filter((p) => hiddenProjects.has(p.name)), [filteredProjects, hiddenProjects]);
+  const activeProjects = useMemo(() => filteredProjects.filter((p) => p.disabled_pmo === 0), [filteredProjects]);
+  const hiddenProjectsList = useMemo(() => filteredProjects.filter((p) => p.disabled_pmo === 1), [filteredProjects]);
 
   if (loading && !loaded) {
     return (
@@ -173,7 +189,7 @@ const PMODashboardList: React.FC = () => {
   return (
     <div className="flex-1 md:space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-1 mb-2">
+      {/* <div className="flex items-center gap-1 mb-2">
         <ArrowLeft
           className="h-5 w-5 cursor-pointer text-gray-500 hover:text-gray-700"
           onClick={() => navigate(-1)}
@@ -181,7 +197,7 @@ const PMODashboardList: React.FC = () => {
         <span className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
           PMO DASHBOARD
         </span>
-      </div>
+      </div> */}
 
       <div className="mb-6">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
@@ -212,7 +228,7 @@ const PMODashboardList: React.FC = () => {
               className="flex items-center gap-2 h-10 border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
             >
               <Filter className="h-4 w-4" />
-              <span className="hidden sm:inline">Filter</span>
+              <span className="hidden sm:inline">Status</span>
               {selectedProjectFilters.length > 0 && (
                 <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 bg-primary text-white text-xs">
                   {selectedProjectFilters.length}
@@ -222,11 +238,11 @@ const PMODashboardList: React.FC = () => {
           </PopoverTrigger>
           <PopoverContent className="w-[280px] p-0" align="end">
             <Command>
-              <CommandInput placeholder="Search projects..." className="h-9" />
+              <CommandInput placeholder="Filter by status..." className="h-9" />
               <CommandList>
                 <CommandEmpty>No project found.</CommandEmpty>
                 <CommandGroup>
-                  {projectFilterOptions.map((option) => {
+                  {projectStatusOptions.map((option) => {
                     const isSelected = selectedProjectFilters.includes(option);
                     return (
                       <CommandItem
@@ -241,11 +257,10 @@ const PMODashboardList: React.FC = () => {
                         className="cursor-pointer"
                       >
                         <div className="flex items-center gap-2">
-                          <div className={`flex h-4 w-4 items-center justify-center rounded-sm border transition-colors ${
-                            isSelected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-primary/20 opacity-50"
-                          }`}>
+                          <div className={`flex h-4 w-4 items-center justify-center rounded-sm border transition-colors ${isSelected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-primary/20 opacity-50"
+                            }`}>
                             <Check className={isSelected ? "h-3 w-3 text-white" : "h-3 w-3 opacity-0"} />
                           </div>
                           <span>{option}</span>
@@ -310,22 +325,22 @@ const PMODashboardList: React.FC = () => {
         </div>
       ) : (
         <>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {activeProjects.map((project) => {
-            const orderedCategories = sortCategories(Object.entries(project.categories || {}));
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeProjects.map((project) => {
+              const orderedCategories = sortCategories(Object.entries(project.categories || {}));
 
-            const progressColor =
-              project.progress >= 75
-                ? "text-green-600"
-                : project.progress >= 30
-                  ? "text-amber-500"
-                  : "text-red-500";
+              const progressColor =
+                project.progress >= 75
+                  ? "text-green-600"
+                  : project.progress >= 30
+                    ? "text-amber-500"
+                    : "text-red-500";
 
-            return (
-              <div
-                key={project.name}
-                onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
-                className={`
+              return (
+                <div
+                  key={project.name}
+                  onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
+                  className={`
                   group flex flex-col justify-between
                   border bg-white rounded-xl
                   transition-all duration-300 ease-in-out
@@ -333,51 +348,55 @@ const PMODashboardList: React.FC = () => {
                   cursor-pointer h-full min-h-[220px]
                   border-gray-200
                 `}
-              >
-                <div className="p-4 flex flex-col h-full relative">
-                  {/* Card Header */}
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex-1 flex flex-col gap-1 pr-2">
-                      <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
-                        {project.project_name || project.name}
-                      </h3>
-                    </div>
-                    <ProgressCircle
-                      value={project.progress}
-                      className={`size-[38px] flex-shrink-0 ${progressColor}`}
-                      textSizeClassName="text-[10px]"
-                    />
-                  </div>
-
-                  <div className="mt-auto">
-                    {/* Category Grid - 2x2 layout */}
-                    <div className="grid grid-cols-2 gap-2 mb-4">
-                      {orderedCategories.map(([cat, summary]) => {
-                        const color = getStyleForCategory(cat);
-                        const formattedCat = formatCategoryName(cat);
-                        return (
-                          <div
-                            key={cat}
-                            className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-md ${color.bg}`}
-                          >
-                            <span className={`font-medium truncate mr-1 ${color.text}`}>
-                              {formattedCat}
-                            </span>
-                            <span className={`font-semibold whitespace-nowrap ${color.countText}`}>
-                              {summary.done}/{summary.total}
-                            </span>
-                          </div>
-                        );
-                      })}
+                >
+                  <div className="p-4 flex flex-col h-full relative">
+                    {/* Card Header */}
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex-1 flex flex-col gap-1 pr-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
+                            {project.project_name || project.name}
+                          </h3>
+                          <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-100 shadow-sm leading-none shrink-0">
+                            {project.status}
+                          </span>
+                        </div>
+                      </div>
+                      <ProgressCircle
+                        value={project.progress}
+                        className={`size-[38px] flex-shrink-0 ${progressColor}`}
+                        textSizeClassName="text-[10px]"
+                      />
                     </div>
 
-                    {/* Card Footer */}
-                    <div className="border-t border-gray-100 pt-3 mt-auto">
-                      <div className="flex justify-between items-center text-xs font-medium">
+                    <div className="mt-auto">
+                      {/* Category Grid - 2x2 layout */}
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        {orderedCategories.map(([cat, summary]) => {
+                          const color = getStyleForCategory(cat);
+                          const formattedCat = formatCategoryName(cat);
+                          return (
+                            <div
+                              key={cat}
+                              className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-md ${color.bg}`}
+                            >
+                              <span className={`font-medium truncate mr-1 ${color.text}`}>
+                                {formattedCat}
+                              </span>
+                              <span className={`font-semibold whitespace-nowrap ${color.countText}`}>
+                                {summary.done}/{summary.total}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Card Footer */}
+                      <div className="border-t border-gray-100 pt-3 mt-auto flex justify-between items-center text-xs font-medium">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            toggleHide(project.name);
+                            toggleHide(project.name, project.disabled_pmo);
                           }}
                           className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
                         >
@@ -392,106 +411,103 @@ const PMODashboardList: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        {/* Hidden Projects Section */}
-        {hiddenProjectsList.length > 0 && (
-          <Collapsible
-            open={isHiddenSectionOpen}
-            onOpenChange={setIsHiddenSectionOpen}
-            className="mt-4 pb-8"
-          >
-            <CollapsibleTrigger asChild>
-              <button className="flex items-center gap-2 w-full px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
-                <EyeOff className="h-4 w-4 text-orange-600" />
-                <span className="text-sm font-medium text-orange-700">
-                  Hidden Projects
-                </span>
-                <Badge
-                  variant="secondary"
-                  className="px-2 py-0.5 text-xs bg-orange-200 text-orange-800 border-0"
-                >
-                  {hiddenProjectsList.length}
-                </Badge>
-                <ChevronDown
-                  className={`h-4 w-4 text-orange-600 ml-auto transition-transform duration-200 ${
-                    isHiddenSectionOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {hiddenProjectsList.map((project) => {
-                  const orderedCategories = sortCategories(Object.entries(project.categories || {}));
+          {/* Hidden Projects Section */}
+          {hiddenProjectsList.length > 0 && (
+            <Collapsible
+              open={isHiddenSectionOpen}
+              onOpenChange={setIsHiddenSectionOpen}
+              className="mt-4 pb-8"
+            >
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-2 w-full px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
+                  <EyeOff className="h-4 w-4 text-orange-600" />
+                  <span className="text-sm font-medium text-orange-700">
+                    Hidden Projects
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="px-2 py-0.5 text-xs bg-orange-200 text-orange-800 border-0"
+                  >
+                    {hiddenProjectsList.length}
+                  </Badge>
+                  <ChevronDown
+                    className={`h-4 w-4 text-orange-600 ml-auto transition-transform duration-200 ${isHiddenSectionOpen ? 'rotate-180' : ''
+                      }`}
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {hiddenProjectsList.map((project) => {
+                    const orderedCategories = sortCategories(Object.entries(project.categories || {}));
 
-                  const progressColor =
-                    project.progress >= 75
-                      ? "text-green-600"
-                      : project.progress >= 30
-                        ? "text-amber-500"
-                        : "text-gray-500";
+                    const progressColor =
+                      project.progress >= 75
+                        ? "text-green-600"
+                        : project.progress >= 30
+                          ? "text-amber-500"
+                          : "text-gray-500";
 
-                  return (
-                    <div
-                      key={project.name}
-                      onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
-                      className="group flex flex-col justify-between border border-orange-300 bg-orange-50/30 rounded-xl transition-all duration-300 ease-in-out hover:shadow-md hover:border-blue-400 cursor-pointer h-full min-h-[220px]"
-                    >
-                      <div className="p-4 flex flex-col h-full relative">
-                        {/* Card Header */}
-                        <div className="flex justify-between items-start mb-4">
-                          <div className="flex-1 flex flex-col gap-1 pr-2">
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] px-1.5 py-0 w-fit bg-orange-100 text-orange-700 border-orange-300"
-                            >
-                              <EyeOff className="h-2.5 w-2.5 mr-1" />
-                              Hidden
-                            </Badge>
-                            <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
-                              {project.project_name || project.name}
-                            </h3>
-                          </div>
-                          <ProgressCircle
-                            value={project.progress}
-                            className={`size-[38px] flex-shrink-0 ${progressColor}`}
-                            textSizeClassName="text-[10px]"
-                          />
-                        </div>
-
-                        <div className="mt-auto">
-                          {/* Category Grid - 2x2 layout */}
-                          <div className="grid grid-cols-2 gap-2 mb-4">
-                            {orderedCategories.map(([cat, summary]) => {
-                              const color = getStyleForCategory(cat);
-                              const formattedCat = formatCategoryName(cat);
-                              return (
-                                <div
-                                  key={cat}
-                                  className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-md ${color.bg}`}
-                                >
-                                  <span className={`font-medium truncate mr-1 ${color.text}`}>
-                                    {formattedCat}
-                                  </span>
-                                  <span className={`font-semibold whitespace-nowrap ${color.countText}`}>
-                                    {summary.done}/{summary.total}
-                                  </span>
-                                </div>
-                              );
-                            })}
+                    return (
+                      <div
+                        key={project.name}
+                        onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
+                        className="group flex flex-col justify-between border border-orange-300 bg-orange-50/30 rounded-xl transition-all duration-300 ease-in-out hover:shadow-md hover:border-blue-400 cursor-pointer h-full min-h-[220px]"
+                      >
+                        <div className="p-4 flex flex-col h-full relative">
+                          {/* Card Header */}
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="flex-1 flex flex-col gap-1 pr-2">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] px-1.5 py-0 w-fit bg-orange-100 text-orange-700 border-orange-300"
+                              >
+                                <EyeOff className="h-2.5 w-2.5 mr-1" />
+                                Hidden
+                              </Badge>
+                              <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
+                                {project.project_name || project.name}
+                              </h3>
+                            </div>
+                            <ProgressCircle
+                              value={project.progress}
+                              className={`size-[38px] flex-shrink-0 ${progressColor}`}
+                              textSizeClassName="text-[10px]"
+                            />
                           </div>
 
-                          {/* Card Footer */}
-                          <div className="border-t border-gray-100 pt-3 mt-auto">
-                            <div className="flex justify-between items-center text-xs font-medium">
+                          <div className="mt-auto">
+                            {/* Category Grid - 2x2 layout */}
+                            <div className="grid grid-cols-2 gap-2 mb-4">
+                              {orderedCategories.map(([cat, summary]) => {
+                                const color = getStyleForCategory(cat);
+                                const formattedCat = formatCategoryName(cat);
+                                return (
+                                  <div
+                                    key={cat}
+                                    className={`flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-md ${color.bg}`}
+                                  >
+                                    <span className={`font-medium truncate mr-1 ${color.text}`}>
+                                      {formattedCat}
+                                    </span>
+                                    <span className={`font-semibold whitespace-nowrap ${color.countText}`}>
+                                      {summary.done}/{summary.total}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Card Footer */}
+                            <div className="border-t border-gray-100 pt-3 mt-auto flex justify-between items-center text-xs font-medium">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  toggleHide(project.name);
+                                  toggleHide(project.name, project.disabled_pmo);
                                 }}
                                 className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600 flex items-center transition-colors"
                               >
@@ -506,13 +522,12 @@ const PMODashboardList: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
+                    );
+                  })}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
         </>
       )}
     </div>

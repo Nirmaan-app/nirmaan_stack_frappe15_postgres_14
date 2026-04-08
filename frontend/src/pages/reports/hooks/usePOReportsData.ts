@@ -18,6 +18,7 @@ type NirmaanPurchaseOrder = ProcurementOrder;
 export interface POReportRowData extends NirmaanPurchaseOrder {
   invoiceAmount: number;
   amountPaid: number;
+  poAmountDelivered: number;
   totalAmounts: number; // This seems to be a new field, or a rename of total_amount
   originalDoc: NirmaanPurchaseOrder; // Keep reference to original if needed
   projectId: string; // Add projectId for easier lookup
@@ -162,6 +163,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                     totalAmount: parseNumber(po.total_amount),
                     invoiceAmount: invoiceTotalsMap[po.name] || 0, // Use Vendor Invoices lookup
                     amountPaid: parseNumber(po.amount_paid),
+                    poAmountDelivered: parseNumber(po.po_amount_delivered),
                     dispatch_date: po.dispatch_date || undefined,
                     originalDoc: po,
                     assignees: [], // Deprecated in favor of assignmentsLookup passed to column

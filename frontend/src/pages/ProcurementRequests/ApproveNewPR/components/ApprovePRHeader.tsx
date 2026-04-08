@@ -6,7 +6,6 @@ import { DraftIndicator } from '@/components/ui/draft-indicator';
 import { formatDate } from '@/utils/FormatDate';
 
 import { WPRTagsBadge } from '@/components/helpers/HeaderHoverCard';
-import { ProjectPackageBadge } from '@/components/helpers/ProjectPackageBadge';
 
 interface ApprovePRHeaderProps {
     prName: string;
@@ -91,7 +90,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
                             isSaving={isSaving}
                         />
                     )}
-                    {onCancel && (
+                    {/* {onCancel && (
                         <Button
                             variant="ghost"
                             size="sm"
@@ -101,7 +100,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
                             <X className="h-4 w-4" />
                             <span className="hidden sm:inline">Cancel</span>
                         </Button>
-                    )}
+                    )} */}
                 </div>
             </div>
 
@@ -113,7 +112,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                    <span className="text-muted-foreground">Work Package:</span>
+                    <span className="text-muted-foreground">PR Type:</span>
                     <div className='flex items-center gap-1'>
                         <span className="font-medium text-foreground">{workPackage}</span>
                     </div>
@@ -137,13 +136,11 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
             {/* Filtering Badges Row */}
             <div className="flex flex-wrap items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100/80 w-full min-h-[44px]">
                 <div className="flex flex-wrap items-center gap-4">
-                    <ProjectPackageBadge projectId={projectId} />
 
                     {tags && tags.length > 0 && (
-                        <>
-                            <div className="hidden sm:block w-px h-6 bg-slate-200" />
-                            <WPRTagsBadge tags={tags} />
-                        </>
+
+                        <WPRTagsBadge tags={tags} />
+
                     )}
                 </div>
             </div>

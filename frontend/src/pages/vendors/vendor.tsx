@@ -127,10 +127,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                             allCategories={allCategories}
                         />
                         {vendor?.vendor_status === "On-Hold" && (
-                            <VendorHoldBanner
-                                vendorName={vendor.vendor_name}
-                                availableCredit={vendor.available_credit}
-                            />
+                            <VendorHoldBanner />
                         )}
                         <VendorCreditManagementCard vendor={vendor} mutateVendor={mutateVendor} />
                         <VendorBankDetailsCard vendor={vendor} mutateVendor={mutateVendor} />

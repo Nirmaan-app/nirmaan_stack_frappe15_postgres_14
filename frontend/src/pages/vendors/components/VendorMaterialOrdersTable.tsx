@@ -159,7 +159,7 @@ export const VendorMaterialOrdersTable: React.FC<
       },
       status: {
         title: "Status",
-        options: statusFacetOptions,
+        options: statusFacetOptions?.filter(opt => !["Merged", "Inactive"].includes(opt.value)),
         isLoading: isStatusFacetLoading,
       },
     }),
@@ -218,8 +218,8 @@ export const VendorMaterialOrdersTable: React.FC<
               ["Partially Delivered", "Delivered"].includes(row.original.status)
                 ? "green"
                 : ["Partially Dispatched"].includes(row.original.status)
-                ? "yellow"
-                : "outline"
+                  ? "yellow"
+                  : "outline"
             }
           >
             {row.original.status}

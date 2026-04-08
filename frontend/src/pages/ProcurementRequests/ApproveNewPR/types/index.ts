@@ -26,13 +26,11 @@ export type { Projects as Project };
 // This type will represent the main PR document state *within the hook*
 // It can be slightly different from the raw FrappeDoc for ease of use if needed,
 // but should align closely with the backend schema for items.
-export interface PRScreenData extends Omit<ProcurementRequest, 'procurement_list' | 'category_list' | 'order_list'> {
+export interface PRScreenData extends Omit<ProcurementRequest, 'procurement_list' | 'order_list'> {
     // Use the backend child table type directly for items
     order_list: ProcurementRequestItemDetail[]; 
     
-    // For category_list, if it's still JSON from backend:
-    category_list: { list: PRCategory[] }; // Or null if it might not exist
-    // If category_list is also migrated, this would change to a child table array.
+
 }
 
 // This is the frontend representation of an item *within the UI/logic*,
@@ -53,9 +51,8 @@ export interface DisplayCategory {
 }
 
 // State types within the logic hook
-export interface OrderData extends Omit<ProcurementRequest, 'procurement_list' | 'category_list'> {
+export interface OrderData extends Omit<ProcurementRequest, 'procurement_list'> {
     procurement_list: { list: ProcurementItemBase[] };
-    category_list: { list: PRCategory[] };
     // Add other fields if needed after parsing, although PRDocType should cover it
 }
 

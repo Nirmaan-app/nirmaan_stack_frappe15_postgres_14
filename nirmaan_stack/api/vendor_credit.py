@@ -57,7 +57,8 @@ def recalculate_vendor_credit(vendor_id, entry_type, po_id=None, project=None, d
     Recalculates credit_used for a vendor from ALL eligible POs, updates
     available_credit, and appends a ledger entry.
 
-    Does NOT change vendor_status — only the daily cron does that.
+    Auto-transitions On-Hold → Active when available_credit > 0.
+    Active → On-Hold is only set by the daily cron.
     """
     if not vendor_id:
         return
@@ -66,12 +67,16 @@ def recalculate_vendor_credit(vendor_id, entry_type, po_id=None, project=None, d
     old_credit_used = flt(vendor.credit_used)
 
     credit_used = _compute_credit_used(vendor, exclude_po=exclude_po)
-    credit_limit = flt(vendor.credit_limit) if vendor.credit_limit is not None else 10000
+    credit_limit = flt(vendor.credit_limit) if vendor.credit_limit is not None else 50000
     available_credit = credit_limit - credit_used
     delta = credit_used - old_credit_used
 
     vendor.credit_used = credit_used
     vendor.available_credit = available_credit
+
+    # Auto-reactivate: On-Hold → Active when credit is freed
+    if vendor.vendor_status == "On-Hold" and available_credit > 0:
+        vendor.vendor_status = "Active"
 
     # Append ledger entry
     vendor.append("credit_ledger", {

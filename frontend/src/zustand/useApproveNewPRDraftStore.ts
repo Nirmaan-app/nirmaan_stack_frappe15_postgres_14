@@ -37,16 +37,6 @@ export interface DraftItem extends DraftItemFlags {
 }
 
 /**
- * Draft category structure
- * @deprecated Categories are now derived from items. Kept for draft migration compatibility.
- */
-export interface DraftCategory {
-  name: string;
-  makes?: string[];
-  status?: 'Pending' | 'Request' | string;
-}
-
-/**
  * Complete draft structure for a single PR approval session
  */
 export interface ApproveNewPRDraft {

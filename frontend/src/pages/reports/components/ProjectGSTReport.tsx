@@ -1,17 +1,95 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { getUrlStringParam } from "@/hooks/useServerDataTable";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { useProjectGSTData } from "../hooks/useProjectGSTData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGstOptions } from "@/hooks/useGstOptions";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, ExternalLink } from "lucide-react";
 import { unparse } from "papaparse";
 
+import { format } from "date-fns";
+
+import { ProjectGSTReportDetails } from "./GSTReport/ProjectGSTReportDetails";
+
 export const ProjectGSTReport: React.FC = () => {
-    const [selectedGST, setSelectedGST] = useState<string>("");
+    // Standard Project GST params consolidated for clarity
+    const [selectedGST, setSelectedGST] = useState<string>(() => getUrlStringParam("pgst_gst", ""));
+    const [selectedProject, setSelectedProject] = useState<{
+        id: string,
+        name: string,
+        month?: string,
+        invoiceType?: string[]
+    } | null>(() => {
+        const id = getUrlStringParam("pgst_project_id", "");
+        const name = getUrlStringParam("pgst_project_name", "");
+        if (id && name) {
+            const month = getUrlStringParam("pgst_month", "");
+            const types = getUrlStringParam("pgst_types", "");
+            return {
+                id,
+                name,
+                month: month || undefined,
+                invoiceType: types ? types.split(",").filter(Boolean) : undefined
+            };
+        }
+        return null;
+    });
+
     const { months, reportData, totals, isLoading } = useProjectGSTData(selectedGST);
     const { gstOptions, isLoading: isLoadingGstOptions } = useGstOptions();
+
+    // Declarative URL Synchronization (State -> URL)
+    useEffect(() => {
+        const syncMap: Record<string, string | null> = {
+            "pgst_gst": selectedGST || null,
+            "pgst_project_id": selectedProject?.id || null,
+            "pgst_project_name": selectedProject?.name || null,
+            "pgst_month": selectedProject?.month || null,
+            "pgst_types": selectedProject?.invoiceType?.join(",") || null
+        };
+        Object.entries(syncMap).forEach(([key, val]) => urlStateManager.updateParam(key, val));
+    }, [selectedGST, selectedProject]);
+
+    // Browser navigation synchronization (URL -> State)
+    useEffect(() => {
+        const handleUrlChange = () => {
+            const gst = getUrlStringParam("pgst_gst", "");
+            const id = getUrlStringParam("pgst_project_id", "");
+            const name = getUrlStringParam("pgst_project_name", "");
+            const month = getUrlStringParam("pgst_month", "") || undefined;
+            const types = getUrlStringParam("pgst_types", "")?.split(",") || undefined;
+
+            // Update GST if changed
+            setSelectedGST(prev => prev !== gst ? gst : prev);
+
+            // Update Project Detail state only if actually different to avoid render loops
+            setSelectedProject(prev => {
+                const hasUrlData = id && name;
+                if (!hasUrlData) return null;
+
+                // Check for equality
+                const isSame = prev?.id === id &&
+                    prev?.name === name &&
+                    prev?.month === month &&
+                    JSON.stringify(prev?.invoiceType) === JSON.stringify(types);
+
+                return isSame ? prev : { id: id!, name: name!, month, invoiceType: types };
+            });
+        };
+
+        const subscriptions = [
+            urlStateManager.subscribe("pgst_gst", handleUrlChange),
+            urlStateManager.subscribe("pgst_project_id", handleUrlChange),
+            urlStateManager.subscribe("pgst_project_name", handleUrlChange),
+            urlStateManager.subscribe("pgst_month", handleUrlChange),
+            urlStateManager.subscribe("pgst_types", handleUrlChange),
+        ];
+
+        return () => subscriptions.forEach(unsub => unsub());
+    }, []);
 
     if (isLoading || isLoadingGstOptions) {
         return <LoadingFallback />;
@@ -48,16 +126,40 @@ export const ProjectGSTReport: React.FC = () => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `Project_GST_Report_${selectedGST || "all"}.csv`);
+
+        // --- Filename Construction ---
+        const today = format(new Date(), "dd-MM-yyyy");
+        let stateName = "all Location";
+        if (selectedGST && selectedGST !== "all") {
+            const gstOption = gstOptions.find(opt => opt.value === selectedGST);
+            stateName = gstOption?.state || gstOption?.location || selectedGST;
+        }
+        const fileName = `GSTrepot_${stateName}_${today}.csv`;
+        // ------------------------------
+
+        link.setAttribute("download", fileName);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
+    if (selectedProject) {
+        return (
+            <ProjectGSTReportDetails
+                projectId={selectedProject.id}
+                projectName={selectedProject.name}
+                initialGST={selectedGST}
+                initialMonth={selectedProject.month}
+                initialInvoiceType={selectedProject.invoiceType}
+                onBack={() => setSelectedProject(null)}
+            />
+        );
+    }
+
     return (
         <div className="p-4 bg-white min-h-screen">
             {/* Options Selection Row */}
-            <div className="mb-4 flex items-end justify-between gap-4">
+            <div className="relative z-100 mb-4 flex items-end justify-between gap-4">
                 <div className="w-64">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Select Project GST</label>
                     <Select value={selectedGST} onValueChange={setSelectedGST}>
@@ -68,7 +170,7 @@ export const ProjectGSTReport: React.FC = () => {
                             <SelectItem value="all">All GST Locations</SelectItem>
                             {gstOptions.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
-                                    {opt.location || opt.value}
+                                    {opt.state || opt.location || opt.value}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -101,7 +203,7 @@ export const ProjectGSTReport: React.FC = () => {
                                 ))}
                             </tr>
                             {/* Level 2: Invoice Types */}
-                            <tr className="sticky top-[35px] z-30">
+                            <tr className="sticky top-[45px] z-30">
                                 {months.map((month) => (
                                     <React.Fragment key={`${month.id}-types`}>
                                         <th colSpan={3} className={`text-slate-600 p-2 text-center font-semibold border-b border-r border-slate-100 ${month.bg} transform translate-z-0`}>
@@ -117,7 +219,7 @@ export const ProjectGSTReport: React.FC = () => {
                                 ))}
                             </tr>
                             {/* Level 3: Fields */}
-                            <tr className="sticky top-[64px] z-20 text-[9px] uppercase tracking-tighter">
+                            <tr className="sticky top-[85px] z-30 text-[9px] uppercase tracking-tighter">
                                 {months.map((month) => (
                                     <React.Fragment key={`${month.id}-fields`}>
                                         <th className={`text-slate-400 px-3 py-1 text-center font-medium border-b border-r border-slate-100/50 ${month.bg} transform translate-z-0`}>Incl</th>
@@ -132,35 +234,9 @@ export const ProjectGSTReport: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {reportData.map((row, idx) => {
-                                const rowBg = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60";
-                                const projectBg = idx % 2 === 0 ? "bg-white" : "bg-white";
-                                return (
-                                    <tr key={row.project_name} className={`group hover:bg-blue-50/40 transition-colors ${rowBg}`}>
-                                        <td className={`sticky left-0 z-10 px-4 py-3 font-semibold text-slate-800 border-b border-r-2 border-slate-200 shadow-[2px_0_0_rgba(0,0,0,0.03)] transition-colors transform translate-z-0 ${projectBg}`}>
-                                            {row.project_name}
-                                        </td>
-                                        {months.map((month) => {
-                                            const mData = row.months[month.name];
-                                            return (
-                                                <React.Fragment key={`${row.project_name}-${month.id}`}>
-                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>{formatCurrency(mData.vendor.incl)}</td>
-                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.vendor.excl)}</td>
-                                                    <td className={`px-3 py-2 text-right text-blue-600/80 border-b border-r-2 border-slate-100 tabular-nums font-medium ${month.bg} bg-opacity-30`}>{formatCurrency(mData.vendor.gst)}</td>
-                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>{formatCurrency(mData.client.incl)}</td>
-                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.client.excl)}</td>
-                                                    <td className={`px-3 py-2 text-right text-emerald-600/80 border-b border-r-2 border-slate-100 tabular-nums font-medium ${month.bg} bg-opacity-30`}>{formatCurrency(mData.client.gst)}</td>
-                                                    <td className={`px-3 py-2 text-right font-bold text-slate-900 border-b border-r-2 border-slate-100 tabular-nums ${month.bg} bg-opacity-40`}>{formatCurrency(mData.gstPay)}</td>
-                                                </React.Fragment>
-                                            );
-                                        })}
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                        <tfoot>
-                            <tr className="sticky bottom-0 z-50 bg-slate-900 text-white font-bold transform translate-z-0">
-                                <td className="sticky left-0 z-[60] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0">Total Project Total</td>
+                            {/* Grand Totals Row at Top */}
+                            <tr className="sticky top-[109px] z-30 bg-slate-900 text-white font-bold transform translate-z-0">
+                                <td className="sticky left-0 z-[70] bg-slate-900 px-4 py-3 border-r-2 border-slate-700 shadow-[2px_0_0_rgba(0,0,0,0.1)] transform translate-z-0 !bg-slate-900">TOTALS</td>
                                 {months.map((month) => {
                                     const mTotal = totals[month.name];
                                     return (
@@ -176,7 +252,56 @@ export const ProjectGSTReport: React.FC = () => {
                                     );
                                 })}
                             </tr>
-                        </tfoot>
+                            {reportData.map((row, idx) => {
+                                const rowBg = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60";
+                                const projectBg = idx % 2 === 0 ? "bg-white" : "bg-white";
+                                return (
+                                    <tr key={row.project_name} className={`group hover:bg-blue-50/40 transition-colors ${rowBg}`}>
+                                        <td className={`sticky left-0 z-10 px-4 py-3 font-semibold text-slate-800 border-b border-r-2 border-slate-200 shadow-[2px_0_0_rgba(0,0,0,0.03)] transition-colors transform translate-z-0 ${projectBg}`}>
+                                            <button
+                                                onClick={() => setSelectedProject({ id: row.project_id, name: row.project_name })}
+                                                className="group inline-flex items-center gap-1.5 text-slate-800 hover:text-indigo-600 font-bold transition-all duration-200"
+                                            >
+                                                <span className="text-blue-600 group-hover:underline decoration-blue-300 underline-offset-4">{row.project_name}</span>
+                                                <ExternalLink className="w-3 h-3 text-blue-500 group-hover:text-blue-700 transition-colors duration-200" />
+                                            </button>
+                                        </td>
+                                        {months.map((month) => {
+                                            const mData = row.months[month.name];
+                                            return (
+                                                <React.Fragment key={`${row.project_name}-${month.id}`}>
+                                                    <td className={`px-3 py-2 text-right border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>
+                                                        <button
+                                                            disabled={mData.vendor.incl === 0}
+                                                            onClick={() => setSelectedProject({ id: row.project_id, name: row.project_name, month: month.id, invoiceType: ["PO Invoice", "SR Invoice"] })}
+                                                            className="group inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/80 transition-all duration-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed font-medium"
+                                                        >
+                                                            <span>{formatCurrency(mData.vendor.incl)}</span>
+                                                            {mData.vendor.incl > 0 && <ExternalLink className="w-2.5 h-2.5 text-blue-400 group-hover:text-blue-600 transition-colors" />}
+                                                        </button>
+                                                    </td>
+                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.vendor.excl)}</td>
+                                                    <td className={`px-3 py-2 text-right text-blue-600/80 border-b border-r-2 border-slate-100 tabular-nums font-medium ${month.bg} bg-opacity-30`}>{formatCurrency(mData.vendor.gst)}</td>
+                                                    <td className={`px-3 py-2 text-right border-b border-r border-slate-100 tabular-nums ${month.bg} bg-opacity-10`}>
+                                                        <button
+                                                            disabled={mData.client.incl === 0}
+                                                            onClick={() => setSelectedProject({ id: row.project_id, name: row.project_name, month: month.id, invoiceType: ["Project Invoice"] })}
+                                                            className="group inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-slate-600 hover:text-emerald-600 hover:bg-emerald-50/80 transition-all duration-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed font-medium"
+                                                        >
+                                                            <span>{formatCurrency(mData.client.incl)}</span>
+                                                            {mData.client.incl > 0 && <ExternalLink className="w-2.5 h-2.5 text-emerald-400 group-hover:text-emerald-600 transition-colors" />}
+                                                        </button>
+                                                    </td>
+                                                    <td className={`px-3 py-2 text-right text-slate-500 border-b border-r border-slate-100 tabular-nums font-light ${month.bg} bg-opacity-10`}>{formatCurrency(mData.client.excl)}</td>
+                                                    <td className={`px-3 py-2 text-right text-emerald-600/80 border-b border-r-2 border-slate-100 tabular-nums font-medium ${month.bg} bg-opacity-30`}>{formatCurrency(mData.client.gst)}</td>
+                                                    <td className={`px-3 py-2 text-right font-bold text-slate-900 border-b border-r-2 border-slate-100 tabular-nums ${month.bg} bg-opacity-40`}>{formatCurrency(mData.gstPay)}</td>
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
                     </table>
                 </div>
             </div>

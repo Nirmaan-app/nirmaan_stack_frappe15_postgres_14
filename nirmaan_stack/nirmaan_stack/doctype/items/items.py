@@ -6,15 +6,24 @@ from frappe.model.document import Document
 
 
 class Items(Document):
-	def after_insert(self):
-		# Set the item code to uppercase
+	def validate(self):
+		if self.item_name:
+			# Case-insensitive duplicate check excluding current record
+			duplicate = frappe.db.get_value("Items", {
+				"item_name": self.item_name,
+				"name": ["!=", self.name]
+			}, "name")
+			if duplicate:
+				frappe.throw(frappe._("Product Name '{0}' already exists (ID: {1})").format(self.item_name, duplicate))
+
+	def before_insert(self):
+		# Set default values if not provided
 		if not self.item_status:
 			self.item_status = "Active"
 		if not self.billing_category:
 			self.billing_category = "Billable"
 		if not self.order_category:
 			self.order_category = "Local"
-		self.save()
 
 	def on_update(self):
 		"""Sync item_name and category changes to all matching TDS Repository records."""
