@@ -75,6 +75,12 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     return map;
   }, [itemsData]);
 
+  // Resolve billing category: Items doctype lookup → "Additional Charges" = Non-Billable → default Billable
+  const resolveBillingCategory = (itemId: string, category: string): string => {
+    return billingCategoryMap.get(itemId)
+      || (category === "Additional Charges" ? "Non-Billable" : "Billable");
+  };
+
   // Build maps from PO Delivery Documents data
   const { itemDeliveryMap, poDeliveryMap } = useMemo(() => {
     const itemMap = new Map<string, { dcQty: number; mirQty: number; dcs: DeliveryDocumentInfo[]; mirs: DeliveryDocumentInfo[] }>();
@@ -225,7 +231,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
       if (!currentItemUsage) {
         const estimate = estimatesMap.get(poItem.item_id);
-          const itemBillingCategory = billingCategoryMap.get(poItem.item_id) || (poItem.category === "Additional Charges" ? "" : poItem.item_id?.startsWith("ITEM-") ? "" : "Billable");
+          const itemBillingCategory = resolveBillingCategory(poItem.item_id, poItem.category);
         currentItemUsage = {
           uniqueKey: itemKey + `_item_${index}`,
           itemId: poItem.item_id,
@@ -244,7 +250,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           deliveryStatus: deliveryStatusInfo.deliveryStatusText,
           overallPOPaymentStatus: poPaymentStatusInfo,
 
-           billingCategory: itemBillingCategory||"",
+           billingCategory: itemBillingCategory,
         };
       } else {
         currentItemUsage.orderedQuantity = currentOrdered;
@@ -391,7 +397,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           itemName: poItem.item_name,
           categoryName: poItem.category,
           unit: poItem.unit,
-          billingCategory: billingCategoryMap.get(poItem.item_id) || "",
+          billingCategory: resolveBillingCategory(poItem.item_id, poItem.category),
           orderedQuantity: qty,
           deliveredQuantity: recvQty,
           dcQuantity: delivery?.dcQty || 0,
@@ -447,7 +453,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           itemName: childItem.item_name,
           categoryName: childItem.category || 'Unknown',
           unit: childItem.unit,
-          billingCategory: billingCategoryMap.get(childItem.item_id) || "",
+          billingCategory: resolveBillingCategory(childItem.item_id, childItem.category || ""),
           orderedQuantity: 0,
           deliveredQuantity: 0,
           dcQuantity: delivery?.dcQty || 0,
@@ -536,7 +542,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           receivedQuantity: poItemReceivedMap.get(recvKey) || 0,
           quantity: item.quantity || 0,
           make: item.make,
-          billingCategory: billingCategoryMap.get(item.item_id) || "",
+          billingCategory: resolveBillingCategory(item.item_id, item.category || ""),
         };
       });
 
