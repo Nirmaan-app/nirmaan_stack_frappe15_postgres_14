@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { TailSpin } from "react-loader-spinner";
 import { ArrowLeft, Pencil, Check, FileText, ExternalLink } from "lucide-react";
+import { ProjectDetailSkeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -82,7 +82,7 @@ const PMOProjectDetail: React.FC = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [editTask, setEditTask] = useState<TaskItem | null>(null);
 
-  const { call: fetchTasks, loading: tasksLoading } = useFrappePostCall(
+  const { call: fetchTasks } = useFrappePostCall(
     "nirmaan_stack.api.pmo_dashboard.get_project_tasks"
   );
   const { call: initTasks } = useFrappePostCall(
@@ -190,26 +190,22 @@ const PMOProjectDetail: React.FC = () => {
     }
   };
 
-  if (projectLoading || (tasksLoading && !tasksLoaded)) {
-    return (
-      <div className="flex justify-center items-center h-[60vh]">
-        <TailSpin width={40} height={40} color="#dc2626" />
-      </div>
-    );
+  if (projectLoading || !tasksLoaded) {
+    return <ProjectDetailSkeleton />;
   }
 
   return (
     <div className="flex-1 md:space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-1 mb-4">
+      {/* <div className="flex items-center gap-1 mb-4">
         <ArrowLeft
           className="h-5 w-5 cursor-pointer text-gray-500 hover:text-gray-700"
           onClick={() => navigate("/pmo-dashboard")}
         />
         <span className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-          PMO DASHBOARD
+          Back
         </span>
-      </div>
+      </div> */}
 
       {/* Project Info Card */}
       <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -227,59 +223,59 @@ const PMOProjectDetail: React.FC = () => {
         </div>
 
         {/* Progress Stats */}
-      <div className="border-t border-gray-200 bg-gray-50 px-6 py-3">
-        <div className="flex items-center gap-8">
+        <div className="border-t border-gray-200 bg-gray-50 px-6 py-3">
+          <div className="flex items-center gap-8">
 
-          {/* Total */}
-          <div className="flex items-center gap-1">
-            <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
-              Total Tasks:
-            </span>
-            <span className="text-[16px] font-medium text-gray-900 font-roboto">
-              {totalTasks}
-            </span>
-          </div>
-
-          {/* Completed */}
-          <div className="flex items-center gap-1">
-            <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
-              Completed:
-            </span>
-            <span className="text-[16px] font-medium text-green-600 font-roboto">
-              {completedTasks}
-            </span>
-          </div>
-
-          {/* Pending */}
-          <div className="flex items-center gap-1">
-            <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
-              Pending:
-            </span>
-            <span className="text-[16px] font-medium text-red-500 font-roboto">
-              {pendingTasks}
-            </span>
-          </div>
-
-          {/* Progress */}
-          <div className="flex items-center gap-3 ml-auto w-[40%]">
-            <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
-              Progress:
-            </span>
-
-            <span className="text-[16px] font-medium text-gray-900 font-roboto">
-              {progress}%
-            </span>
-
-            <div className="h-1.5 w-full rounded-full bg-gray-200">
-              <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
+            {/* Total */}
+            <div className="flex items-center gap-1">
+              <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
+                Total Tasks:
+              </span>
+              <span className="text-[16px] font-medium text-gray-900 font-roboto">
+                {totalTasks}
+              </span>
             </div>
-          </div>
 
+            {/* Completed */}
+            <div className="flex items-center gap-1">
+              <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
+                Completed:
+              </span>
+              <span className="text-[16px] font-medium text-green-600 font-roboto">
+                {completedTasks}
+              </span>
+            </div>
+
+            {/* Pending */}
+            <div className="flex items-center gap-1">
+              <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
+                Pending:
+              </span>
+              <span className="text-[16px] font-medium text-red-500 font-roboto">
+                {pendingTasks}
+              </span>
+            </div>
+
+            {/* Progress */}
+            <div className="flex items-center gap-3 ml-auto w-[40%]">
+              <span className="text-[12px] font-medium text-gray-500 uppercase font-roboto">
+                Progress:
+              </span>
+
+              <span className="text-[16px] font-medium text-gray-900 font-roboto">
+                {progress}%
+              </span>
+
+              <div className="h-1.5 w-full rounded-full bg-gray-200">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+
+          </div>
         </div>
-      </div>
       </div>
 
       {/* Task Overview Table */}
@@ -320,7 +316,7 @@ const PMOProjectDetail: React.FC = () => {
                       className="pb-2 pt-4 text-xs font-bold uppercase tracking-wider text-red-500"
                     >
                       {cat}
-                      </TableCell>
+                    </TableCell>
                   </TableRow>
                   {/* Task Rows */}
                   {(tasks[cat] || []).map((task) => (
@@ -328,15 +324,14 @@ const PMOProjectDetail: React.FC = () => {
                       <TableCell className="text-sm text-gray-900">
                         <div className="flex items-center gap-2">
                           <span
-                            className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${
-                              task.status === "Approve by client"
-                                ? "bg-green-500"
-                                : task.status === "Sent/Submision"
-                                  ? "bg-blue-500"
-                                  : task.status === "WIP"
-                                    ? "bg-orange-500"
-                                    : "bg-gray-300"
-                            }`}
+                            className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${task.status === "Approve by client"
+                              ? "bg-green-500"
+                              : task.status === "Sent/Submision"
+                                ? "bg-blue-500"
+                                : task.status === "WIP"
+                                  ? "bg-orange-500"
+                                  : "bg-gray-300"
+                              }`}
                           />
                           {task.task_name}
                         </div>
@@ -349,19 +344,19 @@ const PMOProjectDetail: React.FC = () => {
                         {formatDate(task.completion_date)}
                       </TableCell>
                       <TableCell className="text-sm text-gray-600">
-                         {task.attachment ? (
-                           <a 
-                             href={task.attachment} 
-                             target="_blank" 
-                             rel="noreferrer"
-                             className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                           >
-                              <FileText className="h-4 w-4" />
-                              View
-                           </a>
-                         ) : (
-                           "---"
-                         )}
+                        {task.attachment ? (
+                          <a
+                            href={task.attachment}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                          >
+                            <FileText className="h-4 w-4" />
+                            View
+                          </a>
+                        ) : (
+                          "---"
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <button
@@ -426,9 +421,8 @@ const PMOProjectDetail: React.FC = () => {
                       return (
                         <span
                           key={status}
-                          className={`text-[10px] sm:text-[11px] font-medium px-2.5 py-1 flex items-center justify-center ${colorClasses} ${
-                            index !== statusesToRender.length - 1 ? "border-r border-gray-200" : ""
-                          }`}
+                          className={`text-[10px] sm:text-[11px] font-medium px-2.5 py-1 flex items-center justify-center ${colorClasses} ${index !== statusesToRender.length - 1 ? "border-r border-gray-200" : ""
+                            }`}
                         >
                           {status}: {count}/{total}
                         </span>
