@@ -1,6 +1,7 @@
 /**
- * WOSteps — simple Work Order selection list
+ * WOSteps — Work Order selection list with search + select all
  */
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
@@ -31,29 +32,54 @@ export const WOSteps = ({
     onBack, onDownload, loading,
     vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
 }: WOStepsProps) => {
-    const baseItems: BaseItem[] = items.map((wo) => ({
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const filteredItems = useMemo(() => {
+        if (!searchQuery.trim()) return items;
+        const q = searchQuery.toLowerCase();
+        return items.filter(
+            (wo) =>
+                wo.name.toLowerCase().includes(q) ||
+                (wo.vendor_name && wo.vendor_name.toLowerCase().includes(q)) ||
+                (wo.vendor && wo.vendor.toLowerCase().includes(q))
+        );
+    }, [items, searchQuery]);
+
+    const baseItems: BaseItem[] = filteredItems.map((wo) => ({
         name: wo.name,
         subtitle: wo.vendor_name || wo.vendor || "—",
         status: wo.status,
         dateStr: formatCreationDate(wo.creation),
     }));
 
+    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
+    const handleDeselectAll = () => onDeselectAll();
+
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="text-xl font-bold">Select Work Orders</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                    {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                    Choose Work Orders to include in your download
                 </p>
             </div>
 
             <FilterBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                searchPlaceholder="Search by WO ID"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
-                onClearFilters={onClearFilters}
+                onClearFilters={() => { onClearFilters(); setSearchQuery(""); }}
+                selectedCount={selectedIds.length}
+                totalCount={items.length}
+                allSelected={allFilteredSelected}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={handleDeselectAll}
             />
 
             <BaseItemList

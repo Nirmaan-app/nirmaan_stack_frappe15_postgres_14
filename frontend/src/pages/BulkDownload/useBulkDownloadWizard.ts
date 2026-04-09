@@ -15,14 +15,24 @@ export interface POItem {
     status?: string;
     amount?: number;
     creation?: string;
+    latest_delivery_date?: string;
 }
 
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
-import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
+import { VendorInvoice as BaseVendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
+export interface VendorInvoice extends BaseVendorInvoice {
+    vendor_name?: string;
+}
+
+import { PODeliveryDocuments as BasePODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
+export interface PODeliveryDocuments extends BasePODeliveryDocuments {
+    vendor_name?: string;
+    dc_date?: string;
+}
 
 export interface WOItem {
     name: string;
     vendor?: string;
+    vendor_name?: string;
     status?: string;
     creation?: string;
 }
@@ -79,13 +89,24 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const [progress, setProgress] = useState(0);
     const [progressMessage, setProgressMessage] = useState("");
     const [showProgress, setShowProgress] = useState(false);
+ 
+    // ── Filters & Handlers ────────────────────────────────────────────────────
+ 
+    const toggleVendor = useCallback((v: string) => {
+        setCommonVendorFilter((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
+    }, []);
+ 
+    const clearFilters = useCallback(() => {
+        setCommonVendorFilter([]);
+        setCommonDateFilter(undefined);
+    }, []);
 
     // ── Data ──────────────────────────────────────────────────────────────────
 
     const { data: poList = [], isLoading: posLoading } = useFrappeGetDocList<POItem>(
         "Procurement Orders",
         {
-            fields: ["name", "vendor_name", "vendor", "status", "amount", "creation"],
+            fields: ["name", "vendor_name", "vendor", "status", "amount", "creation", "latest_delivery_date"],
             filters: [
                 ["project", "=", projectId],
                 ["status", "not in", ["Merged", "Inactive", "Cancelled"]],
@@ -99,7 +120,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: woList = [], isLoading: wosLoading } = useFrappeGetDocList<WOItem>(
         "Service Requests",
         {
-            fields: ["name", "vendor", "vendor.vendor_name", "status", "creation"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "status", "creation"],
             filters: [["project", "=", projectId], ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabService Requests`.creation", order: "desc" },
@@ -110,7 +131,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: vendorInvoices = [], isLoading: invoicesLoading } = useFrappeGetDocList<VendorInvoice>(
         "Vendor Invoices",
         {
-            fields: ["name", "vendor", "vendor.vendor_name", "document_type", "document_name", "invoice_no", "invoice_date", "invoice_attachment"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "document_type", "document_name", "invoice_no", "invoice_date", "invoice_attachment"],
             filters: [
                 ["project", "=", projectId],
                 ["status", "=", "Approved"],
@@ -124,12 +145,12 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: poDeliveryDocs = [], isLoading: poDeliveryDocsLoading } = useFrappeGetDocList<PODeliveryDocuments>(
         "PO Delivery Documents",
         {
-            fields: ["name", "vendor", "vendor.vendor_name", "type", "procurement_order", "creation", "nirmaan_attachment"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "procurement_order", "creation", "nirmaan_attachment", "dc_date"],
             filters: [
                 ["project", "=", projectId],
             ],
             limit: 0,
-            orderBy: { field: "`tabPO Delivery Documents`.creation", order: "desc" },
+            orderBy: { field: "`tabPO Delivery Documents`.dc_date", order: "desc" },
         },
         projectId ? `bulk-podd-${projectId}` : null
     );
@@ -275,8 +296,19 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     // Filtered DN list (Only Delivered and Partially Delivered POs)
     const filteredDnList = useMemo(() => {
-        return filteredPoList.filter(po => po.status === "Delivered" || po.status === "Partially Delivered");
-    }, [filteredPoList]);
+        let list = poList.filter(po => po.status === "Delivered" || po.status === "Partially Delivered");
+        if (commonVendorFilter.length > 0) {
+            list = list.filter((po) => po.vendor && commonVendorFilter.includes(po.vendor));
+        }
+        if (commonDateFilter) {
+            list = list.filter((po) => {
+                const dateToUse = po.latest_delivery_date || po.creation;
+                if (!dateToUse) return false;
+                return isDateMatchingFilter(dateToUse, commonDateFilter);
+            });
+        }
+        return list;
+    }, [poList, commonVendorFilter, commonDateFilter]);
 
     // Filtered WO list
     const filteredWoList = useMemo(() => {
@@ -328,8 +360,9 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         
         if (commonDateFilter) {
             list = list.filter((d) => {
-                if (!d.creation) return false; // Usually PODD date is tracking 'creation' or 'dc_date'
-                return isDateMatchingFilter(d.creation, commonDateFilter);
+                const dateToUse = d.dc_date || d.creation;
+                if (!dateToUse) return false;
+                return isDateMatchingFilter(dateToUse, commonDateFilter);
             });
         }
         
@@ -359,16 +392,18 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     // ── Navigation ────────────────────────────────────────────────────────────
 
     const goToStep2 = useCallback((type: BulkDocType) => {
+        clearFilters();
         setDocType(type);
         setSelectedIds([]);
         setStep(2);
-    }, []);
+    }, [clearFilters]);
 
     const goBack = useCallback(() => {
         setStep(1);
         setDocType(null);
         setSelectedIds([]);
-    }, []);
+        clearFilters();
+    }, [clearFilters]);
 
     const resetToTypeSelection = useCallback(() => {
         setStep(1);
@@ -376,7 +411,8 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         setSelectedIds([]);
         setDownloadedCount(0);
         setDownloadedLabel("");
-    }, []);
+        clearFilters();
+    }, [clearFilters]);
 
     // ── Selection ─────────────────────────────────────────────────────────────
 
@@ -398,16 +434,6 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         setSelectedIds(valid);
     }, [criticalTasks, poList]);
 
-    // ── PO Filters ────────────────────────────────────────────────────────────
-
-    const toggleVendor = useCallback((v: string) => {
-        setCommonVendorFilter((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
-    }, []);
-
-    const clearFilters = useCallback(() => {
-        setCommonVendorFilter([]);
-        setCommonDateFilter(undefined);
-    }, []);
 
     // ── Download ──────────────────────────────────────────────────────────────
 

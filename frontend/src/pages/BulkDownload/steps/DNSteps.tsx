@@ -1,5 +1,5 @@
 /**
- * DNSteps — Delivery Notes: same vendor/date filters + Critical POs tabs as PO, but no rate toggle
+ * DNSteps — Delivery Notes: vendor/date filters + search + Critical POs tabs + select all
  */
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,8 @@ export const DNSteps = ({
     );
 
     const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
-    const [activeTab, setActiveTab] = useState("all");
+    const [activeTab, setActiveTab] = useState<string>("all");
+    const [searchQuery, setSearchQuery] = useState("");
 
     const handleCriticalToggle = (taskName: string) => {
         setSelectedCriticalTasks((prev) => {
@@ -75,7 +76,19 @@ export const DNSteps = ({
         onSelectMultipleCriticalTaskPOs([]);
     };
 
-    const dnBaseItems: BaseItem[] = items.map((po) => ({
+    // Apply search filter
+    const filteredItems = useMemo(() => {
+        if (!searchQuery.trim()) return items;
+        const q = searchQuery.toLowerCase();
+        return items.filter(
+            (po) =>
+                po.name.toLowerCase().includes(q) ||
+                (po.vendor_name && po.vendor_name.toLowerCase().includes(q)) ||
+                (po.vendor && po.vendor.toLowerCase().includes(q))
+        );
+    }, [items, searchQuery]);
+
+    const dnBaseItems: BaseItem[] = filteredItems.map((po) => ({
         name: po.name,
         subtitle: po.vendor_name || po.vendor || "—",
         rightLabel: po.amount != null ? formatToRoundedIndianRupee(po.amount) : undefined,
@@ -83,14 +96,21 @@ export const DNSteps = ({
         dateStr: formatCreationDate(po.creation),
     }));
 
-    const allSelected = items.length > 0 && items.every((i) => selectedIds.includes(i.name));
+    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
+    const handleDeselectAll = () => onDeselectAll();
+
+    const handleClearAllFilters = () => {
+        onClearPoFilters();
+        setSearchQuery("");
+    };
 
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="text-xl font-bold">Select Delivery Notes</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                    {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                    Choose Delivery Notes to include in your download
                 </p>
             </div>
 
@@ -98,35 +118,80 @@ export const DNSteps = ({
                 setActiveTab(val);
                 if (val === "all") deselectAllCritical();
             }}>
-                <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-2">
-                    <div className="flex-1">
-                        {activeTab === "all" && (
-                            <FilterBar
-                                vendorOptions={vendorOptions}
-                                vendorFilter={poVendorFilter}
-                                onToggleVendor={onToggleVendor}
-                                dateFilter={poDateFilter}
-                                onDateFilter={setPoDateFilter}
-                                onClearFilters={onClearPoFilters}
-                            />
-                        )}
-                    </div>
-                    <div className="shrink-0 pt-1">
-                        <TabsList className="h-8">
-                            <TabsTrigger value="all" className="text-xs h-7 px-3">
+                {/* FilterBar + Selection Bar (only on "all" tab) */}
+                {activeTab === "all" && (
+                    <FilterBar
+                        searchQuery={searchQuery}
+                        onSearchChange={setSearchQuery}
+                        searchPlaceholder="Search by PO ID"
+                        vendorOptions={vendorOptions}
+                        vendorFilter={poVendorFilter}
+                        onToggleVendor={onToggleVendor}
+                        dateFilter={poDateFilter}
+                        onDateFilter={setPoDateFilter}
+                        onClearFilters={handleClearAllFilters}
+                        selectedCount={selectedIds.length}
+                        totalCount={items.length}
+                        allSelected={allFilteredSelected}
+                        onSelectAll={handleSelectAll}
+                        onDeselectAll={handleDeselectAll}
+                        tabSlot={
+                            <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
+                                <TabsTrigger 
+                                    value="all" 
+                                    className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                                >
+                                    All DNs
+                                    <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                        {items.length}
+                                    </Badge>
+                                </TabsTrigger>
+                                <TabsTrigger 
+                                    value="critical" 
+                                    className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                                >
+                                    Critical POs
+                                    {tasksWithPOs.length > 0 && (
+                                        <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                            {tasksWithPOs.length}
+                                        </Badge>
+                                    )}
+                                </TabsTrigger>
+                            </TabsList>
+                        }
+                    />
+                )}
+
+                {/* Critical tab header */}
+                {activeTab === "critical" && (
+                    <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm text-muted-foreground font-medium">
+                            {selectedIds.length}/{items.length} Selected
+                        </p>
+                        <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
+                            <TabsTrigger 
+                                value="all" 
+                                className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                            >
                                 All DNs
-                                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{items.length}</Badge>
+                                <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                    {items.length}
+                                </Badge>
                             </TabsTrigger>
-                            <TabsTrigger value="critical" className="text-xs h-7 px-3 gap-1">
-                                <AlertTriangle className="h-3 w-3 text-orange-500" />
+                            <TabsTrigger 
+                                value="critical" 
+                                className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                            >
                                 Critical POs
                                 {tasksWithPOs.length > 0 && (
-                                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{tasksWithPOs.length}</Badge>
+                                    <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                        {tasksWithPOs.length}
+                                    </Badge>
                                 )}
                             </TabsTrigger>
                         </TabsList>
                     </div>
-                </div>
+                )}
 
                 <TabsContent value="all" className="mt-0">
                     <BaseItemList
@@ -135,7 +200,7 @@ export const DNSteps = ({
                         selectedIds={selectedIds}
                         onToggle={onToggle}
                         emptyMessage="No Delivery Notes match current filters"
-                        onClearFilters={onClearPoFilters}
+                        onClearFilters={handleClearAllFilters}
                     />
                 </TabsContent>
 

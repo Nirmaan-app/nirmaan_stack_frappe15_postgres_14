@@ -42,12 +42,9 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-full md:w-64 justify-between border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
-            <div className="flex items-center gap-2">
-              <FileDown className="h-4 w-4" />
-              <span className="font-semibold">Project Bulk Download</span>
-            </div>
-            <ChevronDown className="h-4 w-4 opacity-50" />
+          <Button variant="outline" className="w-full md:w-auto px-4 border-red-400 text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors duration-200 flex items-center gap-2">
+            <Download className="h-4 w-4" />
+            <span className="font-semibold text-sm">Project Bulk Download</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64 p-1">

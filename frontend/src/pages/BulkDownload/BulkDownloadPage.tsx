@@ -44,7 +44,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         mirItems,
         poDeliveryDocsLoading,
         criticalTasks,
-        
+
         // Filters & Derived State
         vendorOptions,
         commonVendorFilter,
@@ -55,7 +55,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         withRate,
         setWithRate,
         poStatuses,
-        
+
         // General
         itemCounts,
         invoiceSubType,
@@ -84,17 +84,23 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
     };
 
     return (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-6">
             {/* Quick Bulk Download */}
-            <div className="rounded-xl border bg-card p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                    <FileDown className="h-5 w-5 text-primary" />
-                    <h3 className="text-lg font-semibold">Quick Download</h3>
+            <div className="rounded-xl border-gray-200 border bg-white p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                        <FileDown className="h-6 w-6 text-red-500" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-gray-900 leading-tight">Quick Download</h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Download all documents for this project at once.
+                        </p>
+                    </div>
                 </div>
-                <p className="text-sm text-muted-foreground mb-4">
-                    Download all documents for this project at once.
-                </p>
-                <BulkPdfDownloadButton projectId={projectId} projectName={projectName} />
+                <div className="shrink-0">
+                    <BulkPdfDownloadButton projectId={projectId} projectName={projectName} />
+                </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -135,7 +141,11 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
 
                     {step === 2 && docType === "PO" && (
                         <POSteps
-                            {...sharedProps}
+                            selectedIds={selectedIds}
+                            onToggle={toggleId}
+                            onBack={goBack}
+                            onDownload={handleDownload}
+                            loading={loading}
                             items={poList}
                             isLoading={posLoading}
                             withRate={withRate}

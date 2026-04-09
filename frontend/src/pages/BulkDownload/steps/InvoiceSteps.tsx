@@ -1,6 +1,7 @@
 /**
- * InvoiceSteps — sub-type selector (All / PO Invoices / WO Invoices) + item list
+ * InvoiceSteps — sub-type selector (All / PO Invoices / WO Invoices) + item list with search + select all
  */
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
@@ -14,6 +15,8 @@ interface InvoiceStepsProps {
     isLoading: boolean;
     selectedIds: string[];
     onToggle: (id: string) => void;
+    onSelectAll: (ids: string[]) => void;
+    onDeselectAll: () => void;
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
@@ -34,11 +37,25 @@ const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[]
 ];
 
 export const InvoiceSteps = ({
-    items, isLoading, selectedIds, onToggle,
+    items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange,
     vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
 }: InvoiceStepsProps) => {
-    const baseItems: BaseItem[] = items.map((vi) => ({
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const filteredItems = useMemo(() => {
+        if (!searchQuery.trim()) return items;
+        const q = searchQuery.toLowerCase();
+        return items.filter(
+            (vi) =>
+                (vi.invoice_no && vi.invoice_no.toLowerCase().includes(q)) ||
+                vi.name.toLowerCase().includes(q) ||
+                (vi.vendor_name && vi.vendor_name.toLowerCase().includes(q)) ||
+                (vi.vendor && vi.vendor.toLowerCase().includes(q))
+        );
+    }, [items, searchQuery]);
+
+    const baseItems: BaseItem[] = filteredItems.map((vi) => ({
         name: vi.name,
         subtitle: vi.vendor_name || vi.vendor || "—",
         rightLabel: vi.invoice_no,
@@ -48,12 +65,16 @@ export const InvoiceSteps = ({
             : undefined,
     }));
 
+    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
+    const handleDeselectAll = () => onDeselectAll();
+
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="text-xl font-bold">Select Invoices</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                    {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                    Choose Invoices to include in your download
                 </p>
             </div>
 
@@ -85,12 +106,20 @@ export const InvoiceSteps = ({
             </div>
 
             <FilterBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                searchPlaceholder="Search by Invoice NO"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
-                onClearFilters={onClearFilters}
+                onClearFilters={() => { onClearFilters(); setSearchQuery(""); }}
+                selectedCount={selectedIds.length}
+                totalCount={filteredItems.length}
+                allSelected={allFilteredSelected}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={handleDeselectAll}
             />
 
             <BaseItemList

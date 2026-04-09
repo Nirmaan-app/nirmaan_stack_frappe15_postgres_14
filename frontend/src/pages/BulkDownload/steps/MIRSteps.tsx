@@ -1,15 +1,16 @@
 /**
- * MIRSteps — Material Inspection Report selection list
+ * MIRSteps — Material Inspection Report selection list with search + select all
  */
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
-import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 import { FilterBar } from "../FilterBar";
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
+import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 
 interface MIRStepsProps {
-    items: AttachmentItem[];
+    items: PODeliveryDocuments[];
     isLoading: boolean; 
     selectedIds: string[];
     onToggle: (id: string) => void;
@@ -31,29 +32,55 @@ export const MIRSteps = ({
     onBack, onDownload, loading,
     vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
 }: MIRStepsProps) => {
-    const baseItems: BaseItem[] = items.map((att) => ({
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const filteredItems = useMemo(() => {
+        if (!searchQuery.trim()) return items;
+        const q = searchQuery.toLowerCase();
+        return items.filter(
+            (att) =>
+                att.name.toLowerCase().includes(q) ||
+                (att.vendor_name && att.vendor_name.toLowerCase().includes(q)) ||
+                (att.vendor && att.vendor.toLowerCase().includes(q)) ||
+                (att.procurement_order && att.procurement_order.toLowerCase().includes(q))
+        );
+    }, [items, searchQuery]);
+
+    const baseItems: BaseItem[] = filteredItems.map((att) => ({
         name: att.name,
         subtitle: att.vendor_name || att.vendor || "—",
         rightLabel: "MIR",
         dateStr: att.creation ? formatCreationDate(att.creation) : undefined,
     }));
 
+    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
+    const handleDeselectAll = () => onDeselectAll();
+
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="text-xl font-bold">Select Material Inspection Reports</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                    {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                    Choose MIRs to include in your download
                 </p>
             </div>
 
             <FilterBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                searchPlaceholder="Search by MIR number"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
-                onClearFilters={onClearFilters}
+                onClearFilters={() => { onClearFilters(); setSearchQuery(""); }}
+                selectedCount={selectedIds.length}
+                totalCount={items.length}
+                allSelected={allFilteredSelected}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={handleDeselectAll}
             />
 
             <BaseItemList

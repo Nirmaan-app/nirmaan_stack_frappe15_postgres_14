@@ -1,5 +1,6 @@
 /**
- * POSteps — handles PO rate option + vendor/date/status filters + All POs / Critical POs tabs
+ * POSteps — handles PO rate option + unified filter bar + All POs / Critical POs tabs
+ * Pixel-perfect v2: matches screenshot with search, icon filter buttons, selection bar, bordered cards.
  */
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -48,16 +49,6 @@ interface POStepsProps {
     onSelectMultipleCriticalTaskPOs: (taskNames: string[]) => void;
 }
 
-/** Color map for common PO statuses */
-const STATUS_COLORS: Record<string, { bg: string; text: string; activeBg: string; activeBorder: string }> = {
-    "Approved": { bg: "bg-green-50", text: "text-green-700", activeBg: "bg-green-100", activeBorder: "border-green-400" },
-    "Partially Delivered": { bg: "bg-amber-50", text: "text-amber-700", activeBg: "bg-amber-100", activeBorder: "border-amber-400" },
-    "Dispatched": { bg: "bg-blue-50", text: "text-blue-700", activeBg: "bg-blue-100", activeBorder: "border-blue-400" },
-    "Partially Dispatched": { bg: "bg-amber-50", text: "text-amber-700", activeBg: "bg-amber-100", activeBorder: "border-amber-400" },
-    "Delivered": { bg: "bg-emerald-50", text: "text-emerald-700", activeBg: "bg-emerald-100", activeBorder: "border-emerald-400" },
-};
-const DEFAULT_STATUS_COLOR = { bg: "bg-muted", text: "text-muted-foreground", activeBg: "bg-muted", activeBorder: "border-primary" };
-
 export const POSteps = ({
     items,
     isLoading,
@@ -83,7 +74,8 @@ export const POSteps = ({
 
     const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
     const [statusFilter, setStatusFilter] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState("all");
+    const [activeTab, setActiveTab] = useState<string>("all");
+    const [searchQuery, setSearchQuery] = useState("");
 
     // Enforce without rate for Project Managers natively
     const effectiveWithRate = isProjectManager ? false : withRate;
@@ -112,18 +104,23 @@ export const POSteps = ({
         onSelectMultipleCriticalTaskPOs([]);
     };
 
-    // Apply status filter on top of items (already vendor+date filtered by hook)
+    // Apply search + status filter on top of items (already vendor+date filtered by hook)
     const filteredItems = useMemo(() => {
-        if (!statusFilter) return items;
-        return items.filter((po) => po.status === statusFilter);
-    }, [items, statusFilter]);
-
-    // Count POs per status (from unfiltered items)
-    const statusCounts = useMemo(() => {
-        const map: Record<string, number> = {};
-        items.forEach((po) => { if (po.status) map[po.status] = (map[po.status] || 0) + 1; });
-        return map;
-    }, [items]);
+        let list = items;
+        if (statusFilter) {
+            list = list.filter((po) => po.status === statusFilter);
+        }
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            list = list.filter(
+                (po) =>
+                    po.name.toLowerCase().includes(q) ||
+                    (po.vendor_name && po.vendor_name.toLowerCase().includes(q)) ||
+                    (po.vendor && po.vendor.toLowerCase().includes(q))
+            );
+        }
+        return list;
+    }, [items, statusFilter, searchQuery]);
 
     const poBaseItems: BaseItem[] = filteredItems.map((po) => ({
         name: po.name,
@@ -133,6 +130,25 @@ export const POSteps = ({
         dateStr: formatCreationDate(po.creation),
     }));
 
+    // Select All / Deselect All for current filtered view
+    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => {
+        const idsToAdd = filteredItems.map((i) => i.name).filter((id) => !selectedIds.includes(id));
+        if (idsToAdd.length > 0) {
+            // We need to add to existing selection, so use onToggle for each
+            idsToAdd.forEach((id) => onToggle(id));
+        }
+    };
+    const handleDeselectAll = () => {
+        filteredItems.filter((i) => selectedIds.includes(i.name)).forEach((i) => onToggle(i.name));
+    };
+
+    const handleClearAllFilters = () => {
+        onClearPoFilters();
+        setStatusFilter(null);
+        setSearchQuery("");
+    };
+
     return (
         <div className="flex flex-col gap-4">
             {/* Header */}
@@ -140,98 +156,115 @@ export const POSteps = ({
                 <div>
                     <h2 className="text-xl font-bold">Select Procurement Orders</h2>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                        {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                        Choose Procurement Orders to include in your download
                     </p>
                 </div>
                 {/* Rate toggle */}
                 <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${isProjectManager ? "bg-muted/70 opacity-80" : "bg-muted/40"}`}>
+                    <Label htmlFor="with-rate" className={`text-sm ${isProjectManager ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}>
+                        {effectiveWithRate ? "With Rate" : "Without Rate"}
+                    </Label>
                     <Switch
                         id="with-rate"
                         checked={effectiveWithRate}
                         onCheckedChange={onWithRateChange}
                         disabled={isProjectManager}
                     />
-                    <Label htmlFor="with-rate" className={`text-sm ${isProjectManager ? "cursor-not-allowed opacity-70 flex flex-col items-start gap-0.5" : "cursor-pointer"}`}>
-                        {effectiveWithRate ? "With Rate" : "Without Rate"}
-                        {isProjectManager && (
-                           <span className="text-[10px] text-muted-foreground font-normal">Disabled for Project Managers</span>
-                        )}
-                    </Label>
                 </div>
             </div>
 
-            {/* Tabs */}
+            {/* Tabs wrapper */}
             <Tabs value={activeTab} onValueChange={(val) => {
                 setActiveTab(val);
                 if (val === "all") deselectAllCritical();
             }}>
-                <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-2">
-                    <div className="flex-1">
-                        {activeTab === "all" && (
-                            <FilterBar
-                                vendorOptions={vendorOptions}
-                                vendorFilter={poVendorFilter}
-                                onToggleVendor={onToggleVendor}
-                                dateFilter={poDateFilter}
-                                onDateFilter={setPoDateFilter}
-                                onClearFilters={() => { onClearPoFilters(); setStatusFilter(null); }}
-                            />
-                        )}
-                    </div>
-                    <div className="shrink-0 pt-1">
-                        <TabsList className="h-8">
-                            <TabsTrigger value="all" className="text-xs h-7 px-3">
+                {/* FilterBar + Selection Bar (only on "all" tab) */}
+                {activeTab === "all" && (
+                    <FilterBar
+                        searchQuery={searchQuery}
+                        onSearchChange={setSearchQuery}
+                        searchPlaceholder="Search by PO ID"
+                        vendorOptions={vendorOptions}
+                        vendorFilter={poVendorFilter}
+                        onToggleVendor={onToggleVendor}
+                        dateFilter={poDateFilter}
+                        onDateFilter={setPoDateFilter}
+                        statusOptions={poStatuses}
+                        statusFilter={statusFilter}
+                        onStatusChange={setStatusFilter}
+                        onClearFilters={handleClearAllFilters}
+                        selectedCount={selectedIds.length}
+                        totalCount={items.length}
+                        allSelected={allFilteredSelected}
+                        onSelectAll={handleSelectAll}
+                        onDeselectAll={handleDeselectAll}
+                        tabSlot={
+                            <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
+                                <TabsTrigger 
+                                    value="all" 
+                                    className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                                >
+                                    All POs
+                                    <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                        {items.length}
+                                    </Badge>
+                                </TabsTrigger>
+                                <TabsTrigger 
+                                    value="critical" 
+                                    className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                                >
+                                    Critical POs
+                                    {tasksWithPOs.length > 0 && (
+                                        <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                            {tasksWithPOs.length}
+                                        </Badge>
+                                    )}
+                                </TabsTrigger>
+                            </TabsList>
+                        }
+                    />
+                )}
+
+                {/* Critical tab header — show tabs when on critical tab */}
+                {activeTab === "critical" && (
+                    <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm text-muted-foreground font-medium">
+                            {selectedIds.length}/{items.length} Selected
+                        </p>
+                        <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
+                            <TabsTrigger 
+                                value="all" 
+                                className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                            >
                                 All POs
-                                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{items.length}</Badge>
+                                <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "all" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                    {items.length}
+                                </Badge>
                             </TabsTrigger>
-                            <TabsTrigger value="critical" className="text-xs h-7 px-3 gap-1">
-                                <AlertTriangle className="h-3 w-3 text-orange-500" />
+                            <TabsTrigger 
+                                value="critical" 
+                                className="px-4 h-8 text-xs font-bold rounded-md transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-slate-500"
+                            >
                                 Critical POs
                                 {tasksWithPOs.length > 0 && (
-                                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{tasksWithPOs.length}</Badge>
+                                    <Badge className={`ml-2 h-5 px-1.5 text-[11px] font-bold border-none ${activeTab === "critical" ? "bg-blue-50 text-blue-600" : "bg-[#F1F5F9] text-slate-500"}`}>
+                                        {tasksWithPOs.length}
+                                    </Badge>
                                 )}
                             </TabsTrigger>
                         </TabsList>
                     </div>
-                </div>
+                )}
 
                 {/* All POs tab */}
                 <TabsContent value="all" className="mt-0">
-                    {/* Status filter chips */}
-                    {poStatuses.length > 1 && (
-                        <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                            <span className="text-[11px] text-muted-foreground font-medium mr-1">Status:</span>
-                            <button
-                                onClick={() => setStatusFilter(null)}
-                                className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors ${!statusFilter ? "bg-primary text-primary-foreground border-primary" : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"}`}
-                            >
-                                All
-                                <span className="ml-1 opacity-70">{items.length}</span>
-                            </button>
-                            {poStatuses.map((status) => {
-                                const c = STATUS_COLORS[status] || DEFAULT_STATUS_COLOR;
-                                const active = statusFilter === status;
-                                return (
-                                    <button
-                                        key={status}
-                                        onClick={() => setStatusFilter(active ? null : status)}
-                                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors ${active ? `${c.activeBg} ${c.text} ${c.activeBorder}` : `${c.bg} ${c.text} border-transparent hover:border-current/20`}`}
-                                    >
-                                        {status}
-                                        <span className="ml-1 opacity-70">{statusCounts[status] || 0}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-
                     <BaseItemList
                         items={poBaseItems}
                         isLoading={isLoading}
                         selectedIds={selectedIds}
                         onToggle={onToggle}
                         emptyMessage="No POs match current filters"
-                        onClearFilters={() => { onClearPoFilters(); setStatusFilter(null); }}
+                        onClearFilters={handleClearAllFilters}
                     />
                 </TabsContent>
 
@@ -301,9 +334,19 @@ export const POSteps = ({
                 <Button variant="ghost" onClick={onBack} disabled={loading}>
                     <ArrowLeft className="h-4 w-4 mr-2" />Back
                 </Button>
-                <Button onClick={onDownload} disabled={loading || selectedIds.length === 0} className="min-w-40">
+                <Button
+                    onClick={onDownload}
+                    disabled={loading || selectedIds.length === 0}
+                    variant={selectedIds.length > 0 ? "destructive" : "outline"}
+                    className="min-w-44"
+                >
                     {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                    {loading ? "Generating..." : selectedIds.length === 0 ? "Select POs to download" : `Download ${selectedIds.length} PO${selectedIds.length !== 1 ? "s" : ""}`}
+                    {loading
+                        ? "Generating..."
+                        : selectedIds.length === 0
+                            ? "Select POs to download"
+                            : `Download ${selectedIds.length} PO${selectedIds.length !== 1 ? "s" : ""}`
+                    }
                 </Button>
             </div>
         </div>
