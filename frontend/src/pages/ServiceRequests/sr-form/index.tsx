@@ -33,6 +33,7 @@ import {
     defaultSRFormValues,
     validateStep1,
     validateStep2,
+    calculateTotal,
     ValidationResult,
 } from "./schema";
 import {
@@ -108,6 +109,7 @@ export const SRFormWizard = () => {
        ───────────────────────────────────────────────────────── */
     const {
         categories,
+        serviceItems,
         vendors,
         project,
         autoSelectedGST,
@@ -199,11 +201,34 @@ export const SRFormWizard = () => {
                 // Full validation on review step
                 const result = srFormSchema.safeParse(currentFormValues);
                 if (!result.success) {
+                    const error = result.error.errors[0];
+                    let message = error?.message || "Please review all details.";
+
+                    // If error is related to a specific item, prepend the item name
+                    if (error?.path[0] === "items" && typeof error.path[1] === "number") {
+                        const itemIndex = error.path[1];
+                        const item = currentFormValues.items?.[itemIndex];
+                        if (item?.description) {
+                            const itemName = item.description.split('\n')[0];
+                            message = `${itemName}: ${message}`;
+                        }
+                    }
+
                     return {
                         success: false,
-                        error: result.error.errors[0]?.message || "Please review all details.",
+                        error: message,
                     };
                 }
+
+                // Final check for negative total
+                const finalTotal = calculateTotal(currentFormValues.items || []);
+                if (finalTotal < 0) {
+                    return {
+                        success: false,
+                        error: "Total Service Amount cannot be negative.",
+                    };
+                }
+
                 return { success: true };
             default:
                 return { success: true };
@@ -381,6 +406,7 @@ export const SRFormWizard = () => {
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        serviceItems={serviceItems}
                         isLoading={dataLoading}
                     />
                 );

@@ -46,6 +46,7 @@ export const SRAmendPage = () => {
         srDoc,
         initialFormValues,
         categories,
+        serviceItems,
         vendors,
         project,
         isLoading: dataLoading,
@@ -90,6 +91,7 @@ export const SRAmendPage = () => {
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        serviceItems={serviceItems}
                         isLoading={dataLoading}
                     />
                 );
