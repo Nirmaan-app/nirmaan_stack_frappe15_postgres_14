@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { toast } from "@/components/ui/use-toast";
-import { CirclePlus, Pencil, Trash2, AlertCircle, Search, Layers, ListChecks } from "lucide-react";
+import { CirclePlus, Trash2, AlertCircle, Search, Layers, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -85,9 +85,8 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
         quantity: 0,
         rate: 0,
     });
-    const [editingItem, setEditingItem] = useState<ServiceItemType | null>(null);
-    const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
+    const [deletePackageName, setDeletePackageName] = useState<string | null>(null);
 
     const items = form.watch("items") || [];
 
@@ -203,23 +202,6 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
         setIsCustomDialogOpen(false);
     };
 
-    // Open edit dialog
-    const handleEditClick = (item: ServiceItemType) => {
-        setEditingItem({ ...item });
-        setEditDialogOpen(true);
-    };
-
-    // Save edited item
-    const handleSaveEdit = () => {
-        if (!editingItem) return;
-
-        const updatedItems = items.map((item) =>
-            item.id === editingItem.id ? editingItem : item
-        );
-        form.setValue("items", updatedItems);
-        setEditDialogOpen(false);
-        setEditingItem(null);
-    };
 
     // Delete item
     const handleDeleteItem = () => {
@@ -228,6 +210,19 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
         const updatedItems = items.filter((item) => item.id !== deleteItemId);
         form.setValue("items", updatedItems);
         setDeleteItemId(null);
+    };
+
+    // Delete package (all items in category)
+    const handleDeletePackage = () => {
+        if (!deletePackageName) return;
+
+        const updatedItems = items.filter((item) => item.category !== deletePackageName);
+        form.setValue("items", updatedItems);
+        setDeletePackageName(null);
+        toast({
+            title: "Package Removed",
+            description: `All items from package "${deletePackageName}" have been removed.`,
+        });
     };
 
     // Update specific field of an item
@@ -415,19 +410,34 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                 {Object.entries(groupedItemsByPackage).map(([pkg, pkgItems]) => (
                                     <React.Fragment key={pkg}>
                                         {/* Package Separator Row - Only shown if more than one package exists or it's a multi-package view */}
-                                        {Object.keys(groupedItemsByPackage).length > 1 && (
+                                        {Object.keys(groupedItemsByPackage).length > 0 && (
                                             <TableRow className="bg-slate-50/50 border-y border-slate-100/50">
-                                                <TableCell colSpan={6} className="py-2 px-4 shadow-sm">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="bg-primary/10 text-primary p-1 rounded shadow-sm">
-                                                            <Layers className="h-3.5 w-3.5" />
+                                                 <TableCell colSpan={6} className="py-2 px-4 shadow-sm group/pkg">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-2.5">
+                                                            <div className="bg-primary/10 text-primary p-1.5 rounded-md shadow-sm border border-primary/20">
+                                                                <Layers className="h-3.5 w-3.5" />
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm font-bold text-slate-800 tracking-tight">
+                                                                    {pkg}
+                                                                </span>
+                                                                <Badge variant="secondary" className="text-[10px] font-semibold text-slate-500 py-0 h-4.5 bg-slate-100 border-none shadow-none">
+                                                                    {pkgItems.length} {pkgItems.length === 1 ? "Item" : "Items"}
+                                                                </Badge>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setDeletePackageName(pkg);
+                                                                    }}
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            </div>
                                                         </div>
-                                                        <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-widest">
-                                                            Package: {pkg}
-                                                        </span>
-                                                        <Badge variant="secondary" className="text-[9px] font-medium text-slate-400 py-0 h-4 bg-slate-100/50 hover:bg-slate-100 shadow-none">
-                                                            {pkgItems.length} {pkgItems.length === 1 ? "Item" : "Items"}
-                                                        </Badge>
                                                     </div>
                                                 </TableCell>
                                             </TableRow>
@@ -492,16 +502,8 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                                         />
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="text-center py-2.5 px-4">
+                                                 <TableCell className="text-center py-2.5 px-4">
                                                     <div className="flex items-center justify-center gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0 hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors"
-                                                            onClick={() => handleEditClick(item)}
-                                                        >
-                                                            <Pencil className="h-4 w-4" />
-                                                        </Button>
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
@@ -694,93 +696,6 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                 </DialogContent>
             </Dialog>
 
-            {/* Edit Dialog */}
-            <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle>Edit Service Item</DialogTitle>
-                        <DialogDescription>
-                            Modify the service item details below
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {editingItem && (
-                        <div className="space-y-4 py-4">
-                            {/* Category selector */}
-                            <div>
-                                <Label htmlFor="edit-category">Category</Label>
-                                <Select
-                                    value={editingItem.category}
-                                    onValueChange={(value) =>
-                                        setEditingItem({ ...editingItem, category: value })
-                                    }
-                                >
-                                    <SelectTrigger className="mt-1">
-                                        <SelectValue placeholder="Select category" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {categories?.map((cat) => (
-                                            <SelectItem key={cat.value} value={cat.value}>
-                                                {cat.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <Label htmlFor="edit-description">Service Description</Label>
-                                <Textarea
-                                    id="edit-description"
-                                    value={editingItem.description}
-                                    onChange={(e) =>
-                                        setEditingItem({ ...editingItem, description: e.target.value })
-                                    }
-                                    className="mt-1"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <Label htmlFor="edit-uom">Unit</Label>
-                                    <Input
-                                        id="edit-uom"
-                                        type="text"
-                                        placeholder="e.g., Sq.ft, Nos, Job"
-                                        value={editingItem.uom}
-                                        onChange={(e) =>
-                                            setEditingItem({ ...editingItem, uom: e.target.value })
-                                        }
-                                        className="mt-1"
-                                    />
-                                </div>
-                                <div>
-                                    <Label htmlFor="edit-quantity">Quantity</Label>
-                                    <Input
-                                        id="edit-quantity"
-                                        type="number"
-                                        min={0}
-                                        step="any"
-                                        value={editingItem.quantity}
-                                        onChange={(e) =>
-                                            setEditingItem({
-                                                ...editingItem,
-                                                quantity: parseFloat(e.target.value) || 0,
-                                            })
-                                        }
-                                        className="mt-1"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleSaveEdit}>Save Changes</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             {/* Delete Confirmation Dialog */}
             <AlertDialog open={!!deleteItemId} onOpenChange={() => setDeleteItemId(null)}>
@@ -802,6 +717,28 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {/* Package Delete Confirmation Dialog */}
+            <AlertDialog open={!!deletePackageName} onOpenChange={() => setDeletePackageName(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove All Package Items?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-600">
+                            If you proceed, all selected items from the package <span className="font-bold text-foreground">"{deletePackageName}"</span> will be removed from your selected list.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Keep Items</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeletePackage}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            Confirm Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
         </div>
     );
 };

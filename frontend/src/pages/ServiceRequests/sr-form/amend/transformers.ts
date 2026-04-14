@@ -1,5 +1,6 @@
 import { SRFormValues, ServiceItemType, VendorRefType, ProjectRefType, createServiceItem } from "../schema";
 import { ServiceRequests, ServiceItemType as SRServiceItemType } from "@/types/NirmaanStack/ServiceRequests";
+import { groupItemsByCategoryFlat } from "../utils";
 
 /**
  * Vendor data structure from the Vendors doctype
@@ -145,9 +146,12 @@ export function transformSRToFormValues(
  * @returns Object ready for Frappe document update
  */
 export function transformFormValuesToSRPayload(values: SRFormValues): Record<string, unknown> {
+    // Group items by category to preserve package-wise order in backend
+    const groupedItems = groupItemsByCategoryFlat(values.items);
+
     // Build service_order_list structure
     const serviceOrderList = {
-        list: values.items.map((item) => ({
+        list: groupedItems.map((item) => ({
             id: item.id,
             category: item.category,
             description: item.description,
@@ -158,9 +162,9 @@ export function transformFormValuesToSRPayload(values: SRFormValues): Record<str
         })),
     };
 
-    // Build service_category_list from unique categories
+    // Build service_category_list from unique categories in grouped order
     const uniqueCategories = Array.from(
-        new Set(values.items.map((item) => item.category))
+        new Set(groupedItems.map((item) => item.category))
     );
     const serviceCategoryList = {
         list: uniqueCategories.map((name) => ({ name })),
