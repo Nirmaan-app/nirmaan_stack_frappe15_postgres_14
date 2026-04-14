@@ -84,9 +84,8 @@ export const BaseItemList = ({
                             >
                                 <Checkbox
                                     checked={isSelected}
-                                    onCheckedChange={() => onToggle(item.name)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className={isSelected ? "data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500" : ""}
+                                    onCheckedChange={() => {}}
+                                    className={`pointer-events-none ${isSelected ? "data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500" : ""}`}
                                 />
                                 <div className="flex flex-1 items-center justify-between min-w-0 gap-2">
                                     <div className="min-w-0">

@@ -1,8 +1,10 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
-import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw } from "lucide-react";
+import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
 import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps } from "./steps";
@@ -69,6 +71,21 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         showProgress,
         setShowProgress,
         handleDownload,
+        completedBatches,
+        finalMergeToken,
+        triggerDownload,
+        stopProgress,
+
+        // New properties
+        filteredPoList,
+        filteredWoList,
+        filteredDnList,
+        filteredInvoiceItemsBase,
+        filteredPoDeliveryDocItems,
+        searchQuery,
+        setSearchQuery,
+        statusFilter,
+        toggleStatus,
     } = useBulkDownloadWizard(projectId, projectName);
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
@@ -147,6 +164,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             onDownload={handleDownload}
                             loading={loading}
                             items={poList}
+                            filteredItems={filteredPoList}
                             isLoading={posLoading}
                             withRate={withRate}
                             onWithRateChange={setWithRate}
@@ -159,6 +177,10 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
                             poStatuses={poStatuses}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            statusFilter={statusFilter}
+                            toggleStatus={toggleStatus}
                         />
                     )}
 
@@ -166,6 +188,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                         <WOSteps
                             {...sharedProps}
                             items={woList}
+                            filteredItems={filteredWoList}
                             isLoading={wosLoading}
                             vendorOptions={vendorOptions}
                             vendorFilter={commonVendorFilter}
@@ -173,6 +196,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -189,6 +214,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -203,6 +230,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -217,13 +246,15 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
                     {step === 2 && docType === "DN" && (
                         <DNSteps
                             {...sharedProps}
-                            items={dnList}
+                            items={filteredDnList}
                             isLoading={posLoading}
                             vendorOptions={vendorOptions}
                             poVendorFilter={commonVendorFilter}
@@ -233,6 +264,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             onClearPoFilters={clearFilters}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
                         />
                     )}
 
@@ -266,24 +299,28 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
             </div>
 
             {/* Progress Dialog */}
-            <Dialog open={showProgress} onOpenChange={(open) => !loading && setShowProgress(open)}>
+            <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
                 <DialogContent
                     className="sm:max-w-md [&>button]:hidden"
                     onPointerDownOutside={(e) => e.preventDefault()}
                     onEscapeKeyDown={(e) => e.preventDefault()}
                 >
                     <DialogHeader>
-                        <DialogTitle>Generating PDF</DialogTitle>
-                        <DialogDescription>Please wait while we gather and merge your documents.</DialogDescription>
+                        <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
                     </DialogHeader>
-                    <div className="flex flex-col items-center space-y-4 py-4">
-                        <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
-                            <div
-                                className="bg-primary h-full transition-all duration-300 ease-in-out"
-                                style={{ width: `${progress}%` }}
-                            />
+
+                    <div className="flex flex-col space-y-4 py-4">
+                        <div className="space-y-2">
+                            <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
+                                <div
+                                    className="bg-primary h-full transition-all duration-300 ease-in-out"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-muted-foreground">
+                                <span>{progress}% — {progressMessage}</span>
+                            </div>
                         </div>
-                        <p className="text-sm text-muted-foreground">{progress}% — {progressMessage}</p>
                     </div>
                 </DialogContent>
             </Dialog>

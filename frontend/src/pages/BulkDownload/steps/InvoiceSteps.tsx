@@ -28,6 +28,8 @@ interface InvoiceStepsProps {
     dateFilter?: DateFilterValue;
     onDateFilter: (v?: DateFilterValue) => void;
     onClearFilters: () => void;
+    searchQuery: string;
+    onSearchChange: (q: string) => void;
 }
 
 const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[] = [
@@ -39,9 +41,9 @@ const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[]
 export const InvoiceSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange,
-    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
+    searchQuery, onSearchChange
 }: InvoiceStepsProps) => {
-    const [searchQuery, setSearchQuery] = useState("");
 
     const filteredItems = useMemo(() => {
         if (!searchQuery.trim()) return items;
@@ -65,7 +67,7 @@ export const InvoiceSteps = ({
             : undefined,
     }));
 
-    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const allSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
     const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
     const handleDeselectAll = () => onDeselectAll();
 
@@ -107,17 +109,17 @@ export const InvoiceSteps = ({
 
             <FilterBar
                 searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
+                onSearchChange={onSearchChange}
                 searchPlaceholder="Search by Invoice NO"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
-                onClearFilters={() => { onClearFilters(); setSearchQuery(""); }}
-                selectedCount={selectedIds.length}
-                totalCount={filteredItems.length}
-                allSelected={allFilteredSelected}
+                onClearFilters={onClearFilters}
+                selectedCount={items.filter((i) => selectedIds.includes(i.name)).length}
+                totalCount={items.length}
+                allSelected={allSelected}
                 onSelectAll={handleSelectAll}
                 onDeselectAll={handleDeselectAll}
             />

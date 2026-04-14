@@ -33,8 +33,8 @@ interface FilterBarProps {
 
     // Status filter (optional — PO-specific)
     statusOptions?: string[];
-    statusFilter?: string | null;
-    onStatusChange?: (status: string | null) => void;
+    statusFilter?: string[];
+    onToggleStatus?: (status: string) => void;
 
     // Clear all
     onClearFilters: () => void;
@@ -59,8 +59,8 @@ export const FilterBar = ({
     dateFilter,
     onDateFilter,
     statusOptions,
-    statusFilter,
-    onStatusChange,
+    statusFilter = [],
+    onToggleStatus,
     onClearFilters: _onClearFilters,
     selectedCount,
     totalCount,
@@ -74,7 +74,7 @@ export const FilterBar = ({
 
     const vendorActive = vendorFilter.length > 0;
     const dateActive = !!dateFilter;
-    const statusActive = !!statusFilter;
+    const statusActive = statusFilter.length > 0;
 
     const inactiveBtnClass = "h-9 text-xs gap-1.5 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm";
     const activeBtnClass = "h-9 text-xs gap-1.5 bg-red-500 text-white border-red-500 hover:bg-red-600 shadow-sm";
@@ -169,7 +169,7 @@ export const FilterBar = ({
                 </div>
 
                 {/* Status Button (optional) */}
-                {statusOptions && statusOptions.length > 0 && onStatusChange && (
+                {statusOptions && statusOptions.length > 0 && onToggleStatus && (
                     <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
                         <PopoverTrigger asChild>
                             <Button
@@ -185,32 +185,34 @@ export const FilterBar = ({
                             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 px-1">
                                 Filter by Status
                             </p>
-                            <div className="space-y-1">
-                                <div
-                                    className={`flex items-center gap-2 rounded px-2 py-1.5 cursor-pointer text-xs font-medium transition-colors ${!statusFilter ? "bg-primary/10 text-primary" : "hover:bg-muted/50 text-foreground"}`}
-                                    onClick={() => { onStatusChange(null); setStatusPopoverOpen(false); }}
-                                >
-                                    All Statuses
-                                </div>
+                            <div className="max-h-52 overflow-y-auto space-y-1">
                                 {statusOptions.map((status) => (
                                     <div
                                         key={status}
-                                        className={`flex items-center gap-2 rounded px-2 py-1.5 cursor-pointer text-xs font-medium transition-colors ${statusFilter === status ? "bg-primary/10 text-primary" : "hover:bg-muted/50 text-foreground"}`}
-                                        onClick={() => { onStatusChange(statusFilter === status ? null : status); setStatusPopoverOpen(false); }}
+                                        className="flex items-center gap-2 rounded px-1 py-1.5 cursor-pointer hover:bg-muted/50"
+                                        onClick={() => onToggleStatus(status)}
                                     >
-                                        {status}
+                                        <Checkbox
+                                            checked={statusFilter.includes(status)}
+                                            onCheckedChange={() => onToggleStatus(status)}
+                                            onClick={(e) => e.stopPropagation()}
+                                        />
+                                        <Label className="text-xs cursor-pointer truncate">{status}</Label>
                                     </div>
                                 ))}
                             </div>
-                            {statusFilter && (
-                                <div className="mt-2 pt-2 border-t">
+                            {statusFilter.length > 0 && (
+                                <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-6 text-[11px] px-2 w-full justify-start"
-                                        onClick={() => { onStatusChange(null); setStatusPopoverOpen(false); }}
+                                        className="h-6 text-[11px] px-2"
+                                        onClick={() => {
+                                            statusFilter.forEach(onToggleStatus);
+                                            setStatusPopoverOpen(false);
+                                        }}
                                     >
-                                        Clear status
+                                        Clear ({statusFilter.length})
                                     </Button>
                                 </div>
                             )}
@@ -221,11 +223,17 @@ export const FilterBar = ({
 
             {/* Row 2: Selection Bar */}
             {totalCount != null && (
-                <div className="flex items-center justify-between mb-4">
-                    <p className="text-sm text-muted-foreground font-medium">
-                        {selectedCount ?? 0}/{totalCount} Selected
-                    </p>
-                    <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between py-1.5">
+                    {/* Left: Tabs Slot */}
+                    <div className="flex-shrink-0">
+                        {tabSlot}
+                    </div>
+
+                    {/* Right: Count & Select All */}
+                    <div className="flex items-center gap-4 pr-1">
+                        <p className="text-sm text-slate-500 font-medium">
+                            {selectedCount ?? 0}/{totalCount} Selected
+                        </p>
                         {onSelectAll && onDeselectAll && (
                             <div 
                                 onClick={() => allSelected ? onDeselectAll() : onSelectAll()}
@@ -234,12 +242,11 @@ export const FilterBar = ({
                                 <Checkbox
                                     checked={allSelected}
                                     onCheckedChange={() => allSelected ? onDeselectAll() : onSelectAll()}
-                                    className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                                    className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 pointer-events-none"
                                 />
                                 <span className="text-sm font-semibold text-gray-700">Select All</span>
                             </div>
                         )}
-                        {tabSlot}
                     </div>
                 </div>
             )}

@@ -25,14 +25,19 @@ interface DCStepsProps {
     dateFilter?: DateFilterValue;
     onDateFilter: (v?: DateFilterValue) => void;
     onClearFilters: () => void;
+    // New props for context-aware selection
+    searchQuery: string;
+    onSearchChange: (q: string) => void;
 }
 
 export const DCSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
-    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
+    searchQuery, onSearchChange
 }: DCStepsProps) => {
-    const [searchQuery, setSearchQuery] = useState("");
+
+    const allSelected = items.length > 0 && items.every((i) => selectedIds.includes(i.name));
 
     const filteredItems = useMemo(() => {
         if (!searchQuery.trim()) return items;
@@ -68,17 +73,17 @@ export const DCSteps = ({
 
             <FilterBar
                 searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                searchPlaceholder="Search by DC number"
+                onSearchChange={onSearchChange}
+                searchPlaceholder="Search by ID or PO"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
-                onClearFilters={() => { onClearFilters(); setSearchQuery(""); }}
-                selectedCount={selectedIds.length}
+                onClearFilters={onClearFilters}
+                selectedCount={items.filter((i) => selectedIds.includes(i.name)).length}
                 totalCount={items.length}
-                allSelected={allFilteredSelected}
+                allSelected={allSelected}
                 onSelectAll={handleSelectAll}
                 onDeselectAll={handleDeselectAll}
             />

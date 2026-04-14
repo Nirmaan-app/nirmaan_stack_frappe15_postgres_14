@@ -5,7 +5,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Download, FileDown } from "lucide-react";
+import { ChevronDown, Download, FileDown, ExternalLink } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
@@ -35,7 +36,11 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     invoiceType,
     setInvoiceType,
     initiateInvoiceDownload,
-    handleBulkDownload
+    handleBulkDownload,
+    completedBatches,
+    finalMergeToken,
+    triggerDownload,
+    stopProgress
   } = useBulkPdfDownload(projectId, projectName);
 
   return (
@@ -150,26 +155,38 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
       </Dialog>
 
       {/* Progress Dialog */}
-      <Dialog open={showProgress} onOpenChange={(open) => !loading && setShowProgress(open)}>
+      <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
         <DialogContent 
             className="sm:max-w-md [&>button]:hidden"
             onPointerDownOutside={(e) => e.preventDefault()}
             onEscapeKeyDown={(e) => e.preventDefault()}
         >
             <DialogHeader>
-            <DialogTitle>Generating PDF</DialogTitle>
-            <DialogDescription>
-                Please wait while we gather and merge your documents.
-            </DialogDescription>
+              <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
             </DialogHeader>
-            <div className="flex flex-col items-center justify-center space-y-4 py-4">
-                <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
-                <div 
-                    className="bg-primary h-full transition-all duration-300 ease-in-out" 
-                    style={{ width: `${progress}%` }}
-                />
+            <div className="flex flex-col space-y-4 py-4">
+                <div className="space-y-2">
+                  <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
+                    <div 
+                        className="bg-primary h-full transition-all duration-300 ease-in-out" 
+                        style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-muted-foreground">
+                      <span>{progress}% - {progressMessage}</span>
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground">{progress}% - {progressMessage}</p>
+                
+                {(progress === 100 || !loading) && (
+                    <div className="pt-2 flex justify-end">
+                        <Button 
+                            className="w-full"
+                            onClick={stopProgress}
+                        >
+                            Close and Finish
+                        </Button>
+                    </div>
+                )}
             </div>
         </DialogContent>
       </Dialog>

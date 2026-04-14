@@ -25,26 +25,17 @@ interface WOStepsProps {
     dateFilter?: DateFilterValue;
     onDateFilter: (v?: DateFilterValue) => void;
     onClearFilters: () => void;
+    filteredItems: WOItem[];
+    searchQuery: string;
+    onSearchChange: (q: string) => void;
 }
 
 export const WOSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
-    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
+    filteredItems, searchQuery, onSearchChange
 }: WOStepsProps) => {
-    const [searchQuery, setSearchQuery] = useState("");
-
-    const filteredItems = useMemo(() => {
-        if (!searchQuery.trim()) return items;
-        const q = searchQuery.toLowerCase();
-        return items.filter(
-            (wo) =>
-                wo.name.toLowerCase().includes(q) ||
-                (wo.vendor_name && wo.vendor_name.toLowerCase().includes(q)) ||
-                (wo.vendor && wo.vendor.toLowerCase().includes(q))
-        );
-    }, [items, searchQuery]);
-
     const baseItems: BaseItem[] = filteredItems.map((wo) => ({
         name: wo.name,
         subtitle: wo.vendor_name || wo.vendor || "—",
@@ -52,7 +43,7 @@ export const WOSteps = ({
         dateStr: formatCreationDate(wo.creation),
     }));
 
-    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const allSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
     const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
     const handleDeselectAll = () => onDeselectAll();
 
@@ -67,17 +58,17 @@ export const WOSteps = ({
 
             <FilterBar
                 searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
+                onSearchChange={onSearchChange}
                 searchPlaceholder="Search by WO ID"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
-                onClearFilters={() => { onClearFilters(); setSearchQuery(""); }}
-                selectedCount={selectedIds.length}
-                totalCount={items.length}
-                allSelected={allFilteredSelected}
+                onClearFilters={onClearFilters}
+                selectedCount={filteredItems.filter((i) => selectedIds.includes(i.name)).length}
+                totalCount={filteredItems.length}
+                allSelected={allSelected}
                 onSelectAll={handleSelectAll}
                 onDeselectAll={handleDeselectAll}
             />

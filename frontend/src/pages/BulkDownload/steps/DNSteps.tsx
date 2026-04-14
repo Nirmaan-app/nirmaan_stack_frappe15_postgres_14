@@ -39,6 +39,9 @@ interface DNStepsProps {
     onClearPoFilters: () => void;
     criticalTasks: CriticalPOTask[];
     onSelectMultipleCriticalTaskPOs: (taskNames: string[]) => void;
+    // Uplifted Search
+    searchQuery: string;
+    setSearchQuery: (q: string) => void;
 }
 
 export const DNSteps = ({
@@ -47,6 +50,7 @@ export const DNSteps = ({
     vendorOptions, poVendorFilter, onToggleVendor,
     poDateFilter, setPoDateFilter, onClearPoFilters,
     criticalTasks, onSelectMultipleCriticalTaskPOs,
+    searchQuery, setSearchQuery,
 }: DNStepsProps) => {
     const tasksWithPOs = useMemo(
         () => criticalTasks.filter((t) => parseLinkedPOs(t.associated_pos).length > 0),
@@ -55,7 +59,6 @@ export const DNSteps = ({
 
     const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
     const [activeTab, setActiveTab] = useState<string>("all");
-    const [searchQuery, setSearchQuery] = useState("");
 
     const handleCriticalToggle = (taskName: string) => {
         setSelectedCriticalTasks((prev) => {
@@ -76,17 +79,8 @@ export const DNSteps = ({
         onSelectMultipleCriticalTaskPOs([]);
     };
 
-    // Apply search filter
-    const filteredItems = useMemo(() => {
-        if (!searchQuery.trim()) return items;
-        const q = searchQuery.toLowerCase();
-        return items.filter(
-            (po) =>
-                po.name.toLowerCase().includes(q) ||
-                (po.vendor_name && po.vendor_name.toLowerCase().includes(q)) ||
-                (po.vendor && po.vendor.toLowerCase().includes(q))
-        );
-    }, [items, searchQuery]);
+    // Items are already search/date/vendor filtered by hook
+    const filteredItems = items;
 
     const dnBaseItems: BaseItem[] = filteredItems.map((po) => ({
         name: po.name,
@@ -130,8 +124,8 @@ export const DNSteps = ({
                         dateFilter={poDateFilter}
                         onDateFilter={setPoDateFilter}
                         onClearFilters={handleClearAllFilters}
-                        selectedCount={selectedIds.length}
-                        totalCount={items.length}
+                        selectedCount={filteredItems.filter((i) => selectedIds.includes(i.name)).length}
+                        totalCount={filteredItems.length}
                         allSelected={allFilteredSelected}
                         onSelectAll={handleSelectAll}
                         onDeselectAll={handleDeselectAll}
@@ -166,7 +160,7 @@ export const DNSteps = ({
                 {activeTab === "critical" && (
                     <div className="flex items-center justify-between mb-3">
                         <p className="text-sm text-muted-foreground font-medium">
-                            {selectedIds.length}/{items.length} Selected
+                            {filteredItems.filter((i) => selectedIds.includes(i.name)).length}/{filteredItems.length} Selected
                         </p>
                         <TabsList className="bg-[#F8FAFC] p-1 h-10 gap-1 rounded-lg border border-gray-100">
                             <TabsTrigger 
