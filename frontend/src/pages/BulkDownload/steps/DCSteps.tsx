@@ -1,15 +1,16 @@
 /**
- * DCSteps — Delivery Challan selection list
+ * DCSteps — Delivery Challan selection list with search + select all
  */
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
-import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 import { FilterBar } from "../FilterBar";
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
+import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 
 interface DCStepsProps {
-    items: AttachmentItem[];
+    items: PODeliveryDocuments[];
     isLoading: boolean;
     selectedIds: string[];
     onToggle: (id: string) => void;
@@ -24,36 +25,67 @@ interface DCStepsProps {
     dateFilter?: DateFilterValue;
     onDateFilter: (v?: DateFilterValue) => void;
     onClearFilters: () => void;
+    // New props for context-aware selection
+    searchQuery: string;
+    onSearchChange: (q: string) => void;
 }
 
 export const DCSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
-    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
+    searchQuery, onSearchChange
 }: DCStepsProps) => {
-    const baseItems: BaseItem[] = items.map((att) => ({
+
+    const allSelected = items.length > 0 && items.every((i) => selectedIds.includes(i.name));
+
+    const filteredItems = useMemo(() => {
+        if (!searchQuery.trim()) return items;
+        const q = searchQuery.toLowerCase();
+        return items.filter(
+            (att) =>
+                att.name.toLowerCase().includes(q) ||
+                (att.vendor_name && att.vendor_name.toLowerCase().includes(q)) ||
+                (att.vendor && att.vendor.toLowerCase().includes(q)) ||
+                (att.procurement_order && att.procurement_order.toLowerCase().includes(q))
+        );
+    }, [items, searchQuery]);
+
+    const baseItems: BaseItem[] = filteredItems.map((att) => ({
         name: att.name,
         subtitle: att.vendor_name || att.vendor || "—",
         rightLabel: "DC",
         dateStr: att.creation ? formatCreationDate(att.creation) : undefined,
     }));
 
+    const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
+    const handleDeselectAll = () => onDeselectAll();
+
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="text-xl font-bold">Select Delivery Challans</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                    {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                    Choose Delivery Challans to include in your download
                 </p>
             </div>
 
             <FilterBar
+                searchQuery={searchQuery}
+                onSearchChange={onSearchChange}
+                searchPlaceholder="Search by ID or PO"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
                 onClearFilters={onClearFilters}
+                selectedCount={items.filter((i) => selectedIds.includes(i.name)).length}
+                totalCount={items.length}
+                allSelected={allSelected}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={handleDeselectAll}
             />
 
             <BaseItemList

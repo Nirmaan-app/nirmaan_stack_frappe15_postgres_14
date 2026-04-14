@@ -29,7 +29,7 @@ def get_pmo_projects():
     categories = frappe.get_all(
         "PMO Task Category",
         fields=["name", "category_name"],
-        order_by="creation asc",
+        order_by="`order` asc",
     )
     master_tasks = frappe.get_all(
         "PMO Task Master",
@@ -104,15 +104,21 @@ def get_project_tasks(project):
     Get all PMO Project Task records for a given project, grouped by category.
     Maintains the order from master templates.
     """
-    tasks = frappe.get_all(
-        "PMO Project Task",
-        filters={"project": project},
-        fields=[
-            "name", "task_name", "category", "status",
-            "expected_completion_date", "completion_date", "attachment"
-        ],
-        order_by="category asc, task_name asc",
-    )
+    tasks = frappe.db.sql(f"""
+        SELECT 
+            pt.name, pt.task_name, pt.category, pt.status,
+            pt.expected_completion_date, pt.completion_date, pt.attachment
+        FROM 
+            `tabPMO Project Task` pt
+        LEFT JOIN 
+            `tabPMO Task Category` pc ON pt.category = pc.category_name
+        LEFT JOIN 
+            `tabPMO Task Master` tm ON pt.task_master = tm.name
+        WHERE 
+            pt.project = %s
+        ORDER BY 
+            pc."order" ASC, tm."order" ASC
+    """, (project,), as_dict=True)
 
     # Group by category maintaining order
     grouped = {}
@@ -178,14 +184,14 @@ def initialize_project_tasks(project):
     categories = frappe.get_all(
         "PMO Task Category",
         fields=["name", "category_name"],
-        order_by="creation asc",
+        order_by="`order` asc",
     )
 
     # Get all master tasks
     master_tasks = frappe.get_all(
         "PMO Task Master",
         fields=["name", "task_name", "category_link"],
-        order_by="creation asc",
+        order_by="`order` asc",
     )
 
     created_count = 0

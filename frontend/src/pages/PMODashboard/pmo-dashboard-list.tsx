@@ -10,6 +10,7 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { CardListSkeleton } from "@/components/ui/skeleton";
 
 interface CategorySummary {
   total: number;
@@ -179,11 +180,7 @@ const PMODashboardList: React.FC = () => {
   const hiddenProjectsList = useMemo(() => filteredProjects.filter((p) => p.disabled_pmo === 1), [filteredProjects]);
 
   if (loading && !loaded) {
-    return (
-      <div className="flex justify-center items-center h-[60vh]">
-        <TailSpin width={40} height={40} color="#dc2626" />
-      </div>
-    );
+    return <CardListSkeleton />;
   }
 
   return (

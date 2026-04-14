@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil, PlusCircle, Trash2, FileEdit, Package } from "lucide-react";
+import { Pencil, PlusCircle, Trash2, FileEdit, Package, GripVertical, ArrowLeft, Save } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -54,12 +54,14 @@ import {
 interface PMOTaskCategory {
   name: string;
   category_name: string;
+  order?: number;
 }
 
 interface PMOTaskMaster {
   name: string;
   task_name: string;
   category_link: string;
+  order?: number;
 }
 
 // --- Zod Schemas ---
@@ -83,9 +85,9 @@ export const PMOPackagesMaster: React.FC = () => {
     error: catError,
     mutate: mutateCategories,
   } = useFrappeGetDocList<PMOTaskCategory>("PMO Task Category", {
-    fields: ["name", "category_name"],
+    fields: ["name", "category_name", "order"],
     limit: 0,
-    orderBy: { field: "category_name", order: "asc" },
+    orderBy: { field: "`order`", order: "asc" },
   });
 
   const {
@@ -94,10 +96,95 @@ export const PMOPackagesMaster: React.FC = () => {
     error: taskError,
     mutate: mutateTasks,
   } = useFrappeGetDocList<PMOTaskMaster>("PMO Task Master", {
-    fields: ["name", "task_name", "category_link"],
+    fields: ["name", "task_name", "category_link", "order"],
     limit: 0,
-    orderBy: { field: "task_name", order: "asc" },
+    orderBy: { field: "`order`", order: "asc" },
   });
+
+  // Reordering state
+  const [isReordering, setIsReordering] = useState(false);
+  const [reorderedList, setReorderedList] = useState<PMOTaskCategory[]>([]);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  // Drag refs
+  const dragItem = React.useRef<number | null>(null);
+  const dragOverItem = React.useRef<number | null>(null);
+
+  const { updateDoc } = useFrappeUpdateDoc();
+
+  // Initialize reordered list
+  React.useEffect(() => {
+    if (categories) {
+      const sorted = [...categories].sort(
+        (a, b) => (a.order || 9999) - (b.order || 9999)
+      );
+      setReorderedList(sorted);
+    }
+  }, [categories]);
+
+  // Max order calculation
+  const maxOrder = React.useMemo(() => {
+    if (!categories || categories.length === 0) return 0;
+    return Math.max(...categories.map((c) => c.order || 0));
+  }, [categories]);
+
+  // Drag handlers
+  const handleDragStart = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragItem.current = position;
+  };
+
+  const handleDragEnter = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragOverItem.current = position;
+  };
+
+  const handleDragEnd = () => {
+    if (dragItem.current !== null && dragOverItem.current !== null) {
+      const copyListItems = [...reorderedList];
+      const dragItemContent = copyListItems[dragItem.current];
+      copyListItems.splice(dragItem.current, 1);
+      copyListItems.splice(dragOverItem.current, 0, dragItemContent);
+      dragItem.current = null;
+      dragOverItem.current = null;
+      setReorderedList(copyListItems);
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    setIsSavingOrder(true);
+    try {
+      const updatePromises = reorderedList.map((cat, index) => {
+        const newOrder = index + 1;
+        if (cat.order !== newOrder) {
+          return updateDoc("PMO Task Category", cat.name, { order: newOrder });
+        }
+        return Promise.resolve();
+      });
+
+      await Promise.all(updatePromises);
+      toast({
+        title: "Order Updated",
+        description: "PMO Packages have been reordered successfully.",
+        variant: "success",
+      });
+      await mutateCategories();
+      setIsReordering(false);
+    } catch (error: any) {
+      console.error("Order Save Error", error);
+      toast({
+        title: "Error",
+        description: "Failed to save order.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
 
   if (catLoading || taskLoading) {
     return (
@@ -111,6 +198,120 @@ export const PMOPackagesMaster: React.FC = () => {
     return (
       <div className="p-4 text-center text-red-600 border border-red-200 rounded-md bg-red-50">
         Error loading data: {catError?.message || taskError?.message}
+      </div>
+    );
+  }
+
+  // Reordering view
+  if (isReordering) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {/* Header */}
+        <div className="bg-white border-b border-slate-200">
+          <div className="max-w-5xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsReordering(false)}
+                  className="text-slate-600 hover:text-slate-900 -ml-2"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1" />
+                  Back
+                </Button>
+                <div className="h-6 w-px bg-slate-200" />
+                <h1 className="text-lg font-semibold text-slate-900 tracking-tight">
+                  Reorder PMO Packages
+                </h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (categories) {
+                      setReorderedList(
+                        [...categories].sort(
+                          (a, b) => (a.order || 9999) - (b.order || 9999)
+                        )
+                      );
+                    }
+                    setIsReordering(false);
+                  }}
+                  disabled={isSavingOrder}
+                  className="text-slate-600"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSaveOrder}
+                  disabled={isSavingOrder}
+                  className="bg-slate-900 hover:bg-slate-800 text-white"
+                >
+                  {isSavingOrder ? (
+                    <TailSpin height={14} width={14} color="white" />
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-1.5" />
+                      Save Order
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 border-b border-slate-200">
+                  <TableHead className="w-16 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    #
+                  </TableHead>
+                  <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    Package Name
+                  </TableHead>
+                  <TableHead className="w-20 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    Drag
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reorderedList.map((cat, index) => (
+                  <TableRow
+                    key={cat.name}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragEnter={(e) => handleDragEnter(e, index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => e.preventDefault()}
+                    className="cursor-move hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0"
+                  >
+                    <TableCell className="text-center">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-100 text-slate-600 text-xs font-medium">
+                        {index + 1}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-medium text-slate-900">
+                      {cat.category_name}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <GripVertical className="w-4 h-4 text-slate-400 mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-sm text-slate-500 text-center mt-6">
+            Drag rows to reorder. Changes are saved when you click "Save Order".
+          </p>
+        </div>
       </div>
     );
   }
@@ -129,7 +330,18 @@ export const PMOPackagesMaster: React.FC = () => {
                 Configure PMO task categories and their default tasks
               </p>
             </div>
-            <CreateCategoryDialog mutate={mutateCategories} />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsReordering(true)}
+                className="text-slate-600 border-slate-300"
+              >
+                <GripVertical className="w-4 h-4 mr-1.5" />
+                Reorder Packages
+              </Button>
+              <CreateCategoryDialog mutate={mutateCategories} maxOrder={maxOrder} />
+            </div>
           </div>
         </div>
       </div>
@@ -147,7 +359,7 @@ export const PMOPackagesMaster: React.FC = () => {
             <p className="text-sm text-slate-500 mb-4">
               Create your first PMO category to get started.
             </p>
-            <CreateCategoryDialog mutate={mutateCategories} />
+            <CreateCategoryDialog mutate={mutateCategories} maxOrder={0} />
           </div>
         ) : (
           <div className="space-y-4">
@@ -174,9 +386,10 @@ export const PMOPackagesMaster: React.FC = () => {
 // =========================================================================
 
 // --- Create Category Dialog ---
-const CreateCategoryDialog: React.FC<{ mutate: () => Promise<any> }> = ({
-  mutate,
-}) => {
+const CreateCategoryDialog: React.FC<{
+  mutate: () => Promise<any>;
+  maxOrder: number;
+}> = ({ mutate, maxOrder }) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -189,6 +402,7 @@ const CreateCategoryDialog: React.FC<{ mutate: () => Promise<any> }> = ({
     try {
       await createDoc("PMO Task Category", {
         category_name: values.category_name,
+        order: maxOrder + 1,
       });
       toast({
         title: "Success",
@@ -410,7 +624,8 @@ const EditCategoryDialog: React.FC<{
 const CreateTaskDialog: React.FC<{
   categoryId: string;
   mutate: () => Promise<any>;
-}> = ({ categoryId, mutate }) => {
+  maxOrder: number;
+}> = ({ categoryId, mutate, maxOrder }) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -424,6 +639,7 @@ const CreateTaskDialog: React.FC<{
       await createDoc("PMO Task Master", {
         task_name: values.task_name,
         category_link: categoryId,
+        order: maxOrder + 1,
       });
       toast({
         title: "Success",
@@ -698,27 +914,145 @@ const CategoryCard: React.FC<{
   mutateCategories: () => Promise<any>;
   mutateTasks: () => Promise<any>;
 }> = ({ category, tasks, mutateCategories, mutateTasks }) => {
+  const [isReorderingTasks, setIsReorderingTasks] = useState(false);
+  const [taskOrderList, setTaskOrderList] = useState<PMOTaskMaster[]>([]);
+  const [isSavingTaskOrder, setIsSavingTaskOrder] = useState(false);
+
+  const dragItem = React.useRef<number | null>(null);
+  const dragOverItem = React.useRef<number | null>(null);
+
+  const { updateDoc } = useFrappeUpdateDoc();
+
+  // Initialize task order list
+  React.useEffect(() => {
+    const sorted = [...tasks].sort(
+      (a, b) => (a.order || 9999) - (b.order || 9999)
+    );
+    setTaskOrderList(sorted);
+  }, [tasks]);
+
+  const maxTaskOrder = React.useMemo(() => {
+    if (!tasks || tasks.length === 0) return 0;
+    return Math.max(...tasks.map((t) => t.order || 0));
+  }, [tasks]);
+
+  // Drag handlers for tasks
+  const handleDragStartTask = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragItem.current = position;
+  };
+
+  const handleDragEnterTask = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragOverItem.current = position;
+  };
+
+  const handleDragEndTask = () => {
+    if (dragItem.current !== null && dragOverItem.current !== null) {
+      const copyListItems = [...taskOrderList];
+      const dragItemContent = copyListItems[dragItem.current];
+      copyListItems.splice(dragItem.current, 1);
+      copyListItems.splice(dragOverItem.current, 0, dragItemContent);
+      dragItem.current = null;
+      dragOverItem.current = null;
+      setTaskOrderList(copyListItems);
+    }
+  };
+
+  const saveTaskOrder = async () => {
+    setIsSavingTaskOrder(true);
+    try {
+      const updatePromises = taskOrderList.map((t, index) => {
+        const newOrder = index + 1;
+        if (t.order !== newOrder) {
+          return updateDoc("PMO Task Master", t.name, { order: newOrder });
+        }
+        return Promise.resolve();
+      });
+
+      await Promise.all(updatePromises);
+      toast({
+        title: "Success",
+        description: "Task order updated.",
+        variant: "success",
+      });
+      await mutateTasks();
+      setIsReorderingTasks(false);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: "Failed to save task order.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingTaskOrder(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
       {/* Card Header */}
       <div className="px-5 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-slate-900 truncate">
-              {category.category_name}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-slate-900 truncate">
+                {category.category_name}
+              </h3>
+              <EditCategoryDialog
+                category={category}
+                mutate={mutateCategories}
+                mutateTasks={mutateTasks}
+              />
+            </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {tasks.length} task{tasks.length !== 1 ? "s" : ""}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <EditCategoryDialog
-            category={category}
-            mutate={mutateCategories}
-            mutateTasks={mutateTasks}
-          />
-          <CreateTaskDialog categoryId={category.name} mutate={mutateTasks} />
+          {isReorderingTasks ? (
+            <div className="flex items-center gap-1 border border-slate-200 rounded-md overflow-hidden bg-white">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setTaskOrderList([...tasks].sort((a,b) => (a.order || 9999) - (b.order || 9999)));
+                  setIsReorderingTasks(false);
+                }}
+                disabled={isSavingTaskOrder}
+                className="h-7 text-[10px] px-2 rounded-none border-r border-slate-100"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={saveTaskOrder}
+                disabled={isSavingTaskOrder}
+                className="h-7 text-[10px] px-2 rounded-none bg-slate-900 text-white"
+              >
+                {isSavingTaskOrder ? <TailSpin height={10} width={10} color="white" /> : "Save"}
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsReorderingTasks(true)}
+                disabled={tasks.length <= 1}
+                className="h-7 text-xs text-slate-600 hover:bg-slate-100"
+              >
+                <GripVertical className="w-3.5 h-3.5 mr-1" />
+                Reorder
+              </Button>
+              <CreateTaskDialog categoryId={category.name} mutate={mutateTasks} maxOrder={maxTaskOrder} />
+            </>
+          )}
         </div>
       </div>
 
@@ -734,25 +1068,43 @@ const CategoryCard: React.FC<{
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50/50">
+                <TableHead className="w-12 text-center text-xs font-medium text-slate-500 uppercase">
+                  #
+                </TableHead>
                 <TableHead className="text-xs font-medium text-slate-500 uppercase">
                   Task Name
                 </TableHead>
                 <TableHead className="w-[100px] text-right text-xs font-medium text-slate-500 uppercase">
-                  Actions
+                  {isReorderingTasks ? "Drag" : "Actions"}
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tasks.map((task) => (
-                <TableRow key={task.name} className="hover:bg-slate-50/50">
+              {(isReorderingTasks ? taskOrderList : tasks).map((task, idx) => (
+                <TableRow 
+                  key={task.name} 
+                  draggable={isReorderingTasks}
+                  onDragStart={(e) => isReorderingTasks && handleDragStartTask(e, idx)}
+                  onDragEnter={(e) => isReorderingTasks && handleDragEnterTask(e, idx)}
+                  onDragEnd={isReorderingTasks ? handleDragEndTask : undefined}
+                  onDragOver={(e) => isReorderingTasks && e.preventDefault()}
+                  className={`hover:bg-slate-50/50 ${isReorderingTasks ? 'cursor-move bg-slate-50/30' : ''}`}
+                >
+                  <TableCell className="text-center text-[10px] text-slate-400 font-bold">
+                    {idx + 1}
+                  </TableCell>
                   <TableCell className="text-sm text-slate-700 font-medium">
                     {task.task_name}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-0.5">
-                      <EditTaskDialog task={task} mutate={mutateTasks} />
-                      <DeleteTaskDialog task={task} mutate={mutateTasks} />
-                    </div>
+                    {isReorderingTasks ? (
+                       <GripVertical className="w-4 h-4 text-slate-300 ml-auto" />
+                    ) : (
+                      <div className="flex items-center justify-end gap-0.5">
+                        <EditTaskDialog task={task} mutate={mutateTasks} />
+                        <DeleteTaskDialog task={task} mutate={mutateTasks} />
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

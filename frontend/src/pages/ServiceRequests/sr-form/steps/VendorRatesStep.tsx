@@ -1,12 +1,12 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import { UseFormReturn } from "react-hook-form";
-import { Store, AlertCircle, Calculator, CirclePlus } from "lucide-react";
+import { Store, AlertCircle, Calculator, CirclePlus, Layers } from "lucide-react";
 import ReactSelect from "react-select";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { VendorSheet } from "@/pages/ProcurementRequests/VendorQuotesSelection/components/VendorSheet";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Table,
@@ -108,6 +108,18 @@ export const VendorRatesStep: React.FC<StepProps> = ({
 
     // Check if all items have rates (can be negative but not 0 or undefined)
     const allItemsHaveRates = items.every((item) => item.rate !== undefined && item.rate !== 0);
+
+    // Group items by category (Package)
+    const groupedItemsByPackage = useMemo(() => {
+        const groups: Record<string, Array<{ originalIndex: number; data: typeof items[0] }>> = {};
+        items.forEach((item, index) => {
+            if (!groups[item.category]) {
+                groups[item.category] = [];
+            }
+            groups[item.category].push({ originalIndex: index, data: item });
+        });
+        return groups;
+    }, [items]);
 
     // Custom components for react-select
     const CustomSingleValue = ({ data }: { data: VendorOption }) => (
@@ -239,74 +251,115 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                 </div>
 
                 {items.length > 0 ? (
-                    <div className="border rounded-lg overflow-hidden">
+                    <div className="border rounded-xl overflow-hidden shadow-sm bg-white border-slate-200">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-gray-50">
-                                    <TableHead className="w-[25%] text-xs">Category</TableHead>
-                                    <TableHead className="w-[30%] text-xs">Description</TableHead>
-                                    <TableHead className="w-[10%] text-xs text-center">Unit</TableHead>
-                                    <TableHead className="w-[10%] text-xs text-center">Qty</TableHead>
-                                    <TableHead className="w-[12%] text-xs text-center">Rate</TableHead>
-                                    <TableHead className="w-[13%] text-xs text-right">Amount</TableHead>
+                                <TableRow className="bg-gray-50/80 border-b border-slate-100 uppercase tracking-tighter">
+                                    <TableHead className="w-[40%] text-[10px] font-extrabold py-3 px-4 text-slate-500">Item Details & Specs</TableHead>
+                                    <TableHead className="w-[10%] text-[10px] font-extrabold text-center py-3 text-slate-500">Unit</TableHead>
+                                    <TableHead className="w-[10%] text-[10px] font-extrabold text-center py-3 text-slate-500">Qty</TableHead>
+                                    <TableHead className="w-[12%] text-[10px] font-extrabold text-center py-3 text-slate-500">Std Rate</TableHead>
+                                    <TableHead className="w-[13%] text-[10px] font-extrabold text-center py-3 text-slate-500">Rate</TableHead>
+                                    <TableHead className="w-[15%] text-[10px] font-extrabold text-right py-3 pr-4 text-slate-500">Amount</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {items.map((item, index) => {
-                                    const amount = item.quantity * (item.rate ?? 0);
-                                    return (
-                                        <TableRow key={item.id}>
-                                            <TableCell className="text-sm">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {String(index + 1).padStart(2, "0")}
-                                                    </span>
-                                                    <span className="font-medium">{item.category}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                                <span className="line-clamp-2">{item.description}</span>
-                                            </TableCell>
-                                            <TableCell className="text-sm text-center">
-                                                {item.uom}
-                                            </TableCell>
-                                            <TableCell className="text-sm text-center">
-                                                {item.quantity}
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                                <Input
-                                                    type="number"
-                                                    step="any"
-                                                    placeholder={PLACEHOLDERS.rate}
-                                                    value={item.rate || ""}
-                                                    onChange={(e) =>
-                                                        handleRateChange(
-                                                            item.id,
-                                                            parseFloat(e.target.value) || 0
-                                                        )
-                                                    }
-                                                    className="h-8 text-sm text-center"
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === "e") {
-                                                            e.preventDefault();
-                                                        }
-                                                    }}
-                                                />
-                                            </TableCell>
-                                            <TableCell className="text-sm text-right font-medium">
-                                                {amount !== 0 ? formatToIndianRupee(amount) : "--"}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })}
+                                {Object.entries(groupedItemsByPackage).map(([pkg, pkgItems]) => (
+                                    <React.Fragment key={pkg}>
+                                        {/* Package Separator Row - Only shown if more than one package exists */}
+                                        {Object.keys(groupedItemsByPackage).length > 1 && (
+                                            <TableRow className="bg-slate-50/50 border-y border-slate-100/50">
+                                                <TableCell colSpan={6} className="py-2 px-4 shadow-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="bg-primary/10 text-primary p-1 rounded shadow-sm">
+                                                            <Layers className="h-3.5 w-3.5" />
+                                                        </div>
+                                                        <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-widest">
+                                                            Package: {pkg}
+                                                        </span>
+                                                        <Badge variant="secondary" className="text-[9px] font-medium text-slate-400 py-0 h-4 bg-slate-100/50 hover:bg-slate-100 shadow-none">
+                                                            {pkgItems.length} {pkgItems.length === 1 ? "Item" : "Items"}
+                                                        </Badge>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+
+                                        {/* Item Rows */}
+                                        {pkgItems.map(({ originalIndex, data: item }, pkgIdx) => {
+                                            const amount = item.quantity * (item.rate ?? 0);
+                                            return (
+                                                <TableRow key={item.id} className="hover:bg-slate-50/30 border-b border-slate-50 last:border-0 last:bg-transparent group/row">
+                                                    <TableCell className="text-sm py-2.5 px-4">
+                                                        <div className="flex flex-col gap-0.5 ml-1">
+                                                            <span className="font-semibold text-slate-900 leading-tight transition-colors">
+                                                                {item.description.split('\n')[0]}
+                                                            </span>
+                                                                {item.description.includes('\n') && (
+                                                                    <span className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed italic opacity-80">
+                                                                        {item.description.split('\n').slice(1).join('\n')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-center py-2.5">
+                                                        <Badge variant="secondary" className="bg-slate-100/80 text-slate-600 font-normal py-0.5 border-slate-200 shadow-none">
+                                                            {item.uom}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-center font-bold text-slate-900 py-2.5">
+                                                        {item.quantity}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-center py-2.5">
+                                                        <span className="text-[11px] font-semibold text-slate-500 bg-slate-50/80 px-2 py-1.5 rounded border border-slate-100">
+                                                            {item.standard_rate !== undefined && item.standard_rate !== null 
+                                                                ? formatToIndianRupee(item.standard_rate) 
+                                                                : "N/A"}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm p-1 py-2.5">
+                                                        <div className="relative group/rate max-w-[120px] mx-auto">
+                                                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">₹</span>
+                                                            <input
+                                                                type="number"
+                                                                step="any"
+                                                                placeholder="0.00"
+                                                                value={item.rate || ""}
+                                                                onChange={(e) =>
+                                                                    handleRateChange(
+                                                                        item.id,
+                                                                        parseFloat(e.target.value) || 0
+                                                                    )
+                                                                }
+                                                                className={`h-9 w-full pl-5 pr-2 text-center text-xs bg-white font-bold transition-all border rounded outline-none shadow-none ${
+                                                                    form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[originalIndex]?.rate 
+                                                                    ? "border-red-500 ring-1 ring-red-500/10" 
+                                                                    : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
+                                                                }`}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === "e") {
+                                                                        e.preventDefault();
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-right font-extrabold text-slate-900 py-2.5 pr-4">
+                                                        {amount !== 0 ? formatToIndianRupee(amount) : "--"}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                ))}
                             </TableBody>
                             <TableFooter>
-                                <TableRow className="bg-gray-50">
-                                    <TableCell colSpan={5} className="text-right font-semibold">
-                                        Total Amount
+                                <TableRow className="bg-slate-50/80 border-t-2 border-slate-200/50">
+                                    <TableCell colSpan={5} className="text-right font-bold text-slate-500 uppercase tracking-widest text-[10px] py-5">
+                                        Total Service Amount (All Packages)
                                     </TableCell>
-                                    <TableCell className="text-right font-bold text-primary">
-                                        {formatToIndianRupee(totalAmount)}
+                                    <TableCell className="text-right font-bold text-primary text-xl py-5 pr-4 shadow-sm">
+                                        {formatToIndianRupee(calculateTotal(items))}
                                     </TableCell>
                                 </TableRow>
                             </TableFooter>

@@ -1,6 +1,7 @@
 /**
- * WOSteps — simple Work Order selection list
+ * WOSteps — Work Order selection list with search + select all
  */
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
@@ -24,36 +25,52 @@ interface WOStepsProps {
     dateFilter?: DateFilterValue;
     onDateFilter: (v?: DateFilterValue) => void;
     onClearFilters: () => void;
+    filteredItems: WOItem[];
+    searchQuery: string;
+    onSearchChange: (q: string) => void;
 }
 
 export const WOSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
-    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
+    filteredItems, searchQuery, onSearchChange
 }: WOStepsProps) => {
-    const baseItems: BaseItem[] = items.map((wo) => ({
+    const baseItems: BaseItem[] = filteredItems.map((wo) => ({
         name: wo.name,
         subtitle: wo.vendor_name || wo.vendor || "—",
         status: wo.status,
         dateStr: formatCreationDate(wo.creation),
     }));
 
+    const allSelected = filteredItems.length > 0 && filteredItems.every((i) => selectedIds.includes(i.name));
+    const handleSelectAll = () => onSelectAll(filteredItems.map((i) => i.name));
+    const handleDeselectAll = () => onDeselectAll();
+
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="text-xl font-bold">Select Work Orders</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                    {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
+                    Choose Work Orders to include in your download
                 </p>
             </div>
 
             <FilterBar
+                searchQuery={searchQuery}
+                onSearchChange={onSearchChange}
+                searchPlaceholder="Search by WO ID"
                 vendorOptions={vendorOptions}
                 vendorFilter={vendorFilter}
                 onToggleVendor={onToggleVendor}
                 dateFilter={dateFilter}
                 onDateFilter={onDateFilter}
                 onClearFilters={onClearFilters}
+                selectedCount={filteredItems.filter((i) => selectedIds.includes(i.name)).length}
+                totalCount={filteredItems.length}
+                allSelected={allSelected}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={handleDeselectAll}
             />
 
             <BaseItemList

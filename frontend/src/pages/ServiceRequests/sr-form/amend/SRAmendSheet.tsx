@@ -8,7 +8,9 @@ import {
     XCircle,
     FileEdit,
     MessageSquarePlus,
+    AlertTriangle,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { WizardSteps } from "@/components/ui/wizard-steps";
 import {
@@ -107,7 +109,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
     /* ─────────────────────────────────────────────────────────
        DATA HOOK
        ───────────────────────────────────────────────────────── */
-    const { initialFormValues, categories, vendors, isLoading, hasError } =
+    const { initialFormValues, categories, serviceItems, vendors, isLoading, hasError } =
         useSRAmendData(srId);
 
     /* ─────────────────────────────────────────────────────────
@@ -125,6 +127,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
         isFirstStep,
         isLastStep,
         handleSubmit,
+        hasChanges,
         isSubmitting,
         showSubmissionDialog,
         setShowSubmissionDialog,
@@ -153,6 +156,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        serviceItems={serviceItems}
                         isLoading={isLoading}
                     />
                 );
@@ -261,7 +265,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
        ───────────────────────────────────────────────────────── */
     return (
         <Sheet open={isOpen} onOpenChange={onOpenChange}>
-            <SheetContent className="overflow-auto md:min-w-[700px] sm:min-w-[500px] flex flex-col">
+            <SheetContent className="overflow-auto min-w-[300px] sm:max-w-[60vw] w-full flex flex-col">
                 {/* Header with title and compact step indicator */}
                 <SheetHeader>
                     <SheetTitle>Amend Service Request: {srId}</SheetTitle>
@@ -364,6 +368,17 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                 </p>
                             </div>
 
+                            {/* No Changes Alert - Show on Step 2 and 3 if nothing has changed */}
+                            {!hasChanges && currentStep >= 1 && (
+                                <Alert variant="warning" className="mb-6 bg-amber-50 border-amber-200 text-amber-900">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    <AlertTitle className="text-amber-800 font-semibold">No Changes Detected</AlertTitle>
+                                    <AlertDescription className="text-amber-700">
+                                        You haven't made any modifications to the items, rates, or vendor yet. Please update the details before submitting this amendment.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
                             {/* Step component */}
                             {renderCurrentStep()}
                         </div>
@@ -383,7 +398,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                 {isLastStep ? (
                                     <Button
                                         onClick={handleSubmit}
-                                        disabled={isSubmitting}
+                                        disabled={isSubmitting || !hasChanges}
                                     >
                                         {isSubmitting ? (
                                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -393,7 +408,10 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                         Submit Amendment
                                     </Button>
                                 ) : (
-                                    <Button onClick={handleNext} disabled={isSubmitting}>
+                                    <Button 
+                                        onClick={handleNext} 
+                                        disabled={isSubmitting || (currentStep === 1 && !hasChanges)}
+                                    >
                                         Next
                                         <ChevronRight className="h-4 w-4 ml-2" />
                                     </Button>

@@ -1,4 +1,4 @@
-import { FileDown, ClipboardList, ArrowRight, Receipt, Truck, ClipboardCheck, FileText } from "lucide-react";
+import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
@@ -17,55 +17,55 @@ const TYPE_CONFIG: {
     iconBg: string;
     iconColor: string;
 }[] = [
-    {
-        type: "PO",
-        label: "Procurement Orders",
-        description: "Download selected POs with or without rates",
-        icon: FileDown,
-        iconBg: "bg-blue-50 group-hover:bg-blue-100",
-        iconColor: "text-blue-600",
-    },
-    {
-        type: "WO",
-        label: "Work Orders",
-        description: "Download selected approved WOs / SRs",
-        icon: ClipboardList,
-        iconBg: "bg-green-50 group-hover:bg-green-100",
-        iconColor: "text-green-600",
-    },
-    {
-        type: "Invoice",
-        label: "Invoices",
-        description: "Download PO invoices, WO invoices, or all",
-        icon: Receipt,
-        iconBg: "bg-purple-50 group-hover:bg-purple-100",
-        iconColor: "text-purple-600",
-    },
-    {
-        type: "DC",
-        label: "Delivery Challans",
-        description: "Download selected delivery challan attachments",
-        icon: Truck,
-        iconBg: "bg-orange-50 group-hover:bg-orange-100",
-        iconColor: "text-orange-600",
-    },
-    {
-        type: "MIR",
-        label: "Material Inspection Reports",
-        description: "Download selected MIR attachments",
-        icon: ClipboardCheck,
-        iconBg: "bg-teal-50 group-hover:bg-teal-100",
-        iconColor: "text-teal-600",
-    },
-    {
-        type: "DN",
-        label: "Delivery Notes",
-        description: "Download delivery note PDFs for selected POs",
-        icon: FileText,
-        iconBg: "bg-rose-50 group-hover:bg-rose-100",
-        iconColor: "text-rose-600",
-    },
-];
+        {
+            type: "PO",
+            label: "Procurement Orders",
+            description: "Download selected POs with or without rates",
+            icon: FileDown,
+            iconBg: "bg-blue-50 group-hover:bg-blue-100",
+            iconColor: "text-blue-600",
+        },
+        {
+            type: "WO",
+            label: "Work Orders",
+            description: "Download selected approved WOs / SRs",
+            icon: ClipboardList,
+            iconBg: "bg-green-50 group-hover:bg-green-100",
+            iconColor: "text-green-600",
+        },
+        {
+            type: "Invoice",
+            label: "Invoices",
+            description: "Download PO invoices, WO invoices, or all",
+            icon: Receipt,
+            iconBg: "bg-purple-50 group-hover:bg-purple-100",
+            iconColor: "text-purple-600",
+        },
+        {
+            type: "DC",
+            label: "Delivery Challans",
+            description: "Download selected delivery challan attachments",
+            icon: Truck,
+            iconBg: "bg-orange-50 group-hover:bg-orange-100",
+            iconColor: "text-orange-600",
+        },
+        {
+            type: "MIR",
+            label: "Material Inspection Reports",
+            description: "Download selected MIR attachments",
+            icon: ClipboardCheck,
+            iconBg: "bg-teal-50 group-hover:bg-teal-100",
+            iconColor: "text-teal-600",
+        },
+        {
+            type: "DN",
+            label: "Delivery Notes",
+            description: "Download delivery note PDFs for selected POs",
+            icon: FileText,
+            iconBg: "bg-rose-50 group-hover:bg-rose-100",
+            iconColor: "text-rose-600",
+        },
+    ];
 
 export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
     const { role } = useUserData();
@@ -78,7 +78,7 @@ export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
 
     return (
         <div className="flex flex-col items-center gap-8 py-4">
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
                 {filteredTypeConfig.map(({ type, label, description, icon: Icon, iconBg, iconColor }) => {
                     const count = counts[type];
@@ -90,17 +90,14 @@ export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
                         >
                             <div className="flex flex-col gap-3">
                                 <div className="flex items-center justify-between">
-                                    <div className={`p-2.5 rounded-xl ${iconBg} transition-colors`}>
+                                    <div className={`p-2.5 rounded-md ${iconBg} transition-colors`}>
                                         <Icon className={`h-5 w-5 ${iconColor}`} />
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        {count != null && (
-                                            <Badge variant="secondary" className="text-[11px] font-semibold px-2 py-0.5">
-                                                {count}
-                                            </Badge>
-                                        )}
-                                        <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                                    </div>
+                                    {count != null && (
+                                        <Badge variant="secondary" className="text-[11px] font-semibold px-2 py-0.5">
+                                            {count}
+                                        </Badge>
+                                    )}
                                 </div>
                                 <div>
                                     <p className="font-bold text-base">{label}</p>

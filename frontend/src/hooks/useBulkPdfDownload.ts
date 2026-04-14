@@ -1,4 +1,4 @@
-import { useState, useContext } from "react";
+import { useState, useContext, useCallback, useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
@@ -16,6 +16,8 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const [progress, setProgress] = useState(0);
     const [progressMessage, setProgressMessage] = useState("");
     
+    const [downloadToken, setDownloadToken] = useState<{ token: string, filename: string } | null>(null);
+
     // PO/WO specific
     const [showRateDialog, setShowRateDialog] = useState(false);
     const [withRate, setWithRate] = useState(true);
@@ -34,6 +36,33 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         setInvoiceType("All Invoices");
     };
 
+    const triggerDownload = useCallback((token: string, filename: string) => {
+        const url = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.fetch_temp_file?token=${token}&filename=${encodeURIComponent(filename)}`;
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }, []);
+
+    const stopProgress = useCallback(() => {
+        setLoading(false);
+        setShowProgress(false);
+        if (socket) {
+            ["bulk_download_progress", "bulk_download_all_ready", "bulk_download_failed"].forEach(ev => socket.off(ev));
+        }
+    }, [socket]);
+
+    // Full Auto-Completion Logic
+    useEffect(() => {
+        if (!loading) return;
+        if (downloadToken) {
+            triggerDownload(downloadToken.token, downloadToken.filename);
+            stopProgress();
+        }
+    }, [downloadToken, loading, triggerDownload, stopProgress]);
+
     const handleBulkDownload = async (type: DownloadType, label: string, options?: any) => {
         try {
             if (type === "PO") setShowRateDialog(false);
@@ -43,148 +72,75 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
             setShowProgress(true);
             setProgress(0);
             setProgressMessage(`Starting ${label} download...`);
+            setDownloadToken(null);
 
             if (socket) {
                 socket.on("bulk_download_progress", (data: any) => {
-                    if (data.progress) setProgress(data.progress);
+                    if (data.progress !== undefined) setProgress(data.progress);
                     if (data.message) setProgressMessage(data.message);
+                });
+
+                socket.on("bulk_download_all_ready", (data: any) => {
+                    setDownloadToken(data);
+                });
+
+                socket.on("bulk_download_failed", (data: any) => {
+                    toast({ title: "Download Failed", description: data.message, variant: "destructive" });
+                    stopProgress();
                 });
             }
 
+            const formData = new FormData();
+            formData.append("project", projectId);
+
             let endpoint = "";
-            let fileName = "";
 
             switch (type) {
                 case "PO":
                     const effectiveWithRate = isProjectManager ? false : !!options?.withRate;
-                    const rateParam = effectiveWithRate ? 1 : 0;
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_pos?project=${projectId}&with_rate=${rateParam}`;
-                    fileName = `${projectName || projectId}_All_POs.pdf`;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_pos`;
+                    formData.append("with_rate", effectiveWithRate ? "1" : "0");
                     break;
                 case "WO":
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_wos?project=${projectId}`;
-                    fileName = `${projectName || projectId}_All_WOs.pdf`;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_wos`;
                     break;
                 case "Invoice":
                     const invType = options?.invoiceType || invoiceType;
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=${invType}`;
-                    fileName = `${projectName || projectId}_${invType.replace(/ /g, "_")}.pdf`;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", invType);
                     break;
                 case "DC":
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=DC`;
-                    fileName = `${projectName || projectId}_Delivery_Challans.pdf`;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "DC");
                     break;
                 case "MIR":
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=MIR`;
-                    fileName = `${projectName || projectId}_Material_Inspection_Reports.pdf`;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "MIR");
                     break;
                 case "DN":
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_dns?project=${projectId}`;
-                    fileName = `${projectName || projectId}_All_DNs.pdf`;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_dns`;
                     break;
             }
 
-            const response = await fetch(endpoint);
-            const contentType = response.headers.get("content-type");
-
-            if (contentType && contentType.includes("application/json")) {
-                const errorData = await response.json();
-                console.log("Error Data:", errorData); // DEBUG
-                
-                // If the error message is generic, try to be more specific based on response
-                let errorMessage = errorData.message || errorData._server_messages || `Failed to generate ${label} PDF`;
-                
-                // Parse server messages if needed (Frappe sometimes returns JSON string in _server_messages)
-                if (errorData._server_messages) {
-                    try {
-                        const messages = JSON.parse(errorData._server_messages);
-                        const messageObj = JSON.parse(messages[0]);
-                        errorMessage = messageObj.message || errorMessage;
-                    } catch (e) {
-                        // Keep original errorMessage
-                    }
-                }
-
-                // If message is still generic but we have an exception trace, try to extract relevant info
-                if (errorMessage.includes("Failed to generate") && errorData.exc) {
-                     try {
-                        const exc = JSON.parse(errorData.exc);
-                        const excStr = exc[0] || "";
-                         if (excStr.includes("image") || excStr.includes("Image")) {
-                             errorMessage += ": One or more documents contain invalid images.";
-                         } else if (excStr.includes("file") || excStr.includes("File")) {
-                             errorMessage += ": Missing or corrupted file attachments.";
-                         } else if (excStr.includes("No data")) {
-                             errorMessage = `No ${label} data found to export.`;
-                         }
-                     } catch (e) {
-                         // Ignore exc parsing error
-                     }
-                }
-
-                 // Append general guidance if still vague (check includes instead of strict equality)
-                 if (errorMessage.includes("Failed to generate") && !errorMessage.includes(":")) {
-                     errorMessage += ". Possible causes: Invalid images, missing files, or no data.";
-                 }
-
-                console.log("Final Error Message:", errorMessage); // DEBUG
-                throw new Error(errorMessage);
-            }
+            const response = await fetch(endpoint, {
+                method: "POST",
+                headers: {
+                    "X-Frappe-CSRF-Token": (window as any).csrf_token || "",
+                },
+                body: formData,
+            });
 
             if (!response.ok) {
-                console.log("Response not OK and not JSON. Status:", response.status); // DEBUG
-                // If not JSON but error status
-                if (response.status === 404) {
-                    throw new Error(`No ${label} data found for this project.`);
-                }
-                if (response.status === 500) {
-                     throw new Error(`Server error. A document likely has a corrupted image or invalid data.`);
-                }
-                throw new Error(`Failed to generate ${label} PDF (Status: ${response.status})`);
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `Failed to start ${label} download (Status: ${response.status})`);
             }
 
-            const blob = await response.blob();
-            if (blob.size === 0) {
-                 throw new Error(`Generated PDF is empty. No ${label} data found.`);
-            }
-
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = downloadUrl;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(downloadUrl);
-
-            toast({
-                title: "Success",
-                description: `${label} downloaded successfully.`,
-                variant: "success",
-            });
+            toast({ title: "Processing Started", description: "Your documents are being prepared in the background." });
 
         } catch (error: any) {
-            console.error(`Bulk ${label} download error:`, error);
-            
-            // Highlight if it's a specific document error
-            const isSpecificDocError = error.message.toLowerCase().includes("image") || 
-                                       error.message.toLowerCase().includes("file") || 
-                                       error.message.toLowerCase().includes("corrupted") || 
-                                       error.message.toLowerCase().includes("data") ||
-                                       error.message.toLowerCase().includes("failed to generate"); // Treat as specific if hinting worked
-            
-                                       console.log(isSpecificDocError)
-            toast({
-                title: isSpecificDocError ? "Download Failed: Document Issue" : "Download Failed",
-                description: error.message,
-                variant: "destructive",
-            });
-        } finally {
+            toast({ title: "Error", description: error.message, variant: "destructive" });
             setLoading(false);
             setShowProgress(false);
-            if (socket) {
-                socket.off("bulk_download_progress");
-            }
         }
     };
 
@@ -204,6 +160,9 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         invoiceType,
         setInvoiceType,
         initiateInvoiceDownload,
-        handleBulkDownload
+        handleBulkDownload,
+        downloadToken,
+        triggerDownload,
+        stopProgress,
     };
 };
