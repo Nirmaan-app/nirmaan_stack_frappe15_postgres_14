@@ -55,11 +55,10 @@ export const useProcurementRequestForm = (
     }, [setSelectedHeaders]);
 
     const addOrUpdateItem = useCallback((itemData: Omit<ProcurementRequestItem, 'uniqueId' | 'status'>, isRequest = false) => {
-        const currentSelectedWP = useProcurementRequestStore.getState().selectedWP;
         const success = addProcItem({
             ...itemData,
             status: isRequest ? 'Request' : 'Pending',
-            work_package: currentSelectedWP
+            work_package: itemData.work_package ?? ""
         });
 
         if (success) {

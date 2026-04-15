@@ -231,7 +231,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                     <ItemSelectorControls
                         selectedWP={selectedWP}
                         selectedHeaderTags={selectedHeaderTagsFromStore}
-                        categoryToPackageMap={extractCategoryToPackageMap(project, selectedHeaderTagsFromStore.map(h => h.tag_package))}
+                        categoryToPackageMap={extractCategoryToPackageMap(categoryList)}
                         itemOptions={itemOptions}
                         onAddItem={addOrUpdateItem}
                         onOpenNewItemDialog={() => setShowNewItemDialog(true)}
@@ -284,7 +284,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 onOpenChange={setShowNewItemDialog}
                 categories={categoryList || []}
                 selectedHeaderTags={selectedHeaderTagsFromStore}
-                categoryToPackageMap={extractCategoryToPackageMap(project, selectedHeaderTagsFromStore.map(h => h.tag_package))}
+                categoryToPackageMap={extractCategoryToPackageMap(categoryList)}
                 onSubmit={addOrUpdateItem}
                 fuzzySearch={handleFuzzySearch}
                 itemMutate={itemMutate}
@@ -300,6 +300,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 updateCategoryMakesInStore={updateCategoryMakes}
                 projectWpCategoryMakes={project?.project_wp_category_makes}
                 relevantPackages={selectedHeaderTagsFromStore.map(h => h.tag_package)}
+                categoryToPackageMap={extractCategoryToPackageMap(categoryList)}
             />
         </div>
     );

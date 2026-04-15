@@ -50,18 +50,19 @@ export const extractMakesFromChildTableForMultipleWPs = (
  * filtered to only the given packages.
  */
 export const extractCategoryToPackageMap = (
-    project: Projects | undefined,
-    selectedPackages: string[]
+    categories?: Category[]
 ): Record<string, string> => {
     const pkgMap: Record<string, string> = {};
-    if (!project?.project_wp_category_makes || selectedPackages.length === 0) {
-        return pkgMap;
+
+    // 1. Fallback/Baseline: Global category mappings (all of them)
+    if (categories) {
+        categories.forEach((cat) => {
+            if (cat.work_package) {
+                pkgMap[cat.name] = cat.work_package;
+            }
+        });
     }
-    project.project_wp_category_makes.forEach((itemLink) => {
-        if (selectedPackages.includes(itemLink.procurement_package)) {
-            pkgMap[itemLink.category] = itemLink.procurement_package;
-        }
-    });
+
     return pkgMap;
 };
 

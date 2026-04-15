@@ -121,7 +121,7 @@ export const OrderListDisplay: React.FC<OrderListDisplayProps> = ({
 
     const pendingItemsExistInProcList = procList.some(item => item.status !== ItemStatus.REQUEST);
     const requestedItemsExistInProcList = procList.some(item => item.status === ItemStatus.REQUEST);
-
+    // console.log("procList", procList)
     return (
         <div className='mt-4'>
             {/* Header and Undo Button */}
