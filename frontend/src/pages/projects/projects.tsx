@@ -61,6 +61,7 @@ import {
   useProjectsListPayments,
   useProjectsListPOData,
   useProjectsListSRData,
+  useProjectsListProjectInvoices,
 } from "./data/root/useProjectRootApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 // --- Constants ---
@@ -74,6 +75,7 @@ interface ProjectsProps {
 
 // ProcessedProject type for the table, including calculated financials
 export interface ProcessedProjectForTable extends ProjectsType {
+  calculatedTotalProjectInvoiced: number;
   calculatedTotalInvoiced: number;
   calculatedTotalInflow: number;
   calculatedTotalOutflow: number;
@@ -332,6 +334,11 @@ export const Projects: React.FC<ProjectsProps> = ({
     isLoading: projectExpensesLoading,
     error: projectExpensesError,
   } = useProjectsListExpenses();
+  const {
+    data: projectInvoices,
+    isLoading: projectInvoicesLoading,
+    error: projectInvoicesError,
+  } = useProjectsListProjectInvoices();
 
   // --- Memoized Lookups & Pre-processing for Column Calculations ---
 
@@ -342,9 +349,11 @@ export const Projects: React.FC<ProjectsProps> = ({
       !projectInflows ||
       !projectPayments ||
       !projectExpenses ||
+      !projectInvoices ||
       !CreditData
     )
       return () => ({
+        calculatedTotalProjectInvoiced: 0,
         calculatedTotalInvoiced: 0,
         calculatedTotalInflow: 0,
         calculatedTotalOutflow: 0,
@@ -369,6 +378,9 @@ export const Projects: React.FC<ProjectsProps> = ({
     );
     const expensesByProject = memoize((projId: string) =>
       projectExpenses.filter((pe) => pe.projects === projId)
+    );
+    const invoicesByProject = memoize((projId: string) =>
+      projectInvoices.filter((inv) => inv.project === projId)
     );
 
     // CreditData is now the raw list of all credit terms for all projects
@@ -408,6 +420,12 @@ export const Projects: React.FC<ProjectsProps> = ({
         totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;
       });
 
+      const ClientInvoices = invoicesByProject(projectId);
+      const totalProjectInvoiced = ClientInvoices.reduce(
+        (sum, inv) => sum + parseNumber(inv.amount),
+        0
+      );
+
       const totalInflow = getTotalInflowAmount(relatedInflows);
       const totalOutflow =
         getTotalAmountPaid(relatedPayments) +
@@ -427,6 +445,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         totalPayableAgainstDelivered - totalPaidAgainstDelivered;
 
       return {
+        calculatedTotalProjectInvoiced: totalProjectInvoiced,
         calculatedTotalInvoiced: totalInvoiced,
         calculatedTotalInflow: totalInflow,
         calculatedTotalOutflow: totalOutflow,
@@ -442,6 +461,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     projectInflows,
     projectPayments,
     projectExpenses,
+    projectInvoices,
     CreditData,
   ]);
 
@@ -569,6 +589,29 @@ export const Projects: React.FC<ProjectsProps> = ({
         meta: {
           exportHeaderName: "Value incl. GST (in Lakhs)",
           exportValue: (row) => formatToLakhsNumber(row.project_value_gst),
+          isNumeric: true,
+        },
+      },
+      {
+        id: "total_project_invoiced",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Client Invoices (Incl.GST)" />
+        ),
+        cell: ({ row }) => {
+          const financials = getProjectFinancials(row.original.name);
+          return (
+            <span className="tabular-nums">
+              {formatToApproxLakhs(financials.calculatedTotalProjectInvoiced)}
+            </span>
+          );
+        },
+        size: 100,
+        meta: {
+          exportHeaderName: "Client Invoiced incl. GST (in Lakhs)",
+          exportValue: (row) => {
+            const financials = getProjectFinancials(row.name);
+            return formatToLakhsNumber(financials.calculatedTotalProjectInvoiced);
+          },
           isNumeric: true,
         },
       },
@@ -840,6 +883,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     projectInflowsLoading ||
     projectPaymentsLoading ||
     projectExpensesLoading ||
+    projectInvoicesLoading ||
     listIsLoading ||
     userListLoading;
 
@@ -849,6 +893,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     projectInflowsError ||
     projectPaymentsError ||
     projectExpensesError ||
+    projectInvoicesError ||
     userError ||
     listError;
 
