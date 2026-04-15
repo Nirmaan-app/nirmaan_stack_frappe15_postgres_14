@@ -8,7 +8,12 @@
   "file",
   "attached_to_doctype",
   "attached_to_name",
-  "extracted_text"
+  "extracted_text",
+  "extraction_provider",
+  "document_ai_processor_id",
+  "source_content_hash",
+  "extracted_entities_json",
+  "clean_structured_fields_json"
  ],
  "fields": [
   {
@@ -38,6 +43,31 @@
    "fieldtype": "Long Text",
    "label": "Extracted Text",
    "reqd": 1
+  },
+  {
+   "fieldname": "extraction_provider",
+   "fieldtype": "Data",
+   "label": "Extraction Provider"
+  },
+  {
+   "fieldname": "document_ai_processor_id",
+   "fieldtype": "Data",
+   "label": "Document AI Processor ID"
+  },
+  {
+   "fieldname": "source_content_hash",
+   "fieldtype": "Data",
+   "label": "Source Content Hash"
+  },
+  {
+   "fieldname": "extracted_entities_json",
+   "fieldtype": "Long Text",
+   "label": "Extracted Entities JSON"
+  },
+  {
+   "fieldname": "clean_structured_fields_json",
+   "fieldtype": "Long Text",
+   "label": "Clean Structured Fields JSON"
   }
  ],
  "index_web_pages_for_search": 1,

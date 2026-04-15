@@ -1,0 +1,124 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-04-07 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "configuration_section",
+  "enabled",
+  "project_id",
+  "location",
+  "processor_id",
+  "invoice_processor_id",
+  "expense_processor_id",
+  "invoice_target_doctypes",
+  "expense_target_doctypes",
+  "timeout_seconds",
+  "credentials_section",
+  "service_account_json_input",
+  "has_service_account_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "configuration_section",
+   "fieldtype": "Section Break",
+   "label": "Configuration"
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable Document AI"
+  },
+  {
+   "fieldname": "project_id",
+   "fieldtype": "Data",
+   "label": "Project ID"
+  },
+  {
+   "default": "us",
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Location"
+  },
+  {
+   "fieldname": "processor_id",
+   "fieldtype": "Data",
+   "label": "Default Processor ID"
+  },
+  {
+   "fieldname": "invoice_processor_id",
+   "fieldtype": "Data",
+   "label": "Invoice Processor ID"
+  },
+  {
+   "fieldname": "expense_processor_id",
+   "fieldtype": "Data",
+   "label": "Expense Processor ID"
+  },
+  {
+   "default": "Project Invoices, Vendor Invoices, Project Payments",
+   "description": "Comma-separated DocTypes that should use Invoice Processor ID.",
+   "fieldname": "invoice_target_doctypes",
+   "fieldtype": "Small Text",
+   "label": "Invoice Target DocTypes"
+  },
+  {
+   "default": "Non Project Expenses",
+   "description": "Comma-separated DocTypes that should use Expense Processor ID.",
+   "fieldname": "expense_target_doctypes",
+   "fieldtype": "Small Text",
+   "label": "Expense Target DocTypes"
+  },
+  {
+   "default": "90",
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (Seconds)"
+  },
+  {
+   "fieldname": "credentials_section",
+   "fieldtype": "Section Break",
+   "label": "Credentials"
+  },
+  {
+   "description": "Paste full service-account key JSON and Save. The value is stored in this field.",
+   "fieldname": "service_account_json_input",
+   "fieldtype": "Long Text",
+   "label": "Service Account Key JSON"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_service_account_json",
+   "fieldtype": "Check",
+   "label": "Service Account Key Configured",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-04-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Document AI Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
