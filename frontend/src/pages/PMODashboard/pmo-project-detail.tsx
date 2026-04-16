@@ -635,41 +635,6 @@ const PMOProjectDetail: React.FC = () => {
                 )}
               </TableCell>
             </TableRow>
-
-              {/* Inventory Row */}
-            <TableRow className="hover:bg-slate-50/50">
-              <TableCell className="px-6 py-3 w-[35%]">
-                <div className="flex items-center gap-2">
-                  <span className="text-red-500">
-                    <PencilRuler className="w-4 h-4" />
-                  </span>
-                  <span className="text-sm text-gray-900 font-medium">Weekly Updates</span>
-                </div>
-              </TableCell>
-              <TableCell className="px-6 py-3">
-                <div className="flex justify-center">
-                  {statusOverview?.inventory ? (
-                    <span className="inline-flex items-center text-[11px] font-medium text-gray-600 px-3 py-1 rounded border border-gray-200 bg-white shadow-sm">
-                      {formatDate(statusOverview.inventory.last_updated)}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-gray-400">No data</span>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="px-6 py-3 text-right w-[35%]">
-                {statusOverview?.inventory && (
-                  <button
-                    onClick={handleNavigateToProjectMaterialUsage}
-                    className="text-blue-500 hover:text-blue-700 p-1 inline-flex items-center justify-center"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </button>
-                )}
-              </TableCell>
-            </TableRow>
-
-            
           </TableBody>
         </Table>
       </div>
