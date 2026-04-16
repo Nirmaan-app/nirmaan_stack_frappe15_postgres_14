@@ -229,7 +229,7 @@ doc_events = {
     },
     "Delivery Notes": {
         "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
-        "on_trash": "nirmaan_stack.integrations.controllers.delivery_notes.on_trash",
+        "after_delete": "nirmaan_stack.integrations.controllers.delivery_notes.after_delete",
     },
     "Category": {
         "after_rename": "nirmaan_stack.integrations.controllers.category.handle_category_rename"

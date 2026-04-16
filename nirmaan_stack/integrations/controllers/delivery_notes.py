@@ -28,7 +28,7 @@ def on_update(doc, method):
             recalculate_vendor_credit(po.vendor, entry_type, po_id=doc.procurement_order, project=po.project)
 
 
-def on_trash(doc, method):
+def after_delete(doc, method):
     """Recalculate PO delivery fields when a DN is deleted."""
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)

@@ -6,6 +6,7 @@ ALWAYS_EDIT_ROLES = [
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
+    "Nirmaan Procurement Executive Profile",
 ]
 
 

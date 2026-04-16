@@ -26,6 +26,8 @@ import { DeliveryPivotTableProps, DNColumn } from "./types";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { isCreatedToday } from "@/utils/FormatDate";
 import { SameDayDNWarningDialog } from "../SameDayDNWarningDialog";
+import { useDeliveryDelete } from "../../hooks/useDeliveryDelete";
+import { useUserData } from "@/hooks/useUserData";
 
 export function DeliveryPivotTable({
   po,
@@ -76,6 +78,22 @@ export function DeliveryPivotTable({
   const [sameDayWarningOpen, setSameDayWarningOpen] = useState(false);
   const [vendorDCOpen, setVendorDCOpen] = useState(false);
   const [selectedDnForDC, setSelectedDnForDC] = useState<DeliveryNote | null>(null);
+
+  const { role } = useUserData();
+  const isAdmin = role === "Nirmaan Admin Profile";
+
+  const {
+    isDeleting,
+    deleteConfirmDialog,
+    setDeleteConfirmDialog,
+    dnToDelete,
+    setDnToDelete,
+    handleDeleteClick,
+    handleConfirmDelete,
+  } = useDeliveryDelete({
+    onSuccess: onPoMutate,
+    onRefresh: onDnRefetch,
+  });
 
   // Toggle create mode — cancel edit mode if active
   const handleToggleEdit = useCallback(() => {
@@ -282,6 +300,8 @@ export function DeliveryPivotTable({
             editingDnName={editHook.editingDnName}
             canEditDn={editHook.canEditDn}
             onEditDn={handleStartEdit}
+            onDeleteDn={handleDeleteClick}
+            isAdmin={isAdmin}
             onOpenVendorDC={handleOpenVendorDC}
             viewMode={viewMode}
             showReturn={showReturn && !editHook.editingDnName}
@@ -430,6 +450,31 @@ export function DeliveryPivotTable({
         onOpenChange={setVendorDCOpen}
         onGenerate={handleGenerateVendorDC}
       />
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteConfirmDialog} onOpenChange={setDeleteConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {dnToDelete?.isReturn ? "RN" : "DN"}-{dnToDelete?.noteNo}? 
+              This action cannot be undone and will recalculate the Purchase Order received quantities.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {isDeleting ? (
+              <TailSpin color="red" width={40} height={40} />
+            ) : (
+              <>
+                <AlertDialogCancel onClick={() => setDnToDelete(null)}>Cancel</AlertDialogCancel>
+                <Button variant="destructive" onClick={handleConfirmDelete}>
+                  Delete
+                </Button>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
