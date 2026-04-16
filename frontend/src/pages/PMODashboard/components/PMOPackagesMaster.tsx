@@ -39,6 +39,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -55,6 +56,7 @@ interface PMOTaskCategory {
   name: string;
   category_name: string;
   order?: number;
+  is_handover_restricted?: 0 | 1;
 }
 
 interface PMOTaskMaster {
@@ -62,18 +64,24 @@ interface PMOTaskMaster {
   task_name: string;
   category_link: string;
   order?: number;
+  deadline_offset?: number;
 }
 
 // --- Zod Schemas ---
 const categoryFormSchema = z.object({
   category_name: z.string().min(1, "Category Name is required."),
+  is_handover_restricted: z.boolean().default(false),
 });
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
 const taskFormSchema = z.object({
   task_name: z.string().min(1, "Task Name is required."),
+  deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
 });
 type TaskFormValues = z.infer<typeof taskFormSchema>;
+
+const isHandoverCategory = (categoryName?: string) =>
+  (categoryName || "").trim().toLowerCase() === "handover";
 
 // =========================================================================
 // Main Component
@@ -85,7 +93,7 @@ export const PMOPackagesMaster: React.FC = () => {
     error: catError,
     mutate: mutateCategories,
   } = useFrappeGetDocList<PMOTaskCategory>("PMO Task Category", {
-    fields: ["name", "category_name", "order"],
+    fields: ["name", "category_name", "order", "is_handover_restricted"],
     limit: 0,
     orderBy: { field: "`order`", order: "asc" },
   });
@@ -96,7 +104,7 @@ export const PMOPackagesMaster: React.FC = () => {
     error: taskError,
     mutate: mutateTasks,
   } = useFrappeGetDocList<PMOTaskMaster>("PMO Task Master", {
-    fields: ["name", "task_name", "category_link", "order"],
+    fields: ["name", "task_name", "category_link", "order", "deadline_offset"],
     limit: 0,
     orderBy: { field: "`order`", order: "asc" },
   });
@@ -395,21 +403,25 @@ const CreateCategoryDialog: React.FC<{
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
-    defaultValues: { category_name: "" },
+    defaultValues: { category_name: "", is_handover_restricted: false },
   });
 
   const onSubmit = async (values: CategoryFormValues) => {
+    const trimmedName = values.category_name.trim();
+    const forceHandoverRestricted = trimmedName.toLowerCase() === "handover";
+
     try {
       await createDoc("PMO Task Category", {
-        category_name: values.category_name,
+        category_name: trimmedName,
         order: maxOrder + 1,
+        is_handover_restricted: forceHandoverRestricted || values.is_handover_restricted ? 1 : 0,
       });
       toast({
         title: "Success",
         description: "Category created successfully.",
         variant: "success",
       });
-      form.reset();
+      form.reset({ category_name: "", is_handover_restricted: false });
       await mutate();
       setOpen(false);
     } catch (error: any) {
@@ -465,13 +477,35 @@ const CreateCategoryDialog: React.FC<{
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="is_handover_restricted"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border border-slate-200 p-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel className="text-sm font-medium text-slate-700">
+                      Show only in Handover/Completed
+                    </FormLabel>
+                    <p className="text-xs text-slate-500">
+                      Restricts this category to projects in Handover or Completed status.
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => {
                   setOpen(false);
-                  form.reset();
+                  form.reset({ category_name: "", is_handover_restricted: false });
                 }}
                 className="text-slate-600"
               >
@@ -506,20 +540,34 @@ const EditCategoryDialog: React.FC<{
   const { call: renameDoc, loading } = useFrappePostCall(
     "frappe.model.rename_doc.update_document_title"
   );
+  const { updateDoc } = useFrappeUpdateDoc();
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
-    defaultValues: { category_name: category.category_name },
+    defaultValues: {
+      category_name: category.category_name,
+      is_handover_restricted: Boolean(category.is_handover_restricted),
+    },
   });
 
   React.useEffect(() => {
     if (open) {
-      form.reset({ category_name: category.category_name });
+      form.reset({
+        category_name: category.category_name,
+        is_handover_restricted: Boolean(category.is_handover_restricted),
+      });
     }
   }, [open, category]);
 
   const onSubmit = async (values: CategoryFormValues) => {
-    if (values.category_name === category.category_name) {
+    const trimmedName = values.category_name.trim();
+    const nextRestriction = values.is_handover_restricted;
+
+    const noNameChange = trimmedName === category.category_name;
+    const noRestrictionChange =
+      Boolean(category.is_handover_restricted) === nextRestriction;
+
+    if (noNameChange && noRestrictionChange) {
       toast({
         title: "Info",
         description: "No changes detected.",
@@ -530,13 +578,19 @@ const EditCategoryDialog: React.FC<{
     }
 
     try {
-      await renameDoc({
-        doctype: "PMO Task Category",
-        docname: category.name,
-        name: values.category_name,
-        merge: 0,
-        freeze: true,
-        freeze_message: `Renaming Category "${category.category_name}"...`,
+      if (!noNameChange) {
+        await renameDoc({
+          doctype: "PMO Task Category",
+          docname: category.name,
+          name: trimmedName,
+          merge: 0,
+          freeze: true,
+          freeze_message: `Renaming Category "${category.category_name}"...`,
+        });
+      }
+
+      await updateDoc("PMO Task Category", trimmedName || category.name, {
+        is_handover_restricted: nextRestriction ? 1 : 0,
       });
       toast({
         title: "Success",
@@ -592,6 +646,28 @@ const EditCategoryDialog: React.FC<{
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="is_handover_restricted"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border border-slate-200 p-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel className="text-sm font-medium text-slate-700">
+                      Show only in Handover/Completed
+                    </FormLabel>
+                    <p className="text-xs text-slate-500">
+                      Restricts this category to projects in Handover or Completed status.
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"
@@ -631,7 +707,7 @@ const CreateTaskDialog: React.FC<{
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: { task_name: "" },
+    defaultValues: { task_name: "", deadline_offset: 0 },
   });
 
   const onSubmit = async (values: TaskFormValues) => {
@@ -640,13 +716,14 @@ const CreateTaskDialog: React.FC<{
         task_name: values.task_name,
         category_link: categoryId,
         order: maxOrder + 1,
+        deadline_offset: values.deadline_offset || 0,
       });
       toast({
         title: "Success",
         description: "Task added successfully.",
         variant: "success",
       });
-      form.reset();
+      form.reset({ task_name: "", deadline_offset: 0 });
       await mutate();
       setOpen(false);
     } catch (error: any) {
@@ -663,7 +740,7 @@ const CreateTaskDialog: React.FC<{
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) form.reset();
+        if (!val) form.reset({ task_name: "", deadline_offset: 0 });
       }}
     >
       <DialogTrigger asChild>
@@ -698,6 +775,27 @@ const CreateTaskDialog: React.FC<{
                   <FormControl>
                     <Input
                       placeholder="e.g., Welcome Email, Material Schedule"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="deadline_offset"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Deadline Offset{" "}
+                    <span className="text-slate-400 font-normal">(days from project creation)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      placeholder="0"
                       className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                       {...field}
                     />
@@ -746,13 +844,14 @@ const EditTaskDialog: React.FC<{
   const { updateDoc, loading } = useFrappeUpdateDoc();
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: { task_name: task.task_name },
+    defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0 },
   });
 
   const onSubmit = async (values: TaskFormValues) => {
     try {
       await updateDoc("PMO Task Master", task.name, {
         task_name: values.task_name,
+        deadline_offset: values.deadline_offset || 0,
       });
       toast({
         title: "Success",
@@ -799,6 +898,26 @@ const EditTaskDialog: React.FC<{
                   </FormLabel>
                   <FormControl>
                     <Input
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="deadline_offset"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Deadline Offset{" "}
+                    <span className="text-slate-400 font-normal">(days from project creation)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
                       className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                       {...field}
                     />
@@ -1003,6 +1122,11 @@ const CategoryCard: React.FC<{
               <h3 className="text-base font-semibold text-slate-900 truncate">
                 {category.category_name}
               </h3>
+              {Boolean(category.is_handover_restricted) && (
+                <span className="inline-flex items-center rounded bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-100">
+                  Handover Only
+                </span>
+              )}
               <EditCategoryDialog
                 category={category}
                 mutate={mutateCategories}
@@ -1074,6 +1198,9 @@ const CategoryCard: React.FC<{
                 <TableHead className="text-xs font-medium text-slate-500 uppercase">
                   Task Name
                 </TableHead>
+                <TableHead className="w-32 text-xs font-medium text-slate-500 uppercase">
+                  Offset
+                </TableHead>
                 <TableHead className="w-[100px] text-right text-xs font-medium text-slate-500 uppercase">
                   {isReorderingTasks ? "Drag" : "Actions"}
                 </TableHead>
@@ -1095,6 +1222,15 @@ const CategoryCard: React.FC<{
                   </TableCell>
                   <TableCell className="text-sm text-slate-700 font-medium">
                     {task.task_name}
+                  </TableCell>
+                  <TableCell>
+                    {!task.deadline_offset || task.deadline_offset === 0 ? (
+                      <span className="text-slate-400 text-sm">—</span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-xs font-medium">
+                        T + {task.deadline_offset}d
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {isReorderingTasks ? (
