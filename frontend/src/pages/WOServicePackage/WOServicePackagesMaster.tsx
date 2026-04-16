@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import { Pencil, PlusCircle, Trash2, FileEdit, Layers } from "lucide-react";
@@ -512,11 +513,10 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({ categoryId, mutate 
         }}>
             <DialogTrigger asChild>
                 <Button
-                    variant="ghost"
                     size="sm"
-                    className="h-7 text-xs text-slate-600 hover:bg-slate-100"
+                    className="h-8 px-3 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white shadow-sm"
                 >
-                    <PlusCircle className="w-3.5 h-3.5 mr-1" />
+                    <PlusCircle className="w-3.5 h-3.5 mr-1.5" />
                     Add Item
                 </Button>
             </DialogTrigger>
@@ -540,9 +540,9 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({ categoryId, mutate 
                                         Item Name
                                     </FormLabel>
                                     <FormControl>
-                                        <Input
+                                        <Textarea
                                             placeholder="e.g., Pipe Fitting, Cable Run"
-                                            className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                                            className="border-slate-300 focus:border-slate-500 focus:ring-slate-500 resize-none min-h-[80px]"
                                             {...field}
                                         />
                                     </FormControl>
@@ -690,7 +690,7 @@ const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
                                 <FormItem>
                                     <FormLabel className="text-sm font-medium text-slate-700">Item Name</FormLabel>
                                     <FormControl>
-                                        <Input className="border-slate-300 focus:border-slate-500 focus:ring-slate-500" {...field} />
+                                        <Textarea className="border-slate-300 focus:border-slate-500 focus:ring-slate-500 resize-none min-h-[80px]" {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -848,15 +848,15 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                     </div>
                 </div>
                 {!isViewOnly && (
-                <div className="flex items-center gap-1">
-                    <EditCategoryDialog
-                        category={category}
-                        mutate={mutateCategories}
-                        mutateItems={mutateItems}
-                        workPackages={workPackages}
-                    />
-                    <CreateItemDialog categoryId={category.name} mutate={mutateItems} />
-                </div>
+                    <div className="flex items-center gap-1">
+                        <EditCategoryDialog
+                            category={category}
+                            mutate={mutateCategories}
+                            mutateItems={mutateItems}
+                            workPackages={workPackages}
+                        />
+                        <CreateItemDialog categoryId={category.name} mutate={mutateItems} />
+                    </div>
                 )}
             </div>
 
@@ -882,9 +882,9 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                                 </TableHead>
 
                                 {!isViewOnly && (
-                                <TableHead className="w-24 text-right text-slate-500 font-medium text-xs uppercase tracking-wider">
-                                    Actions
-                                </TableHead>
+                                    <TableHead className="w-24 text-right text-slate-500 font-medium text-xs uppercase tracking-wider">
+                                        Actions
+                                    </TableHead>
                                 )}
                             </TableRow>
                         </TableHeader>
@@ -894,7 +894,7 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                                     key={item.name}
                                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
                                 >
-                                    <TableCell className="font-medium text-slate-900">
+                                    <TableCell className="font-medium text-slate-900 whitespace-pre-wrap">
                                         {item.item_name}
                                     </TableCell>
                                     <TableCell>
@@ -913,12 +913,12 @@ const CategoryCard: React.FC<CategoryCardProps & { workPackages: WorkPackage[] }
                                     </TableCell>
 
                                     {!isViewOnly && (
-                                    <TableCell className="text-right">
-                                        <div className="flex items-center justify-end gap-1">
-                                            <EditItemDialog item={item} mutate={mutateItems} />
-                                            <DeleteItemDialog item={item} mutate={mutateItems} />
-                                        </div>
-                                    </TableCell>
+                                        <TableCell className="text-right">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <EditItemDialog item={item} mutate={mutateItems} />
+                                                <DeleteItemDialog item={item} mutate={mutateItems} />
+                                            </div>
+                                        </TableCell>
                                     )}
                                 </TableRow>
                             ))}
