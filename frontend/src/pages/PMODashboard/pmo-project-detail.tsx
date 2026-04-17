@@ -31,6 +31,7 @@ interface StatusOverview {
     total: number;
     status_counts: Record<string, number>;
     excluded_not_applicable?: number;
+    is_disabled?: boolean;
   } | null;
   dpr: { last_updated: string; zone?: string } | null;
   inventory: { last_updated: string } | null;
@@ -507,6 +508,11 @@ const PMOProjectDetail: React.FC = () => {
                     <PencilRuler className="w-4 h-4" />
                   </span>
                   <span className="text-sm text-gray-900 font-medium">Drawing</span>
+                  {statusOverview?.drawing?.is_disabled ? (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200">Inactive</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">Active</span>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="px-6 py-3">
@@ -564,6 +570,11 @@ const PMOProjectDetail: React.FC = () => {
                     <PencilRuler className="w-4 h-4" />
                   </span>
                   <span className="text-sm text-gray-900 font-medium">Daily Progress Report</span>
+                  {project?.disabled_dpr === 1 ? (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200">Inactive</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">Active</span>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="px-6 py-3">
@@ -611,6 +622,11 @@ const PMOProjectDetail: React.FC = () => {
                     <PencilRuler className="w-4 h-4" />
                   </span>
                   <span className="text-sm text-gray-900 font-medium">Inventory</span>
+                  {project?.disabled_inventory === 1 ? (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200">Inactive</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">Active</span>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="px-6 py-3">

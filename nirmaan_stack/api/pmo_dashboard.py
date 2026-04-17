@@ -475,6 +475,7 @@ def get_project_status_overview(project):
             "total": applicable_drawing_tasks,
             "status_counts": status_counts,
             "excluded_not_applicable": not_applicable_tasks,
+            "is_disabled": bool(tracker_doc.get("hide_design_tracker")),
         }
 
     # 2. DPR status - last updated from Project Progress Reports
