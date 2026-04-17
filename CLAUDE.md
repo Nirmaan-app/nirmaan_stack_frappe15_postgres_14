@@ -177,6 +177,7 @@ For detailed context, read these files when working on related tasks:
 | **Projects** | `.claude/context/domain/projects.md` | Status lifecycle, effects |
 | **Users** | `.claude/context/domain/users.md` | User management |
 | **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` | Vendor credit, hold status, PO blocking |
+| **Internal Transfer Memos** | `.claude/context/domain/internal-transfer-memos.md` | Inter-project material transfer (ITM) — doctype, state machine, phase roadmap |
 
 **Full index:** `.claude/context/_index.md`
 

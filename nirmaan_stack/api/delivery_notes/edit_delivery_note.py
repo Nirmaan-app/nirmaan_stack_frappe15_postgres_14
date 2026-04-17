@@ -76,6 +76,13 @@ def edit_delivery_note(dn_name: str, modified_items: dict):
                 frappe.ValidationError,
             )
 
+        # ITM-backed DNs cannot be edited via this PO-specific endpoint
+        if not dn.procurement_order:
+            frappe.throw(
+                "This delivery note is not linked to a Procurement Order and cannot be edited here.",
+                frappe.ValidationError,
+            )
+
         processed_item_ids = set()
 
         # Update existing DN items

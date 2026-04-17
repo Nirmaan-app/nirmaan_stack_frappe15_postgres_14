@@ -16,9 +16,14 @@ def _has_undispatched_items(po):
 
 
 def on_update(doc, method):
-    """Recalculate PO delivery fields when a DN is updated."""
+    """Recalculate delivery fields when a DN is updated."""
     if doc.flags.get("skip_po_recalculate"):
         return
+
+    if getattr(doc, "parent_doctype", None) == "Internal Transfer Memo":
+        recalculate_itm_delivery_fields(doc.parent_docname)
+        return
+
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)
         # Vendor credit recalculation after delivery changes
@@ -28,8 +33,15 @@ def on_update(doc, method):
             recalculate_vendor_credit(po.vendor, entry_type, po_id=doc.procurement_order, project=po.project)
 
 
-def after_delete(doc, method):
+
     """Recalculate PO delivery fields when a DN is deleted."""
+def on_trash(doc, method):
+    """Recalculate delivery fields when a DN is deleted."""
+    if getattr(doc, "parent_doctype", None) == "Internal Transfer Memo":
+        recalculate_itm_delivery_fields(doc.parent_docname)
+        return
+        
+def after_delete(doc, method):
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)
         # Vendor credit recalculation after DN deletion
@@ -98,3 +110,60 @@ def recalculate_po_delivery_fields(po_name):
         po.latest_delivery_date = None
 
     po.save(ignore_permissions=True)
+
+
+def recalculate_itm_delivery_fields(itm_name):
+    """Recalculate received quantities and status for an ITM based on its delivery notes.
+
+    Returns:
+        str: The updated ITM status.
+    """
+    itm = frappe.get_doc("Internal Transfer Memo", itm_name)
+
+    # Fetch all DNs for this ITM
+    dns = frappe.get_all(
+        "Delivery Notes",
+        filters={"parent_doctype": "Internal Transfer Memo", "parent_docname": itm_name},
+        fields=["name"],
+    )
+
+    # Aggregate received quantities per item_id
+    received_map = {}
+    if dns:
+        dn_names = [d.name for d in dns]
+        all_dn_items = frappe.get_all(
+            "Delivery Note Item",
+            filters={"parent": ["in", dn_names]},
+            fields=["item_id", "delivered_quantity"],
+            limit_page_length=0,
+        )
+        for di in all_dn_items:
+            received_map[di.item_id] = received_map.get(di.item_id, 0) + (
+                float(di.delivered_quantity) if di.delivered_quantity else 0
+            )
+
+    # Update ITM items and derive status
+    all_received = True
+    any_received = False
+    approved_count = 0
+
+    for item in itm.items:
+        if item.status != "Approved":
+            continue
+        approved_count += 1
+        new_received = received_map.get(item.item_id, 0)
+        item.received_quantity = new_received
+        if new_received > 0:
+            any_received = True
+        if new_received < (float(item.transfer_quantity) if item.transfer_quantity else 0):
+            all_received = False
+
+    # Derive status
+    if approved_count > 0 and all_received and any_received:
+        itm.status = "Delivered"
+    elif any_received:
+        itm.status = "Partially Delivered"
+    # else: stay at current status (Dispatched)
+
+    itm.save(ignore_permissions=True)
+    return itm.status

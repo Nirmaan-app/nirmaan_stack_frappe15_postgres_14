@@ -29,6 +29,8 @@ export function useProjectDeliveryNotes(
   const dnsByPO: Record<string, DeliveryNote[]> = useMemo(() => {
     const grouped: Record<string, DeliveryNote[]> = {};
     for (const dn of allDns) {
+      // Skip ITM-backed DNs (no procurement_order)
+      if (!dn.procurement_order) continue;
       if (!grouped[dn.procurement_order]) {
         grouped[dn.procurement_order] = [];
       }

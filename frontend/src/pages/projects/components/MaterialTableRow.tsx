@@ -105,7 +105,23 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       {/* Column: Delivery Note Quantity (Conditionally Hidden) */}
       {!hiddenColumns.has('deliveredQuantity') && (
         <TableCell className="text-right font-mono py-2 px-3">
-          {item.deliveredQuantity.toFixed(2)}
+          {(item.itmDeliveredQty ?? 0) > 0 ? (
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-default">{item.deliveredQuantity.toFixed(2)}</span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="text-xs space-y-0.5">
+                    <div>PO: {(item.poDeliveredQty ?? item.deliveredQuantity).toFixed(2)}</div>
+                    <div>ITM: {(item.itmDeliveredQty ?? 0).toFixed(2)}</div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            item.deliveredQuantity.toFixed(2)
+          )}
         </TableCell>
       )}
 
@@ -128,6 +144,13 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
             // State 3a: Normal positive value
             <span className="tabular-nums">{item.remainingQuantity.toFixed(2)}</span>
           )}
+        </TableCell>
+      )}
+
+      {/* Column: Transferred Out (Conditionally Hidden) */}
+      {!hiddenColumns.has('transferredOut') && (
+        <TableCell className="text-right font-mono py-2 px-3">
+          {(item.transferredOut || 0).toFixed(2)}
         </TableCell>
       )}
 
