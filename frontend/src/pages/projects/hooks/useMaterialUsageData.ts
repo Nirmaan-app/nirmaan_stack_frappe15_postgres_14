@@ -64,6 +64,14 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     projectId ? `po_delivery_docs_${projectId}` : undefined
   );
 
+  const { data: transferData } = useFrappeGetCall<{
+    message: { data: Record<string, { transferred_out: number; transferred_in: number }> }
+  }>(
+    "nirmaan_stack.api.internal_transfers.project_transfers.get_transfer_summary",
+    { project_id: projectId },
+    projectId ? `transfer_summary_${projectId}` : undefined
+  );
+
   // --- NEW MAP: Create Billing Category Lookup Map ---
   const billingCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -283,6 +291,19 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
       item.mirCount = deliveryData?.mirs?.length || 0;
     });
 
+    // Merge ITM transfer data
+    const transferSummary = transferData?.message?.data || {};
+    flatList.forEach(item => {
+      if (!item.itemId) return;
+      const itmData = transferSummary[item.itemId];
+      if (itmData) {
+        item.transferredOut = itmData.transferred_out || 0;
+        item.itmDeliveredQty = itmData.transferred_in || 0;
+        item.poDeliveredQty = item.deliveredQuantity; // save PO-only value
+        item.deliveredQuantity += item.itmDeliveredQty; // combined
+      }
+    });
+
     flatList.sort((a, b) => {
       if (a.categoryName.localeCompare(b.categoryName) !== 0) {
         return a.categoryName.localeCompare(b.categoryName);
@@ -291,7 +312,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     });
 
     return flatList;
-  }, [allPoItems, projectEstimates, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap]);
+  }, [allPoItems, projectEstimates, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap, transferData]);
 
   // --- Vendor lookup by PO (shared by PO-wise and DC/MIR-wise) ---
   const vendorByPO = useMemo(() => {

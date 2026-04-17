@@ -114,6 +114,9 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
         ),
         cell: ({ row }) => {
           const poId = row.original.procurement_order;
+          if (!poId) {
+            return <div className="text-sm text-muted-foreground">--</div>;
+          }
           return (
             <div className="flex items-center gap-1.5">
               <Link

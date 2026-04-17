@@ -3,10 +3,13 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useProjectDeliveryNotes } from "./hooks/useProjectDeliveryNotes";
 import { DNDetailDialog } from "./components/DNDetailDialog";
 import { useDownloadDN } from "./hooks/useDownloadDN";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
+import { cn } from "@/lib/utils";
+import type { InternalTransferMemo } from "@/types/NirmaanStack/InternalTransferMemo";
 
 // UI Components
 import ProjectSelect from "@/components/custom-select/project-select";
@@ -136,6 +139,7 @@ const DeliveryNotes: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDN, setSelectedDN] = useState<DeliveryNote | null>(null);
   const [dnDialogOpen, setDnDialogOpen] = useState(false);
+  const [dnSourceType, setDnSourceType] = useState<'po' | 'itm'>('po');
 
   const activeView = useMemo(() => {
     const view = searchParams.get("view");
@@ -168,6 +172,33 @@ const DeliveryNotes: React.FC = () => {
     () => createPOsResult?.message || [],
     [createPOsResult]
   );
+
+  // --- CREATE view ITM data ---
+  const shouldFetchITMs = activeView === "CREATE" && dnSourceType === 'itm' && !!selectedProject;
+  const { data: itmResult, isLoading: itmLoading } = useFrappeGetDocList<InternalTransferMemo>(
+    "Internal Transfer Memo",
+    {
+      fields: ["name", "source_project", "target_project", "status", "total_items", "estimated_value", "creation"],
+      filters: [
+        ["target_project", "=", selectedProject || ""],
+        ["status", "in", ["Dispatched", "Partially Delivered"]],
+      ],
+      orderBy: { field: "creation", order: "desc" },
+      limit: 100,
+    },
+    shouldFetchITMs ? undefined : null
+  );
+
+  const itmList = useMemo(() => itmResult || [], [itmResult]);
+
+  const filteredITMs = useMemo(() => {
+    if (!searchQuery.trim()) return itmList;
+    const q = searchQuery.toLowerCase();
+    return itmList.filter((itm) =>
+      itm.name.toLowerCase().includes(q) ||
+      itm.source_project?.toLowerCase().includes(q)
+    );
+  }, [itmList, searchQuery]);
 
   const filteredCreatePOs = useMemo(() => {
     if (!searchQuery.trim()) return createPOs;
@@ -300,131 +331,266 @@ const DeliveryNotes: React.FC = () => {
             </div>
             {selectedProject && (
               <>
+                {/* Source type toggle */}
+                <div className="flex gap-1.5 mb-3">
+                  <button
+                    onClick={() => setDnSourceType('po')}
+                    className={cn(
+                      "px-3 py-1.5 text-sm rounded",
+                      dnSourceType === 'po'
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    )}
+                  >
+                    Purchase Orders
+                  </button>
+                  <button
+                    onClick={() => setDnSourceType('itm')}
+                    className={cn(
+                      "px-3 py-1.5 text-sm rounded",
+                      dnSourceType === 'itm'
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    )}
+                  >
+                    Transfer Memos
+                  </button>
+                </div>
+
                 <SearchInput value={searchQuery} onChange={setSearchQuery} />
 
-                {createLoading && (
-                  <p className="text-center py-4 text-muted-foreground">
-                    Loading...
-                  </p>
-                )}
-
-                {!createLoading && filteredCreatePOs.length === 0 && (
-                  <p className="text-center text-red-500 py-4">
-                    No eligible Purchase Orders found for this project.
-                  </p>
-                )}
-
-                {!createLoading && filteredCreatePOs.length > 0 && (
+                {/* PO listing */}
+                {dnSourceType === 'po' && (
                   <>
-                    {/* Desktop Table */}
-                    <Table className="hidden md:table">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>PO No.</TableHead>
-                          <TableHead>Vendor</TableHead>
-                          <TableHead>Dispatch Date</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-center">DNs</TableHead>
-                          <TableHead className="w-[40px]"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredCreatePOs.map((po) => {
-                          const dnCount = dnsByPO[po.name]?.length || 0;
-                          return (
-                          <TableRow key={po.name}>
-                            <TableCell>
-                              <Link
-                                className="underline text-blue-600 hover:text-blue-800"
-                                to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
-                              >
-                                {`PO-${po.name.split("/")[1]}`}
-                              </Link>
-                            </TableCell>
-                            <TableCell>{po.vendor_name || "N/A"}</TableCell>
-                            <TableCell>{formatDate(po.dispatch_date)}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
-                                }
-                              >
-                                {po.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {dnCount > 0 && (
-                                <Badge variant="secondary">
-                                  {dnCount}
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Link
-                                to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
-                              >
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              </Link>
-                            </TableCell>
-                          </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                    {createLoading && (
+                      <p className="text-center py-4 text-muted-foreground">
+                        Loading...
+                      </p>
+                    )}
 
-                    {/* Mobile Cards */}
-                    <div className="md:hidden space-y-3">
-                      {filteredCreatePOs.map((po) => {
-                        const dnCount = dnsByPO[po.name]?.length || 0;
-                        return (
-                        <Link
-                          key={po.name}
-                          to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
-                          className="block"
-                        >
-                          <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-blue-600 text-lg">
-                                  {`PO-${po.name.split("/")[1]}`}
-                                </span>
-                                {dnCount > 0 && (
-                                  <Badge variant="secondary" className="text-xs">
-                                    {dnCount} DN{dnCount !== 1 ? "s" : ""}
+                    {!createLoading && filteredCreatePOs.length === 0 && (
+                      <p className="text-center text-red-500 py-4">
+                        No eligible Purchase Orders found for this project.
+                      </p>
+                    )}
+
+                    {!createLoading && filteredCreatePOs.length > 0 && (
+                      <>
+                        {/* Desktop Table */}
+                        <Table className="hidden md:table">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>PO No.</TableHead>
+                              <TableHead>Vendor</TableHead>
+                              <TableHead>Dispatch Date</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-center">DNs</TableHead>
+                              <TableHead className="w-[40px]"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredCreatePOs.map((po) => {
+                              const dnCount = dnsByPO[po.name]?.length || 0;
+                              return (
+                              <TableRow key={po.name}>
+                                <TableCell>
+                                  <Link
+                                    className="underline text-blue-600 hover:text-blue-800"
+                                    to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
+                                  >
+                                    {`PO-${po.name.split("/")[1]}`}
+                                  </Link>
+                                </TableCell>
+                                <TableCell>{po.vendor_name || "N/A"}</TableCell>
+                                <TableCell>{formatDate(po.dispatch_date)}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={
+                                      ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
+                                    }
+                                  >
+                                    {po.status}
                                   </Badge>
-                                )}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {dnCount > 0 && (
+                                    <Badge variant="secondary">
+                                      {dnCount}
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Link
+                                    to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
+                                  >
+                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                  </Link>
+                                </TableCell>
+                              </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+
+                        {/* Mobile Cards */}
+                        <div className="md:hidden space-y-3">
+                          {filteredCreatePOs.map((po) => {
+                            const dnCount = dnsByPO[po.name]?.length || 0;
+                            return (
+                            <Link
+                              key={po.name}
+                              to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
+                              className="block"
+                            >
+                              <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-blue-600 text-lg">
+                                      {`PO-${po.name.split("/")[1]}`}
+                                    </span>
+                                    {dnCount > 0 && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        {dnCount} DN{dnCount !== 1 ? "s" : ""}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Badge
+                                    variant={
+                                      ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
+                                    }
+                                  >
+                                    {po.status}
+                                  </Badge>
+                                </div>
+                                <div className="space-y-1.5 text-sm">
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 min-w-[80px]">
+                                      Vendor:
+                                    </span>
+                                    <span className="font-medium text-gray-900 flex-1">
+                                      {po.vendor_name || "N/A"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center">
+                                    <span className="text-gray-500 min-w-[80px]">
+                                      Dispatch:
+                                    </span>
+                                    <span className="text-gray-900">
+                                      {formatDate(po.dispatch_date)}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
-                              <Badge
-                                variant={
-                                  ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
-                                }
-                              >
-                                {po.status}
-                              </Badge>
-                            </div>
-                            <div className="space-y-1.5 text-sm">
-                              <div className="flex items-start">
-                                <span className="text-gray-500 min-w-[80px]">
-                                  Vendor:
-                                </span>
-                                <span className="font-medium text-gray-900 flex-1">
-                                  {po.vendor_name || "N/A"}
-                                </span>
+                            </Link>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {/* ITM listing */}
+                {dnSourceType === 'itm' && (
+                  <>
+                    {itmLoading && (
+                      <p className="text-center py-4 text-muted-foreground">
+                        Loading...
+                      </p>
+                    )}
+
+                    {!itmLoading && filteredITMs.length === 0 && (
+                      <p className="text-center text-red-500 py-4">
+                        No eligible Transfer Memos found for this project.
+                      </p>
+                    )}
+
+                    {!itmLoading && filteredITMs.length > 0 && (
+                      <>
+                        {/* Desktop Table */}
+                        <Table className="hidden md:table">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>ITM ID</TableHead>
+                              <TableHead>Source Project</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-center">Items</TableHead>
+                              <TableHead className="text-right">Est. Value</TableHead>
+                              <TableHead className="w-[40px]"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredITMs.map((itm) => (
+                              <TableRow key={itm.name}>
+                                <TableCell>
+                                  <Link
+                                    className="underline text-blue-600 hover:text-blue-800"
+                                    to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}
+                                  >
+                                    {itm.name}
+                                  </Link>
+                                </TableCell>
+                                <TableCell>{itm.source_project}</TableCell>
+                                <TableCell>
+                                  <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
+                                    {itm.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">{itm.total_items ?? 0}</TableCell>
+                                <TableCell className="text-right">
+                                  {formatToRoundedIndianRupee(itm.estimated_value ?? 0)}
+                                </TableCell>
+                                <TableCell>
+                                  <Link to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}>
+                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                  </Link>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+
+                        {/* Mobile Cards */}
+                        <div className="md:hidden space-y-3">
+                          {filteredITMs.map((itm) => (
+                            <Link
+                              key={itm.name}
+                              to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}
+                              className="block"
+                            >
+                              <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                                <div className="flex items-start justify-between mb-2">
+                                  <span className="font-semibold text-blue-600 text-lg">
+                                    {itm.name}
+                                  </span>
+                                  <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
+                                    {itm.status}
+                                  </Badge>
+                                </div>
+                                <div className="space-y-1.5 text-sm">
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 min-w-[80px]">Source:</span>
+                                    <span className="font-medium text-gray-900 flex-1">
+                                      {itm.source_project}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center">
+                                    <span className="text-gray-500 min-w-[80px]">Items:</span>
+                                    <span className="text-gray-900">{itm.total_items ?? 0}</span>
+                                  </div>
+                                  <div className="flex items-center">
+                                    <span className="text-gray-500 min-w-[80px]">Est. Value:</span>
+                                    <span className="text-gray-900">
+                                      {formatToRoundedIndianRupee(itm.estimated_value ?? 0)}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex items-center">
-                                <span className="text-gray-500 min-w-[80px]">
-                                  Dispatch:
-                                </span>
-                                <span className="text-gray-900">
-                                  {formatDate(po.dispatch_date)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </Link>
-                        );
-                      })}
-                    </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </>

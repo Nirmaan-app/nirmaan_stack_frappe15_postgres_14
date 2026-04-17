@@ -89,6 +89,7 @@ const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPO
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
+const ProjectTransferMemosTab = React.lazy(() => import("./components/ProjectTransferMemosTab"));
 
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
@@ -242,6 +243,7 @@ export const PROJECT_PAGE_TABS = {
   MAKES: 'projectmakes',
   ESTIMATES: 'projectestimates',
   MATERIAL_USAGE: 'projectmaterialusage',
+  TRANSFER_MEMOS: 'transfermemos',
   TDS_REPOSITORY: 'tdsrepository',
   PROJECT_EXPENSES: 'projectexpenses', // --- (Indicator) NEW TAB KEY ---
   DC_MIR: 'projectdcmir',
@@ -379,6 +381,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
+    PROJECT_PAGE_TABS.TRANSFER_MEMOS,
     PROJECT_PAGE_TABS.PROJECT_EXPENSES,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.DC_MIR,
@@ -396,6 +399,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
+    PROJECT_PAGE_TABS.TRANSFER_MEMOS,
     PROJECT_PAGE_TABS.ESTIMATES,
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
@@ -478,6 +482,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
         },
         {
+          label: "Transfer Memos",
+          key: PROJECT_PAGE_TABS.TRANSFER_MEMOS,
+        },
+        {
           label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
@@ -530,6 +538,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Material Usage",
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+        },
+        {
+          label: "Transfer Memos",
+          key: PROJECT_PAGE_TABS.TRANSFER_MEMOS,
         },
         {
           label: "TDS",
@@ -599,6 +611,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         label: "Material Usage",
         key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+      },
+      {
+        label: "Transfer Memos",
+        key: PROJECT_PAGE_TABS.TRANSFER_MEMOS,
       },
       {
         label: "TDS",
@@ -1424,6 +1440,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectEstimates projectTab />; // Example
       case PROJECT_PAGE_TABS.MATERIAL_USAGE:
         return <ProjectMaterialUsageTab projectId={projectId} projectPayments={projectPayments} />;
+      case PROJECT_PAGE_TABS.TRANSFER_MEMOS:
+        return <Suspense fallback={<LoadingFallback />}><ProjectTransferMemosTab projectId={projectId} /></Suspense>;
       // --- (Indicator) NEW CASE FOR THE NEW TAB ---
       case PROJECT_PAGE_TABS.PROJECT_EXPENSES:
         return <ProjectExpensesTab projectId={projectId} />;
