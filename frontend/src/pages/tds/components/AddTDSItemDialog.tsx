@@ -27,7 +27,7 @@ interface AddTDSItemDialogProps {
 }
 
 // Custom Item Dialog Component
-interface CustomItemDialogProps {
+export interface CustomItemDialogProps {
     open: boolean;
     onClose: () => void;
     onSelect: (item: { id: string; name: string; category: string; workPackage: string; isNew: boolean }) => void;
@@ -36,7 +36,7 @@ interface CustomItemDialogProps {
     catList: any[];
 }
 
-const CustomItemDialog: React.FC<CustomItemDialogProps> = ({ 
+export const CustomItemDialog: React.FC<CustomItemDialogProps> = ({ 
     open, onClose, onSelect, allCustomItems, standardItems, catList 
 }) => {
     const [searchQuery, setSearchQuery] = useState("");

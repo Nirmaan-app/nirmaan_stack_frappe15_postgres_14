@@ -1,12 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import ReactSelect from "react-select";
+import ReactSelect, { components, MenuListProps } from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
-import { Trash2, FileText, MessageSquare } from 'lucide-react';
+import { Trash2, FileText, MessageSquare, PlusCircle } from 'lucide-react';
 import { useTdsRepositoryItems, useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
 import { useCreateTdsItem, useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
+import { RequestTdsItemDialog } from "./RequestTdsItemDialog";
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import {
     Tooltip,
     TooltipContent,
@@ -53,6 +55,8 @@ interface TDSRepositoryDoc {
 
 interface CartItem extends TDSRepositoryDoc {
     previousDocName?: string;
+    is_new_request?: boolean;
+    attachmentFile?: File; // For newly requested items
 }
 
 export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess }) => {
@@ -63,9 +67,23 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
     const [selectedBoqLineItem, setSelectedBoqLineItem] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isRequestDialogOpen, setIsRequestDialogOpen] = useState(false);
 
-    const { createDoc } = useCreateTdsItem();
-    const { deleteDoc } = useDeleteTdsItem();
+    // Ref used to pull the Item Name field to the top of the viewport when its
+    // dropdown opens, so the option list has room to expand below.
+    const itemNameWrapperRef = useRef<HTMLDivElement>(null);
+    const handleItemMenuOpen = () => {
+        // Wait one frame so the menu starts rendering, then scroll.
+        requestAnimationFrame(() => {
+            itemNameWrapperRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    };
+
+    const { createDoc: createFrappeDoc } = useFrappeCreateDoc();
+    const { upload: uploadFile } = useFrappeFileUpload();
+    const { updateDoc: updateFrappeDoc } = useFrappeUpdateDoc();
+    const { createDoc: createOldStyleDoc } = useCreateTdsItem();
+    const { deleteDoc: deleteOldStyleDoc } = useDeleteTdsItem();
 
     // Dialog State
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -150,8 +168,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             filtered = filtered.filter(item => item.category === selectedCategory);
         }
         return filtered.map(item => ({
-            label: item.make, 
-            value: item.make
+            label: item.make,
+            value: item.make,
         }));
     }, [availableRepoItems, selectedItemName, selectedWorkPackage, selectedCategory]);
 
@@ -274,6 +292,40 @@ if (selectedBoqLineItem.length > 300) {
         setSelectedBoqLineItem("");
     };
 
+    // Custom MenuList for Item Name Select
+    const TdsItemCustomMenuList = (props: MenuListProps<any, false>) => {
+        const { children } = props;
+        const onAddItemClick = (props as any)?.onAddItemClick;
+
+        return (
+            <div>
+                <components.MenuList {...props}>{children}</components.MenuList>
+                {onAddItemClick && (
+                    <div className="bottom-0 z-10 bg-white border-t border-gray-200 px-2 py-1">
+                        <Button
+                            variant="ghost"
+                            className="w-full rounded-md flex items-center justify-start gap-2 text-sm h-9 text-blue-600 hover:bg-blue-50 font-medium"
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onAddItemClick();
+                            }}
+                        >
+                            <PlusCircle className="h-4 w-4" />
+                            Create/ Request New Item
+                        </Button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const NewItemBadge = () => (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-tight ml-2">
+            New
+        </span>
+    );
+
     const handleLogSubmit = async () => {
         if (cartItems.length === 0) return;
         setIsSubmitting(true);
@@ -303,36 +355,61 @@ if (selectedBoqLineItem.length > 300) {
             // 1. Delete previous rejected records
             const itemsToDelete = cartItems.filter(item => item.previousDocName).map(item => item.previousDocName!);
             if (itemsToDelete.length > 0) {
-                await Promise.all(itemsToDelete.map(name => deleteDoc(name, projectId)));
+                await Promise.all(itemsToDelete.map(name => deleteOldStyleDoc(name, projectId)));
             }
-
-            // 2. Create new requests
-            await Promise.all(cartItems.map(item =>
-                createDoc({
+        
+            // 2. Create and Process each item
+            await Promise.all(cartItems.map(async (item) => {
+                const docData = {
                     tdsi_project_id: projectId,
                     tds_request_id: uniqueReqId,
-                    tds_item_id: item.tds_item_id, // Source Doc ID
+                    tds_item_id: item.tds_item_id, // Source Doc ID (can be empty for New)
                     tds_item_name: item.tds_item_name,
                     tds_make: item.make,
                     tds_description: item.description,
                     tds_work_package: item.work_package,
                     tds_category: item.category,
-                    tds_status: "Pending",
-                    tds_attachment: item.tds_attachment, // Snapshot attachment if needed?
-                    tds_boq_line_item: item.tds_boq_line_item
-                }, projectId)
-            ));
-
+                    tds_status: item.is_new_request ? "New" : "Pending",
+                    tds_boq_line_item: item.tds_boq_line_item,
+                    tds_attachment: item.tds_attachment // Carry over existing if standard
+                };
+        
+                const newDoc = await createFrappeDoc("Project TDS Item List", docData);
+        
+                // 3. Handle File Upload if present
+                if (newDoc && newDoc.name && item.attachmentFile) {
+                    try {
+                        const uploadResp = await uploadFile(item.attachmentFile, {
+                            doctype: "Project TDS Item List",
+                            docname: newDoc.name,
+                            fieldname: "tds_attachment",
+                            isPrivate: true
+                        });
+        
+                        const responseData = uploadResp as any;
+                        const fileUrl = responseData?.message?.file_url || responseData?.file_url;
+                        if (fileUrl) {
+                            await updateFrappeDoc("Project TDS Item List", newDoc.name, {
+                                tds_attachment: fileUrl
+                            });
+                        }
+                    } catch (uploadError) {
+                        console.error(`Failed to upload file for ${item.tds_item_name}:`, uploadError);
+                        // We still continue as the record was created
+                    }
+                }
+            }));
+        
             toast({
                 title: "Request Submitted",
                 description: `Successfully submitted ${cartItems.length} items for approval.`,
                 className: "bg-green-50 border-green-200 text-green-800"
             });
-            
+        
             setCartItems([]);
             handleReset();
             if (onSuccess) onSuccess();
-
+        
         } catch (error) {
             console.error("Submission failed", error);
             toast({
@@ -395,7 +472,7 @@ if (selectedBoqLineItem.length > 300) {
                 {/* Selection Row: Item Name & Make (Required) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     {/* Item Name */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 scroll-mt-4" ref={itemNameWrapperRef}>
                          <Label className="text-sm font-semibold text-gray-700">Item Name <span className="text-red-500">*</span></Label>
                          <FuzzySearchSelect
                             allOptions={itemOptions}
@@ -412,7 +489,17 @@ if (selectedBoqLineItem.length > 300) {
                             placeholder="Search Item Name..."
                             isClearable
                             isLoading={!repoItems}
+                            customMenuListComponent={TdsItemCustomMenuList as any}
+                            customMenuListProps={{
+                                onAddItemClick: () => setIsRequestDialogOpen(true)
+                            }}
+                            onMenuOpen={handleItemMenuOpen}
                          />
+                         <RequestTdsItemDialog 
+                            open={isRequestDialogOpen} 
+                            onOpenChange={setIsRequestDialogOpen} 
+                            onAddItem={(item) => setCartItems([...cartItems, item])} 
+                        />
                     </div>
 
                     {/* Make */}
@@ -490,7 +577,12 @@ if (selectedBoqLineItem.length > 300) {
                                 <TableRow key={`${item.name}-${idx}`}>
                                     <TableCell>{item.work_package}</TableCell>
                                     <TableCell>{item.category}</TableCell>
-                                    <TableCell className="font-medium">{item.tds_item_name}</TableCell>
+                                    <TableCell className="font-medium">
+                                        <div className="flex items-center">
+                                            {item.tds_item_name}
+                                            {item.is_new_request && <NewItemBadge />}
+                                        </div>
+                                    </TableCell>
                                     <TableCell>
                                         <div className="truncate max-w-[200px]" title={item.description}>
                                             {item.description}
