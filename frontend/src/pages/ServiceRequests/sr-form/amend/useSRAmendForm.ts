@@ -275,16 +275,6 @@ export const useSRAmendForm = ({
             return;
         }
 
-        // Prevent submission if no changes were made
-        if (!hasChanges) {
-            toast({
-                title: "No Changes Detected",
-                description: "You haven't made any modifications to this Service Request. Please update the items, rates, or vendor before submitting.",
-                variant: "destructive",
-            });
-            return;
-        }
-
         setShowSubmissionDialog(true);
         setSubmissionState({ stage: "updating-sr" });
 

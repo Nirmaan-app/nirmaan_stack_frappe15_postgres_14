@@ -24,6 +24,55 @@ export const getSRTotal = memoize(
     }, 0);
   }, (order: any) => JSON.stringify(order));
 
+// Sum of standard_rate * qty across SR items. Falls back to rate-card lookup
+// (item_name -> rate) when standard_rate is missing on older SR documents.
+export const getSRStandardTotal = (
+  order: any,
+  rateCardByName?: Record<string, number>
+): number => {
+  let orderData: any[] = [];
+  if (typeof order?.service_order_list === "string") {
+    orderData = JSON.parse(order.service_order_list)?.list || [];
+  } else {
+    orderData = order?.service_order_list?.list || [];
+  }
+
+  return orderData.reduce((acc, item) => {
+    let stdRate = parseNumber(item?.standard_rate);
+    if (stdRate <= 0 && rateCardByName) {
+      stdRate = parseNumber(rateCardByName[item?.description]);
+    }
+    if (stdRate <= 0) return acc;
+    const quantity = parseNumber(item?.quantity) || 1;
+    return acc + stdRate * quantity;
+  }, 0);
+};
+
+// Est total (excl. GST) computed ONLY over items that have a std rate — so
+// the Diff % is apples-to-apples (custom items with no std are excluded).
+export const getSREstForStdItems = (
+  order: any,
+  rateCardByName?: Record<string, number>
+): number => {
+  let orderData: any[] = [];
+  if (typeof order?.service_order_list === "string") {
+    orderData = JSON.parse(order.service_order_list)?.list || [];
+  } else {
+    orderData = order?.service_order_list?.list || [];
+  }
+
+  return orderData.reduce((acc, item) => {
+    let stdRate = parseNumber(item?.standard_rate);
+    if (stdRate <= 0 && rateCardByName) {
+      stdRate = parseNumber(rateCardByName[item?.description]);
+    }
+    if (stdRate <= 0) return acc;
+    const price = parseNumber(item?.rate);
+    const quantity = parseNumber(item?.quantity) || 1;
+    return acc + price * quantity;
+  }, 0);
+};
+
 
 
 interface SRTotalResult {

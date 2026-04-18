@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
@@ -10,14 +10,40 @@ import {
   FrappeConfig,
   FrappeDoc,
   GetDocListArgs,
+  useFrappeUpdateDoc,
+  useFrappeCreateDoc,
 } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
+import {
+  CheckCheck,
+  CheckCircle2,
+  ListChecks,
+  ListX,
+  TrendingDown,
+  TrendingUp,
+  Undo2,
+  AlertTriangle,
+  XCircle,
+} from "lucide-react";
+import { TailSpin } from "react-loader-spinner";
 
 // --- UI Components ---
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "@/components/ui/use-toast";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -61,6 +87,15 @@ export const ApproveSelectSR: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { getTotalAmount } = useOrderTotals();
   const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  // Row action state (approve/reject from the list)
+  const [actionRow, setActionRow] = useState<ServiceRequests | null>(null);
+  const [actionType, setActionType] = useState<"approve" | "reject" | null>(null);
+  const [rejectComment, setRejectComment] = useState("");
+  const [isActing, setIsActing] = useState(false);
+
+  const { updateDoc } = useFrappeUpdateDoc();
+  const { createDoc } = useFrappeCreateDoc();
 
   const projectsFetchOptions = getProjectListOptions();
 
@@ -208,7 +243,7 @@ export const ApproveSelectSR: React.FC = () => {
             </div>
           );
         },
-        size: 150,
+        size: 75,
         meta: {
           exportHeaderName: "#SR",
           exportValue: (row) => {
@@ -226,7 +261,7 @@ export const ApproveSelectSR: React.FC = () => {
             {formatDate(row.getValue("creation"))}
           </div>
         ),
-        size: 150,
+        size: 110,
         meta: {
           exportHeaderName: "Created On",
           exportValue: (row) => {
@@ -244,13 +279,13 @@ export const ApproveSelectSR: React.FC = () => {
             (p) => p.value === row.original.project
           );
           return (
-            <div className="font-medium truncate" title={project?.label}>
+            <div className="font-medium" title={project?.label}>
               {project?.label || row.original.project}
             </div>
           );
         },
         enableColumnFilter: true,
-        size: 200,
+        size: 150,
         meta: {
           enableFacet: true,
           facetTitle: "Project",
@@ -267,15 +302,15 @@ export const ApproveSelectSR: React.FC = () => {
           <DataTableColumnHeader column={column} title="Selected Vendor" />
         ),
         cell: ({ row }) => (
-          <div
-            className="font-medium truncate"
+          <span
+            className="inline-block max-w-full rounded-md bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 text-xs font-semibold leading-tight whitespace-normal break-words line-clamp-2"
             title={getVendorName(row.original.vendor)}
           >
             {getVendorName(row.original.vendor)}
-          </div>
+          </span>
         ),
         enableColumnFilter: true,
-        size: 200,
+        size: 150,
         meta: {
           enableFacet: true,
           facetTitle: "Vendor",
@@ -298,18 +333,18 @@ export const ApproveSelectSR: React.FC = () => {
             ? categories.list
             : [];
           return (
-            <div className="flex flex-wrap gap-1 items-start justify-start max-w-[200px]">
+            <div className="flex flex-wrap gap-1 items-start justify-start max-w-[160px]">
               {categoryItems.length > 0
                 ? categoryItems.map((obj) => (
-                    <Badge key={obj.name} variant="outline" className="text-xs">
-                      {obj.name}
-                    </Badge>
-                  ))
+                  <Badge key={obj.name} variant="outline" className="text-xs">
+                    {obj.name}
+                  </Badge>
+                ))
                 : "--"}
             </div>
           );
         },
-        size: 180,
+        size: 160,
         enableSorting: false,
         meta: {
           exportHeaderName: "Categories",
@@ -338,7 +373,7 @@ export const ApproveSelectSR: React.FC = () => {
             </div>
           );
         },
-        size: 180,
+        size: 130,
         meta: {
           exportHeaderName: "Created By",
           exportValue: (row: ServiceRequests) => {
@@ -354,15 +389,32 @@ export const ApproveSelectSR: React.FC = () => {
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Est. Value" />
         ),
-        cell: ({ row }) => (
-          <p className="font-medium pr-2">
-            {formatToRoundedIndianRupee(
-              getTotalAmount(row.original.name, "Service Requests")
-                ?.totalWithTax
-            )}
-          </p>
-        ),
-        size: 150,
+        cell: ({ row }) => {
+          const totals = getTotalAmount(row.original.name, "Service Requests");
+          const diff = totals?.stdDiffPct;
+          const isOver = diff !== null && diff !== undefined && diff > 0;
+          const DiffIcon = isOver ? TrendingUp : TrendingDown;
+          return (
+            <div className="pr-2">
+              <p className="font-medium leading-tight">
+                {formatToRoundedIndianRupee(totals?.totalWithTax)}
+              </p>
+              {diff !== null && diff !== undefined && (
+                <p
+                  className={cn(
+                    "text-[10px] font-semibold inline-flex items-center gap-0.5 mt-0.5",
+                    isOver ? "text-red-600" : "text-emerald-600"
+                  )}
+                >
+                  <DiffIcon className="h-2.5 w-2.5" />
+                  {isOver ? "+" : ""}
+                  {diff.toFixed(2)}%
+                </p>
+              )}
+            </div>
+          );
+        },
+        size: 95,
         enableSorting: false,
         meta: {
           exportHeaderName: "Est. Value",
@@ -372,6 +424,43 @@ export const ApproveSelectSR: React.FC = () => {
             );
           },
         },
+      },
+      {
+        id: "sr_actions",
+        header: () => <span className="text-xs font-medium">Actions</span>,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-3 pr-1">
+            <button
+              type="button"
+              title="Approve"
+              aria-label="Approve"
+              className="text-emerald-600 hover:text-emerald-700 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActionRow(row.original);
+                setActionType("approve");
+              }}
+            >
+              <CheckCircle2 className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              title="Reject"
+              aria-label="Reject"
+              className="text-red-600 hover:text-red-700 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActionRow(row.original);
+                setActionType("reject");
+                setRejectComment("");
+              }}
+            >
+              <XCircle className="h-5 w-5" />
+            </button>
+          </div>
+        ),
+        size: 80,
+        enableSorting: false,
       },
     ],
     [
@@ -479,6 +568,69 @@ export const ApproveSelectSR: React.FC = () => {
     [ceoHoldProjectIds]
   );
 
+  // --- Row Action Handlers (Approve / Reject from list) ---
+  const closeActionDialog = useCallback(() => {
+    setActionRow(null);
+    setActionType(null);
+    setRejectComment("");
+    setIsActing(false);
+  }, []);
+
+  const handleConfirmApprove = useCallback(async () => {
+    if (!actionRow) return;
+    try {
+      setIsActing(true);
+      await updateDoc("Service Requests", actionRow.name, { status: "Approved" });
+      toast({
+        title: "Success!",
+        description: `SR: ${actionRow.name} approved.`,
+        variant: "success",
+      });
+      invalidateSidebarCounts();
+      refetch();
+      closeActionDialog();
+    } catch (err) {
+      toast({
+        title: "Failed!",
+        description: "Unable to approve service request.",
+        variant: "destructive",
+      });
+      setIsActing(false);
+    }
+  }, [actionRow, updateDoc, refetch, closeActionDialog]);
+
+  const handleConfirmReject = useCallback(async () => {
+    if (!actionRow) return;
+    try {
+      setIsActing(true);
+      await updateDoc("Service Requests", actionRow.name, { status: "Rejected" });
+      if (rejectComment.trim()) {
+        await createDoc("Nirmaan Comments", {
+          comment_type: "Comment",
+          reference_doctype: "Service Requests",
+          reference_name: actionRow.name,
+          content: rejectComment.trim(),
+          subject: "rejecting sr",
+        });
+      }
+      toast({
+        title: "Success!",
+        description: `SR: ${actionRow.name} rejected.`,
+        variant: "success",
+      });
+      invalidateSidebarCounts();
+      refetch();
+      closeActionDialog();
+    } catch (err) {
+      toast({
+        title: "Failed!",
+        description: "Unable to reject service request.",
+        variant: "destructive",
+      });
+      setIsActing(false);
+    }
+  }, [actionRow, rejectComment, updateDoc, createDoc, refetch, closeActionDialog]);
+
   if (combinedError) {
     return <AlertDestructive error={combinedError} />;
   }
@@ -490,8 +642,8 @@ export const ApproveSelectSR: React.FC = () => {
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {isLoading ? (
@@ -525,9 +677,94 @@ export const ApproveSelectSR: React.FC = () => {
           isExporting={isExporting}
           exportFileName={`Approve_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
-          // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
+        // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
         />
       )}
+
+      {/* Approve / Reject Row Action Dialog */}
+      <AlertDialog
+        open={!!actionRow && !!actionType}
+        onOpenChange={(open) => {
+          if (!open && !isActing) closeActionDialog();
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-[450px]">
+          {(() => {
+            if (!actionRow || !actionType) return null;
+            const isApprove = actionType === "approve";
+            const isOnHold = ceoHoldProjectIds.has(actionRow.project);
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {isApprove ? "Approve Service Request?" : "Reject Service Request?"}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-3">
+                      <p className="text-sm">
+                        SR:{" "}
+                        <span className="font-semibold text-foreground">
+                          {actionRow.name}
+                        </span>
+                      </p>
+                      {isOnHold && (
+                        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-amber-900">
+                          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                          <span className="text-xs leading-snug">
+                            This project is currently on <strong>CEO Hold</strong>. Are
+                            you sure you want to {isApprove ? "approve" : "reject"} it?
+                          </span>
+                        </div>
+                      )}
+                      {!isApprove && (
+                        <div className="space-y-1.5">
+                          <label
+                            htmlFor="reject-comment"
+                            className="text-xs font-medium text-foreground"
+                          >
+                            Comment (optional)
+                          </label>
+                          <textarea
+                            id="reject-comment"
+                            className="w-full border rounded-md p-2 text-sm min-h-[72px] focus:outline-none focus:ring-2 focus:ring-red-100"
+                            value={rejectComment}
+                            onChange={(e) => setRejectComment(e.target.value)}
+                            placeholder="Reason for rejection..."
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                {isActing ? (
+                  <div className="flex items-center justify-center py-4">
+                    <TailSpin width={48} color={isApprove ? "#059669" : "#dc2626"} />
+                  </div>
+                ) : (
+                  <AlertDialogFooter className="flex flex-row justify-end gap-2 items-center">
+                    <AlertDialogCancel className="flex items-center gap-1 mt-0">
+                      <Undo2 className="h-4 w-4" />
+                      Cancel
+                    </AlertDialogCancel>
+                    <Button
+                      onClick={isApprove ? handleConfirmApprove : handleConfirmReject}
+                      className={cn(
+                        "flex items-center gap-1 text-white",
+                        isApprove
+                          ? "bg-emerald-600 hover:bg-emerald-700"
+                          : "bg-red-600 hover:bg-red-700"
+                      )}
+                    >
+                      <CheckCheck className="h-4 w-4" />
+                      Confirm {isApprove ? "Approve" : "Reject"}
+                    </Button>
+                  </AlertDialogFooter>
+                )}
+              </>
+            );
+          })()}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
