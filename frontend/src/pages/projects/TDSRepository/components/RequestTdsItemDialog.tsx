@@ -82,14 +82,12 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     });
 
     const itemOptionsWithCustom = useMemo(() => {
-        const standardItems = itemOptionsForWP.map(item => ({
+        return itemOptionsForWP.map(item => ({
             label: item.label,
             value: item.value,
             category: item.category,
             categoryName: item.categoryName
         }));
-
-        return [...standardItems, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "" }];
     }, [itemOptionsForWP]);
 
     const prevWPRef = useRef(selectedWP);
@@ -118,26 +116,22 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     }, [watchedTdsItemId, form]);
 
     const handleItemChange = (opt: any) => {
-        if (opt?.value === "__custom__") {
-            setCustomItemDialogOpen(true);
-        } else {
-            const isCustom = opt?.value?.startsWith("CUS-");
-            const itemInfo = getCategoryForItem(opt?.value);
-            
-            if (itemInfo) {
-                form.setValue("category", itemInfo.category);
-                if (itemInfo.workPackage && itemInfo.workPackage !== form.getValues("work_package")) {
-                     prevWPRef.current = itemInfo.workPackage;
-                     form.setValue("work_package", itemInfo.workPackage);
-                }
+        const isCustom = opt?.value?.startsWith("CUS-");
+        const itemInfo = getCategoryForItem(opt?.value);
+
+        if (itemInfo) {
+            form.setValue("category", itemInfo.category);
+            if (itemInfo.workPackage && itemInfo.workPackage !== form.getValues("work_package")) {
+                 prevWPRef.current = itemInfo.workPackage;
+                 form.setValue("work_package", itemInfo.workPackage);
             }
-            
-            form.setValue("tds_item_id", opt?.value);
-            form.setValue("tds_item_name", opt?.label || "");
-            setIsCustomItem(isCustom);
-            setCustomItemName(isCustom ? (opt?.label || "") : "");
-            form.setValue("is_custom_item", isCustom);
         }
+
+        form.setValue("tds_item_id", opt?.value);
+        form.setValue("tds_item_name", opt?.label || "");
+        setIsCustomItem(isCustom);
+        setCustomItemName(isCustom ? (opt?.label || "") : "");
+        form.setValue("is_custom_item", isCustom);
     };
 
     const handleCustomItemSelect = (item: { id: string; name: string; category: string; workPackage: string; isNew: boolean }) => {
@@ -276,13 +270,6 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     styles={{
                                                         control: (base) => ({ ...base, minHeight: '44px', borderRadius: '8px', borderColor: '#e5e7eb' })
                                                     }}
-                                                    formatOptionLabel={(option) => (
-                                                        option.value === "__custom__" ? (
-                                                            <span className="text-blue-600 font-black tracking-tight flex items-center gap-1">
-                                                                <span className="text-lg">+</span> Custom Item
-                                                            </span>
-                                                        ) : option.label
-                                                    )}
                                                 />
                                             )}
                                         </FormControl>

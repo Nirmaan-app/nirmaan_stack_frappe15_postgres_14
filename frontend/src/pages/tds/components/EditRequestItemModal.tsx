@@ -163,10 +163,6 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     };
 
     const handleItemChange = (opt: any) => {
-        if (opt?.value === "__custom__") {
-            setCustomItemDialogOpen(true);
-            return;
-        }
         const isCustom = !!opt?.value?.startsWith?.("CUS-");
         const pinned = opt?.value ? getCategoryForItem(opt.value) : null;
         // Item pins win — override WP/Category (option A, per user decision)
@@ -208,13 +204,12 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     };
 
     const itemOptionsWithCustom = useMemo(() => {
-        const standard = itemOptionsForWP.map(opt => ({
+        return itemOptionsForWP.map(opt => ({
             label: opt.label,
             value: opt.value,
             category: opt.category,
             categoryName: opt.categoryName,
         }));
-        return [...standard, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "" }];
     }, [itemOptionsForWP]);
 
     const getItemDisplayValue = () => {
@@ -374,13 +369,6 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                                                 backgroundColor: !selectedWP ? "#f9fafb" : "white",
                                             }),
                                         }}
-                                        formatOptionLabel={(option) => (
-                                            option.value === "__custom__" ? (
-                                                <span className="text-blue-600 font-black tracking-tight flex items-center gap-1">
-                                                    <span className="text-lg">+</span> Custom Item
-                                                </span>
-                                            ) : option.label
-                                        )}
                                     />
                                 )}
                             </div>
