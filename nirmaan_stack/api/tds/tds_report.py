@@ -1,73 +1,78 @@
 import frappe
 import json
+import uuid
 from frappe.utils.pdf import get_pdf
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import merge_pdfs_interleaved
+from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
+
 
 @frappe.whitelist()
 def export_tds_report(settings_json: str, items_json: str, project_name: str = "TDS_Report"):
+    """Enqueue a TDS PDF export and return immediately.
+
+    The worker publishes:
+      * `tds_export_progress` — per-item progress (via merge_pdfs_interleaved).
+      * `tds_export_ready`    — on success, with {token, filename, failed_items}.
+      * `tds_export_failed`   — on fatal error, with {message}.
+
+    The client fetches the finished PDF via `bulk_download.fetch_temp_file`.
     """
-    Main API endpoint for TDS PDF export with interleaved attachments.
-    
-    1. Generates base PDF using Frappe print format
-    2. Merges each item's attachment after its approval form page
-    3. Returns combined PDF for download
-    
-    Args:
-        settings_json: JSON string of TDS settings (stakeholders etc)
-        items_json: JSON string of selected items with tds_attachment field
-        project_name: Name of the project for filename
-    """
+    user = frappe.session.user
+    frappe.enqueue(
+        "nirmaan_stack.api.tds.tds_report.run_tds_export_job",
+        queue="long",
+        timeout=600,  # 10 min
+        user=user,
+        settings_json=settings_json,
+        items_json=items_json,
+        project_name=project_name,
+    )
+    return {"message": "Job enqueued"}
+
+
+def run_tds_export_job(user, settings_json, items_json, project_name):
+    """Background worker: renders the TDS Print Format, merges attachments,
+    writes the merged PDF to a temp file, emits `tds_export_ready` with a token."""
     try:
+        frappe.set_user(user)
+
         settings = json.loads(settings_json) if isinstance(settings_json, str) else settings_json
         items = json.loads(items_json) if isinstance(items_json, str) else items_json
-        
-        # Build data for print format (same as frontend was sending)
-        combined_data = json.dumps({
-            "settings": settings,
-            "history": items
-        })
-        
-        # Generate base PDF using Frappe's print format
-        # We need to render the Jinja template HTML first
+
+        combined_data = json.dumps({"settings": settings, "history": items})
+
         print_format = frappe.get_doc("Print Format", "Project TDS Report")
-        
         if not print_format:
             frappe.throw("Print Format 'Project TDS Report' not found")
-        
-        # Render the HTML template
-        html_template = print_format.html
-        
-        # Set form_dict for the template just in case
-        frappe.form_dict.data = combined_data
-        
-        template = frappe.render_template(html_template, {
-            "frappe": frappe,
-            "json": json,
-            # We must pass the data object implicitly if template uses frappe.form_dict.data or custom parsing
-            # But render_template usually takes a context. 
-            # If the template relies on "doc" or specific variables, we should pass them.
-            # Based on previous context, the template likely parses `frappe.form_dict.data`.
-        })
-        
-        # Convert HTML to PDF
-        base_pdf = get_pdf(template)
-        
-        # Merge with attachments interleaved
-        merged_pdf, failed_items = merge_pdfs_interleaved(base_pdf, items, progress_event="tds_export_progress")
-        
-        if failed_items:
-             frappe.throw(f"TDS Export failed partially. Check items: {', '.join(failed_items)}")
 
-        # Clean project name for filename
-        clean_name = frappe.scrub(project_name).replace('_', ' ').title().replace(' ', '_')
-        
-        # Return as download
-        frappe.local.response.filename = f"TDS_Report_{clean_name}_{frappe.utils.nowdate()}.pdf"
-        frappe.local.response.filecontent = merged_pdf
-        frappe.local.response.type = "download"
-        
-    except frappe.exceptions.ValidationError:
-        raise
+        # Same context plumbing as the old synchronous endpoint so the existing
+        # Jinja template keeps working unchanged.
+        frappe.form_dict.data = combined_data
+        template = frappe.render_template(print_format.html, {"frappe": frappe, "json": json})
+        base_pdf = get_pdf(template)
+
+        merged_pdf, failed_items = merge_pdfs_interleaved(
+            base_pdf, items, progress_event="tds_export_progress"
+        )
+
+        ensure_temp_dir()
+        token = uuid.uuid4().hex
+        with open(get_temp_path(token), "wb") as f:
+            f.write(merged_pdf)
+
+        clean_name = frappe.scrub(project_name).replace("_", " ").title().replace(" ", "_")
+        filename = f"TDS_Report_{clean_name}_{frappe.utils.nowdate()}.pdf"
+
+        frappe.publish_realtime(
+            "tds_export_ready",
+            {"token": token, "filename": filename, "failed_items": failed_items or []},
+            user=user,
+        )
+
     except Exception as e:
-        frappe.log_error(f"export_tds_report failed: {e}")
-        frappe.throw(f"PDF export failed: {str(e)}")
+        frappe.log_error(frappe.get_traceback(), "run_tds_export_job failed")
+        frappe.publish_realtime(
+            "tds_export_failed",
+            {"message": str(e)},
+            user=user,
+        )
