@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, FileDown, ExternalLink, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Ban, FileDown, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
@@ -76,43 +76,63 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     historyData,
     isExporting
 }) => {
-    // Filter only approved items
-    const approvedItems = useMemo(() => {
-        return historyData
-            .filter(item => item.tds_status === 'Approved')
+    const statusOptions = useMemo(() => ["Approved", "Pending"], []);
+
+    // Statuses that are actually allowed in the data set (Pending tab includes "New")
+    const allowedDataStatuses = useMemo(() => ["Approved", "Pending", "New"], []);
+
+    // Map a UI status filter to the underlying data statuses it represents
+    const expandStatusFilter = (status: string): string[] => {
+        if (status === "Pending") return ["Pending", "New"];
+        return [status];
+    };
+
+    // Sort all items; status filtering happens via selectedStatuses below
+    const sortedItems = useMemo(() => {
+        return [...historyData]
+            .filter(item => allowedDataStatuses.includes(item.tds_status))
             .sort((a, b) => {
                 const catA = (a.tds_category || '').toLowerCase();
                 const catB = (b.tds_category || '').toLowerCase();
                 if (catA < catB) return -1;
                 if (catA > catB) return 1;
-                
+
                 const nameA = (a.tds_item_name || '').toLowerCase();
                 const nameB = (b.tds_item_name || '').toLowerCase();
                 if (nameA < nameB) return -1;
                 if (nameA > nameB) return 1;
-                
+
                 return 0;
             });
-    }, [historyData]);
+    }, [historyData, allowedDataStatuses]);
 
     // Track selected packages and their order
     const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
 
+    // Track selected status (single-select, default: Approved)
+    const [selectedStatus, setSelectedStatus] = useState<string>("Approved");
+
     // Track collapsed package groups
     const [collapsedPackages, setCollapsedPackages] = useState<Set<string>>(new Set());
 
-    // Track selected items
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(approvedItems.map(item => item.name)));
+    // Items matching the currently selected status (Pending includes "New")
+    const statusFilteredItems = useMemo(() => {
+        const dataStatuses = expandStatusFilter(selectedStatus);
+        return sortedItems.filter(item => dataStatuses.includes(item.tds_status));
+    }, [sortedItems, selectedStatus]);
+
+    // Track selected items (default: all items matching default status)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(statusFilteredItems.map(item => item.name)));
 
     const uniquePackages = useMemo(() => {
-        const pkgSet = new Set(approvedItems.map(item => item.tds_work_package || 'Unknown'));
+        const pkgSet = new Set(statusFilteredItems.map(item => item.tds_work_package || 'Unknown'));
         return Array.from(pkgSet).sort();
-    }, [approvedItems]);
+    }, [statusFilteredItems]);
 
     const filteredItems = useMemo(() => {
-        if (selectedPackages.length === 0) return approvedItems;
-        return approvedItems.filter(item => selectedPackages.includes(item.tds_work_package || 'Unknown'));
-    }, [approvedItems, selectedPackages]);
+        if (selectedPackages.length === 0) return statusFilteredItems;
+        return statusFilteredItems.filter(item => selectedPackages.includes(item.tds_work_package || 'Unknown'));
+    }, [statusFilteredItems, selectedPackages]);
 
     const groupedItems = useMemo(() => {
         const groups = new Map<string, TdsExportItem[]>();
@@ -140,11 +160,17 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     // Reset selection when dialog opens
     React.useEffect(() => {
         if (isOpen) {
-            setSelectedIds(new Set(approvedItems.map(item => item.name)));
+            const defaultItems = sortedItems.filter(item => item.tds_status === "Approved");
+            setSelectedIds(new Set(defaultItems.map(item => item.name)));
             setSelectedPackages([]);
+            setSelectedStatus("Approved");
             setCollapsedPackages(new Set());
         }
-    }, [isOpen, approvedItems]);
+    }, [isOpen, sortedItems]);
+
+    const handleSelectStatus = (status: string) => {
+        setSelectedStatus(status);
+    };
     
     const handleToggleCollapse = (pkg: string) => {
         setCollapsedPackages(prev => {
@@ -210,6 +236,8 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
 
     const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.has(item.name));
 
+    const visibleSelectedCount = filteredItems.filter(item => selectedIds.has(item.name)).length;
+
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -261,10 +289,42 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                 </Button>
                             </div>
                             
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <span className="text-xs text-gray-500 font-medium mr-1">Status:</span>
+                                {statusOptions.map(status => {
+                                    const isSelected = selectedStatus === status;
+                                    const dataStatuses = expandStatusFilter(status);
+                                    const count = sortedItems.filter(item => dataStatuses.includes(item.tds_status)).length;
+                                    return (
+                                        <Badge
+                                            key={status}
+                                            variant={isSelected ? "default" : "outline"}
+                                            className={cn(
+                                                "cursor-pointer hover:bg-primary/90 transition-colors",
+                                                isSelected && "bg-primary text-primary-foreground"
+                                            )}
+                                            onClick={() => handleSelectStatus(status)}
+                                        >
+                                            {status} ({count})
+                                        </Badge>
+                                    );
+                                })}
+                                {selectedStatus !== "Approved" && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedStatus("Approved")}
+                                        title="Reset status filter to Approved"
+                                        className="ml-1 p-1 rounded-md text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors"
+                                    >
+                                        <FilterX className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+
                             {uniquePackages.length > 0 && (
                                 <div className="flex flex-wrap gap-2 items-center">
                                     <span className="text-xs text-gray-500 font-medium mr-1">Packages:</span>
-                                    <Badge 
+                                    <Badge
                                         variant={selectedPackages.length === 0 ? "default" : "outline"}
                                         className={cn(
                                             "cursor-pointer hover:bg-primary/90 transition-colors",
@@ -291,13 +351,23 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                             </Badge>
                                         );
                                     })}
+                                    {selectedPackages.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedPackages([])}
+                                            title="Clear package filter"
+                                            className="ml-1 p-1 rounded-md text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors"
+                                        >
+                                            <FilterX className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
 
                         {filteredItems.length === 0 ? (
                             <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-                                {approvedItems.length === 0 ? "No approved items to export." : "No items found for the selected package."}
+                                {sortedItems.length === 0 ? "No items to export." : "No items match the selected filters."}
                             </div>
                         ) : (
                             <div className="border rounded-lg">
@@ -399,9 +469,9 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                         <Ban className="w-4 h-4 mr-2" />
                         Cancel
                     </Button>
-                    <Button 
+                    <Button
                         onClick={handleExport}
-                        disabled={selectedIds.size === 0 || isExporting}
+                        disabled={visibleSelectedCount === 0 || isExporting}
                         className="bg-red-600 hover:bg-red-700 text-white"
                     >
                         {isExporting ? (
@@ -412,7 +482,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                         ) : (
                             <>
                                 <FileDown className="w-4 h-4 mr-2" />
-                                Export PDF
+                                Export PDF ({visibleSelectedCount})
                             </>
                         )}
                     </Button>

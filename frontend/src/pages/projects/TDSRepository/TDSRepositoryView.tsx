@@ -24,7 +24,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState(canEditTDS ? "new" : "history");
+    const [activeTab, setActiveTab] = useState("history");
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
@@ -307,7 +307,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 ) : (
                                     <Download className="w-4 h-4 mr-2" />
                                 )}
-                                {isExportingHistory ? 'Exporting...' : 'Export CSV'}
+                                {isExportingHistory ? 'Exporting...' : 'Download TDS CSV'}
                             </Button>
                             <Button 
                                 onClick={() => setIsExportDialogOpen(true)}
@@ -320,7 +320,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 ) : (
                                     <Download className="w-4 h-4 mr-2" />
                                 )}
-                                {isExporting ? 'Exporting...' : 'Export PDF'}
+                                {isExporting ? 'Exporting...' : 'Download TDS PDF'}
                             </Button>
                             {canEditTDS && (
                                 <Button 
@@ -349,17 +349,18 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             {/* TDS Item Management Tabs */}
             <div className="mt-12">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">                             <TabsTrigger
-                                value="new"
-                                className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                            >
-                                New Request
-                        </TabsTrigger>
-                        <TabsTrigger 
+                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">
+                        <TabsTrigger
                             value="history"
                             className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
                         >
                             TDS History
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="new"
+                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
+                        >
+                            New Request
                         </TabsTrigger>
                     </TabsList>
 
