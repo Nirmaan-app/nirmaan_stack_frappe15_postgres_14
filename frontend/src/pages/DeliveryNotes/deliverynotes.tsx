@@ -137,9 +137,10 @@ const DeliveryNotes: React.FC = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
+  const [itmSearchQuery, setItmSearchQuery] = useState("");
   const [selectedDN, setSelectedDN] = useState<DeliveryNote | null>(null);
   const [dnDialogOpen, setDnDialogOpen] = useState(false);
-  const [dnSourceType, setDnSourceType] = useState<'po' | 'itm'>('po');
+  const [viewExistingType, setViewExistingType] = useState<'po' | 'itm'>('po');
 
   const activeView = useMemo(() => {
     const view = searchParams.get("view");
@@ -174,7 +175,7 @@ const DeliveryNotes: React.FC = () => {
   );
 
   // --- CREATE view ITM data ---
-  const shouldFetchITMs = activeView === "CREATE" && dnSourceType === 'itm' && !!selectedProject;
+  const shouldFetchITMs = activeView === "CREATE" && !!selectedProject;
   const { data: itmResult, isLoading: itmLoading } = useFrappeGetDocList<InternalTransferMemo>(
     "Internal Transfer Memo",
     {
@@ -192,13 +193,13 @@ const DeliveryNotes: React.FC = () => {
   const itmList = useMemo(() => itmResult || [], [itmResult]);
 
   const filteredITMs = useMemo(() => {
-    if (!searchQuery.trim()) return itmList;
-    const q = searchQuery.toLowerCase();
+    if (!itmSearchQuery.trim()) return itmList;
+    const q = itmSearchQuery.toLowerCase();
     return itmList.filter((itm) =>
       itm.name.toLowerCase().includes(q) ||
       itm.source_project?.toLowerCase().includes(q)
     );
-  }, [itmList, searchQuery]);
+  }, [itmList, itmSearchQuery]);
 
   const filteredCreatePOs = useMemo(() => {
     if (!searchQuery.trim()) return createPOs;
@@ -228,6 +229,7 @@ const DeliveryNotes: React.FC = () => {
 
   const {
     dnsByPO,
+    dnsByITM,
     isLoading: dnsLoading,
   } = useProjectDeliveryNotes(
     ["CREATE", "VIEW_EXISTING"].includes(activeView) ? selectedProject : null
@@ -258,6 +260,15 @@ const DeliveryNotes: React.FC = () => {
       return false;
     });
   }, [enrichedViewPOs, searchQuery]);
+
+  // Enriched ITM list for View Existing (ITMs with at least one DN)
+  const enrichedViewITMs = useMemo(() => {
+    return Object.entries(dnsByITM).map(([itmName, dns]) => ({
+      name: itmName,
+      dns,
+      source_project: dns[0]?.project || "",
+    }));
+  }, [dnsByITM]);
 
   // --- Handlers ---
 
@@ -330,68 +341,48 @@ const DeliveryNotes: React.FC = () => {
               <ProjectSelect onChange={handleProjectChange} />
             </div>
             {selectedProject && (
-              <>
-                {/* Source type toggle */}
-                <div className="flex gap-1.5 mb-3">
-                  <button
-                    onClick={() => setDnSourceType('po')}
-                    className={cn(
-                      "px-3 py-1.5 text-sm rounded",
-                      dnSourceType === 'po'
-                        ? "bg-sky-500 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    )}
-                  >
-                    Purchase Orders
-                  </button>
-                  <button
-                    onClick={() => setDnSourceType('itm')}
-                    className={cn(
-                      "px-3 py-1.5 text-sm rounded",
-                      dnSourceType === 'itm'
-                        ? "bg-sky-500 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    )}
-                  >
-                    Transfer Memos
-                  </button>
-                </div>
+              <div className="space-y-8">
+                {/* PO List Section */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">PO List</CardTitle>
+                      {!createLoading && filteredCreatePOs.length > 0 && (
+                        <Badge variant="outline" className="text-xs border-red-300 text-red-600">
+                          {filteredCreatePOs.length} POs
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <SearchInput value={searchQuery} onChange={setSearchQuery} />
 
-                <SearchInput value={searchQuery} onChange={setSearchQuery} />
-
-                {/* PO listing */}
-                {dnSourceType === 'po' && (
-                  <>
                     {createLoading && (
-                      <p className="text-center py-4 text-muted-foreground">
-                        Loading...
-                      </p>
+                      <p className="text-center py-4 text-muted-foreground">Loading...</p>
                     )}
 
                     {!createLoading && filteredCreatePOs.length === 0 && (
-                      <p className="text-center text-red-500 py-4">
-                        No eligible Purchase Orders found for this project.
+                      <p className="text-center text-muted-foreground py-4">
+                        No eligible Purchase Orders found.
                       </p>
                     )}
 
                     {!createLoading && filteredCreatePOs.length > 0 && (
-                      <>
-                        {/* Desktop Table */}
-                        <Table className="hidden md:table">
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>PO No.</TableHead>
-                              <TableHead>Vendor</TableHead>
-                              <TableHead>Dispatch Date</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead className="text-center">DNs</TableHead>
-                              <TableHead className="w-[40px]"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filteredCreatePOs.map((po) => {
-                              const dnCount = dnsByPO[po.name]?.length || 0;
-                              return (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>PO No.</TableHead>
+                            <TableHead>Vendor</TableHead>
+                            <TableHead>Dispatch Date</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-center">DNs</TableHead>
+                            <TableHead className="w-[40px]"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredCreatePOs.map((po) => {
+                            const dnCount = dnsByPO[po.name]?.length || 0;
+                            return (
                               <TableRow key={po.name}>
                                 <TableCell>
                                   <Link
@@ -414,186 +405,96 @@ const DeliveryNotes: React.FC = () => {
                                 </TableCell>
                                 <TableCell className="text-center">
                                   {dnCount > 0 && (
-                                    <Badge variant="secondary">
-                                      {dnCount}
-                                    </Badge>
+                                    <Badge variant="secondary">{dnCount}</Badge>
                                   )}
                                 </TableCell>
                                 <TableCell>
-                                  <Link
-                                    to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
-                                  >
+                                  <Link to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}>
                                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                   </Link>
                                 </TableCell>
                               </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-
-                        {/* Mobile Cards */}
-                        <div className="md:hidden space-y-3">
-                          {filteredCreatePOs.map((po) => {
-                            const dnCount = dnsByPO[po.name]?.length || 0;
-                            return (
-                            <Link
-                              key={po.name}
-                              to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
-                              className="block"
-                            >
-                              <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                                <div className="flex items-start justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-blue-600 text-lg">
-                                      {`PO-${po.name.split("/")[1]}`}
-                                    </span>
-                                    {dnCount > 0 && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        {dnCount} DN{dnCount !== 1 ? "s" : ""}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <Badge
-                                    variant={
-                                      ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
-                                    }
-                                  >
-                                    {po.status}
-                                  </Badge>
-                                </div>
-                                <div className="space-y-1.5 text-sm">
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 min-w-[80px]">
-                                      Vendor:
-                                    </span>
-                                    <span className="font-medium text-gray-900 flex-1">
-                                      {po.vendor_name || "N/A"}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <span className="text-gray-500 min-w-[80px]">
-                                      Dispatch:
-                                    </span>
-                                    <span className="text-gray-900">
-                                      {formatDate(po.dispatch_date)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </Link>
                             );
                           })}
-                        </div>
-                      </>
+                        </TableBody>
+                      </Table>
                     )}
-                  </>
-                )}
+                  </CardContent>
+                </Card>
 
-                {/* ITM listing */}
-                {dnSourceType === 'itm' && (
-                  <>
+                {/* Transfer List Section */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">Transfer List</CardTitle>
+                      {!itmLoading && filteredITMs.length > 0 && (
+                        <Badge variant="outline" className="text-xs border-red-300 text-red-600">
+                          {filteredITMs.length} Transfers
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="relative mb-4">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search item name..."
+                        value={itmSearchQuery}
+                        onChange={(e) => setItmSearchQuery(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+
                     {itmLoading && (
-                      <p className="text-center py-4 text-muted-foreground">
-                        Loading...
-                      </p>
+                      <p className="text-center py-4 text-muted-foreground">Loading...</p>
                     )}
 
                     {!itmLoading && filteredITMs.length === 0 && (
-                      <p className="text-center text-red-500 py-4">
-                        No eligible Transfer Memos found for this project.
+                      <p className="text-center text-muted-foreground py-4">
+                        No eligible Transfer Memos found.
                       </p>
                     )}
 
                     {!itmLoading && filteredITMs.length > 0 && (
-                      <>
-                        {/* Desktop Table */}
-                        <Table className="hidden md:table">
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>ITM ID</TableHead>
-                              <TableHead>Source Project</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead className="text-center">Items</TableHead>
-                              <TableHead className="text-right">Est. Value</TableHead>
-                              <TableHead className="w-[40px]"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filteredITMs.map((itm) => (
-                              <TableRow key={itm.name}>
-                                <TableCell>
-                                  <Link
-                                    className="underline text-blue-600 hover:text-blue-800"
-                                    to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}
-                                  >
-                                    {itm.name}
-                                  </Link>
-                                </TableCell>
-                                <TableCell>{itm.source_project}</TableCell>
-                                <TableCell>
-                                  <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
-                                    {itm.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">{itm.total_items ?? 0}</TableCell>
-                                <TableCell className="text-right">
-                                  {formatToRoundedIndianRupee(itm.estimated_value ?? 0)}
-                                </TableCell>
-                                <TableCell>
-                                  <Link to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}>
-                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                  </Link>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-
-                        {/* Mobile Cards */}
-                        <div className="md:hidden space-y-3">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Transfer ID</TableHead>
+                            <TableHead>From Project</TableHead>
+                            <TableHead>Dispatch Date</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-center">DNs</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
                           {filteredITMs.map((itm) => (
-                            <Link
-                              key={itm.name}
-                              to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}
-                              className="block"
-                            >
-                              <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                                <div className="flex items-start justify-between mb-2">
-                                  <span className="font-semibold text-blue-600 text-lg">
-                                    {itm.name}
-                                  </span>
-                                  <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
-                                    {itm.status}
-                                  </Badge>
-                                </div>
-                                <div className="space-y-1.5 text-sm">
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 min-w-[80px]">Source:</span>
-                                    <span className="font-medium text-gray-900 flex-1">
-                                      {itm.source_project}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <span className="text-gray-500 min-w-[80px]">Items:</span>
-                                    <span className="text-gray-900">{itm.total_items ?? 0}</span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <span className="text-gray-500 min-w-[80px]">Est. Value:</span>
-                                    <span className="text-gray-900">
-                                      {formatToRoundedIndianRupee(itm.estimated_value ?? 0)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </Link>
+                            <TableRow key={itm.name}>
+                              <TableCell>
+                                <Link
+                                  className="underline text-blue-600 hover:text-blue-800"
+                                  to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}
+                                >
+                                  {itm.name}
+                                </Link>
+                              </TableCell>
+                              <TableCell>{itm.source_project}</TableCell>
+                              <TableCell>{formatDate(itm.creation)}</TableCell>
+                              <TableCell>
+                                <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
+                                  {itm.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="secondary">{itm.total_items ?? 0}</Badge>
+                              </TableCell>
+                            </TableRow>
                           ))}
-                        </div>
-                      </>
+                        </TableBody>
+                      </Table>
                     )}
-                  </>
-                )}
-              </>
+                  </CardContent>
+                </Card>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -614,6 +515,32 @@ const DeliveryNotes: React.FC = () => {
             </div>
             {selectedProject && (
               <>
+                {/* Tab toggle */}
+                <div className="flex gap-1.5 mb-3">
+                  <button
+                    onClick={() => setViewExistingType('po')}
+                    className={cn(
+                      "px-3 py-1.5 text-sm rounded",
+                      viewExistingType === 'po'
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    )}
+                  >
+                    Purchase Orders
+                  </button>
+                  <button
+                    onClick={() => setViewExistingType('itm')}
+                    className={cn(
+                      "px-3 py-1.5 text-sm rounded",
+                      viewExistingType === 'itm'
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    )}
+                  >
+                    Transfer Memos
+                  </button>
+                </div>
+
                 <SearchInput value={searchQuery} onChange={setSearchQuery} />
 
                 {(viewExistingLoading || dnsLoading) && (
@@ -622,17 +549,14 @@ const DeliveryNotes: React.FC = () => {
                   </p>
                 )}
 
-                {!viewExistingLoading &&
-                  !dnsLoading &&
-                  filteredViewPOs.length === 0 && (
-                    <p className="text-center text-red-500 py-4">
-                      No eligible Purchase Orders found for this project.
-                    </p>
-                  )}
+                {/* PO Tab */}
+                {viewExistingType === 'po' && !viewExistingLoading && !dnsLoading && filteredViewPOs.length === 0 && (
+                  <p className="text-center text-muted-foreground py-4">
+                    No PO delivery notes found for this project.
+                  </p>
+                )}
 
-                {!viewExistingLoading &&
-                  !dnsLoading &&
-                  filteredViewPOs.length > 0 && (
+                {viewExistingType === 'po' && !viewExistingLoading && !dnsLoading && filteredViewPOs.length > 0 && (
                     <>
                       {/* Desktop Accordion */}
                       <div className="hidden md:block">
@@ -758,6 +682,7 @@ const DeliveryNotes: React.FC = () => {
                               </AccordionItem>
                             );
                           })}
+
                         </Accordion>
                       </div>
 
@@ -841,7 +766,98 @@ const DeliveryNotes: React.FC = () => {
                         })}
                       </div>
                     </>
-                  )}
+                )}
+
+                {/* ITM Tab */}
+                {viewExistingType === 'itm' && !dnsLoading && enrichedViewITMs.length === 0 && (
+                  <p className="text-center text-muted-foreground py-4">
+                    No transfer delivery notes found for this project.
+                  </p>
+                )}
+
+                {viewExistingType === 'itm' && !dnsLoading && enrichedViewITMs.length > 0 && (
+                  <Accordion type="single" collapsible className="space-y-2">
+                    {enrichedViewITMs.map((itm) => {
+                      const dns = itm.dns;
+                      const latestDate =
+                        dns.length > 0
+                          ? dns.reduce(
+                              (latest, dn) =>
+                                dn.delivery_date > latest
+                                  ? dn.delivery_date
+                                  : latest,
+                              dns[0].delivery_date
+                            )
+                          : null;
+
+                      return (
+                        <AccordionItem
+                          key={itm.name}
+                          value={itm.name}
+                          className="border rounded-lg"
+                        >
+                          <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                            <div className="flex items-center gap-4 w-full text-left text-sm">
+                              <Link
+                                to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=view`}
+                                className="font-medium text-primary hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {itm.name}
+                              </Link>
+                              <span className="text-muted-foreground text-xs hidden sm:inline">
+                                {latestDate ? formatDate(latestDate) : "\u2014"}
+                              </span>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap ml-auto mr-2">
+                                {dns.length} DN{dns.length !== 1 ? "s" : ""}
+                              </span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-4 pb-3">
+                            <div className="border rounded-md overflow-hidden">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="bg-muted/30">
+                                    <TableHead className="text-xs">DN Number</TableHead>
+                                    <TableHead className="text-xs text-center">Items</TableHead>
+                                    <TableHead className="text-xs">Date</TableHead>
+                                    <TableHead className="text-xs hidden sm:table-cell">Created By</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {dns.map((dn) => (
+                                    <TableRow key={dn.name}>
+                                      <TableCell>
+                                        <button
+                                          className="text-sm font-medium text-primary hover:underline"
+                                          onClick={() => {
+                                            setSelectedDN(dn);
+                                            setDnDialogOpen(true);
+                                          }}
+                                        >
+                                          {dn.name}
+                                        </button>
+                                      </TableCell>
+                                      <TableCell className="text-center text-sm">
+                                        {dn.items?.length || 0}
+                                      </TableCell>
+                                      <TableCell className="text-sm">
+                                        {formatDate(dn.delivery_date)}
+                                      </TableCell>
+                                      <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                                        {dn.updated_by_user || "\u2014"}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
+                )}
               </>
             )}
           </CardContent>

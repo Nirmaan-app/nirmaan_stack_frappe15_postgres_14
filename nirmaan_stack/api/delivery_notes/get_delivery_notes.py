@@ -49,7 +49,7 @@ def get_delivery_notes(procurement_order):
 
 @frappe.whitelist()
 def get_project_delivery_notes(project_id):
-    """Get all Delivery Notes for a project across all POs."""
+    """Get all Delivery Notes for a project across all POs and ITMs."""
     if not project_id:
         frappe.throw("project_id is required")
 
@@ -58,6 +58,7 @@ def get_project_delivery_notes(project_id):
         filters={"project": project_id},
         fields=[
             "name", "procurement_order", "project", "vendor",
+            "parent_doctype", "parent_docname",
             "note_no", "delivery_date", "updated_by_user",
             "nirmaan_attachment", "notes", "is_stub", "is_return",
             "creation", "modified"

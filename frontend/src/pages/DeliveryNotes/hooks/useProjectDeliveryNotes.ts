@@ -4,6 +4,7 @@ import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 
 interface UseProjectDeliveryNotesResult {
   dnsByPO: Record<string, DeliveryNote[]>;
+  dnsByITM: Record<string, DeliveryNote[]>;
   allDns: DeliveryNote[];
   isLoading: boolean;
   error: any;
@@ -29,7 +30,6 @@ export function useProjectDeliveryNotes(
   const dnsByPO: Record<string, DeliveryNote[]> = useMemo(() => {
     const grouped: Record<string, DeliveryNote[]> = {};
     for (const dn of allDns) {
-      // Skip ITM-backed DNs (no procurement_order)
       if (!dn.procurement_order) continue;
       if (!grouped[dn.procurement_order]) {
         grouped[dn.procurement_order] = [];
@@ -39,8 +39,23 @@ export function useProjectDeliveryNotes(
     return grouped;
   }, [allDns]);
 
+  const dnsByITM: Record<string, DeliveryNote[]> = useMemo(() => {
+    const grouped: Record<string, DeliveryNote[]> = {};
+    for (const dn of allDns) {
+      const parentDoc = (dn as any).parent_docname;
+      const parentType = (dn as any).parent_doctype;
+      if (parentType !== "Internal Transfer Memo" || !parentDoc) continue;
+      if (!grouped[parentDoc]) {
+        grouped[parentDoc] = [];
+      }
+      grouped[parentDoc].push(dn);
+    }
+    return grouped;
+  }, [allDns]);
+
   return {
     dnsByPO,
+    dnsByITM,
     allDns,
     isLoading,
     error,

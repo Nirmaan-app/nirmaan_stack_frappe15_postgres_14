@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 
-import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { decodeFrappeId } from "./constants";
 import type { ITMDetailPayload } from "@/pages/InternalTransferMemos/hooks/useITM";
@@ -89,7 +88,6 @@ const ITMDeliveryNote: React.FC = () => {
     }
 
     return itm.items
-      .filter((item) => item.status === "Approved")
       .map((item) => ({
         item_id: item.item_id,
         item_name: item.item_name || item.item_id,
@@ -242,6 +240,61 @@ const ITMDeliveryNote: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* Delivery Notes summary — always visible (like PO Order Details) */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg text-red-600">Delivery Notes</CardTitle>
+            <Badge variant="outline" className="text-xs">
+              {dns.length} Updates
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-center">Unit</TableHead>
+                  <TableHead className="text-center">Ordered</TableHead>
+                  <TableHead className="text-center">Total Received</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {itemRows.map((row) => (
+                  <TableRow key={row.item_id}>
+                    <TableCell className="max-w-[250px]">
+                      <span className="font-medium">{row.item_name}</span>
+                      {row.category && (
+                        <span className="block text-xs text-muted-foreground">
+                          {row.category}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">{row.unit}</TableCell>
+                    <TableCell className="text-center">{row.transfer_quantity}</TableCell>
+                    <TableCell className="text-center">
+                      <span
+                        className={
+                          row.total_received >= row.transfer_quantity
+                            ? "text-green-600 font-medium"
+                            : row.total_received > 0
+                            ? "text-orange-600 font-medium"
+                            : "text-red-500"
+                        }
+                      >
+                        {row.total_received}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Create mode: item input table */}
       {viewMode === "create" && (
         <Card>
@@ -340,85 +393,8 @@ const ITMDeliveryNote: React.FC = () => {
         </Card>
       )}
 
-      {/* Existing DNs section */}
-      {dns.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">
-              Existing Delivery Notes ({dns.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {dns.map((dn) => (
-                <DNCard key={dn.name} dn={dn} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {dns.length === 0 && viewMode !== "create" && (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            No delivery notes recorded yet for this Transfer Memo.
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 };
-
-// --- DN Card sub-component ---
-
-function DNCard({ dn }: { dn: DeliveryNote }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="border rounded-lg">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-muted/30 transition-colors"
-      >
-        <div className="flex items-center gap-3 text-sm">
-          <span className="font-medium text-primary">{dn.name}</span>
-          <span className="text-muted-foreground">
-            {formatDate(dn.delivery_date)}
-          </span>
-          <Badge variant="secondary">{dn.items?.length || 0} items</Badge>
-        </div>
-        <span className="text-xs text-muted-foreground">
-          {dn.updated_by_user || ""}
-        </span>
-      </button>
-      {expanded && dn.items && dn.items.length > 0 && (
-        <div className="border-t px-4 pb-3">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/30">
-                <TableHead className="text-xs">Item</TableHead>
-                <TableHead className="text-xs text-center">Unit</TableHead>
-                <TableHead className="text-xs text-center">Qty</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {dn.items.map((item, idx) => (
-                <TableRow key={item.name || idx}>
-                  <TableCell className="text-sm">{item.item_name}</TableCell>
-                  <TableCell className="text-sm text-center">
-                    {item.unit}
-                  </TableCell>
-                  <TableCell className="text-sm text-center">
-                    {item.delivered_quantity}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default ITMDeliveryNote;

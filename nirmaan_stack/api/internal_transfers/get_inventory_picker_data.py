@@ -80,13 +80,13 @@ def get_inventory_picker_data(search: str = "") -> list:
 	),
 	reserved_qty AS (
 		SELECT
-			itm.source_project AS project,
-			itmi.item_id,
-			SUM(itmi.transfer_quantity) AS reserved
-		FROM "tabInternal Transfer Memo Item" itmi
-		JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
-		WHERE itm.status IN ('Pending Approval', 'Approved')
-		GROUP BY itm.source_project, itmi.item_id
+			itr.source_project AS project,
+			itri.item_id,
+			SUM(itri.transfer_quantity) AS reserved
+		FROM "tabInternal Transfer Request Item" itri
+		JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
+		WHERE itri.status IN ('Pending', 'Approved')
+		GROUP BY itr.source_project, itri.item_id
 	)
 	SELECT
 		ri.project AS source_project,
