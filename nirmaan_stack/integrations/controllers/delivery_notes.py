@@ -142,15 +142,13 @@ def recalculate_itm_delivery_fields(itm_name):
                 float(di.delivered_quantity) if di.delivered_quantity else 0
             )
 
-    # Update ITM items and derive status
+    # Update ITM items and derive status (all items are approved by definition)
     all_received = True
     any_received = False
-    approved_count = 0
+    item_count = 0
 
     for item in itm.items:
-        if item.status != "Approved":
-            continue
-        approved_count += 1
+        item_count += 1
         new_received = received_map.get(item.item_id, 0)
         item.received_quantity = new_received
         if new_received > 0:
@@ -159,7 +157,7 @@ def recalculate_itm_delivery_fields(itm_name):
             all_received = False
 
     # Derive status
-    if approved_count > 0 and all_received and any_received:
+    if item_count > 0 and all_received and any_received:
         itm.status = "Delivered"
     elif any_received:
         itm.status = "Partially Delivered"

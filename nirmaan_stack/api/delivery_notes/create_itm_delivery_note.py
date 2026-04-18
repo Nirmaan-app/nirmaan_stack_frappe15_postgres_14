@@ -30,17 +30,16 @@ def create_itm_delivery_note(itm_id, items, delivery_date=None, attachment=None)
             "ITM must be Dispatched or Partially Delivered."
         )
 
-    # Build set of approved item_ids from ITM
-    approved_items = {}
+    # Build item lookup from ITM (all items are approved by definition)
+    itm_items_map = {}
     for item in itm.items:
-        if item.status == "Approved":
-            approved_items[item.item_id] = item
+        itm_items_map[item.item_id] = item
 
-    # Validate all request items are approved ITM items
+    # Validate all request items exist in ITM
     for req_item in items:
-        if req_item["item_id"] not in approved_items:
+        if req_item["item_id"] not in itm_items_map:
             frappe.throw(
-                f"Item '{req_item['item_id']}' is not an approved item in ITM {itm_id}"
+                f"Item '{req_item['item_id']}' not found in ITM {itm_id}"
             )
 
     # Filter out items with delivered_quantity <= 0
@@ -88,7 +87,7 @@ def create_itm_delivery_note(itm_id, items, delivery_date=None, attachment=None)
 
     # Add child items
     for req_item in valid_items:
-        itm_item = approved_items[req_item["item_id"]]
+        itm_item = itm_items_map[req_item["item_id"]]
         dn.append("items", {
             "item_id": itm_item.item_id,
             "item_name": itm_item.item_name,

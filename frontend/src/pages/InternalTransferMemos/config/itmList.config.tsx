@@ -9,6 +9,7 @@ import { parseNumber } from "@/utils/parseNumber";
 
 import { ITMStatusBadge } from "../components/ITMStatusBadge";
 
+
 /**
  * Row shape returned by `nirmaan_stack.api.internal_transfers.get_itms_list`.
  *
@@ -20,13 +21,7 @@ export interface ITMListRow {
   name: string;
   creation: string;
   modified?: string;
-  status:
-    | "Pending Approval"
-    | "Approved"
-    | "Rejected"
-    | "Dispatched"
-    | "Partially Delivered"
-    | "Delivered";
+  status: string;
   source_project: string;
   source_project_name?: string | null;
   target_project: string;
@@ -50,6 +45,9 @@ export interface ITMListRow {
  */
 export const ITM_LIST_API_ENDPOINT =
   "nirmaan_stack.api.internal_transfers.get_itms_list.get_itms_list";
+
+export const ITR_LIST_API_ENDPOINT =
+  "nirmaan_stack.api.internal_transfers.get_itrs_list.get_itrs_list";
 
 /**
  * Server-side search across ITM ID + source/target project names (per
@@ -87,6 +85,173 @@ export const ITM_FETCH_FIELDS: (keyof ITMListRow)[] = [
 ];
 
 export const ITM_DATE_COLUMNS: string[] = ["creation"];
+
+// ---- ITR-specific config (Transfer Request tabs) ----
+
+export const ITR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
+  {
+    value: "name",
+    label: "Request ID",
+    placeholder: "Search by request ID...",
+    default: true,
+  },
+];
+
+/**
+ * Column set for ITR (Transfer Request) list tabs.
+ * Takes tabValue to build correct detail link with itemFilter param.
+ */
+export function getItrListColumns(tabValue: string): ColumnDef<ITMListRow>[] {
+  const filterParam =
+    tabValue === "Pending" ? "?itemFilter=Pending" :
+    tabValue === "Rejected" ? "?itemFilter=Rejected" : "";
+
+  return [
+  {
+    accessorKey: "name",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Request ID" />
+    ),
+    cell: ({ row }) => (
+      <Link
+        to={`/internal-transfer-memos/itr/${row.original.name}${filterParam}`}
+        className="font-medium text-primary underline underline-offset-2 hover:text-primary/80 whitespace-nowrap"
+      >
+        {row.original.name}
+      </Link>
+    ),
+    size: 160,
+    meta: {
+      exportHeaderName: "Request ID",
+      exportValue: (row: ITMListRow) => row.name,
+    },
+  },
+  {
+    accessorKey: "source_project_name",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="From" />
+    ),
+    cell: ({ row }) => (
+      <div className="truncate max-w-[200px]" title={(row.original as any).source_project_name || "--"}>
+        {(row.original as any).source_project_name || "--"}
+      </div>
+    ),
+    size: 200,
+    meta: {
+      exportHeaderName: "From",
+      exportValue: (row: ITMListRow) => (row as any).source_project_name || "",
+    },
+  },
+  {
+    accessorKey: "target_project_name",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="To" />
+    ),
+    cell: ({ row }) => (
+      <div className="truncate max-w-[200px]" title={row.original.target_project_name || row.original.target_project || ""}>
+        {row.original.target_project_name || row.original.target_project || "--"}
+      </div>
+    ),
+    size: 200,
+    meta: {
+      exportHeaderName: "To",
+      exportValue: (row: ITMListRow) => row.target_project_name || row.target_project || "",
+    },
+  },
+  {
+    accessorKey: "status",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Status" />
+    ),
+    cell: ({ row }) => <ITMStatusBadge status={row.original.status} />,
+    enableColumnFilter: true,
+    size: 160,
+    meta: {
+      enableFacet: true,
+      facetTitle: "Status",
+      exportHeaderName: "Status",
+      exportValue: (row: ITMListRow) => row.status,
+    },
+  },
+  {
+    accessorKey: "estimated_value",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Est Value" />
+    ),
+    cell: ({ row }) => (
+      <div className="font-medium pr-2 text-right tabular-nums">
+        {formatToRoundedIndianRupee(row.original.estimated_value ?? 0)}
+      </div>
+    ),
+    size: 140,
+    meta: {
+      exportHeaderName: "Est Value",
+      exportValue: (row: ITMListRow) => parseNumber(row.estimated_value ?? 0) || 0,
+    },
+  },
+  {
+    accessorKey: "total_items",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Total Items" className="justify-end" />
+    ),
+    cell: ({ row }) => (
+      <div className="text-right pr-2 tabular-nums">{row.original.total_items ?? 0}</div>
+    ),
+    size: 110,
+    meta: {
+      exportHeaderName: "Total Items",
+      exportValue: (row: ITMListRow) => row.total_items ?? 0,
+    },
+  },
+  {
+    accessorKey: "total_quantity",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Total Qty" className="justify-end" />
+    ),
+    cell: ({ row }) => {
+      const qty = parseNumber(row.original.total_quantity ?? 0) || 0;
+      return <div className="text-right pr-2 tabular-nums">{qty.toFixed(2)}</div>;
+    },
+    size: 110,
+    meta: {
+      exportHeaderName: "Total Qty",
+      exportValue: (row: ITMListRow) => parseNumber(row.total_quantity ?? 0) || 0,
+    },
+  },
+  {
+    accessorKey: "creation",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Created On" />
+    ),
+    cell: ({ row }) => (
+      <div className="whitespace-nowrap">{formatDate(row.original.creation)}</div>
+    ),
+    size: 130,
+    meta: {
+      exportHeaderName: "Created On",
+      exportValue: (row: ITMListRow) => formatDate(row.creation),
+    },
+  },
+  {
+    accessorKey: "requested_by_full_name",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Created By" />
+    ),
+    cell: ({ row }) => (
+      <div className="truncate max-w-[180px]" title={row.original.requested_by_full_name || row.original.requested_by || ""}>
+        {row.original.requested_by_full_name || row.original.requested_by || row.original.owner || "--"}
+      </div>
+    ),
+    size: 180,
+    meta: {
+      exportHeaderName: "Created By",
+      exportValue: (row: ITMListRow) => row.requested_by_full_name || row.requested_by || row.owner || "",
+    },
+  },
+  ];
+}
+
+// ---- ITM-specific config (Transfer Memo tabs) ----
 
 /**
  * Canonical column set for the ITM list. Every column ships export metadata
@@ -302,9 +467,9 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
  * visible there.
  */
 export const itmTabColumnVisibility: Record<string, VisibilityState> = {
-  "Pending Approval": { status: false },
-  Rejected: { status: false },
+  Pending: { status: false },
   "All Requests": {},
+  Rejected: { status: false },
   Approved: { status: false },
   Dispatched: { status: false },
   Delivered: { status: false },

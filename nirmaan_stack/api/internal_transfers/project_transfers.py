@@ -61,10 +61,10 @@ def get_transfer_summary(project_id: str) -> dict:
 
     Returns a dict keyed by item_id with:
       - transferred_out: sum of transfer_quantity from ITMs where
-        source_project = project_id, ITM status in dispatched+ states,
-        and item status = 'Approved'.
+        source_project = project_id, ITM status in dispatched+ states.
       - transferred_in: sum of received_quantity from ITMs where
         target_project = project_id, same status constraints.
+    All ITM items are approved by definition (created from ITR approval).
     """
 
     if frappe.session.user == "Guest":
@@ -81,7 +81,6 @@ def get_transfer_summary(project_id: str) -> dict:
         JOIN "tabInternal Transfer Memo" itm ON itm.name = itmi.parent
         WHERE itm.source_project = %(project_id)s
           AND itm.status IN %(statuses)s
-          AND itmi.status = 'Approved'
         GROUP BY itmi.item_id
         """,
         {"project_id": project_id, "statuses": dispatched_statuses},
@@ -97,7 +96,6 @@ def get_transfer_summary(project_id: str) -> dict:
         JOIN "tabInternal Transfer Memo" itm ON itm.name = itmi.parent
         WHERE itm.target_project = %(project_id)s
           AND itm.status IN %(statuses)s
-          AND itmi.status = 'Approved'
         GROUP BY itmi.item_id
         """,
         {"project_id": project_id, "statuses": dispatched_statuses},
