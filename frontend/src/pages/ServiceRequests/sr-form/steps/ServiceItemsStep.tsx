@@ -262,7 +262,7 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                     </Select>
                 </div>
 
-                {/* <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                     <Button
                         type="button"
                         variant="outline"
@@ -274,7 +274,7 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                         <CirclePlus className="h-4 w-4" />
                         Add Custom Service
                     </Button>
-                </div> */}
+                </div>
             </div>
 
             {/* Standard Items Selection Area */}
