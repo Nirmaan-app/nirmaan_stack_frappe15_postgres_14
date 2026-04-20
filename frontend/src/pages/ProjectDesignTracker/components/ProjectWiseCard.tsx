@@ -1,10 +1,10 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, CheckCircle2, Eye, EyeOff, User } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, User } from "lucide-react";
 import { getUnifiedStatusStyle, parseDesignersFromField } from "../utils";
 
 // --- Phase Status Section (compact, left-border accent) ---
@@ -70,13 +70,9 @@ interface ProjectWiseCardProps {
 export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick, showHiddenBadge, onHideToggle, currentUserId, isDesigner }) => {
     const isHidden = tracker.hide_design_tracker === 1;
     const hasHandover = tracker.handover_generated === 1;
-    const totalTasks = tracker.total_tasks || 0;
-    const completedTasks = tracker.completed_tasks || 0;
-    // Weighted progress: Approved = 1.0, Submitted = 0.75
-    const submittedTasks = tracker.submitted_tasks || 0;
-    const completionPercentage = totalTasks > 0
-        ? Math.round(((completedTasks * 1 + submittedTasks * 0.75) / totalTasks) * 100)
-        : 0;
+
+    // Collapse state for Onboarding when Handover exists (closed by default per spec).
+    const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
     // Compute per-phase status breakdown from child tasks
     const phaseBreakdown = useMemo(() => {
@@ -97,6 +93,16 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
 
         return { onboarding, handover };
     }, [tracker.design_tracker_task]);
+
+    // Weighted progress (Approved x1, Submitted x0.75), scoped to the active phase:
+    // - Tracker with Handover  -> Handover % (per-phase)
+    // - Tracker without Handover -> Onboarding %
+    const activePhaseData = hasHandover ? phaseBreakdown?.handover : phaseBreakdown?.onboarding;
+    const completionPercentage = useMemo(() => {
+        if (!activePhaseData || activePhaseData.total === 0) return 0;
+        const submitted = activePhaseData.statuses['Submitted'] || 0;
+        return Math.round(((activePhaseData.approved * 1 + submitted * 0.75) / activePhaseData.total) * 100);
+    }, [activePhaseData]);
 
     // Determine color based on completion percentage
     const getProgressColor = (percentage: number): string => {
@@ -181,9 +187,67 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                 <div className="flex-1">
                     {phaseBreakdown ? (
                         <div className="space-y-2">
-                            <PhaseStatusSection label="Onboarding" data={phaseBreakdown.onboarding} colorScheme="green" />
-                            {hasHandover && (
-                                <PhaseStatusSection label="Handover" data={phaseBreakdown.handover} colorScheme="blue" />
+                            {hasHandover ? (
+                                <>
+                                    {/* Handover on top, expanded */}
+                                    <PhaseStatusSection label="Handover" data={phaseBreakdown.handover} colorScheme="blue" />
+
+                                    {/* Onboarding below, collapsible (default closed) */}
+                                    {phaseBreakdown.onboarding.total > 0 && (
+                                        <div>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setIsOnboardingOpen(v => !v);
+                                                }}
+                                                className="w-full flex items-center justify-between px-2 py-1 text-[11px] font-semibold text-green-700 uppercase tracking-wider hover:bg-green-50/60 rounded-r-md border-l-2 border-l-green-400 bg-green-50/30"
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    {isOnboardingOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                                                    Onboarding
+                                                </span>
+                                                <span className="text-xs font-bold tabular-nums text-green-700">
+                                                    {phaseBreakdown.onboarding.approved}/{phaseBreakdown.onboarding.total}
+                                                </span>
+                                            </button>
+                                            {isOnboardingOpen && (() => {
+                                                const data = phaseBreakdown.onboarding;
+                                                const allApproved = data.approved === data.total;
+                                                const pendingStatuses = Object.entries(data.statuses)
+                                                    .filter(([s]) => s !== 'Approved' && s !== 'Not Applicable')
+                                                    .filter(([, c]) => c > 0);
+                                                return (
+                                                    <div className="pl-2.5 pr-2 py-1.5 border-l-2 border-l-green-400 bg-green-50/40 rounded-br-md">
+                                                        {allApproved ? (
+                                                            <span className="text-[10px] text-green-600 block">All approved</span>
+                                                        ) : pendingStatuses.length > 0 ? (
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {pendingStatuses.map(([status, count]) => (
+                                                                    <TooltipProvider key={status}>
+                                                                        <Tooltip delayDuration={300}>
+                                                                            <TooltipTrigger asChild>
+                                                                                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${getUnifiedStatusStyle(status)} cursor-default`}>
+                                                                                    <span className="truncate">{status}</span>
+                                                                                    <span className="font-bold tabular-nums">{count}</span>
+                                                                                </div>
+                                                                            </TooltipTrigger>
+                                                                            <TooltipContent side="top" className="text-xs">
+                                                                                {status}: {count} {count === 1 ? 'task' : 'tasks'}
+                                                                            </TooltipContent>
+                                                                        </Tooltip>
+                                                                    </TooltipProvider>
+                                                                ))}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <PhaseStatusSection label="Onboarding" data={phaseBreakdown.onboarding} colorScheme="green" />
                             )}
                         </div>
                     ) : (
