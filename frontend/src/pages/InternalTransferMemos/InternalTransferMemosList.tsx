@@ -15,101 +15,84 @@ import {
   ITM_DATE_COLUMNS,
   ITM_SEARCHABLE_FIELDS,
   itmListColumns,
+  getItrListColumns,
   itmTabColumnVisibility,
   type ITMListRow,
 } from "./config/itmList.config";
 import { useITMList, type ITMStatusFilter } from "./hooks/useITMList";
 
 /**
- * Six-tab sidebar module for Internal Transfer Memos.
+ * Combined list page for ITRs (approval tabs) and ITMs (dispatch/delivery tabs).
  *
- * Layout mirrors `ServiceRequestsTabs` — custom Tailwind tab buttons with an
- * optional admin-only group separated by a divider. Each tab mounts its own
- * instance of `ITMListBody` so `useServerDataTable`'s URL state + data cache
- * stay isolated per tab (avoids a mount loop when the user switches tabs).
+ * ITR tabs: Pending | Partially Fulfilled | Completed | Rejected
+ * ITM tabs: Approved | Dispatched | Delivered
+ *
+ * ITR tabs query the "Internal Transfer Request" doctype.
+ * ITM tabs query the "Internal Transfer Memo" doctype.
  */
 
-const DECISION_TABS = {
-  PENDING: "Pending Approval",
-  REJECTED: "Rejected",
-  ALL: "All Requests",
-} as const;
-
-const STATUS_TABS = {
-  APPROVED: "Approved",
-  DISPATCHED: "Dispatched",
-  DELIVERED: "Delivered",
-} as const;
-
-type ITMTabValue =
-  | typeof DECISION_TABS[keyof typeof DECISION_TABS]
-  | typeof STATUS_TABS[keyof typeof STATUS_TABS];
+type TabType = "itr" | "itm";
 
 interface TabConfig {
-  value: ITMTabValue;
+  value: string;
   label: string;
-  /** null = no filter (All Requests); `['=', 'Status']` / `['in', [...]]` otherwise. */
+  type: TabType;
   statusFilter: ITMStatusFilter;
-  /** Stable namespace for URL state (keeps the 6 tabs from colliding). */
   urlSyncKey: string;
 }
 
-const DECISION_TAB_CONFIGS: readonly TabConfig[] = [
+const ITR_TABS: readonly TabConfig[] = [
   {
-    value: DECISION_TABS.PENDING,
+    value: "Pending",
     label: "Pending Approval",
-    statusFilter: ["=", "Pending Approval"],
-    urlSyncKey: "itm_pending",
+    type: "itr",
+    statusFilter: ["has_pending_items", "true"],
+    urlSyncKey: "itr_pending",
   },
   {
-    value: DECISION_TABS.REJECTED,
+    value: "Rejected",
     label: "Rejected",
-    statusFilter: ["=", "Rejected"],
-    urlSyncKey: "itm_rejected",
+    type: "itr",
+    statusFilter: ["has_rejected_items", "true"],
+    urlSyncKey: "itr_rejected",
   },
   {
-    value: DECISION_TABS.ALL,
+    value: "All Requests",
     label: "All Requests",
+    type: "itr",
     statusFilter: null,
-    urlSyncKey: "itm_all",
+    urlSyncKey: "itr_all",
   },
 ];
 
-const STATUS_TAB_CONFIGS: readonly TabConfig[] = [
+const ITM_TABS: readonly TabConfig[] = [
   {
-    value: STATUS_TABS.APPROVED,
+    value: "Approved",
     label: "Approved",
+    type: "itm",
     statusFilter: ["=", "Approved"],
     urlSyncKey: "itm_approved",
   },
   {
-    value: STATUS_TABS.DISPATCHED,
+    value: "Dispatched",
     label: "Dispatched",
-    // Spec: Dispatched tab covers both in-flight states (Phase 2 populates).
+    type: "itm",
     statusFilter: ["in", ["Dispatched", "Partially Delivered"]],
     urlSyncKey: "itm_dispatched",
   },
   {
-    value: STATUS_TABS.DELIVERED,
+    value: "Delivered",
     label: "Delivered",
+    type: "itm",
     statusFilter: ["=", "Delivered"],
     urlSyncKey: "itm_delivered",
   },
 ];
 
-/**
- * Admin + PMO see decision tabs (Pending Approval, Rejected, All Requests).
- * PMO can't approve/reject (ITM_APPROVE_ROLES = Admin only) but needs the
- * same visibility for triage + follow-up, so the guard here is intentionally
- * broader than ITM_APPROVE_ROLES.
- */
 const DECISION_TAB_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
 ];
-
-const DEFAULT_TAB_WITH_DECISION: ITMTabValue = DECISION_TABS.PENDING;
-const DEFAULT_TAB_WITHOUT_DECISION: ITMTabValue = STATUS_TABS.APPROVED;
 
 export const InternalTransferMemosList: React.FC = () => {
   const { role } = useUserData();
@@ -120,24 +103,18 @@ export const InternalTransferMemosList: React.FC = () => {
   );
 
   const visibleTabs = useMemo<TabConfig[]>(
-    () =>
-      canViewDecisionTabs
-        ? [...DECISION_TAB_CONFIGS, ...STATUS_TAB_CONFIGS]
-        : [...STATUS_TAB_CONFIGS],
+    () => (canViewDecisionTabs ? [...ITR_TABS, ...ITM_TABS] : [...ITM_TABS]),
     [canViewDecisionTabs]
   );
 
-  const defaultTab = canViewDecisionTabs
-    ? DEFAULT_TAB_WITH_DECISION
-    : DEFAULT_TAB_WITHOUT_DECISION;
+  const defaultTab = canViewDecisionTabs ? "Pending" : "Approved";
 
-  // --- Tab state synced with ?tab= URL param via urlStateManager ---
   const initialTab = useMemo(() => {
-    const fromUrl = getUrlStringParam("tab", defaultTab) as ITMTabValue;
+    const fromUrl = getUrlStringParam("tab", defaultTab);
     return visibleTabs.some((t) => t.value === fromUrl) ? fromUrl : defaultTab;
   }, [defaultTab, visibleTabs]);
 
-  const [tab, setTab] = useState<ITMTabValue>(initialTab);
+  const [tab, setTab] = useState(initialTab);
 
   useEffect(() => {
     if (urlStateManager.getParam("tab") !== tab) {
@@ -152,7 +129,7 @@ export const InternalTransferMemosList: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
-      const newTab = (value || defaultTab) as ITMTabValue;
+      const newTab = (value || defaultTab);
       if (!visibleTabValues.has(newTab)) return;
       setTab((prev) => (prev !== newTab ? newTab : prev));
     });
@@ -160,13 +137,12 @@ export const InternalTransferMemosList: React.FC = () => {
   }, [defaultTab, visibleTabValues]);
 
   const handleTabClick = useCallback(
-    (value: ITMTabValue) => {
+    (value: string) => {
       if (tab !== value) setTab(value);
     },
     [tab]
   );
 
-  // --- Role gate — after hooks so React rules-of-hooks is preserved ---
   if (role && role !== "Loading" && !ITM_VIEW_ROLES.includes(role)) {
     return <Navigate to="/" replace />;
   }
@@ -182,12 +158,12 @@ export const InternalTransferMemosList: React.FC = () => {
         </h1>
       </div>
 
-      {/* Tabs — Admin/PMO see decision group + divider + status group. */}
+      {/* Tabs — ITR group | divider | ITM group */}
       <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
         <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
           {canViewDecisionTabs && (
             <>
-              {DECISION_TAB_CONFIGS.map((t) => (
+              {ITR_TABS.map((t) => (
                 <TabButton
                   key={t.value}
                   label={t.label}
@@ -198,7 +174,7 @@ export const InternalTransferMemosList: React.FC = () => {
               <div className="w-px bg-gray-300 mx-1 self-stretch" />
             </>
           )}
-          {STATUS_TAB_CONFIGS.map((t) => (
+          {ITM_TABS.map((t) => (
             <TabButton
               key={t.value}
               label={t.label}
@@ -209,19 +185,16 @@ export const InternalTransferMemosList: React.FC = () => {
         </div>
       </div>
 
-      {/* One body per tab — remounts on tab change so URL state scopes cleanly. */}
       <ITMListBody key={activeTabConfig.value} config={activeTabConfig} />
     </div>
   );
 };
 
-interface TabButtonProps {
+const TabButton: React.FC<{
   label: string;
   isActive: boolean;
   onClick: () => void;
-}
-
-const TabButton: React.FC<TabButtonProps> = ({ label, isActive, onClick }) => (
+}> = ({ label, isActive, onClick }) => (
   <button
     type="button"
     onClick={onClick}
@@ -255,9 +228,10 @@ const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
   } = useITMList({
     statusFilter: config.statusFilter,
     urlSyncKey: config.urlSyncKey,
+    doctype: config.type === "itr" ? "Internal Transfer Request" : "Internal Transfer Memo",
+    tabValue: config.value,
   });
 
-  // Apply per-tab column visibility once the table is ready.
   useEffect(() => {
     const visibility = itmTabColumnVisibility[config.value] ?? {};
     table.setColumnVisibility(visibility);
@@ -271,6 +245,8 @@ const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
         .replace(/\//g, "-")}`,
     [config.value]
   );
+
+  const activeColumns = config.type === "itr" ? getItrListColumns(config.value) : itmListColumns;
 
   if (error) return <AlertDestructive error={error} />;
 
@@ -286,7 +262,7 @@ const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
       ) : (
         <DataTable<ITMListRow>
           table={table}
-          columns={itmListColumns}
+          columns={activeColumns}
           isLoading={isLoading}
           error={error}
           totalCount={totalCount}

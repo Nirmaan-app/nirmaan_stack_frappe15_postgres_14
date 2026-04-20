@@ -2,10 +2,9 @@ import { useFrappePostCall, useFrappeAuth } from "frappe-react-sdk";
 import { captureApiError } from "@/utils/sentry/captureApiError";
 import type { CreateItmsPayloadSelection } from "../types";
 
-interface CreateItmsResponse {
+interface CreateResponse {
   message: {
-    request: string;
-    created: string[];
+    requests: string[];
     count: number;
   };
 }
@@ -16,12 +15,12 @@ interface CreatePayload {
 }
 
 /**
- * Wraps `create_itms_from_inventory`. On error, routes to Sentry with a
- * feature-scoped tag so these show up under "internal_transfer_memo" issues.
+ * Wraps `create_transfer_request` — creates ITR only (no ITMs).
+ * ITMs are created later when admin approves items.
  */
 export function useCreateITMs() {
-  const { call, loading, error } = useFrappePostCall<CreateItmsResponse>(
-    "nirmaan_stack.api.internal_transfers.create_itms_from_inventory.create_itms_from_inventory"
+  const { call, loading, error } = useFrappePostCall<CreateResponse>(
+    "nirmaan_stack.api.internal_transfers.create_transfer_request.create_transfer_request"
   );
   const { currentUser } = useFrappeAuth();
 
@@ -32,9 +31,9 @@ export function useCreateITMs() {
     } catch (e) {
       captureApiError({
         hook: "useCreateITMs",
-        api: "create_itms_from_inventory",
+        api: "create_transfer_request",
         feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Memo",
+        doctype: "Internal Transfer Request",
         error: e,
         user: currentUser ?? undefined,
       });

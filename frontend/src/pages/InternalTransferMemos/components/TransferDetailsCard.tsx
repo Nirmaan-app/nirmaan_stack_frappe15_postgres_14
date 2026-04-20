@@ -1,6 +1,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowRight, PackageCheck } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { InternalTransferMemo } from "@/types/NirmaanStack/InternalTransferMemo";
@@ -11,6 +12,8 @@ interface TransferDetailsCardProps {
   sourceProjectName: string | null;
   targetProjectName: string | null;
   createdByFullName: string | null;
+  onMarkDispatched?: () => void;
+  showDispatchButton?: boolean;
 }
 
 /**
@@ -42,11 +45,24 @@ export const TransferDetailsCard: React.FC<TransferDetailsCardProps> = ({
   sourceProjectName,
   targetProjectName,
   createdByFullName,
+  onMarkDispatched,
+  showDispatchButton = false,
 }) => {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <h3 className="text-red-600 text-lg font-semibold">Transfer Details</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-red-600 text-lg font-semibold">Transfer Details</h3>
+          {showDispatchButton && onMarkDispatched && (
+            <Button
+              onClick={onMarkDispatched}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              <PackageCheck className="h-4 w-4 mr-1.5" />
+              Mark as Dispatched
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Row 1: ID / FROM → TO / STATUS / EST VALUE */}

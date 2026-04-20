@@ -79,39 +79,32 @@ interface QtyInputProps {
 }
 
 function TransferQtyInput({ value, max, onChange }: QtyInputProps) {
-  const invalid = value <= 0 || value > max;
+  const overMax = value > max;
   return (
-    <div className="flex flex-col gap-0.5" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground whitespace-nowrap">
-          Transfer Qty:
-        </span>
-        <Input
-          type="number"
-          min={0}
-          max={max}
-          step="any"
-          value={Number.isFinite(value) ? value : ""}
-          onChange={(e) => {
-            const raw = e.target.value;
-            if (raw === "") {
-              onChange(0);
-              return;
-            }
-            const n = Number(raw);
-            onChange(Number.isFinite(n) ? n : 0);
-          }}
-          className={cn(
-            "h-7 w-24 text-xs tabular-nums",
-            invalid && "border-destructive focus-visible:ring-destructive"
-          )}
-        />
-      </div>
-      {invalid && (
-        <span className="text-[10px] text-destructive">
-          {value <= 0 ? "Enter qty" : `Max ${max}`}
-        </span>
-      )}
+    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <span className="text-sm text-blue-600 whitespace-nowrap">
+        Transfer Qty:
+      </span>
+      <Input
+        type="number"
+        min={0}
+        max={max}
+        step="any"
+        value={Number.isFinite(value) ? value : ""}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw === "") {
+            onChange(0);
+            return;
+          }
+          const n = Number(raw);
+          onChange(Number.isFinite(n) ? n : 0);
+        }}
+        className={cn(
+          "h-7 w-20 text-xs tabular-nums",
+          overMax && "border-destructive focus-visible:ring-destructive"
+        )}
+      />
     </div>
   );
 }
@@ -218,7 +211,7 @@ export function InventoryPickerTable({
       const next: SelectionState = { ...selection };
       if (checked) {
         const entry: ItemSelection = {
-          qty: source.available_quantity,
+          qty: 0,
           estimated_rate: source.estimated_rate,
           available_quantity: source.available_quantity,
           item_id: item.item_id,
@@ -315,7 +308,6 @@ export function InventoryPickerTable({
             </TableHead>
             <TableHead className="text-right">Remaining Qty</TableHead>
             <TableHead className="text-right">Est. Cost</TableHead>
-            <TableHead className="text-right">Transfer Qty</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -362,7 +354,6 @@ export function InventoryPickerTable({
                   <TableCell className="text-right font-medium tabular-nums">
                     {formatToIndianRupee(item.total_estimated_cost)}
                   </TableCell>
-                  <TableCell />
                 </TableRow>
 
                 {/* Sub-rows */}
@@ -417,23 +408,21 @@ export function InventoryPickerTable({
                         <TableCell className="text-xs text-muted-foreground">—</TableCell>
                         <TableCell />
                         <TableCell className="text-right tabular-nums text-sm">
-                          {src.available_quantity.toLocaleString("en-IN")}
+                          <div className="flex items-center justify-end gap-3">
+                            {selected && entry && (
+                              <TransferQtyInput
+                                value={entry.qty}
+                                max={src.available_quantity}
+                                onChange={(n) =>
+                                  updateQty(src.source_project, item.item_id, n)
+                                }
+                              />
+                            )}
+                            <span>{src.available_quantity.toLocaleString("en-IN")}</span>
+                          </div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-sm">
                           {formatToIndianRupee(src.estimated_cost)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-sm">
-                          {selected && entry ? (
-                            <TransferQtyInput
-                              value={entry.qty}
-                              max={src.available_quantity}
-                              onChange={(n) =>
-                                updateQty(src.source_project, item.item_id, n)
-                              }
-                            />
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
                         </TableCell>
                       </TableRow>
                     );

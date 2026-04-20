@@ -1,36 +1,26 @@
 import { useFrappePostCall, useFrappeAuth } from "frappe-react-sdk";
 import { captureApiError } from "@/utils/sentry/captureApiError";
 
-interface ApproveResponse {
+// ---- ITR Mutations (approve/reject items) ----
+
+interface ApproveITRResponse {
   message: {
-    name: string;
-    status: string;
-    approved_by: string | null;
-    approved_on: string | null;
+    itr_name: string;
+    itr_status: string;
+    created_itms: string[];
+    count: number;
   };
 }
 
-interface RejectResponse {
+interface RejectITRResponse {
   message: {
-    name: string;
-    status: string;
-    rejection_reason: string;
+    itr_name: string;
+    itr_status: string;
+    rejected_count: number;
   };
 }
 
-interface DeleteResponse {
-  message: {
-    name: string;
-    deleted: boolean;
-  };
-}
-
-interface ApproveItemsResponse {
-  message: {
-    name: string;
-    items: { item_name: string; status: string }[];
-  };
-}
+// ---- ITM Mutations (dispatch/delete) ----
 
 interface DispatchResponse {
   message: {
@@ -41,48 +31,49 @@ interface DispatchResponse {
   };
 }
 
+interface DeleteResponse {
+  message: {
+    name: string;
+    deleted: boolean;
+  };
+}
+
 /**
- * Lifecycle mutations for an Internal Transfer Memo (approve / reject / delete).
- *
- * Every call wraps the backend error path with `captureApiError` so Sentry
- * groups failures under the `internal_transfer_memo` feature and we can see
- * per-hook regressions without log-diving. We intentionally rethrow so the
- * caller can toast the user — this helper does NOT toast itself so it remains
- * reusable from dialogs that need to stay open on error.
+ * Lifecycle mutations for ITR (approve/reject items) and ITM (dispatch/delete).
  */
 export function useITMMutations() {
   const { currentUser } = useFrappeAuth();
 
-  const approveCall = useFrappePostCall<ApproveResponse>(
-    "nirmaan_stack.api.internal_transfers.lifecycle.approve_itm"
+  const approveITRCall = useFrappePostCall<ApproveITRResponse>(
+    "nirmaan_stack.api.internal_transfers.approve_itr_items.approve_itr_items"
   );
 
-  const rejectCall = useFrappePostCall<RejectResponse>(
-    "nirmaan_stack.api.internal_transfers.lifecycle.reject_itm"
-  );
-
-  const deleteCall = useFrappePostCall<DeleteResponse>(
-    "nirmaan_stack.api.internal_transfers.lifecycle.delete_itm"
-  );
-
-  const approveItemsCall = useFrappePostCall<ApproveItemsResponse>(
-    "nirmaan_stack.api.internal_transfers.lifecycle.approve_itm_items"
+  const rejectITRCall = useFrappePostCall<RejectITRResponse>(
+    "nirmaan_stack.api.internal_transfers.approve_itr_items.reject_itr_items"
   );
 
   const dispatchCall = useFrappePostCall<DispatchResponse>(
     "nirmaan_stack.api.internal_transfers.lifecycle.dispatch_itm"
   );
 
-  const approve = async (name: string) => {
+  const deleteCall = useFrappePostCall<DeleteResponse>(
+    "nirmaan_stack.api.internal_transfers.lifecycle.delete_itm"
+  );
+
+  // --- ITR: Approve selected items → creates ITMs ---
+  const approveITRItems = async (itrName: string, itemNames: string[]) => {
     try {
-      return await approveCall.call({ name });
+      return await approveITRCall.call({
+        itr_name: itrName,
+        item_names: JSON.stringify(itemNames),
+      });
     } catch (e) {
       captureApiError({
-        hook: "useITMMutations.approve",
-        api: "lifecycle.approve_itm",
+        hook: "useITMMutations.approveITRItems",
+        api: "approve_itr_items",
         feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Memo",
-        entity_id: name,
+        doctype: "Internal Transfer Request",
+        entity_id: itrName,
         error: e,
         user: currentUser ?? undefined,
       });
@@ -90,16 +81,21 @@ export function useITMMutations() {
     }
   };
 
-  const reject = async (name: string, reason: string) => {
+  // --- ITR: Reject selected items ---
+  const rejectITRItems = async (itrName: string, itemNames: string[], reason: string) => {
     try {
-      return await rejectCall.call({ name, reason });
+      return await rejectITRCall.call({
+        itr_name: itrName,
+        item_names: JSON.stringify(itemNames),
+        reason,
+      });
     } catch (e) {
       captureApiError({
-        hook: "useITMMutations.reject",
-        api: "lifecycle.reject_itm",
+        hook: "useITMMutations.rejectITRItems",
+        api: "reject_itr_items",
         feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Memo",
-        entity_id: name,
+        doctype: "Internal Transfer Request",
+        entity_id: itrName,
         error: e,
         user: currentUser ?? undefined,
       });
@@ -107,26 +103,7 @@ export function useITMMutations() {
     }
   };
 
-  const approveItems = async (
-    name: string,
-    items: { item_name: string; action: string; reason?: string }[]
-  ) => {
-    try {
-      return await approveItemsCall.call({ name, items: JSON.stringify(items) });
-    } catch (e) {
-      captureApiError({
-        hook: "useITMMutations.approveItems",
-        api: "lifecycle.approve_itm_items",
-        feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Memo",
-        entity_id: name,
-        error: e,
-        user: currentUser ?? undefined,
-      });
-      throw e;
-    }
-  };
-
+  // --- ITM: Dispatch ---
   const dispatch = async (name: string) => {
     try {
       return await dispatchCall.call({ name });
@@ -144,6 +121,7 @@ export function useITMMutations() {
     }
   };
 
+  // --- ITM: Delete ---
   const deleteItm = async (name: string) => {
     try {
       return await deleteCall.call({ name });
@@ -162,14 +140,12 @@ export function useITMMutations() {
   };
 
   return {
-    approve,
-    reject,
-    approveItems,
+    approveITRItems,
+    rejectITRItems,
     dispatch,
     deleteItm,
-    isApproving: approveCall.loading,
-    isRejecting: rejectCall.loading,
-    isApprovingItems: approveItemsCall.loading,
+    isApprovingITR: approveITRCall.loading,
+    isRejectingITR: rejectITRCall.loading,
     isDispatching: dispatchCall.loading,
     isDeleting: deleteCall.loading,
   };

@@ -61,10 +61,10 @@ def get_transfer_summary(project_id: str) -> dict:
 
     Returns a dict keyed by item_id with:
       - transferred_out: sum of transfer_quantity from ITMs where
-        source_project = project_id, ITM status in dispatched+ states,
-        and item status = 'Approved'.
+        source_project = project_id, ITM status in dispatched+ states.
       - transferred_in: sum of received_quantity from ITMs where
         target_project = project_id, same status constraints.
+    All ITM items are approved by definition (created from ITR approval).
     """
 
     if frappe.session.user == "Guest":
@@ -76,12 +76,14 @@ def get_transfer_summary(project_id: str) -> dict:
         """
         SELECT
             itmi.item_id,
+            MAX(itmi.item_name) AS item_name,
+            MAX(itmi.unit) AS unit,
+            MAX(itmi.category) AS category,
             SUM(itmi.transfer_quantity) AS transferred_out
         FROM "tabInternal Transfer Memo Item" itmi
         JOIN "tabInternal Transfer Memo" itm ON itm.name = itmi.parent
         WHERE itm.source_project = %(project_id)s
           AND itm.status IN %(statuses)s
-          AND itmi.status = 'Approved'
         GROUP BY itmi.item_id
         """,
         {"project_id": project_id, "statuses": dispatched_statuses},
@@ -92,12 +94,14 @@ def get_transfer_summary(project_id: str) -> dict:
         """
         SELECT
             itmi.item_id,
-            SUM(itmi.received_quantity) AS transferred_in
+            MAX(itmi.item_name) AS item_name,
+            MAX(itmi.unit) AS unit,
+            MAX(itmi.category) AS category,
+            SUM(COALESCE(itmi.received_quantity, 0)) AS transferred_in
         FROM "tabInternal Transfer Memo Item" itmi
         JOIN "tabInternal Transfer Memo" itm ON itm.name = itmi.parent
         WHERE itm.target_project = %(project_id)s
           AND itm.status IN %(statuses)s
-          AND itmi.status = 'Approved'
         GROUP BY itmi.item_id
         """,
         {"project_id": project_id, "statuses": dispatched_statuses},
@@ -110,15 +114,26 @@ def get_transfer_summary(project_id: str) -> dict:
         result[row.item_id] = {
             "transferred_out": row.transferred_out or 0,
             "transferred_in": 0,
+            "item_name": row.item_name,
+            "unit": row.unit,
+            "category": row.category,
         }
 
     for row in transferred_in_rows:
         if row.item_id in result:
             result[row.item_id]["transferred_in"] = row.transferred_in or 0
+            # Keep item details from whichever query had them
+            if not result[row.item_id].get("item_name"):
+                result[row.item_id]["item_name"] = row.item_name
+                result[row.item_id]["unit"] = row.unit
+                result[row.item_id]["category"] = row.category
         else:
             result[row.item_id] = {
                 "transferred_out": 0,
                 "transferred_in": row.transferred_in or 0,
+                "item_name": row.item_name,
+                "unit": row.unit,
+                "category": row.category,
             }
 
     return {"data": result}

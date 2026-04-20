@@ -3,7 +3,7 @@
  "allow_import": 1,
  "allow_rename": 1,
  "autoname": "ITM-.YYYY.-.#####",
- "creation": "2026-04-15 10:00:00.000000",
+ "creation": "2026-04-15 10:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -79,13 +79,13 @@
    "search_index": 1
   },
   {
-   "default": "Pending Approval",
+   "default": "Approved",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Pending Approval\nApproved\nRejected\nDispatched\nPartially Delivered\nDelivered",
+   "options": "Approved\nDispatched\nPartially Delivered\nDelivered",
    "reqd": 1,
    "search_index": 1
   },
@@ -200,11 +200,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-17 10:00:00.000000",
+ "modified": "2026-04-18 14:04:23.920432",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Internal Transfer Memo",
- "naming_rule": "Expression (old style)",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {

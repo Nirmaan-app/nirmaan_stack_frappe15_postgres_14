@@ -18,8 +18,10 @@ interface ITMStatusBadgeProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  "Pending Approval":
-    "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20",
+  // ITR statuses
+  Pending: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20",
+  Completed: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
+  // ITM statuses
   Approved: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
   Rejected: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",
   Dispatched: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20",

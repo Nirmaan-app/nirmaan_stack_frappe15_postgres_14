@@ -5,8 +5,11 @@ import { useServerDataTable } from "@/hooks/useServerDataTable";
 import {
   ITM_FETCH_FIELDS,
   ITM_LIST_API_ENDPOINT,
+  ITR_LIST_API_ENDPOINT,
   ITM_SEARCHABLE_FIELDS,
+  ITR_SEARCHABLE_FIELDS,
   itmListColumns,
+  getItrListColumns,
   type ITMListRow,
 } from "../config/itmList.config";
 
@@ -16,40 +19,33 @@ export type ITMStatusFilter =
   | null;
 
 export interface UseITMListOptions {
-  /**
-   * Pre-applied `[operator, value]` tuple expanded into a Frappe filter
-   * against `status` on every request. `null` loads the full list.
-   */
   statusFilter: ITMStatusFilter;
-  /**
-   * Unique URL state namespace — must differ across the 6 sidebar tabs so
-   * each tab retains its own pagination / sort / search in the querystring.
-   */
   urlSyncKey: string;
+  doctype?: "Internal Transfer Request" | "Internal Transfer Memo";
+  tabValue?: string;
 }
 
-/**
- * Thin wrapper that wires `useServerDataTable` to the ITM list endpoint.
- *
- * Callers pass the per-tab status filter; the hook injects it as an
- * `additionalFilters` entry so backend WHERE clauses stay consistent with
- * every other list page in the app. All other state (search, sort,
- * pagination, column filters, export) is delegated to `useServerDataTable`
- * verbatim — see `frontend/.claude/context/data-tables.md` for the contract.
- */
-export function useITMList({ statusFilter, urlSyncKey }: UseITMListOptions) {
+export function useITMList({ statusFilter, urlSyncKey, doctype = "Internal Transfer Memo", tabValue = "" }: UseITMListOptions) {
   const additionalFilters = useMemo(() => {
     if (!statusFilter) return [];
     const [op, value] = statusFilter;
+    // Special filters like has_pending_items/has_rejected_items use the op as the field name
+    if (op === "has_pending_items" || op === "has_rejected_items") {
+      return [[op, "=", value]];
+    }
     return [["status", op, value]];
   }, [statusFilter]);
 
+  const isITR = doctype === "Internal Transfer Request";
+
   return useServerDataTable<ITMListRow>({
-    doctype: "Internal Transfer Memo",
-    apiEndpoint: ITM_LIST_API_ENDPOINT,
-    columns: itmListColumns,
-    fetchFields: ITM_FETCH_FIELDS as string[],
-    searchableFields: ITM_SEARCHABLE_FIELDS,
+    doctype,
+    apiEndpoint: isITR ? ITR_LIST_API_ENDPOINT : ITM_LIST_API_ENDPOINT,
+    columns: isITR ? getItrListColumns(tabValue) : itmListColumns,
+    fetchFields: isITR
+      ? ["name", "creation", "status", "target_project", "target_project_name", "requested_by", "requested_by_full_name", "memo_count", "total_items", "pending_count", "approved_count", "rejected_count", "total_quantity", "estimated_value"]
+      : (ITM_FETCH_FIELDS as string[]),
+    searchableFields: isITR ? ITR_SEARCHABLE_FIELDS : ITM_SEARCHABLE_FIELDS,
     urlSyncKey,
     defaultSort: "creation desc",
     additionalFilters,

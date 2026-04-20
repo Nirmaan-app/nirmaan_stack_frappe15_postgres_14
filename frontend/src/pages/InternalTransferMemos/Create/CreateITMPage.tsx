@@ -102,13 +102,13 @@ export default function CreateITMPage() {
         target_project: targetProject.value,
         selections: flatSelections,
       });
-      const count = result?.message?.count ?? flatSelections.length;
+      const count = result?.message?.count ?? 1;
       toast({
-        title: `${count} transfer memo${count === 1 ? "" : "s"} created`,
+        title: `${count} transfer request${count !== 1 ? "s" : ""} created`,
         variant: "success",
       });
       setPreviewOpen(false);
-      navigate("/internal-transfer-memos?tab=Pending+Approval");
+      navigate("/internal-transfer-memos?tab=Pending");
     } catch (e: any) {
       toast({
         title: "Failed to create transfer memos",
