@@ -91,8 +91,8 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
           <div className="flex flex-col gap-4 py-4">
             <p className="text-sm text-muted-foreground">Select how you want to download the PO documents.</p>
             <div className="flex flex-col gap-2">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => handleBulkDownload("PO", "POs", { withRate: true })}
                 disabled={isProjectManager}
                 className="justify-start h-auto py-3 px-4"
@@ -105,7 +105,7 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
                   )}
                 </div>
               </Button>
-              <Button 
+              <Button
                 variant="outline"
                 onClick={() => handleBulkDownload("PO", "POs", { withRate: false })}
                 className="justify-start h-auto py-3 px-4"
@@ -144,8 +144,8 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
                 <Label htmlFor="all-inv" className="cursor-pointer">All Invoices</Label>
               </div>
             </RadioGroup>
-            <Button 
-              className="mt-4" 
+            <Button
+              className="mt-4"
               onClick={() => handleBulkDownload("Invoice", "Invoices")}
             >
               Generate Invoices PDF
@@ -156,28 +156,28 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
 
       {/* Progress Dialog */}
       <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
-        <DialogContent 
-            className="sm:max-w-md [&>button]:hidden"
-            onPointerDownOutside={(e) => e.preventDefault()}
-            onEscapeKeyDown={(e) => e.preventDefault()}
+        <DialogContent
+          className="sm:max-w-md [&>button]:hidden"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
         >
-            <DialogHeader>
-              <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col space-y-4 py-4">
-                <div className="space-y-2">
-                  <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
-                    <div 
-                        className="bg-primary h-full transition-all duration-300 ease-in-out" 
-                        style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between items-center text-xs text-muted-foreground">
-                      <span>{progress}% - {progressMessage}</span>
-                  </div>
-                </div>
-                
-                {(progress === 100 || !loading) && (
+          <DialogHeader>
+            <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-primary h-full transition-all duration-300 ease-in-out"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex justify-between items-center text-xs text-muted-foreground">
+                <span>{progress}% - {progressMessage}</span>
+              </div>
+            </div>
+
+            {/* {(progress === 100 || !loading) && (
                     <div className="pt-2 flex justify-end">
                         <Button 
                             className="w-full"
@@ -186,8 +186,8 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
                             Close and Finish
                         </Button>
                     </div>
-                )}
-            </div>
+                )} */}
+          </div>
         </DialogContent>
       </Dialog>
     </>
