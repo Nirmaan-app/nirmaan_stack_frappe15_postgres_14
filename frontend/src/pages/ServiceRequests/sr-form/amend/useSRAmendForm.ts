@@ -140,6 +140,9 @@ export const useSRAmendForm = ({
        ───────────────────────────────────────────────────────── */
     const hasChanges = useMemo(() => {
         if (!initialFormValues) return false;
+        // Guard against the render between initialFormValues becoming defined and
+        // reset() populating the form — watchedValues may still be the empty default.
+        if (!watchedValues?.project?.id) return false;
 
         // Transform both initial and current values to their persistence payload format
         // This ensures we are only comparing meaningful fields (vendor, items, rates, etc.)
