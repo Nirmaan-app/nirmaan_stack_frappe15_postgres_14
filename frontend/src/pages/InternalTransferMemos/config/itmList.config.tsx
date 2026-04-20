@@ -37,6 +37,10 @@ export interface ITMListRow {
   approved_on?: string | null;
   rejection_reason?: string | null;
   owner?: string | null;
+  // ITR per-status item counts (returned by get_itrs_list)
+  pending_count?: number | null;
+  approved_count?: number | null;
+  rejected_count?: number | null;
 }
 
 /**

@@ -10,6 +10,7 @@ import { useDownloadDN } from "./hooks/useDownloadDN";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { cn } from "@/lib/utils";
 import type { InternalTransferMemo } from "@/types/NirmaanStack/InternalTransferMemo";
+import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 // UI Components
 import ProjectSelect from "@/components/custom-select/project-select";
@@ -142,6 +143,25 @@ const DeliveryNotes: React.FC = () => {
   const [dnDialogOpen, setDnDialogOpen] = useState(false);
   const [viewExistingType, setViewExistingType] = useState<'po' | 'itm'>('po');
 
+  const { data: usersList } = useFrappeGetDocList<NirmaanUsers>(
+    "Nirmaan Users",
+    { fields: ["name", "full_name", "email"] as ("name" | "full_name" | "email")[], limit: 0 }
+  );
+
+  const userNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    usersList?.forEach((u) => {
+      map.set(u.name, u.full_name);
+      if (u.email) map.set(u.email, u.full_name);
+    });
+    return map;
+  }, [usersList]);
+
+  const resolveUserName = useCallback((email: string | undefined | null) => {
+    if (!email) return null;
+    return userNameMap.get(email) ?? (email === "Administrator" ? "Admin" : email.split("@")[0]);
+  }, [userNameMap]);
+
   const activeView = useMemo(() => {
     const view = searchParams.get("view");
     if (view === "create") return "CREATE";
@@ -175,22 +195,28 @@ const DeliveryNotes: React.FC = () => {
   );
 
   // --- CREATE view ITM data ---
+  // Use custom API (get_itms_list) instead of useFrappeGetDocList to bypass
+  // per-doc User Permission filtering — Project Managers need to see ITMs
+  // for projects they may not have User Permissions for.
   const shouldFetchITMs = activeView === "CREATE" && !!selectedProject;
-  const { data: itmResult, isLoading: itmLoading } = useFrappeGetDocList<InternalTransferMemo>(
-    "Internal Transfer Memo",
-    {
-      fields: ["name", "source_project", "target_project", "status", "total_items", "estimated_value", "creation"],
-      filters: [
-        ["target_project", "=", selectedProject || ""],
-        ["status", "in", ["Dispatched", "Partially Delivered"]],
-      ],
-      orderBy: { field: "creation", order: "desc" },
-      limit: 100,
-    },
+  const { data: itmResult, isLoading: itmLoading } = useFrappeGetCall<{
+    message: { data: InternalTransferMemo[] };
+  }>(
+    "nirmaan_stack.api.internal_transfers.get_itms_list.get_itms_list",
+    shouldFetchITMs
+      ? {
+          filters: JSON.stringify([
+            ["target_project", "=", selectedProject],
+            ["status", "in", ["Dispatched", "Partially Delivered"]],
+          ]),
+          order_by: "creation desc",
+          limit_page_length: 100,
+        }
+      : undefined,
     shouldFetchITMs ? undefined : null
   );
 
-  const itmList = useMemo(() => itmResult || [], [itmResult]);
+  const itmList = useMemo(() => itmResult?.message?.data || [], [itmResult]);
 
   const filteredITMs = useMemo(() => {
     if (!itmSearchQuery.trim()) return itmList;
@@ -820,8 +846,12 @@ const DeliveryNotes: React.FC = () => {
                                   <TableRow className="bg-muted/30">
                                     <TableHead className="text-xs">DN Number</TableHead>
                                     <TableHead className="text-xs text-center">Items</TableHead>
-                                    <TableHead className="text-xs">Date</TableHead>
-                                    <TableHead className="text-xs hidden sm:table-cell">Created By</TableHead>
+                                    <TableHead className="text-xs">
+                                      <div className="flex flex-col gap-0.5">
+                                        <span>Date</span>
+                                        <span className="text-[10px] font-normal text-muted-foreground">Updated By</span>
+                                      </div>
+                                    </TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -842,10 +872,12 @@ const DeliveryNotes: React.FC = () => {
                                         {dn.items?.length || 0}
                                       </TableCell>
                                       <TableCell className="text-sm">
-                                        {formatDate(dn.delivery_date)}
-                                      </TableCell>
-                                      <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                                        {dn.updated_by_user || "\u2014"}
+                                        <div className="flex flex-col gap-0.5">
+                                          <span>{formatDate(dn.delivery_date)}</span>
+                                          <span className="text-[10px] text-muted-foreground">
+                                            {resolveUserName(dn.updated_by_user || dn.owner) ? `by ${resolveUserName(dn.updated_by_user || dn.owner)}` : "\u2014"}
+                                          </span>
+                                        </div>
                                       </TableCell>
                                     </TableRow>
                                   ))}

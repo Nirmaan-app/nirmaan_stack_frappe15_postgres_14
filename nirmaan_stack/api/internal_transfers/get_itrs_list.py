@@ -107,6 +107,9 @@ def get_itrs_list(
             itr.source_project,
             src.project_name AS source_project_name,
             (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name) AS total_items,
+            (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name AND status = 'Pending') AS pending_count,
+            (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name AND status = 'Approved') AS approved_count,
+            (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name AND status = 'Rejected') AS rejected_count,
             (SELECT COALESCE(SUM(transfer_quantity), 0) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name) AS total_quantity,
             (SELECT COALESCE(SUM(transfer_quantity * estimated_rate), 0) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name) AS estimated_value
         FROM "tabInternal Transfer Request" itr

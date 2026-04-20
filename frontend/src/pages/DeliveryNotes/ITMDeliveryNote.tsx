@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowLeft } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -19,9 +19,11 @@ import {
 import { toast } from "@/components/ui/use-toast";
 
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatDate } from "@/utils/FormatDate";
 import { decodeFrappeId } from "./constants";
 import type { ITMDetailPayload } from "@/pages/InternalTransferMemos/hooks/useITM";
 import type { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
+import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 // --- Types ---
 
@@ -68,6 +70,20 @@ const ITMDeliveryNote: React.FC = () => {
   const { call: createDN } = useFrappePostCall(
     "nirmaan_stack.api.delivery_notes.create_itm_delivery_note.create_itm_delivery_note"
   );
+
+  const { data: usersList } = useFrappeGetDocList<NirmaanUsers>(
+    "Nirmaan Users",
+    { fields: ["name", "full_name", "email"] as ("name" | "full_name" | "email")[], limit: 0 }
+  );
+
+  const userNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    usersList?.forEach((u) => {
+      map.set(u.name, u.full_name);
+      if (u.email) map.set(u.email, u.full_name);
+    });
+    return map;
+  }, [usersList]);
 
   const payload = itmData?.message;
   const itm = payload?.itm;
@@ -254,41 +270,74 @@ const ITMDeliveryNote: React.FC = () => {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-center">Unit</TableHead>
-                  <TableHead className="text-center">Ordered</TableHead>
-                  <TableHead className="text-center">Total Received</TableHead>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="text-xs font-medium uppercase tracking-wider text-muted-foreground min-w-[180px]">Item</TableHead>
+                  <TableHead className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground w-[60px]">Unit</TableHead>
+                  <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground w-[80px]">Ordered</TableHead>
+                  {dns.length > 0 && (
+                    <TableHead className="text-right text-xs font-medium text-muted-foreground min-w-[100px]">
+                      <div className="flex flex-col items-end gap-0.5 py-0.5">
+                        <span className="uppercase tracking-wider font-semibold text-foreground/80">DN</span>
+                        <span className="text-[10px] font-normal border-b pb-0.5 border-primary/30">
+                          {formatDate(dns[0].delivery_date)}
+                        </span>
+                        {(() => {
+                          const updatedBy = dns[0].updated_by_user || dns[0].owner;
+                          const displayName = updatedBy
+                            ? userNameMap.get(updatedBy) ?? (updatedBy === "Administrator" ? "Admin" : updatedBy.split("@")[0])
+                            : null;
+                          return displayName ? (
+                            <span className="text-[10px] text-muted-foreground">
+                              by {displayName.split(" ")[0]}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                    </TableHead>
+                  )}
+                  <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground min-w-[90px]">Total Received</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {itemRows.map((row) => (
-                  <TableRow key={row.item_id}>
-                    <TableCell className="max-w-[250px]">
-                      <span className="font-medium">{row.item_name}</span>
-                      {row.category && (
-                        <span className="block text-xs text-muted-foreground">
-                          {row.category}
-                        </span>
+                {itemRows.map((row) => {
+                  // Find this item's qty in the first DN
+                  const dnQty = dns.length > 0
+                    ? (dns[0].items || []).find((di) => di.item_id === row.item_id)?.delivered_quantity || 0
+                    : 0;
+
+                  return (
+                    <TableRow key={row.item_id}>
+                      <TableCell className="text-sm max-w-[250px]">
+                        <span className="font-medium">{row.item_name}</span>
+                        {row.category && (
+                          <span className="block text-xs text-muted-foreground">
+                            {row.category}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center text-sm text-muted-foreground">{row.unit}</TableCell>
+                      <TableCell className="text-right tabular-nums text-sm font-medium">{row.transfer_quantity}</TableCell>
+                      {dns.length > 0 && (
+                        <TableCell className="text-right tabular-nums text-sm">
+                          {dnQty > 0 ? dnQty : <span className="text-muted-foreground">--</span>}
+                        </TableCell>
                       )}
-                    </TableCell>
-                    <TableCell className="text-center">{row.unit}</TableCell>
-                    <TableCell className="text-center">{row.transfer_quantity}</TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={
-                          row.total_received >= row.transfer_quantity
-                            ? "text-green-600 font-medium"
-                            : row.total_received > 0
-                            ? "text-orange-600 font-medium"
-                            : "text-red-500"
-                        }
-                      >
-                        {row.total_received}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      <TableCell className="text-right tabular-nums text-sm font-medium">
+                        <span
+                          className={
+                            row.total_received >= row.transfer_quantity
+                              ? "text-green-600 font-medium"
+                              : row.total_received > 0
+                              ? "text-orange-600 font-medium"
+                              : "text-red-500"
+                          }
+                        >
+                          {row.total_received}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
