@@ -30,6 +30,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle, parseDesignersFromField } from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
 import { BulkAssignDialog } from './components/BulkAssignDialog';
+import { BulkStatusDialog } from './components/BulkStatusDialog';
+import { useFrappePostCall } from 'frappe-react-sdk';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
@@ -788,8 +790,13 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const {
         trackerDoc, categoryData, isLoading, error, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
         subStatusOptions,
-        handleNewTaskCreation
+        handleNewTaskCreation,
+        refetchTracker,
     } = useDesignTrackerLogic({ trackerId: trackerId! });
+
+    const { call: callBulkStatus } = useFrappePostCall(
+        'nirmaan_stack.api.design_tracker.bulk_update_task_status.bulk_update_task_status'
+    );
 
     // CEO Hold guard - use project ID from tracker document
     const { isCEOHold } = useCEOHoldGuard(trackerDoc?.project);
@@ -841,6 +848,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false);
+    const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
     const selectedCount = Object.keys(rowSelection).length;
 
     // Extract Unique Zones from Tracker Doc
@@ -1252,6 +1260,41 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         await handleParentDocSave({ design_tracker_task: updatedTasks });
         setRowSelection({});
         toast({ title: "Success", description: `Designers assigned to ${taskUpdates.size} task(s).`, variant: "success" });
+    };
+
+    // --- Bulk Status handler (Admin only; backend skips file_link / approval_proof validators) ---
+    const handleBulkStatus = async ({
+        taskNames,
+        taskStatus,
+        taskSubStatus,
+    }: {
+        taskNames: string[];
+        taskStatus: string;
+        taskSubStatus?: string;
+    }) => {
+        if (!trackerId) return;
+        try {
+            const res: any = await callBulkStatus({
+                tracker_id: trackerId,
+                task_names: JSON.stringify(taskNames),
+                task_status: taskStatus,
+                task_sub_status: taskSubStatus || '',
+            });
+            await refetchTracker();
+            setRowSelection({});
+            toast({
+                title: "Success",
+                description: `Status updated on ${res?.message?.updated ?? taskNames.length} task(s).`,
+                variant: "success",
+            });
+        } catch (err: any) {
+            toast({
+                title: "Bulk Status Failed",
+                description: err?.message || "Could not update task statuses.",
+                variant: "destructive",
+            });
+            throw err;
+        }
     };
 
     // Derive selected task objects for BulkAssignDialog
@@ -1821,15 +1864,28 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     showRowSelection={hasEditStructureAccess || role === "Nirmaan Design Lead Profile"}
                     toolbarActions={
                         selectedCount > 0 && (hasEditStructureAccess || role === "Nirmaan Design Lead Profile") ? (
-                            <Button
-                                size="sm"
-                                variant="default"
-                                className="bg-blue-600 hover:bg-blue-700"
-                                onClick={() => setIsBulkAssignOpen(true)}
-                            >
-                                <Users className="h-3.5 w-3.5 mr-1.5" />
-                                Bulk Assign ({selectedCount})
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="default"
+                                    className="bg-blue-600 hover:bg-blue-700"
+                                    onClick={() => setIsBulkAssignOpen(true)}
+                                >
+                                    <Users className="h-3.5 w-3.5 mr-1.5" />
+                                    Bulk Assign ({selectedCount})
+                                </Button>
+                                {isAdmin && (
+                                    <Button
+                                        size="sm"
+                                        variant="default"
+                                        className="bg-red-600 hover:bg-red-700"
+                                        onClick={() => setIsBulkStatusOpen(true)}
+                                    >
+                                        <Check className="h-3.5 w-3.5 mr-1.5" />
+                                        Bulk Status ({selectedCount})
+                                    </Button>
+                                )}
+                            </div>
                         ) : null
                     }
                 />
@@ -1908,6 +1964,15 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 usersList={usersList || []}
                 onBulkAssign={handleBulkAssign}
             />
+
+            {isAdmin && (
+                <BulkStatusDialog
+                    isOpen={isBulkStatusOpen}
+                    onOpenChange={setIsBulkStatusOpen}
+                    selectedTasks={selectedTaskObjects}
+                    onBulkStatus={handleBulkStatus}
+                />
+            )}
         </div>
     );
 };
