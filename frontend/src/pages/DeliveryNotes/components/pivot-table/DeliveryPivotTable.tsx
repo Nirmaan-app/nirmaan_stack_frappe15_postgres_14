@@ -25,7 +25,8 @@ import { VendorDCDialog } from "../VendorDCDialog";
 import { DeliveryPivotTableProps, DNColumn } from "./types";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { isCreatedToday } from "@/utils/FormatDate";
-import { SameDayDNWarningDialog } from "../SameDayDNWarningDialog";
+import { parseNumber } from "@/utils/parseNumber";
+import { SameDayDNWarningDialog, WarningDN } from "../SameDayDNWarningDialog";
 import { useDeliveryDelete } from "../../hooks/useDeliveryDelete";
 import { useUserData } from "@/hooks/useUserData";
 
@@ -69,6 +70,59 @@ export function DeliveryPivotTable({
     () => dnRecords.filter((dn) => !dn.is_return && isCreatedToday(dn.creation)),
     [dnRecords]
   );
+
+  // Existing DNs whose items + quantities exactly match the new DN being entered
+  const duplicateDNs = useMemo(() => {
+    const itemIdToRowItemId: Record<string, string> = {};
+    for (const row of pivotData.rows) {
+      if (!row.isOrphaned) itemIdToRowItemId[row.itemId] = row.itemItemId;
+    }
+
+    const newSig: Record<string, number> = {};
+    for (const [rowItemId, qtyStr] of Object.entries(
+      submitHook.newlyDeliveredQuantities
+    )) {
+      const qty = parseNumber(qtyStr);
+      if (qty <= 0) continue;
+      const itemItemId = itemIdToRowItemId[rowItemId];
+      if (!itemItemId) continue;
+      newSig[itemItemId] = qty;
+    }
+
+    const newKeys = Object.keys(newSig);
+    if (newKeys.length === 0) return [];
+
+    return dnRecords.filter((dn) => {
+      if (dn.is_return) return false;
+      const existingSig: Record<string, number> = {};
+      for (const item of dn.items) {
+        const qty = parseNumber(item.delivered_quantity);
+        if (qty <= 0) continue;
+        existingSig[item.item_id] = qty;
+      }
+      const existingKeys = Object.keys(existingSig);
+      if (existingKeys.length !== newKeys.length) return false;
+      return newKeys.every((k) => existingSig[k] === newSig[k]);
+    });
+  }, [dnRecords, pivotData.rows, submitHook.newlyDeliveredQuantities]);
+
+  // Union of same-day and duplicate-content DNs, each tagged with the reason it was flagged
+  const warningDNs = useMemo<WarningDN[]>(() => {
+    const sameDayNames = new Set(sameDayDNs.map((dn) => dn.name));
+    const duplicateNames = new Set(duplicateDNs.map((dn) => dn.name));
+    const seen = new Set<string>();
+    const merged: WarningDN[] = [];
+    for (const dn of [...sameDayDNs, ...duplicateDNs]) {
+      if (seen.has(dn.name)) continue;
+      seen.add(dn.name);
+      const isSameDay = sameDayNames.has(dn.name);
+      const isDuplicate = duplicateNames.has(dn.name);
+      const reason: WarningDN["reason"] =
+        isSameDay && isDuplicate ? "both" : isSameDay ? "same-day" : "duplicate";
+      merged.push({ dn, reason });
+    }
+    return merged;
+  }, [sameDayDNs, duplicateDNs]);
   // In "create" mode, auto-open the new entry form
   const [showEdit, setShowEdit] = useState(viewMode === "create");
   const [showReturn, setShowReturn] = useState(false);
@@ -104,14 +158,14 @@ export function DeliveryPivotTable({
     setShowEdit((prev) => !prev);
   }, [showEdit, submitHook.resetForm, editHook.cancelEdit]);
 
-  // Check for same-day DNs before opening the confirmation dialog
+  // Check for same-day or duplicate-content DNs before opening the confirmation dialog
   const handleUpdateClick = useCallback(() => {
-    if (sameDayDNs.length > 0) {
+    if (warningDNs.length > 0) {
       setSameDayWarningOpen(true);
     } else {
       setConfirmDialog(true);
     }
-  }, [sameDayDNs.length]);
+  }, [warningDNs.length]);
 
   const handleWarningContinue = useCallback(() => {
     setSameDayWarningOpen(false);
@@ -436,9 +490,9 @@ export function DeliveryPivotTable({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Same-day DN warning dialog */}
+      {/* Same-day / duplicate-content DN warning dialog */}
       <SameDayDNWarningDialog
-        sameDayDNs={sameDayDNs}
+        warningDNs={warningDNs}
         open={sameDayWarningOpen}
         onCancel={() => setSameDayWarningOpen(false)}
         onContinue={handleWarningContinue}
