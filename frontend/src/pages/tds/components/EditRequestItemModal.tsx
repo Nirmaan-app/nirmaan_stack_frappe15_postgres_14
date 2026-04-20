@@ -204,11 +204,16 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     };
 
     const itemOptionsWithCustom = useMemo(() => {
+        const nameCounts = new Map<string, number>();
+        itemOptionsForWP.forEach(opt => {
+            nameCounts.set(opt.label, (nameCounts.get(opt.label) || 0) + 1);
+        });
         return itemOptionsForWP.map(opt => ({
             label: opt.label,
             value: opt.value,
             category: opt.category,
             categoryName: opt.categoryName,
+            showCategory: (nameCounts.get(opt.label) || 0) > 1,
         }));
     }, [itemOptionsForWP]);
 
@@ -360,6 +365,14 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                                         placeholder={selectedWP ? "Select Item" : "Pick a Work Package first"}
                                         isDisabled={!selectedWP}
                                         classNamePrefix="react-select"
+                                        formatOptionLabel={(option: any) => (
+                                            <span>
+                                                {option.label}
+                                                {option.showCategory && option.categoryName && (
+                                                    <span className="text-blue-600 ml-1">({option.categoryName})</span>
+                                                )}
+                                            </span>
+                                        )}
                                         styles={{
                                             control: (base) => ({
                                                 ...base,

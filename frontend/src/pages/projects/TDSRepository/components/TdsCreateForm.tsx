@@ -63,7 +63,9 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
     const [selectedWorkPackage, setSelectedWorkPackage] = useState<string | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-    const [selectedItemName, setSelectedItemName] = useState<string | null>(null); // Storing Item Name (tds_item_name) for semantic selection
+    // Stores tds_item_id (unique per repo item). Multiple repo items may share the same
+    // tds_item_name across different categories, so we key selection by id, not name.
+    const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
     const [selectedBoqLineItem, setSelectedBoqLineItem] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -135,7 +137,9 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         return Array.from(uniqueCategories).sort().map(cat => ({ label: cat, value: cat }));
     }, [availableRepoItems, selectedWorkPackage]);
 
-    // Item Options: Filtered by Work Package and Category (or all if neither selected)
+    // Item Options: one option per unique tds_item_id (not per name).
+    // Two repo items may share a name under different categories — keep both selectable
+    // by appending the category to the label when a name collides.
     const itemOptions = useMemo(() => {
         let filtered = availableRepoItems;
         if (selectedWorkPackage) {
@@ -144,23 +148,42 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         if (selectedCategory) {
             filtered = filtered.filter(item => item.category === selectedCategory);
         }
-        const uniqueItems = new Map();
+
+        // Group by tds_item_id — one entry per item (makes are separate).
+        const uniqueById = new Map<string, { tds_item_id: string; tds_item_name: string; category?: string }>();
         filtered.forEach(item => {
-            if (item.tds_item_name && !uniqueItems.has(item.tds_item_name)) {
-                uniqueItems.set(item.tds_item_name, {
-                    label: item.tds_item_name,
-                    value: item.tds_item_name
+            if (item.tds_item_id && !uniqueById.has(item.tds_item_id)) {
+                uniqueById.set(item.tds_item_id, {
+                    tds_item_id: item.tds_item_id,
+                    tds_item_name: item.tds_item_name,
+                    category: item.category,
                 });
             }
         });
-        return Array.from(uniqueItems.values());
+
+        // Count how many items share each name — used to decide when to append category.
+        const nameCounts = new Map<string, number>();
+        uniqueById.forEach(e => {
+            nameCounts.set(e.tds_item_name, (nameCounts.get(e.tds_item_name) || 0) + 1);
+        });
+
+        return Array.from(uniqueById.values()).map(e => {
+            const hasCollision = (nameCounts.get(e.tds_item_name) || 0) > 1;
+            return {
+                label: e.tds_item_name,
+                // Only populated when the name collides across categories — used to
+                // disambiguate visually (rendered in blue via formatOptionLabel) and
+                // to let the user search by category through tokenSearchConfig.
+                category: hasCollision ? (e.category || '') : '',
+                value: e.tds_item_id,
+            };
+        });
     }, [availableRepoItems, selectedWorkPackage, selectedCategory]);
 
-    // Make Options: Filtered by selected Item Name from AVAILABLE items
+    // Make Options: filtered by selected item id
     const makeOptions = useMemo(() => {
-        if (!selectedItemName) return [];
-        let filtered = availableRepoItems.filter(item => item.tds_item_name === selectedItemName);
-        // Also apply WP/Category filters if set
+        if (!selectedItemId) return [];
+        let filtered = availableRepoItems.filter(item => item.tds_item_id === selectedItemId);
         if (selectedWorkPackage) {
             filtered = filtered.filter(item => item.work_package === selectedWorkPackage);
         }
@@ -171,16 +194,15 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             label: item.make,
             value: item.make,
         }));
-    }, [availableRepoItems, selectedItemName, selectedWorkPackage, selectedCategory]);
+    }, [availableRepoItems, selectedItemId, selectedWorkPackage, selectedCategory]);
 
     // Identify Selected Doc
     const selectedDoc = useMemo(() => {
-        if (!selectedItemName || !selectedMake) return null;
-        let filtered = availableRepoItems.filter(item => 
-            item.tds_item_name === selectedItemName && 
+        if (!selectedItemId || !selectedMake) return null;
+        let filtered = availableRepoItems.filter(item =>
+            item.tds_item_id === selectedItemId &&
             item.make === selectedMake
         );
-        // Apply WP/Category filters if set
         if (selectedWorkPackage) {
             filtered = filtered.filter(item => item.work_package === selectedWorkPackage);
         }
@@ -188,29 +210,29 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             filtered = filtered.filter(item => item.category === selectedCategory);
         }
         return filtered[0] || null;
-    }, [availableRepoItems, selectedItemName, selectedMake, selectedWorkPackage, selectedCategory]);
+    }, [availableRepoItems, selectedItemId, selectedMake, selectedWorkPackage, selectedCategory]);
 
     // Handlers
     const handleWorkPackageChange = (val: string | null) => {
         setSelectedWorkPackage(val);
         setSelectedCategory(null); // Reset downstream
-        setSelectedItemName(null);
+        setSelectedItemId(null);
         setSelectedMake(null);
     };
 
     const handleCategoryChange = (val: string | null) => {
         setSelectedCategory(val);
-        setSelectedItemName(null); // Reset downstream
+        setSelectedItemId(null); // Reset downstream
         setSelectedMake(null);
     };
 
     const handleItemChange = (val: string | null) => {
-        setSelectedItemName(val);
+        setSelectedItemId(val);
         setSelectedMake(null); // Reset make
-        
-        // Auto-fill Work Package and Category based on selected item
+
+        // Auto-fill Work Package and Category based on selected item id
         if (val) {
-            const matchingItem = availableRepoItems.find(item => item.tds_item_name === val);
+            const matchingItem = availableRepoItems.find(item => item.tds_item_id === val);
             if (matchingItem) {
                 setSelectedWorkPackage(matchingItem.work_package || null);
                 setSelectedCategory(matchingItem.category || null);
@@ -256,7 +278,7 @@ if (selectedBoqLineItem.length > 300) {
             }
 
             setCartItems([...cartItems, { ...selectedDoc, tds_boq_line_item: selectedBoqLineItem }]);
-            setSelectedItemName(null);
+            setSelectedItemId(null);
             setSelectedMake(null);
             setSelectedWorkPackage(null)
             setSelectedCategory(null)
@@ -270,7 +292,7 @@ if (selectedBoqLineItem.length > 300) {
             setCartItems([...cartItems, pendingItemToAdd]);
             setPendingItemToAdd(null);
             setShowConfirmDialog(false);
-            setSelectedItemName(null);
+            setSelectedItemId(null);
             setSelectedMake(null);
             toast({ title: "Item Added", description: "Previous rejected entry will be replaced upon submission." });
         } else {
@@ -287,7 +309,7 @@ if (selectedBoqLineItem.length > 300) {
     const handleReset = () => {
         setSelectedWorkPackage(null);
         setSelectedCategory(null);
-        setSelectedItemName(null);
+        setSelectedItemId(null);
         setSelectedMake(null);
         setSelectedBoqLineItem("");
     };
@@ -477,15 +499,23 @@ if (selectedBoqLineItem.length > 300) {
                          <FuzzySearchSelect
                             allOptions={itemOptions}
                             tokenSearchConfig={{
-                                searchFields: ['label', 'value'],
+                                searchFields: ['label', 'value', 'category'],
                                 minSearchLength: 1,
                                 partialMatch: true,
                                 minTokenLength: 1,
-                                fieldWeights: { label: 2.0, value: 1.5 },
+                                fieldWeights: { label: 2.0, value: 1.5, category: 1.0 },
                                 minTokenMatches: 1,
                             }}
-                            value={selectedItemName ? { label: selectedItemName, value: selectedItemName } : null}
+                            value={selectedItemId ? (itemOptions.find(opt => opt.value === selectedItemId) || null) : null}
                             onChange={(opt) => handleItemChange((opt as { value: string } | null)?.value || null)}
+                            formatOptionLabel={(option: any) => (
+                                <span>
+                                    {option.label}
+                                    {option.category && (
+                                        <span className="text-blue-600 ml-1">({option.category})</span>
+                                    )}
+                                </span>
+                            )}
                             placeholder="Search Item Name..."
                             isClearable
                             isLoading={!repoItems}
@@ -509,8 +539,8 @@ if (selectedBoqLineItem.length > 300) {
                             options={makeOptions}
                             value={selectedMake ? { label: selectedMake, value: selectedMake } : null}
                             onChange={(opt) => setSelectedMake(opt?.value || null)}
-                            placeholder={selectedItemName ? "Select Make" : "Select Item first"}
-                            isDisabled={!selectedItemName}
+                            placeholder={selectedItemId ? "Select Make" : "Select Item first"}
+                            isDisabled={!selectedItemId}
                             className="react-select-container"
                             classNamePrefix="react-select"
                         />

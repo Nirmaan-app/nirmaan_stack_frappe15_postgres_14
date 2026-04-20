@@ -82,11 +82,18 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     });
 
     const itemOptionsWithCustom = useMemo(() => {
+        // Count how many items share each name so we can disambiguate collisions with category.
+        const nameCounts = new Map<string, number>();
+        itemOptionsForWP.forEach(item => {
+            nameCounts.set(item.label, (nameCounts.get(item.label) || 0) + 1);
+        });
         return itemOptionsForWP.map(item => ({
             label: item.label,
             value: item.value,
             category: item.category,
-            categoryName: item.categoryName
+            categoryName: item.categoryName,
+            // Used by formatOptionLabel to render the category in blue only when the name collides.
+            showCategory: (nameCounts.get(item.label) || 0) > 1,
         }));
     }, [itemOptionsForWP]);
 
@@ -267,6 +274,14 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     placeholder="Select Item"
                                                     classNamePrefix="react-select"
                                                     isDisabled={!selectedWP}
+                                                    formatOptionLabel={(option: any) => (
+                                                        <span>
+                                                            {option.label}
+                                                            {option.showCategory && option.categoryName && (
+                                                                <span className="text-blue-600 ml-1">({option.categoryName})</span>
+                                                            )}
+                                                        </span>
+                                                    )}
                                                     styles={{
                                                         control: (base) => ({ ...base, minHeight: '44px', borderRadius: '8px', borderColor: '#e5e7eb' })
                                                     }}

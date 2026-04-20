@@ -76,7 +76,9 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     onSave,
     loading = false,
 }) => {
-    const [selectedItemName, setSelectedItemName] = useState("");
+    // Stores tds_item_id (unique per repo item). Two repo items may share a name across
+    // different categories — keying selection by id avoids mixing their makes.
+    const [selectedItemId, setSelectedItemId] = useState("");
     const [selectedMake, setSelectedMake] = useState("");
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
@@ -103,7 +105,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
 
     useEffect(() => {
         if (item && open) {
-            setSelectedItemName(item.tds_item_name || "");
+            setSelectedItemId(item.tds_item_id || "");
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
@@ -126,29 +128,45 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     }, [repoItems, existingProjectItems]);
 
     const itemNameOptions = useMemo(() => {
-        const unique = new Map<string, { label: string; value: string }>();
+        // Group by tds_item_id — one option per unique item (multiple makes are collapsed).
+        const uniqueById = new Map<string, { tds_item_id: string; tds_item_name: string; category?: string }>();
         availableRepoItems.forEach(i => {
-            if (!unique.has(i.tds_item_name)) {
-                unique.set(i.tds_item_name, { label: i.tds_item_name, value: i.tds_item_name });
+            if (i.tds_item_id && !uniqueById.has(i.tds_item_id)) {
+                uniqueById.set(i.tds_item_id, {
+                    tds_item_id: i.tds_item_id,
+                    tds_item_name: i.tds_item_name,
+                    category: i.category,
+                });
             }
         });
-        return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
+        // Count name collisions so we can show category in blue only when needed.
+        const nameCounts = new Map<string, number>();
+        uniqueById.forEach(e => {
+            nameCounts.set(e.tds_item_name, (nameCounts.get(e.tds_item_name) || 0) + 1);
+        });
+        return Array.from(uniqueById.values())
+            .map(e => ({
+                label: e.tds_item_name,
+                value: e.tds_item_id,
+                category: (nameCounts.get(e.tds_item_name) || 0) > 1 ? (e.category || '') : '',
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
     }, [availableRepoItems]);
 
     const makeOptions = useMemo(() => {
-        if (!selectedItemName) return [];
+        if (!selectedItemId) return [];
         return availableRepoItems
-            .filter(i => i.tds_item_name === selectedItemName)
+            .filter(i => i.tds_item_id === selectedItemId)
             .map(i => ({ label: i.make, value: i.make }))
             .sort((a, b) => a.label.localeCompare(b.label));
-    }, [availableRepoItems, selectedItemName]);
+    }, [availableRepoItems, selectedItemId]);
 
     const selectedRepoEntry = useMemo(() => {
-        if (!selectedItemName || !selectedMake) return null;
+        if (!selectedItemId || !selectedMake) return null;
         return availableRepoItems.find(i =>
-            i.tds_item_name === selectedItemName && i.make === selectedMake
+            i.tds_item_id === selectedItemId && i.make === selectedMake
         ) || null;
-    }, [availableRepoItems, selectedItemName, selectedMake]);
+    }, [availableRepoItems, selectedItemId, selectedMake]);
 
     // Displayed WP/Category: prefer the repo entry matching current selection,
     // fall back to the item's stored values so the fields aren't empty mid-edit
@@ -156,7 +174,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const displayedCategory = selectedRepoEntry?.category || item?.tds_category || "";
 
     const handleItemNameChange = (opt: any) => {
-        setSelectedItemName(opt?.value || "");
+        setSelectedItemId(opt?.value || "");
         setSelectedMake(""); // clear downstream
     };
 
@@ -164,7 +182,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
         const updates: any = {
             tds_work_package: selectedRepoEntry?.work_package ?? item?.tds_work_package ?? "",
             tds_category: selectedRepoEntry?.category ?? item?.tds_category ?? "",
-            tds_item_name: selectedItemName,
+            tds_item_name: selectedRepoEntry?.tds_item_name ?? item?.tds_item_name ?? "",
             tds_item_id: selectedRepoEntry?.tds_item_id ?? item?.tds_item_id ?? "",
             tds_make: selectedMake,
             tds_description: description,
@@ -180,7 +198,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
 
     const handleSaveAttempt = () => {
         if (!item) return;
-        if (!selectedItemName || !selectedMake) {
+        if (!selectedItemId || !selectedMake) {
             toast({ title: "Validation Error", description: "Please select an item and make.", variant: "destructive" });
             return;
         }
@@ -257,12 +275,20 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                 <ReactSelect
                                     options={itemNameOptions}
                                     value={
-                                        itemNameOptions.find(opt => opt.value === selectedItemName)
-                                        || (selectedItemName ? { label: selectedItemName, value: selectedItemName } : null)
+                                        itemNameOptions.find(opt => opt.value === selectedItemId)
+                                        || (selectedItemId && item ? { label: item.tds_item_name || "", value: selectedItemId, category: "" } : null)
                                     }
                                     onChange={handleItemNameChange}
                                     placeholder="Select Item"
                                     classNamePrefix="react-select"
+                                    formatOptionLabel={(option: any) => (
+                                        <span>
+                                            {option.label}
+                                            {option.category && (
+                                                <span className="text-blue-600 ml-1">({option.category})</span>
+                                            )}
+                                        </span>
+                                    )}
                                     styles={{
                                         control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
                                     }}
@@ -294,8 +320,8 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                         || (selectedMake ? { label: selectedMake, value: selectedMake } : null)
                                     }
                                     onChange={(opt) => setSelectedMake(opt?.value || "")}
-                                    placeholder={selectedItemName ? "Select Make" : "Pick an Item first"}
-                                    isDisabled={!selectedItemName}
+                                    placeholder={selectedItemId ? "Select Make" : "Pick an Item first"}
+                                    isDisabled={!selectedItemId}
                                     classNamePrefix="react-select"
                                     styles={{
                                         control: (base) => ({
@@ -303,7 +329,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                             minHeight: "44px",
                                             borderRadius: "8px",
                                             borderColor: "#e5e7eb",
-                                            backgroundColor: !selectedItemName ? "#f9fafb" : "white",
+                                            backgroundColor: !selectedItemId ? "#f9fafb" : "white",
                                         }),
                                     }}
                                 />
