@@ -9,7 +9,8 @@
         "details_section",
         "task_name",
         "category_link",
-        "order"
+        "order",
+        "deadline_offset"
     ],
     "fields": [
         {
@@ -34,6 +35,12 @@
             "fieldname": "order",
             "fieldtype": "Int",
             "label": "Order"
+        },
+        {
+            "fieldname": "deadline_offset",
+            "fieldtype": "Int",
+            "label": "Deadline Offset (Days)",
+            "description": "Number of days after project creation date to set as expected completion date"
         }
     ],
     "index_web_pages_for_search": 1,

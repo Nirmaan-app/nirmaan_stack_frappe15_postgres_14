@@ -8,7 +8,8 @@
     "field_order": [
         "details_section",
         "category_name",
-        "order"
+        "order",
+        "is_handover_restricted"
     ],
     "fields": [
         {
@@ -27,6 +28,12 @@
             "fieldname": "order",
             "fieldtype": "Int",
             "label": "Order"
+        },
+        {
+            "default": "0",
+            "fieldname": "is_handover_restricted",
+            "fieldtype": "Check",
+            "label": "Handover Restricted"
         }
     ],
     "index_web_pages_for_search": 1,

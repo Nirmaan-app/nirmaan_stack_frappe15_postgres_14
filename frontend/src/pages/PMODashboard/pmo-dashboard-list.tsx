@@ -11,6 +11,12 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { CardListSkeleton } from "@/components/ui/skeleton";
+import { TaskWiseTable } from "./components/TaskWiseTable";
+
+const PMO_TABS = {
+  PROJECT_WISE: "project",
+  TASK_WISE: "task",
+};
 
 interface CategorySummary {
   total: number;
@@ -79,6 +85,8 @@ const PMODashboardList: React.FC = () => {
   const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
   const [filtersInitialized, setFiltersInitialized] = useState(false);
   const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>(PMO_TABS.PROJECT_WISE);
+  const [activeTaskStatus, setActiveTaskStatus] = useState<string>("All");
 
   const { data: masterCategories } = useFrappeGetDocList("PMO Task Category", {
     fields: ["category_name"],
@@ -204,6 +212,32 @@ const PMODashboardList: React.FC = () => {
           Track task progress and status across all active projects
         </p>
       </div>
+
+      <div className="flex items-center gap-2 mb-8">
+        <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm">
+          <button
+            onClick={() => setActiveTab(PMO_TABS.PROJECT_WISE)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === PMO_TABS.PROJECT_WISE
+                ? "bg-primary text-white"
+                : "bg-white text-gray-700 hover:bg-gray-50 text-gray-400"
+              } border-r border-gray-300`}
+          >
+            Project Wise
+          </button>
+          <button
+            onClick={() => setActiveTab(PMO_TABS.TASK_WISE)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === PMO_TABS.TASK_WISE
+                ? "bg-primary text-white"
+                : "bg-white text-gray-700 hover:bg-gray-50 text-gray-400"
+              }`}
+          >
+            Task Wise
+          </button>
+        </div>
+      </div>
+
+      {activeTab === PMO_TABS.PROJECT_WISE ? (
+        <>
 
       {/* Search & Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -526,6 +560,34 @@ const PMODashboardList: React.FC = () => {
             </Collapsible>
           )}
         </>
+      )}
+        </>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mr-2">Status Filter</span>
+            {([
+              { value: "All", label: "All Tasks", active: "bg-gray-800 text-white", inactive: "text-gray-700 border-gray-300 hover:bg-gray-100" },
+              { value: "Not Defined", label: "Not Defined", active: "bg-gray-500 text-white", inactive: "text-gray-700 border-gray-300 hover:bg-gray-50" },
+              { value: "WIP", label: "WIP", active: "bg-amber-600 text-white", inactive: "text-amber-700 border-amber-300 hover:bg-amber-50" },
+              { value: "Sent/Submision", label: "Sent/Submission", active: "bg-blue-600 text-white", inactive: "text-blue-700 border-blue-300 hover:bg-blue-50" },
+              { value: "Approve by client", label: "Completed", active: "bg-green-600 text-white", inactive: "text-green-700 border-green-300 hover:bg-green-50" },
+            ] as const).map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => setActiveTaskStatus(tab.value)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 border ${activeTaskStatus === tab.value
+                    ? `${tab.active} shadow-md border-transparent`
+                    : `bg-white ${tab.inactive} shadow-sm`
+                  }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <TaskWiseTable statusFilter={activeTaskStatus} />
+        </div>
       )}
     </div>
   );

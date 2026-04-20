@@ -45,7 +45,6 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   onSuccess,
 }) => {
   const [status, setStatus] = useState<string>("");
-  const [expectedDate, setExpectedDate] = useState("");
   const [completionDate, setCompletionDate] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
 
@@ -57,7 +56,6 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   useEffect(() => {
     if (task && open) {
       setStatus(task.status || "");
-      setExpectedDate(task.expected_completion_date || "");
       setCompletionDate(
         task.completion_date || new Date().toISOString().split("T")[0]
       );
@@ -70,15 +68,6 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
       toast({
         title: "Validation Error",
         description: "Please select a status.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (status === "WIP" && !expectedDate) {
-      toast({
-        title: "Validation Error",
-        description: "Expected Completion Date is required for WIP status.",
         variant: "destructive",
       });
       return;
@@ -108,8 +97,6 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
       await call({
         task_name: task?.name,
         status: status,
-        expected_completion_date:
-          status === "WIP" ? expectedDate || null : null,
         completion_date:
           status === "Sent/Submision" ? completionDate || null : null,
         attachment: fileUrl || undefined,
@@ -161,22 +148,6 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
               </SelectContent>
             </Select>
           </div>
-
-          {/* Expected Completion Date — shown when "WIP" */}
-          {status === "WIP" && (
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1.5">
-                Expected Completion Date
-              </label>
-              <Input
-                type="date"
-                value={expectedDate}
-                onChange={(e) => setExpectedDate(e.target.value)}
-                required
-                className="border-gray-300"
-              />
-            </div>
-          )}
 
           {/* Submison Date — shown when "Sent/Submision" */}
           {status === "Sent/Submision" && (
