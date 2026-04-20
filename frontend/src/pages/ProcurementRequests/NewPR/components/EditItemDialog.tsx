@@ -154,7 +154,6 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
 
     const handleUpdateConfirm = () => {
         if (!itemToEdit || !editState) return;
-        const currentSelectedWP = useProcurementRequestStore.getState().selectedWP;
 
         // ... (existing validation for quantity, category, item name, unit) ...
         const quantity = parseFloat(editState.quantity);
@@ -170,13 +169,13 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({
             quantity: quantity,
             comment: editState.comment.trim() || undefined,
             make: editState.makeValue || undefined, // <<< Add the selected make
-            work_package: itemToEdit.work_package || currentSelectedWP,
+            work_package: itemToEdit.work_package || (itemToEdit.category ? categoryToPackageMap[itemToEdit.category] : ""),
             ...(isRequestItem && {
                 category: editState.category!,
                 item: editState.itemName!.trim(),
                 unit: editState.unitName!,
                 tax: catOptions.find(c => c.value === editState.category)?.tax ?? itemToEdit.tax,
-                work_package: currentSelectedWP,
+                work_package: categoryToPackageMap[editState.category!] || "",
             }),
         };
 

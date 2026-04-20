@@ -21,7 +21,9 @@ import {
     AlertTriangle,
     X as XIcon,
     Paperclip,
+    HelpCircle,
 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SUB_STATUS_MAP } from '../hooks/useDesignMasters';
 
 interface DesignerOption {
@@ -77,7 +79,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
 
     const designerOptions: DesignerOption[] = useMemo(() =>
         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
-    , [usersList]);
+        , [usersList]);
 
     // Check if current status requires custom text input for substatus
     const requiresCustomSubStatus = useMemo(() => {
@@ -86,7 +88,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         return allowedValues === "__CUSTOM_TEXT__";
     }, [editState.task_status]);
 
-     const allowedSubStatuses = useMemo(() => {
+    const allowedSubStatuses = useMemo(() => {
         const currentStatus = editState.task_status;
         const allowedValues = SUB_STATUS_MAP[currentStatus as keyof typeof SUB_STATUS_MAP];
 
@@ -249,7 +251,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
             let finalEditState = { ...editState };
             const statusSubStatusConfig = SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP];
             if (editState.task_status && !statusSubStatusConfig) {
-                 finalEditState.task_sub_status = "";
+                finalEditState.task_sub_status = "";
             }
 
             const payloadForServer: { [key: string]: any } = {
@@ -412,6 +414,44 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                             }}
                             placeholder="https://figma.com/..."
                         />
+                        <div className={`flex items-start gap-1.5 p-2 rounded-md border ${isStatusSubmitted ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                            <AlertTriangle className={`h-3.5 w-3.5 flex-shrink-0 mt-0.5 ${isStatusSubmitted ? 'text-red-600' : 'text-amber-600'}`} />
+                            <p className={`text-xs leading-snug flex-1 ${isStatusSubmitted ? 'text-red-700' : 'text-amber-700'}`}>
+                                Please make sure the drive link permission is set to <span className="font-semibold">"Anyone with the link"</span> so all users can access it.{" "}
+                                <a
+                                    href="https://youtu.be/n5g1sgwYeys?si=vcm_e1JB5k17tSGK"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`font-semibold underline inline-flex items-center gap-0.5 ${isStatusSubmitted ? 'text-red-800 hover:text-red-900' : 'text-amber-800 hover:text-amber-900'}`}
+                                >
+                                    Watch how
+                                    <ExternalLink className="h-3 w-3" />
+                                </a>
+                            </p>
+                            <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            type="button"
+                                            className={`flex-shrink-0 focus:outline-none ${isStatusSubmitted ? 'text-red-600 hover:text-red-800' : 'text-amber-600 hover:text-amber-800'}`}
+                                            aria-label="How to set drive link permission"
+                                        >
+                                            <HelpCircle className="h-3.5 w-3.5" />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left" className="max-w-xs text-xs leading-snug p-3 bg-white border shadow-lg">
+                                        <p className="font-semibold text-gray-900 mb-1.5">How to make a Drive link public:</p>
+                                        <ol className="list-decimal list-inside space-y-1 text-gray-700">
+                                            <li>Open the file in Google Drive</li>
+                                            <li>Click <span className="font-medium">Share</span> (top right), or click the file's <span className="font-medium">⋮</span> menu and select <span className="font-medium">Share</span></li>
+                                            <li>Under <span className="font-medium">General access</span>, change to <span className="font-medium">"Anyone with the link"</span></li>
+                                            <li>Set role to <span className="font-medium">Viewer</span></li>
+                                            <li>Click <span className="font-medium">Copy link</span> and paste here</li>
+                                        </ol>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
                     </div>
 
                     {/* Comments */}

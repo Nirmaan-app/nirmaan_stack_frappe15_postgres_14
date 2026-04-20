@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { VendorCreditLedger } from '@/types/NirmaanStack/Vendors';
 import { formatDate } from '@/utils/FormatDate';
 import formatToIndianRupee from '@/utils/FormatPrice';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
+
+const USERS_LIST_PARAMS = { fields: ["name", "full_name"] as ("name" | "full_name")[], limit: 0 };
 
 const INITIAL_DISPLAY_COUNT = 10;
 
@@ -41,6 +44,17 @@ interface VendorCreditLedgerTableProps {
 
 export const VendorCreditLedgerTable: React.FC<VendorCreditLedgerTableProps> = ({ ledgerEntries }) => {
     const [showAll, setShowAll] = useState(false);
+
+    const { data: usersList } = useFrappeGetDocList<any>(
+        "Nirmaan Users",
+        USERS_LIST_PARAMS
+    );
+
+    const userNameMap = useMemo(() => {
+        const map = new Map<string, string>();
+        usersList?.forEach((u) => map.set(u.name, u.full_name));
+        return map;
+    }, [usersList]);
 
     const sortedEntries = useMemo(() => {
         return [...ledgerEntries].sort((a, b) => {
@@ -96,7 +110,7 @@ export const VendorCreditLedgerTable: React.FC<VendorCreditLedgerTableProps> = (
                                         {formatToIndianRupee(entry.credit_used_after)}
                                     </td>
                                     <td className="px-3 py-2 text-xs">
-                                        {entry.triggered_by || "--"}
+                                        {entry.triggered_by ? userNameMap.get(entry.triggered_by) || entry.triggered_by : "--"}
                                     </td>
                                 </tr>
                             );

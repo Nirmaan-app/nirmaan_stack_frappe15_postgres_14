@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Store } from "lucide-react";
+import { Store, TrendingUp, TrendingDown, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Table,
@@ -29,6 +29,7 @@ export interface ServiceItem {
     uom: string;
     quantity: number;
     rate?: number;
+    standard_rate?: number;
 }
 
 /**
@@ -65,6 +66,25 @@ const calculateTotal = (items: ServiceItem[]): number => {
     return items.reduce((total, item) => {
         const rate = item.rate ?? 0;
         return total + item.quantity * rate;
+    }, 0);
+};
+
+// Sum of standard_rate * qty for items that have a positive standard_rate.
+const calculateStdTotal = (items: ServiceItem[]): number => {
+    return items.reduce((total, item) => {
+        const std = item.standard_rate ?? 0;
+        if (std <= 0) return total;
+        return total + item.quantity * std;
+    }, 0);
+};
+
+// Sum of rate * qty only for items that have a positive standard_rate — used
+// as the "Est (comparable)" base so Diff % isn't skewed by custom items.
+const calculateEstForStdItems = (items: ServiceItem[]): number => {
+    return items.reduce((total, item) => {
+        const std = item.standard_rate ?? 0;
+        if (std <= 0) return total;
+        return total + item.quantity * (item.rate ?? 0);
     }, 0);
 };
 
@@ -124,11 +144,32 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
     const gstAmount = totalAmount * GST_RATE;
     const grandTotal = totalAmount + gstAmount;
 
+    // Standard-rate totals (only for items that carry a positive standard_rate)
+    const hasStdData = useMemo(
+        () => items.some((i) => (i.standard_rate ?? 0) > 0),
+        [items]
+    );
+    const stdTotal = useMemo(() => calculateStdTotal(items), [items]);
+    const estForStd = useMemo(() => calculateEstForStdItems(items), [items]);
+    const overallDiffPct = stdTotal > 0 ? ((estForStd - stdTotal) / stdTotal) * 100 : null;
+
     // Calculate category subtotals
     const categorySubtotals = useMemo(() => {
         const subtotals: Record<string, number> = {};
         uniqueCategories.forEach((category) => {
             subtotals[category] = calculateTotal(groupedItems[category] || []);
+        });
+        return subtotals;
+    }, [groupedItems, uniqueCategories]);
+
+    const categoryStdSubtotals = useMemo(() => {
+        const subtotals: Record<string, { std: number; est: number }> = {};
+        uniqueCategories.forEach((category) => {
+            const catItems = groupedItems[category] || [];
+            subtotals[category] = {
+                std: calculateStdTotal(catItems),
+                est: calculateEstForStdItems(catItems),
+            };
         });
         return subtotals;
     }, [groupedItems, uniqueCategories]);
@@ -177,6 +218,45 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                     </CardContent>
                 </Card>
             )}
+
+
+            {/* Rate Card Comparison — compact strip */}
+            {hasStdData && stdTotal > 0 && overallDiffPct !== null && (() => {
+                const isOver = overallDiffPct > 0;
+                const TrendIcon = isOver ? TrendingUp : TrendingDown;
+                return (
+                    <div className="flex items-center justify-between gap-4 rounded-md border border-gray-200 bg-gray-50/60 px-3 py-1.5 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <BarChart3 className="h-3.5 w-3.5" />
+                            <span className="font-semibold uppercase tracking-wide text-[10px]">
+                                vs Rate Card
+                            </span>
+                        </div>
+                        <div className="flex items-center divide-x divide-gray-300">
+                            <span className="px-3">
+                                <span className="text-muted-foreground">STD </span>
+                                <span className="font-semibold text-slate-700">
+                                    {formatToIndianRupee(stdTotal)}
+                                </span>
+                            </span>
+                            <span className="px-3">
+                                <span className="text-muted-foreground">Total(excl.gst) </span>
+                                <span className="font-semibold text-slate-900">
+                                    {formatToIndianRupee(estForStd)}
+                                </span>
+                            </span>
+                            <span
+                                className={`inline-flex items-center gap-1 font-bold pl-3 ${isOver ? "text-red-600" : "text-emerald-600"
+                                    }`}
+                            >
+                                <TrendIcon className="h-3.5 w-3.5" />
+                                {isOver ? "+" : ""}
+                                {overallDiffPct.toFixed(2)}%
+                            </span>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Items Grouped by Category */}
             <Accordion
@@ -288,6 +368,30 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
             <Card className="border-gray-200">
                 <CardContent className="py-4 px-4">
                     <div className="space-y-3">
+                        {hasStdData && stdTotal > 0 && overallDiffPct !== null && (() => {
+                            const isOver = overallDiffPct > 0;
+                            const TrendIcon = isOver ? TrendingUp : TrendingDown;
+                            const absDiff = estForStd - stdTotal;
+                            const color = isOver ? "text-red-600" : "text-emerald-600";
+                            return (
+                                <div className="flex justify-between items-start text-xs pb-2 border-b border-dashed">
+                                    <span className="text-muted-foreground pt-0.5">
+                                        Rate Card (STD {formatToIndianRupee(stdTotal)}):
+                                    </span>
+                                    <div className="flex flex-col items-end leading-tight">
+                                        <span className={`inline-flex items-center gap-1 font-semibold ${color}`}>
+                                            <TrendIcon className="h-3 w-3" />
+                                            {isOver ? "+" : ""}
+                                            {formatToIndianRupee(absDiff)}
+                                        </span>
+                                        <span className={`text-[10px] font-semibold ${color}`}>
+                                            {isOver ? "+" : ""}
+                                            {overallDiffPct.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                         <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">
                                 Subtotal (excl. GST):

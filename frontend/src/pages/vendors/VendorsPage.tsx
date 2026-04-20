@@ -73,7 +73,7 @@ export default function VendorsPage() {
         ),
         cell: ({ row }) => (
           <Link
-            className="hover:underline font-medium whitespace-nowrap"
+            className="hover:underline font-medium whitespace-normal leading-tight block"
             to={`/vendors/${row.original.name}`}
           >
             {row.getValue("vendor_name")}

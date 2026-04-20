@@ -83,7 +83,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
     const isNewItemsDisabled = useMemo(() => selectedCategory?.newItemsDisabled ?? false, [selectedCategory]);
 
     const resolveWorkPackage = useCallback((categoryValue: string) => {
-        return categoryToPackageMap[categoryValue] || (selectedHeaderTags.length > 0 ? selectedHeaderTags[0].tag_package : '');
+        return categoryToPackageMap[categoryValue] || '';
     }, [categoryToPackageMap, selectedHeaderTags]);
 
     useEffect(() => {

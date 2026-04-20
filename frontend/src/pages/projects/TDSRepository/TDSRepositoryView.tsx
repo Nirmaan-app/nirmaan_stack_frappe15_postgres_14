@@ -24,7 +24,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState(canEditTDS ? "new" : "history");
+    const [activeTab, setActiveTab] = useState("history");
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
@@ -139,38 +139,110 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         }
     };
 
-    // Export handler - processes selected items from export dialog
+    // Export handler — enqueues a backend worker, then awaits Socket.IO events
+    // (tds_export_progress / tds_export_ready / tds_export_failed) to drive the
+    // progress UI and trigger the final download.
     const handleExportWithItems = async (selectedItems: any[]) => {
         if (!selectedItems || selectedItems.length === 0) {
-            toast({ 
-                title: "No Items Selected", 
-                description: "Please select at least one item to export.", 
-                variant: "destructive" 
+            toast({
+                title: "No Items Selected",
+                description: "Please select at least one item to export.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        if (!socket) {
+            toast({
+                title: "Connection not ready",
+                description: "Live connection unavailable. Please retry in a moment.",
+                variant: "destructive"
             });
             return;
         }
 
         setIsExporting(true);
         setExportProgress(0);
-        setExportProgressMessage("Initializing export...");
+        setExportProgressMessage("Queueing export...");
 
-        // Set up socket listener like in Bulk Download
-        if (socket) {
-            socket.on("tds_export_progress", (data: any) => {
-                if (data.progress !== undefined) setExportProgress(data.progress);
-                if (data.message) setExportProgressMessage(data.message);
-                if (data.status === "converting") setIsConvertingToA4(true);
-                if (data.status === "completed") setIsConvertingToA4(false);
+        const cleanup = () => {
+            socket.off("tds_export_progress");
+            socket.off("tds_export_ready");
+            socket.off("tds_export_failed");
+        };
+
+        // Progress from the worker (via merge_pdfs_interleaved)
+        socket.on("tds_export_progress", (d: any) => {
+            if (d.progress !== undefined) setExportProgress(d.progress);
+            if (d.message) setExportProgressMessage(d.message);
+            if (d.status === "converting") setIsConvertingToA4(true);
+            if (d.status === "completed") setIsConvertingToA4(false);
+        });
+
+        // Completion — fetch the temp file by token and trigger download
+        socket.on("tds_export_ready", async ({ token, filename, failed_items }: any) => {
+            try {
+                const dateStr = format(new Date(), "dd-MMM-yyyy");
+                const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_");
+                const fallbackName = `TDS_Report_${cleanProjectName}_${dateStr}.pdf`;
+                const finalName = filename || fallbackName;
+
+                const url =
+                    `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.fetch_temp_file` +
+                    `?token=${encodeURIComponent(token)}&filename=${encodeURIComponent(finalName)}`;
+
+                const resp = await fetch(url, {
+                    method: "GET",
+                    headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" },
+                });
+                if (!resp.ok) throw new Error("Failed to fetch generated PDF");
+                const blob = await resp.blob();
+
+                const objectUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = objectUrl;
+                link.setAttribute("download", finalName);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(objectUrl);
+
+                setIsExportDialogOpen(false);
+                if (failed_items && failed_items.length) {
+                    toast({
+                        title: "Exported with warnings",
+                        description: `Some attachments failed: ${failed_items.join(", ")}`,
+                    });
+                } else {
+                    toast({ title: "Success", description: "Report downloaded successfully." });
+                }
+            } catch (error: any) {
+                console.error("Download failed", error);
+                toast({
+                    title: "Error",
+                    description: error.message || "Failed to download report.",
+                    variant: "destructive",
+                });
+            } finally {
+                setIsExporting(false);
+                setIsConvertingToA4(false);
+                cleanup();
+            }
+        });
+
+        socket.on("tds_export_failed", ({ message }: any) => {
+            toast({
+                title: "Export failed",
+                description: message || "Please retry.",
+                variant: "destructive",
             });
-        }
+            setIsExporting(false);
+            setIsConvertingToA4(false);
+            cleanup();
+        });
 
         try {
-            toast({ 
-                title: "Generating PDF...", 
-                description: "Please wait while we prepare your report." 
-            });
-
-            // Prepare settings object
+            // Same settings payload as before
             const settings = {
                 client: { name: data.client.name, logo: typeof data.client.logo === 'string' ? data.client.logo : null, enabled: data.client.enabled },
                 projectManager: { name: data.projectManager.name, logo: typeof data.projectManager.logo === 'string' ? data.projectManager.logo : null, enabled: data.projectManager.enabled },
@@ -180,8 +252,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 mepContractor: { name: data.mepContractor.name, logo: typeof data.mepContractor.logo === 'string' ? data.mepContractor.logo : null, enabled: data.mepContractor.enabled },
             };
 
-            // Call custom API that merges attachments interleaved
-            const response = await fetch('/api/method/nirmaan_stack.api.tds.tds_report.export_tds_report', {
+            const resp = await fetch('/api/method/nirmaan_stack.api.tds.tds_report.export_tds_report', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -190,82 +261,25 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 body: JSON.stringify({
                     settings_json: JSON.stringify(settings),
                     items_json: JSON.stringify(selectedItems),
-                    project_name: projectName
-                })
+                    project_name: projectName,
+                }),
             });
 
-            // Standard response check is insufficient because Frappe might return 200 with error messages or 417/500
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.indexOf("application/json") !== -1) {
-                const errorData = await response.json();
-                let errorMessage = errorData.message || "Failed to generate PDF";
-
-                // Parse server messages if needed
-                if (errorData._server_messages) {
-                    try {
-                        const messages = JSON.parse(errorData._server_messages);
-                        const messageObj = JSON.parse(messages[0]);
-                        errorMessage = messageObj.message || errorMessage;
-                    } catch (e) {
-                        // Keep original errorMessage
-                    }
-                }
-                
-                // If message is still generic but we have an exception trace, try to extract relevant info
-                if (errorData.exc) {
-                     try {
-                        const exc = JSON.parse(errorData.exc);
-                        const excStr = exc[0] || "";
-                         if (excStr.includes("image") || excStr.includes("Image")) {
-                             errorMessage += ": One or more documents contain invalid images.";
-                         } else if (excStr.includes("file") || excStr.includes("File")) {
-                             errorMessage += ": Missing or corrupted file attachments.";
-                         }
-                     } catch (e) {
-                         // Ignore exc parsing error
-                     }
-                }
-                
-                throw new Error(errorMessage);
-            }
-
-            if (!response.ok) throw new Error("Failed to generate PDF");
-            const blob = await response.blob();
-
-            // Generate filename with project Name and date
-            const dateStr = format(new Date(), "dd-MMM-yyyy");
-            const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, '_');
-            const fileName = `TDS_Report_${cleanProjectName}_${dateStr}.pdf`;
-
-            // Download the file
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', fileName);
-            document.body.appendChild(link);
-            link.click();
-
-            link.remove();
-            window.URL.revokeObjectURL(url);
-
-            setIsExportDialogOpen(false);
-            toast({ 
-                title: "Success", 
-                description: "Report downloaded successfully." 
+            if (!resp.ok) throw new Error("Failed to queue export");
+            toast({
+                title: "Export queued",
+                description: "We'll download the PDF automatically when it's ready.",
             });
         } catch (error: any) {
-            console.error("Export failed", error);
-            toast({ 
-                title: "Error", 
-                description: error.message || "Failed to download report.", 
-                variant: "destructive" 
+            console.error("Enqueue failed", error);
+            toast({
+                title: "Error",
+                description: error.message || "Failed to queue export.",
+                variant: "destructive",
             });
-        } finally {
             setIsExporting(false);
-            if (socket) {
-                socket.off("tds_export_progress");
-            }
             setIsConvertingToA4(false);
+            cleanup();
         }
     };
 
@@ -293,7 +307,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 ) : (
                                     <Download className="w-4 h-4 mr-2" />
                                 )}
-                                {isExportingHistory ? 'Exporting...' : 'Export CSV'}
+                                {isExportingHistory ? 'Exporting...' : 'Download TDS CSV'}
                             </Button>
                             <Button 
                                 onClick={() => setIsExportDialogOpen(true)}
@@ -306,7 +320,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 ) : (
                                     <Download className="w-4 h-4 mr-2" />
                                 )}
-                                {isExporting ? 'Exporting...' : 'Export PDF'}
+                                {isExporting ? 'Exporting...' : 'Download TDS PDF'}
                             </Button>
                             {canEditTDS && (
                                 <Button 
@@ -335,17 +349,18 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             {/* TDS Item Management Tabs */}
             <div className="mt-12">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">                             <TabsTrigger
-                                value="new"
-                                className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                            >
-                                New Request
-                        </TabsTrigger>
-                        <TabsTrigger 
+                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">
+                        <TabsTrigger
                             value="history"
                             className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
                         >
                             TDS History
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="new"
+                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
+                        >
+                            New Request
                         </TabsTrigger>
                     </TabsList>
 
@@ -392,31 +407,42 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
             {/* Progress Dialog */}
             <Dialog open={isExporting} onOpenChange={(open) => !isExporting && setIsExporting(open)}>
-                <DialogContent 
-                    className="sm:max-w-md [&>button]:hidden"
+                <DialogContent
+                    className="sm:max-w-md w-[28rem] max-w-[28rem] [&>button]:hidden"
                     onPointerDownOutside={(e) => e.preventDefault()}
                     onEscapeKeyDown={(e) => e.preventDefault()}
                 >
                     <DialogHeader>
-                    <DialogTitle>Generating TDS PDF Report</DialogTitle>
-                    <DialogDescription>
-                        Please wait while we gather and merge your documents.
-                    </DialogDescription>
+                        <DialogTitle>Generating TDS PDF Report</DialogTitle>
+                        <DialogDescription>
+                            Please wait while we gather and merge your documents.
+                        </DialogDescription>
                     </DialogHeader>
-                    <div className="flex flex-col items-center justify-center space-y-4 py-4">
+                    <div className="flex flex-col items-stretch space-y-4 py-4">
                         <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
-                        <div 
-                            className="bg-primary h-full transition-all duration-300 ease-in-out" 
-                            style={{ width: `${exportProgress}%` }}
-                        />
+                            <div
+                                className="bg-primary h-full transition-all duration-300 ease-in-out"
+                                style={{ width: `${exportProgress}%` }}
+                            />
                         </div>
-                        <p className="text-sm text-muted-foreground">{exportProgress}% - {exportProgressMessage}</p>
-                        {isConvertingToA4 && (
-                            <div className="flex items-center text-xs text-red-600 font-medium animate-pulse">
-                                <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                                Converting attachment to A4...
-                            </div>
-                        )}
+                        {/* Reserve two lines of space + clamp long item names so the dialog
+                            doesn't grow/shrink between updates. */}
+                        <p
+                            className="text-sm text-muted-foreground break-words line-clamp-2 min-h-[2.5rem]"
+                            title={`${exportProgress}% - ${exportProgressMessage}`}
+                        >
+                            {exportProgress}% - {exportProgressMessage}
+                        </p>
+                        {/* Reserve a fixed slot for the A4 indicator so the dialog stays the
+                            same height whether it's visible or not. */}
+                        <div className="h-5 flex items-center justify-center">
+                            {isConvertingToA4 && (
+                                <div className="flex items-center text-xs text-red-600 font-medium animate-pulse">
+                                    <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                                    Converting attachment to A4...
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </DialogContent>
             </Dialog>

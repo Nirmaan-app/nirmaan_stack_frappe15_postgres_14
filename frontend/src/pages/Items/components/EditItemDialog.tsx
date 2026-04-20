@@ -178,7 +178,6 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                                     options={categoryOptions}
                                     value={categoryOptions.find(opt => opt.value === selectedCategory) || null}
                                     onChange={val => setSelectedCategory(val ? (val as any).value : "")}
-                                    menuPosition="fixed"
                                     isClearable={true}
                                     placeholder={categoryLoading ? "Loading..." : "Select Category"}
                                     isDisabled={categoryLoading}

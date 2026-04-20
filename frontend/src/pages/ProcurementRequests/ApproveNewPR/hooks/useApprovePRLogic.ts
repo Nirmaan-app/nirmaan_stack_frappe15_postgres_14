@@ -157,36 +157,8 @@ export const useApprovePRLogic = ({
     // --- Memoized Derived Data ---
     // Filter catalogItemOptions (from useItemCatalog) based on project/tag constraints
     const itemOptions = useMemo((): ItemCatalogOption[] => {
-        if (!catalogItemOptions.length) return [];
-
-        const projectMakes = projectDoc?.project_wp_category_makes || [];
-        const allowedCategoriesFromProject = projectMakes.map((item: any) => item.category).filter(Boolean);
-        const allowedPackagesFromProject = projectMakes.map((item: any) => item.procurement_package).filter(Boolean);
-
-        return catalogItemOptions.filter(opt => {
-            // Always allow "Tool & Equipments"
-            if (opt.procurement_package === "Tool & Equipments") return true;
-
-            // Priority 1: Use project document configuration if available
-            if (allowedCategoriesFromProject.length > 0 || allowedPackagesFromProject.length > 0) {
-                const matchesCategory = allowedCategoriesFromProject.includes(opt.category);
-                const matchesPackage = allowedPackagesFromProject.includes(opt.procurement_package);
-                return matchesCategory || matchesPackage;
-            }
-
-            // Priority 2: Fallback to work package tags if project doc has no makes (legacy support)
-            const prTags = prDoc?.pr_tag_list || [];
-            const allowedPackagesFromTags = prTags.length > 0
-                ? Array.from(new Set(prTags.map((t: any) => t.tag_package)))
-                : [];
-
-            if (allowedPackagesFromTags.length > 0) {
-                return allowedPackagesFromTags.includes(opt.procurement_package) || opt.procurement_package === "Tool & Equipments";
-            }
-
-            return true;
-        });
-    }, [catalogItemOptions, prDoc?.pr_tag_list, projectDoc?.project_wp_category_makes]);
+        return catalogItemOptions;
+    }, [catalogItemOptions]);
 
     const managersIdList = useMemo(() =>
         usersList
@@ -220,6 +192,15 @@ export const useApprovePRLogic = ({
         distance: 100,
         includeScore: true,
     }), [itemList]);
+
+    // Map to resolve procurement_package from category
+    const categoryToPackageMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        categoryList.forEach((cat) => {
+            map[cat.name] = cat.work_package || "";
+        });
+        return map;
+    }, [categoryList]);
 
     // Get current order list - from draft manager if using draft-first, otherwise from orderData
     // This ensures all derived data uses consistent source
@@ -487,7 +468,7 @@ export const useApprovePRLogic = ({
             item_name: currentItemOption!.label,
             unit: currentItemOption!.unit,
             quantity: quantityValue,
-            procurement_package: workPackage,
+            procurement_package: categoryToPackageMap[currentItemOption!.category] ?? "",
             category: currentItemOption!.category,
             tax: currentItemOption!.tax,
             status: "Pending",
@@ -898,7 +879,7 @@ export const useApprovePRLogic = ({
                 item_id: createdItemDoc.name, // Use the new docname
                 unit: createdItemDoc.unit_name,
                 quantity: (quantityValue),
-                procurement_package: workPackage,
+                procurement_package: categoryToPackageMap[createdItemDoc.category] ?? "",
                 category: createdItemDoc.category,
                 tax: parseNumber(currentCategoryForNewItem.tax),
                 comment: newItem.comment?.trim() || undefined,
@@ -1042,7 +1023,7 @@ export const useApprovePRLogic = ({
                     item_name: createdItemDoc.item_name,
                     unit: createdItemDoc.unit_name,
                     quantity: quantityValue,
-                    procurement_package: workPackage,
+                    procurement_package: categoryToPackageMap[createdItemDoc.category] ?? "",
                     category: createdItemDoc.category,
                     tax: parseNumber(categoryDoc.tax),
                     status: "Pending",
@@ -1068,7 +1049,7 @@ export const useApprovePRLogic = ({
                         item_name: createdItemDoc.item_name,
                         item_id: createdItemDoc.name,
                         unit: createdItemDoc.unit_name,
-                        procurement_package: workPackage,
+                        procurement_package: categoryToPackageMap[createdItemDoc.category] ?? "",
                         category: createdItemDoc.category,
                         quantity: quantityValue,
                         tax: parseNumber(categoryDoc.tax),
@@ -1148,7 +1129,7 @@ export const useApprovePRLogic = ({
                 item_name: match.item_name,
                 unit: match.unit_name,
                 quantity: quantityValue,
-                procurement_package: workPackage,
+                procurement_package: categoryToPackageMap[match.category] ?? "",
                 category: match.category,
                 tax: parseNumber(categoryDoc.tax),
                 status: "Pending",
@@ -1179,7 +1160,7 @@ export const useApprovePRLogic = ({
             item_name: match.item_name,
             unit: match.unit_name,
             quantity: quantityValue,
-            procurement_package: workPackage,
+            procurement_package: categoryToPackageMap[match.category] ?? "",
             category: match.category,
             tax: parseNumber(categoryDoc.tax),
             status: "Pending",

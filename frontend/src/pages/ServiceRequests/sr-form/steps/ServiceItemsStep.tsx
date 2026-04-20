@@ -245,12 +245,7 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                         value={selectedCategory}
                         onValueChange={(val) => {
                             setSelectedCategory(val);
-                            // Default to select all items for the new category
-                            const addedDescriptions = new Set(items.map((i) => i.description));
-                            const itemsToSelect = serviceItems
-                                ?.filter((item) => item.category_link === val && !addedDescriptions.has(item.item_name))
-                                .map((item) => item.name) || [];
-                            setCheckedItems(new Set(itemsToSelect));
+                            setCheckedItems(new Set());
                         }}
                         disabled={isLoading}
                     >
@@ -322,8 +317,8 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                             <div
                                                 key={item.name}
                                                 className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer group ${checkedItems.has(item.name)
-                                                        ? "bg-primary/5 border-primary/20 shadow-sm"
-                                                        : "bg-white border-transparent hover:border-slate-200"
+                                                    ? "bg-primary/5 border-primary/20 shadow-sm"
+                                                    : "bg-white border-transparent hover:border-slate-200"
                                                     }`}
                                                 onClick={() => handleCheckboxChange(item.name)}
                                             >
@@ -412,7 +407,7 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                         {/* Package Separator Row - Only shown if more than one package exists or it's a multi-package view */}
                                         {Object.keys(groupedItemsByPackage).length > 0 && (
                                             <TableRow className="bg-slate-50/50 border-y border-slate-100/50">
-                                                 <TableCell colSpan={6} className="py-2 px-4 shadow-sm group/pkg">
+                                                <TableCell colSpan={6} className="py-2 px-4 shadow-sm group/pkg">
                                                     <div className="flex items-center justify-between">
                                                         <div className="flex items-center gap-2.5">
                                                             <div className="bg-primary/10 text-primary p-1.5 rounded-md shadow-sm border border-primary/20">
@@ -470,8 +465,8 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                                             value={item.quantity || ""}
                                                             onChange={(e) => updateItemField(index, "quantity", parseFloat(e.target.value) || 0)}
                                                             className={`h-9 text-center text-xs bg-white transition-all shadow-none ${form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[index]?.quantity
-                                                                    ? "border-red-500 ring-1 ring-red-500/10"
-                                                                    : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
+                                                                ? "border-red-500 ring-1 ring-red-500/10"
+                                                                : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
                                                                 }`}
                                                             placeholder="0"
                                                             step="any"
@@ -494,15 +489,15 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                                             value={item.rate || ""}
                                                             onChange={(e) => updateItemField(index, "rate", parseFloat(e.target.value) || 0)}
                                                             className={`h-9 pl-5 text-center text-xs bg-white font-semibold transition-all shadow-none ${form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[index]?.rate
-                                                                    ? "border-red-500 ring-1 ring-red-500/10"
-                                                                    : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
+                                                                ? "border-red-500 ring-1 ring-red-500/10"
+                                                                : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
                                                                 }`}
                                                             placeholder="0.00"
                                                             step="any"
                                                         />
                                                     </div>
                                                 </TableCell>
-                                                 <TableCell className="text-center py-2.5 px-4">
+                                                <TableCell className="text-center py-2.5 px-4">
                                                     <div className="flex items-center justify-center gap-1">
                                                         <Button
                                                             variant="ghost"

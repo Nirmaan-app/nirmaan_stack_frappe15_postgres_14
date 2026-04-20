@@ -61,6 +61,7 @@ import {
   useProjectsListPayments,
   useProjectsListPOData,
   useProjectsListSRData,
+  useProjectsListProjectInvoices,
 } from "./data/root/useProjectRootApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 // --- Constants ---
@@ -74,6 +75,7 @@ interface ProjectsProps {
 
 // ProcessedProject type for the table, including calculated financials
 export interface ProcessedProjectForTable extends ProjectsType {
+  calculatedTotalProjectInvoiced: number;
   calculatedTotalInvoiced: number;
   calculatedTotalInflow: number;
   calculatedTotalOutflow: number;
@@ -99,31 +101,74 @@ interface StatusCountPillProps {
   compact?: boolean;
 }
 
+const getProjectStatusColors = (status: string) => {
+  switch (status) {
+    case "Created":
+      return {
+        bg: "bg-blue-100/50",
+        border: "border-blue-200",
+        text: "text-blue-600",
+        dot: "bg-blue-700",
+        badge: "bg-blue-100/50 text-blue-700 border-blue-300",
+      };
+    case "WIP":
+      return {
+        bg: "bg-yellow-100/60",
+        border: "border-yellow-600",
+        text: "text-yellow-600",
+        dot: "bg-yellow-700",
+        badge: "bg-yellow-100/60 text-yellow-600 border-yellow-600",
+      };
+    case "Completed":
+      return {
+        bg: "bg-green-100/60",
+        border: "border-green-600",
+        text: "text-green-600",
+        dot: "bg-green-700",
+        badge: "bg-green-100/60 text-green-600 border-green-600",
+      };
+    case "Halted":
+      return {
+        bg: "bg-red-100/60",
+        border: "border-red-600",
+        text: "text-red-600",
+        dot: "bg-red-700",
+        badge: "bg-red-100/60 text-red-600 border-red-600",
+      };
+    case "Handover":
+      return {
+        bg: "bg-lime-100/60",
+        border: "border-lime-600",
+        text: "text-lime-600",
+        dot: "bg-lime-700",
+        badge: "bg-lime-100/60 text-lime-600 border-lime-600",
+      };
+    case "CEO Hold":
+      return {
+        bg: "bg-amber-100/60",
+        border: "border-amber-700",
+        text: "text-amber-800",
+        dot: "bg-amber-700",
+        badge: "bg-amber-100/60 text-amber-800 border-amber-700",
+      };
+    default:
+      return {
+        bg: "bg-slate-100/50",
+        border: "border-slate-200",
+        text: "text-slate-600",
+        dot: "bg-slate-700",
+        badge: "bg-slate-100/50 text-slate-600 border-slate-300",
+      };
+  }
+};
+
 const StatusCountPill: React.FC<StatusCountPillProps> = ({
   statusValue,
   statusLabel,
   count,
   compact = false,
 }) => {
-  const getPillColors = (status: string) => {
-    switch (status) {
-      case "Created":
-        return { bg: "bg-blue-100/50", border: "border-blue-200", text: "text-blue-700", dot: "bg-blue-500" };
-      case "WIP":
-        return { bg: "bg-yellow-100/50", border: "border-yellow-200", text: "text-yellow-700", dot: "bg-yellow-500" };
-      case "Completed":
-        return { bg: "bg-green-100/50", border: "border-green-200", text: "text-green-700", dot: "bg-green-500" };
-      case "Halted":
-        return { bg: "bg-red-100/50", border: "border-red-200", text: "text-red-700", dot: "bg-red-500" };
-      case "Handover":
-        return { bg: "bg-blue-100/50", border: "border-blue-200", text: "text-blue-700", dot: "bg-blue-500" };
-      case "CEO Hold":
-        return { bg: "bg-amber-100/50", border: "border-amber-200", text: "text-amber-700", dot: "bg-amber-500" };
-      default:
-        return { bg: "bg-slate-100/50", border: "border-slate-200", text: "text-slate-700", dot: "bg-slate-500" };
-    }
-  };
-  const colors = getPillColors(statusValue);
+  const colors = getProjectStatusColors(statusValue);
   return (
     <div
       className={cn(
@@ -221,7 +266,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       value: s,
     }));
   }, [user_id]);
- // Example static status options
+  // Example static status options
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -289,6 +334,11 @@ export const Projects: React.FC<ProjectsProps> = ({
     isLoading: projectExpensesLoading,
     error: projectExpensesError,
   } = useProjectsListExpenses();
+  const {
+    data: projectInvoices,
+    isLoading: projectInvoicesLoading,
+    error: projectInvoicesError,
+  } = useProjectsListProjectInvoices();
 
   // --- Memoized Lookups & Pre-processing for Column Calculations ---
 
@@ -299,9 +349,11 @@ export const Projects: React.FC<ProjectsProps> = ({
       !projectInflows ||
       !projectPayments ||
       !projectExpenses ||
+      !projectInvoices ||
       !CreditData
     )
       return () => ({
+        calculatedTotalProjectInvoiced: 0,
         calculatedTotalInvoiced: 0,
         calculatedTotalInflow: 0,
         calculatedTotalOutflow: 0,
@@ -326,6 +378,9 @@ export const Projects: React.FC<ProjectsProps> = ({
     );
     const expensesByProject = memoize((projId: string) =>
       projectExpenses.filter((pe) => pe.projects === projId)
+    );
+    const invoicesByProject = memoize((projId: string) =>
+      projectInvoices.filter((inv) => inv.project === projId)
     );
 
     // CreditData is now the raw list of all credit terms for all projects
@@ -357,13 +412,19 @@ export const Projects: React.FC<ProjectsProps> = ({
 
       // let totalInvoiced = 0;
       // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
-      let totalInvoiced = relatedPOs.reduce((sum,term)=>sum+parseNumber(term.total_amount),0);
+      let totalInvoiced = relatedPOs.reduce((sum, term) => sum + parseNumber(term.total_amount), 0);
       // let totalInvoiced = getPOSTotals(relatedPOs as any)?.totalWithTax || 0;
 
       relatedSRs.forEach((sr) => {
         const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
         totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;
       });
+
+      const ClientInvoices = invoicesByProject(projectId);
+      const totalProjectInvoiced = ClientInvoices.reduce(
+        (sum, inv) => sum + parseNumber(inv.amount),
+        0
+      );
 
       const totalInflow = getTotalInflowAmount(relatedInflows);
       const totalOutflow =
@@ -384,6 +445,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         totalPayableAgainstDelivered - totalPaidAgainstDelivered;
 
       return {
+        calculatedTotalProjectInvoiced: totalProjectInvoiced,
         calculatedTotalInvoiced: totalInvoiced,
         calculatedTotalInflow: totalInflow,
         calculatedTotalOutflow: totalOutflow,
@@ -399,6 +461,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     projectInflows,
     projectPayments,
     projectExpenses,
+    projectInvoices,
     CreditData,
   ]);
 
@@ -480,17 +543,14 @@ export const Projects: React.FC<ProjectsProps> = ({
           <DataTableColumnHeader column={column} title="Status" />
         ),
         cell: ({ row }) => (
-          <Badge
-            variant={
-              row.original.status === "Completed"
-                ? "default"
-                : row.original.status === "Halted"
-                ? "destructive"
-                : "secondary"
-            }
-          >
-            {row.original.status}
-          </Badge>
+          <div className="flex justify-center">
+            <Badge
+              variant="outline"
+              className={cn("font-medium", getProjectStatusColors(row.original.status).badge)}
+            >
+              {row.original.status}
+            </Badge>
+          </div>
         ),
         enableColumnFilter: true,
         meta: {
@@ -529,6 +589,29 @@ export const Projects: React.FC<ProjectsProps> = ({
         meta: {
           exportHeaderName: "Value incl. GST (in Lakhs)",
           exportValue: (row) => formatToLakhsNumber(row.project_value_gst),
+          isNumeric: true,
+        },
+      },
+      {
+        id: "total_project_invoiced",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Client Invoices (Incl.GST)" />
+        ),
+        cell: ({ row }) => {
+          const financials = getProjectFinancials(row.original.name);
+          return (
+            <span className="tabular-nums">
+              {formatToApproxLakhs(financials.calculatedTotalProjectInvoiced)}
+            </span>
+          );
+        },
+        size: 100,
+        meta: {
+          exportHeaderName: "Client Invoiced incl. GST (in Lakhs)",
+          exportValue: (row) => {
+            const financials = getProjectFinancials(row.name);
+            return formatToLakhsNumber(financials.calculatedTotalProjectInvoiced);
+          },
           isNumeric: true,
         },
       },
@@ -637,9 +720,8 @@ export const Projects: React.FC<ProjectsProps> = ({
             financials.calculatedTotalInflow;
           return (
             <span
-              className={`tabular-nums ${
-                cashflowGap > 0 ? "text-red-600" : "text-green-600"
-              }`}
+              className={`tabular-nums ${cashflowGap > 0 ? "text-red-600" : "text-green-600"
+                }`}
             >
               {formatToApproxLakhs(cashflowGap)}
             </span>
@@ -801,6 +883,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     projectInflowsLoading ||
     projectPaymentsLoading ||
     projectExpensesLoading ||
+    projectInvoicesLoading ||
     listIsLoading ||
     userListLoading;
 
@@ -810,6 +893,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     projectInflowsError ||
     projectPaymentsError ||
     projectExpensesError ||
+    projectInvoicesError ||
     userError ||
     listError;
 
@@ -825,8 +909,8 @@ export const Projects: React.FC<ProjectsProps> = ({
         totalCount > 10
           ? "max-h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {!customersView && canViewSummaryCard && (
@@ -865,17 +949,9 @@ export const Projects: React.FC<ProjectsProps> = ({
                     {!isExpanded && (
                       <div className="flex items-center gap-2">
                         {statusCounts.map((status) => {
-                          const getDotColor = (s: string) => {
-                            switch (s) {
-                              case "WIP": return "bg-yellow-500";
-                              case "Completed": return "bg-green-500";
-                              case "Halted": return "bg-red-500";
-                              default: return "bg-slate-500";
-                            }
-                          };
                           return (
                             <div key={status.value} className="flex items-center gap-1">
-                              <span className={cn("w-2 h-2 rounded-full", getDotColor(status.value))} />
+                              <span className={cn("w-2 h-2 rounded-full", getProjectStatusColors(status.value).dot)} />
                               <span className="text-xs text-muted-foreground tabular-nums">
                                 {status.count ?? 0}
                               </span>
@@ -950,8 +1026,8 @@ export const Projects: React.FC<ProjectsProps> = ({
           totalCount > 10
             ? "h-[calc(100vh-80px)]"
             : totalCount > 0
-            ? "h-auto"
-            : ""
+              ? "h-auto"
+              : ""
         )}
       >
         {isLoadingOverall && !projectsDataForTable?.length ? (

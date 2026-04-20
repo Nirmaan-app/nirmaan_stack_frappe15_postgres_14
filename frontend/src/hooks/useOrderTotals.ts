@@ -1,6 +1,6 @@
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import {  getSRTotal } from "@/utils/getAmounts";
+import {  getSRTotal, getSRStandardTotal, getSREstForStdItems } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
@@ -35,6 +35,24 @@ export const useOrderTotals = () => {
     vendorTypes: ["Material", "Service", "Material & Service"] // <-- THE CHANGE IS HERE
   });
 
+  // Rate-card lookup for SR standard-value fallback on older records
+  const { data: woServiceItems } = useFrappeGetDocList(
+    "WO Service Item",
+    {
+      fields: ["item_name", "rate"],
+      limit: 10000,
+    },
+    "WO_Service_Items_for_std_lookup"
+  );
+
+  const rateCardByName = useMemo(() => {
+    if (!woServiceItems) return {} as Record<string, number>;
+    return woServiceItems.reduce((acc: Record<string, number>, it: any) => {
+      if (it?.item_name) acc[it.item_name] = parseNumber(it.rate);
+      return acc;
+    }, {} as Record<string, number>);
+  }, [woServiceItems]);
+
     // console.log("Vendors",allVendors)
 
   const vendorMap = useMemo(() => {
@@ -61,19 +79,22 @@ export const useOrderTotals = () => {
         // The new getPOTotal already returns the object in the desired shape.
         // console.log("getPOTotal", orderId, type, order);
         if (order) {
-           return { total: parseNumber(order.amount), totalGst: parseNumber(order.tax_amount), totalWithTax: parseNumber(order.total_amount) };
+           return { total: parseNumber(order.amount), totalGst: parseNumber(order.tax_amount), totalWithTax: parseNumber(order.total_amount), totalStd: 0, stdDiffPct: null };
         }
-        return { total: 0, totalGst: 0, totalWithTax: 0 };
+        return { total: 0, totalGst: 0, totalWithTax: 0, totalStd: 0, stdDiffPct: null };
       }
       if (['Service Requests', 'Service Order'].includes(type)) {
         const order = serviceOrders?.find(i => i?.name === orderId);
         const total = getSRTotal(order);
         const totalWithTax = order?.gst === "true" ? total * 1.18 : total;
-        return { total, totalWithTax, totalGst: totalWithTax - total };
+        const totalStd = getSRStandardTotal(order, rateCardByName);
+        const estForStd = getSREstForStdItems(order, rateCardByName);
+        const stdDiffPct = totalStd > 0 ? ((estForStd - totalStd) / totalStd) * 100 : null;
+        return { total, totalWithTax, totalGst: totalWithTax - total, totalStd, stdDiffPct };
       }
-      return { total: 0, totalWithTax: 0, totalGst: 0 };
+      return { total: 0, totalWithTax: 0, totalGst: 0, totalStd: 0, stdDiffPct: null };
     },
-      (orderId: string, type: string) => orderId + type), [purchaseOrders, serviceOrders]
+      (orderId: string, type: string) => orderId + type), [purchaseOrders, serviceOrders, rateCardByName]
   );
 
   // --- (THE FIX) Create a new memoized getter for the delivered amount ---

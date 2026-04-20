@@ -45,6 +45,8 @@ export interface UseDesignTrackerLogicReturn {
     categoryData: { category_name: string; tasks: { task_name: string; deadline_offset?: number }[] }[];
     statusOptions: { label: string; value: string }[];
     subStatusOptions: { label: string; value: string }[];
+
+    refetchTracker: () => Promise<any>;
 }
 
 export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps): UseDesignTrackerLogicReturn => {
@@ -236,5 +238,6 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
         usersList,
         statusOptions,
         subStatusOptions,
+        refetchTracker,
     };
 };

@@ -368,17 +368,6 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                 </p>
                             </div>
 
-                            {/* No Changes Alert - Show on Step 2 and 3 if nothing has changed */}
-                            {!hasChanges && currentStep >= 1 && (
-                                <Alert variant="warning" className="mb-6 bg-amber-50 border-amber-200 text-amber-900">
-                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                                    <AlertTitle className="text-amber-800 font-semibold">No Changes Detected</AlertTitle>
-                                    <AlertDescription className="text-amber-700">
-                                        You haven't made any modifications to the items, rates, or vendor yet. Please update the details before submitting this amendment.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
                             {/* Step component */}
                             {renderCurrentStep()}
                         </div>
@@ -398,7 +387,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                 {isLastStep ? (
                                     <Button
                                         onClick={handleSubmit}
-                                        disabled={isSubmitting || !hasChanges}
+                                        disabled={isSubmitting}
                                     >
                                         {isSubmitting ? (
                                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -408,9 +397,9 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                         Submit Amendment
                                     </Button>
                                 ) : (
-                                    <Button 
-                                        onClick={handleNext} 
-                                        disabled={isSubmitting || (currentStep === 1 && !hasChanges)}
+                                    <Button
+                                        onClick={handleNext}
+                                        disabled={isSubmitting}
                                     >
                                         Next
                                         <ChevronRight className="h-4 w-4 ml-2" />
