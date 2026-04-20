@@ -61,7 +61,7 @@ const ITR_TABS: readonly TabConfig[] = [
     label: "All Requests",
     type: "itr",
     statusFilter: null,
-    urlSyncKey: "itr_rejected",
+    urlSyncKey: "itr_all",
   },
 ];
 

@@ -104,16 +104,6 @@ export const ITMDetail: React.FC = () => {
 
   return (
     <div className="space-y-4 p-4">
-      {/* Back breadcrumb */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => navigate("/internal-transfer-memos")}
-      >
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back to Internal Transfer Memos
-      </Button>
-
       <TransferDetailsCard
         itm={itm}
         sourceProjectName={payload.source_project_name}

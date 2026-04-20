@@ -43,7 +43,7 @@ export function useITMList({ statusFilter, urlSyncKey, doctype = "Internal Trans
     apiEndpoint: isITR ? ITR_LIST_API_ENDPOINT : ITM_LIST_API_ENDPOINT,
     columns: isITR ? getItrListColumns(tabValue) : itmListColumns,
     fetchFields: isITR
-      ? ["name", "creation", "status", "target_project", "target_project_name", "requested_by", "requested_by_full_name", "memo_count", "total_items", "total_quantity", "estimated_value"]
+      ? ["name", "creation", "status", "target_project", "target_project_name", "requested_by", "requested_by_full_name", "memo_count", "total_items", "pending_count", "approved_count", "rejected_count", "total_quantity", "estimated_value"]
       : (ITM_FETCH_FIELDS as string[]),
     searchableFields: isITR ? ITR_SEARCHABLE_FIELDS : ITM_SEARCHABLE_FIELDS,
     urlSyncKey,

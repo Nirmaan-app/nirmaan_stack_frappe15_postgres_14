@@ -114,6 +114,7 @@ export interface MaterialUsageDisplayItem {
   transferredOut?: number;
   poDeliveredQty?: number;
   itmDeliveredQty?: number;
+  isTransferredInItem?: boolean;
 }
 
 // Data structure for DC/MIR Wise view item rows

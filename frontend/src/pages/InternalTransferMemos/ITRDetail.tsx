@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Circle, X } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -79,12 +79,25 @@ export default function ITRDetail() {
     [itr?.items]
   );
   const hasPending = pendingItems.length > 0;
-  const showActions = isAdmin && hasPending && itemFilter !== "Rejected";
+  const showActions = isAdmin && hasPending && itemFilter === "Pending";
+
+  // Split items for rejected tab: rejected in primary table, rest in secondary
+  const rejectedItems = useMemo(
+    () => (itr?.items ?? []).filter((r) => r.status === "Rejected"),
+    [itr?.items]
+  );
+  const nonRejectedItems = useMemo(
+    () => (itr?.items ?? []).filter((r) => r.status !== "Rejected"),
+    [itr?.items]
+  );
 
   // Filter items based on tab context
   const filteredItems = useMemo(() => {
     const items = itr?.items ?? [];
-    if (itemFilter) return items.filter((r) => r.status === itemFilter);
+    if (itemFilter === "Pending") return items.filter((r) => r.status === "Pending");
+    // For Rejected tab, the primary table uses rejectedItems directly
+    // For All Requests / no filter, show everything
+    if (!itemFilter) return items;
     return items;
   }, [itr?.items, itemFilter]);
 
@@ -207,16 +220,6 @@ export default function ITRDetail() {
 
   return (
     <div className="space-y-4 p-4">
-      {/* Back */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => navigate("/internal-transfer-memos")}
-      >
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back to Internal Transfer Memos
-      </Button>
-
       {/* Request Details Card */}
       <Card>
         <CardHeader className="pb-3">
@@ -261,10 +264,27 @@ export default function ITRDetail() {
             </div>
             <div>
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                Total Items
+                Items ({itr.items.length})
               </div>
-              <div className="text-sm font-semibold mt-1">
-                {itr.items.length}
+              <div className="flex items-center gap-3 mt-1.5">
+                {itr.items.filter((r) => r.status === "Pending").length > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-amber-600 font-semibold">
+                    <Circle className="h-3 w-3 fill-amber-400 stroke-amber-600" />
+                    {itr.items.filter((r) => r.status === "Pending").length}
+                  </span>
+                )}
+                {itr.items.filter((r) => r.status === "Approved").length > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-emerald-600 font-semibold">
+                    <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    {itr.items.filter((r) => r.status === "Approved").length}
+                  </span>
+                )}
+                {itr.items.filter((r) => r.status === "Rejected").length > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-rose-600 font-semibold">
+                    <X className="h-3.5 w-3.5" strokeWidth={3} />
+                    {itr.items.filter((r) => r.status === "Rejected").length}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -290,147 +310,151 @@ export default function ITRDetail() {
         </CardContent>
       </Card>
 
-      {/* Transfer List */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+      {/* Rejected tab: two separate tables */}
+      {itemFilter === "Rejected" ? (
+        <>
+          {/* Rejected Items */}
+          <Card>
+            <CardHeader className="pb-3">
+              <h3 className="text-red-600 text-lg font-semibold">
+                Rejected Items ({rejectedItems.length})
+              </h3>
+            </CardHeader>
+            <CardContent>
+              <ItemTable items={rejectedItems} />
+            </CardContent>
+          </Card>
+
+          {/* Other Items (Pending / Approved) */}
+          {nonRejectedItems.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <h3 className="text-red-600 text-lg font-semibold">
+                  Other Items ({nonRejectedItems.length})
+                </h3>
+              </CardHeader>
+              <CardContent>
+                <ItemTable items={nonRejectedItems} />
+              </CardContent>
+            </Card>
+          )}
+        </>
+      ) : (
+        /* Pending / All Requests: single table */
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
               <h3 className="text-red-600 text-lg font-semibold">
                 Transfer List
               </h3>
+              {showActions && (
+                <div className="flex items-center gap-2">
+                  {selected.size > 0 && pendingItems.length > 1 && (
+                    <span className="text-sm text-muted-foreground mr-1">
+                      {selected.size} selected
+                    </span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRejectOpen(true)}
+                    disabled={isRejectingITR || isApprovingITR}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    {selected.size > 0 && pendingItems.length > 1 ? "Reject Selected" : "Reject"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleApprove}
+                    disabled={isApprovingITR || isRejectingITR}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    <Check className="h-4 w-4 mr-1" />
+                    {selected.size > 0 && pendingItems.length > 1 ? "Approve Selected" : "Approve"}
+                  </Button>
+                </div>
+              )}
             </div>
-            {showActions && selected.size === 0 && (
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setRejectOpen(true)}
-                  disabled={isRejectingITR || isApprovingITR}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Reject
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleApprove}
-                  disabled={isApprovingITR || isRejectingITR}
-                  className="bg-red-600 hover:bg-red-700"
-                >
-                  <Check className="h-4 w-4 mr-1" />
-                  Approve Request
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40">
-                {showActions && (
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={toggleAll}
-                    />
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  {showActions && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={toggleAll}
+                      />
+                    </TableHead>
+                  )}
+                  <TableHead className="text-[11px] uppercase tracking-wide font-semibold">
+                    Item Name
                   </TableHead>
-                )}
-                <TableHead className="text-[11px] uppercase tracking-wide font-semibold">
-                  Item Name
-                </TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-24">
-                  Unit
-                </TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-36 text-right">
-                  Transfer Qty
-                </TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-32 text-center">
-                  Status
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredItems.map((row, idx) => {
-                const isPending = row.status === "Pending";
-                const isChecked = row.name ? selected.has(row.name) : false;
-                return (
-                  <TableRow key={row.name ?? `${row.item_id}-${idx}`}>
-                    {showActions && (
-                      <TableCell>
-                        <Checkbox
-                          checked={isChecked}
-                          onCheckedChange={() =>
-                            row.name && toggleItem(row.name)
-                          }
-                          disabled={!isPending}
-                        />
-                      </TableCell>
-                    )}
-                    <TableCell className="font-medium">
-                      <div className="flex flex-col">
-                        <span>{row.item_name ?? row.item_id}</span>
-                        {row.make && (
-                          <span className="text-xs text-muted-foreground">
-                            Make: {row.make}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.unit ?? "--"}
-                    </TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
-                      {row.transfer_quantity}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge
-                        variant="outline"
-                        className={`border-0 font-medium ${ITEM_STATUS_STYLES[row.status] ?? ""}`}
-                      >
-                        {row.status}
-                      </Badge>
-                      {row.status === "Approved" && row.linked_itm && (
-                        <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {row.linked_itm}
-                        </div>
+                  <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-24">
+                    Unit
+                  </TableHead>
+                  <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-36 text-right">
+                    Transfer Qty
+                  </TableHead>
+                  <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-32 text-center">
+                    Status
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredItems.map((row, idx) => {
+                  const isPending = row.status === "Pending";
+                  const isChecked = row.name ? selected.has(row.name) : false;
+                  return (
+                    <TableRow key={row.name ?? `${row.item_id}-${idx}`}>
+                      {showActions && (
+                        <TableCell>
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() =>
+                              row.name && toggleItem(row.name)
+                            }
+                            disabled={!isPending}
+                          />
+                        </TableCell>
                       )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* Sticky footer when items selected */}
-      {showActions && selected.size > 0 && (
-        <div className="sticky bottom-0 z-10 flex items-center justify-between rounded-lg border bg-background p-3 shadow-md">
-          <span className="text-sm font-medium text-muted-foreground">
-            {selected.size} item{selected.size !== 1 ? "s" : ""} selected
-          </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setRejectOpen(true)}
-              disabled={isRejectingITR}
-              className="text-rose-700 hover:text-rose-800"
-            >
-              <X className="h-3.5 w-3.5 mr-1" />
-              Reject Selected
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleApprove}
-              disabled={isApprovingITR}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              <Check className="h-3.5 w-3.5 mr-1" />
-              Approve Selected
-            </Button>
-          </div>
-        </div>
+                      <TableCell className="font-medium">
+                        <div className="flex flex-col">
+                          <span>{row.item_name ?? row.item_id}</span>
+                          {row.make && (
+                            <span className="text-xs text-muted-foreground">
+                              Make: {row.make}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {row.unit ?? "--"}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        {row.transfer_quantity}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge
+                          variant="outline"
+                          className={`border-0 font-medium ${ITEM_STATUS_STYLES[row.status] ?? ""}`}
+                        >
+                          {row.status}
+                        </Badge>
+                        {row.status === "Approved" && row.linked_itm && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            {row.linked_itm}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
       {/* Reject dialog */}
@@ -442,5 +466,71 @@ export default function ITRDetail() {
         itmName={itr.name}
       />
     </div>
+  );
+}
+
+/** Simple read-only items table — used by the Rejected tab's split view. */
+function ItemTable({ items }: { items: { item_id: string; item_name?: string; unit?: string; make?: string; transfer_quantity: number; status: string; linked_itm?: string }[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="py-6 text-center text-sm text-muted-foreground">
+        No items.
+      </div>
+    );
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="bg-muted/40">
+          <TableHead className="text-[11px] uppercase tracking-wide font-semibold">
+            Item Name
+          </TableHead>
+          <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-24">
+            Unit
+          </TableHead>
+          <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-36 text-right">
+            Transfer Qty
+          </TableHead>
+          <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-32 text-center">
+            Status
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {items.map((row, idx) => (
+          <TableRow key={`${row.item_id}-${idx}`}>
+            <TableCell className="font-medium">
+              <div className="flex flex-col">
+                <span>{row.item_name ?? row.item_id}</span>
+                {row.make && (
+                  <span className="text-xs text-muted-foreground">
+                    Make: {row.make}
+                  </span>
+                )}
+              </div>
+            </TableCell>
+            <TableCell className="text-muted-foreground">
+              {row.unit ?? "--"}
+            </TableCell>
+            <TableCell className="text-right font-semibold tabular-nums">
+              {row.transfer_quantity}
+            </TableCell>
+            <TableCell className="text-center">
+              <Badge
+                variant="outline"
+                className={`border-0 font-medium ${ITEM_STATUS_STYLES[row.status] ?? ""}`}
+              >
+                {row.status}
+              </Badge>
+              {row.status === "Approved" && row.linked_itm && (
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {row.linked_itm}
+                </div>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

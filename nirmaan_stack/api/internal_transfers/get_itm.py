@@ -30,8 +30,18 @@ def get_itm(name: str) -> dict:
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required."), frappe.PermissionError)
 
-	# Frappe's permissions are checked inside get_doc; DoesNotExistError propagates as 404.
-	doc = frappe.get_doc("Internal Transfer Memo", name)
+	# Check doctype-level read permission only (not per-doc User Permissions).
+	# ITM visibility is gated by role (ITM_VIEW_ROLES) in the frontend.
+	# Without this, Project Managers whose User Permissions don't include
+	# the ITM's source/target project would get a 403.
+	if not frappe.has_permission("Internal Transfer Memo", "read"):
+		frappe.throw(_("You do not have permission to view Internal Transfer Memos."), frappe.PermissionError)
+
+	frappe.flags.ignore_permissions = True
+	try:
+		doc = frappe.get_doc("Internal Transfer Memo", name)
+	finally:
+		frappe.flags.ignore_permissions = False
 
 	# --- Project display names (single query, handles source == target) ---
 	project_names: dict[str, str | None] = {}
