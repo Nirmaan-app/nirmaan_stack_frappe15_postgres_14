@@ -62,32 +62,36 @@ def get_trackers_with_stats():
         # Calculate stats
         total_tasks = 0
         completed_tasks = 0
+        submitted_tasks = 0
         status_counts = defaultdict(int)
-        
+
         # Access child table 'design_tracker_task' directly from doc
         for task in doc.design_tracker_task:
             status = task.task_status or "Unknown"
-            
+
             # Skip 'Not Applicable' from metrics
             if status == "Not Applicable":
                 continue
 
             total_tasks += 1
             status_counts[status] += 1
-            
+
             # Count ONLY "Approved" as requested
             if status == "Approved":
                 completed_tasks += 1
-            
+            elif status == "Submitted":
+                submitted_tasks += 1
+
             # --- DATA CLEANING FIX ---
             # If assigned_designers is incorrectly a list object, stringify it
             if isinstance(task.get("assigned_designers"), list):
                 task.assigned_designers = json.dumps(task.assigned_designers)
-            
+
         # Serialize doc to dict
         doc_dict = doc.as_dict()
         doc_dict["total_tasks"] = total_tasks
         doc_dict["completed_tasks"] = completed_tasks
+        doc_dict["submitted_tasks"] = submitted_tasks
         doc_dict["status_counts"] = dict(status_counts)
         
         result.append(doc_dict)

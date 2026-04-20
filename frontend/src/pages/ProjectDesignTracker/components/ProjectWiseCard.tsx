@@ -72,7 +72,11 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
     const hasHandover = tracker.handover_generated === 1;
     const totalTasks = tracker.total_tasks || 0;
     const completedTasks = tracker.completed_tasks || 0;
-    const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    // Weighted progress: Approved = 1.0, Submitted = 0.75
+    const submittedTasks = tracker.submitted_tasks || 0;
+    const completionPercentage = totalTasks > 0
+        ? Math.round(((completedTasks * 1 + submittedTasks * 0.75) / totalTasks) * 100)
+        : 0;
 
     // Compute per-phase status breakdown from child tasks
     const phaseBreakdown = useMemo(() => {

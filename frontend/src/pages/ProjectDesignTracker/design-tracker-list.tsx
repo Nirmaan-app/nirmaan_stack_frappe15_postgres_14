@@ -61,9 +61,10 @@ interface ExpandedProjectTasksProps {
     refetchList: () => void;
     user_id: string; // Recieve from parent
     isDesignExecutive: boolean; // Receive from parent
+    isAdmin: boolean; // Receive from parent
 }
 
-const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList, user_id, isDesignExecutive }) => {
+const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList, user_id, isDesignExecutive, isAdmin }) => {
     const {
         groupedTasks,trackerDoc, isLoading, error, getDesignerName,
         handleTaskSave, editingTask, setEditingTask, usersList, statusOptions,
@@ -318,6 +319,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                     subStatusOptions={subStatusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
                     isRestrictedMode={isDesignExecutive}
+                    disableTaskNameEdit={!isAdmin}
                 />
             )}
         </div>
@@ -329,6 +331,7 @@ export const DesignTrackerList: React.FC = () => {
     const { role,user_id } = useUserData();
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
@@ -844,11 +847,12 @@ export const DesignTrackerList: React.FC = () => {
                                     {isExpanded && (
                                         <div className={`bg-white border rounded-b-lg p-0
                                                 ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
-                                            <ExpandedProjectTasks 
-                                                trackerId={doc.name} 
-                                                refetchList={refetchList}    
+                                            <ExpandedProjectTasks
+                                                trackerId={doc.name}
+                                                refetchList={refetchList}
                                                 user_id={user_id}
                                                 isDesignExecutive={isDesignExecutive}
+                                                isAdmin={isAdmin}
                                             />
                                         </div>
                                     )}

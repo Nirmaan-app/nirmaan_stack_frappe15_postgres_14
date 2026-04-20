@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import ReactSelect from 'react-select';
 import { Label } from '@/components/ui/label';
 import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
+import { TASK_STATUS_OPTIONS } from './hooks/useDesignMasters';
 import { TailSpin } from 'react-loader-spinner';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -795,6 +796,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
 
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
 
     const checkIfUserAssigned = useCallback((task: DesignTrackerTask) => {
@@ -827,7 +829,14 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
 
     // "My Tasks" filter state - only relevant for designers
     const [showMyTasksOnly, setShowMyTasksOnly] = useState(false);
-    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => [
+        {
+            id: 'task_status',
+            value: TASK_STATUS_OPTIONS
+                .map(o => o.value)
+                .filter(v => v !== 'Not Applicable'),
+        },
+    ]);
     const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -896,8 +905,10 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const applicableTasks = phaseTasks.filter(t => t.task_status !== 'Not Applicable');
     const totalTasks = applicableTasks.length;
     const completedTasks = applicableTasks.filter(t => t.task_status === 'Approved').length;
+    // Weighted progress: Approved = 1.0, Submitted = 0.75
+    const submittedTasks = applicableTasks.filter(t => t.task_status === 'Submitted').length;
     const completionPercentage = totalTasks > 0
-        ? Math.round((completedTasks / totalTasks) * 100)
+        ? Math.round(((completedTasks * 1 + submittedTasks * 0.75) / totalTasks) * 100)
         : 0;
 
     // Calculate status counts for breakdown (excluding "Not Applicable")
@@ -1709,7 +1720,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                 </button>
                             )}
 
-                            {!isDesignExecutive && !isProjectManager && (
+                            {isAdmin && (
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1846,6 +1857,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     subStatusOptions={subStatusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
                     isRestrictedMode={isDesignExecutive}
+                    disableTaskNameEdit={!isAdmin}
                 />
             )}
 
