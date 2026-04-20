@@ -166,7 +166,7 @@ def on_update(doc, method):
             except frappe.DoesNotExistError:
                 pass
 
-        allowed_users = get_allowed_lead_users(doc) + get_admin_users() + get_allowed_manager_users(doc) + get_allowed_procurement_users(doc)
+        allowed_users = get_allowed_lead_users(doc) + get_admin_users() + get_allowed_procurement_users(doc)
         project = frappe.get_doc("Projects", doc.project)
         vendor = frappe.get_doc("Vendors", doc.vendor)
         if allowed_users:
