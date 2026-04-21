@@ -168,10 +168,15 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
         ) || null;
     }, [availableRepoItems, selectedItemId, selectedMake]);
 
-    // Displayed WP/Category: prefer the repo entry matching current selection,
-    // fall back to the item's stored values so the fields aren't empty mid-edit
-    const displayedWP = selectedRepoEntry?.work_package || item?.tds_work_package || "";
-    const displayedCategory = selectedRepoEntry?.category || item?.tds_category || "";
+    // WP/Category are properties of tds_item_id (shared across makes), so resolve
+    // them from item id alone — otherwise they'd stay stale until a make is picked.
+    const selectedItemMeta = useMemo(() => {
+        if (!selectedItemId) return null;
+        return availableRepoItems.find(i => i.tds_item_id === selectedItemId) || null;
+    }, [availableRepoItems, selectedItemId]);
+
+    const displayedWP = selectedItemMeta?.work_package || item?.tds_work_package || "";
+    const displayedCategory = selectedItemMeta?.category || item?.tds_category || "";
 
     const handleItemNameChange = (opt: any) => {
         setSelectedItemId(opt?.value || "");
@@ -180,10 +185,10 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
 
     const buildUpdates = () => {
         const updates: any = {
-            tds_work_package: selectedRepoEntry?.work_package ?? item?.tds_work_package ?? "",
-            tds_category: selectedRepoEntry?.category ?? item?.tds_category ?? "",
-            tds_item_name: selectedRepoEntry?.tds_item_name ?? item?.tds_item_name ?? "",
-            tds_item_id: selectedRepoEntry?.tds_item_id ?? item?.tds_item_id ?? "",
+            tds_work_package: selectedItemMeta?.work_package ?? item?.tds_work_package ?? "",
+            tds_category: selectedItemMeta?.category ?? item?.tds_category ?? "",
+            tds_item_name: selectedItemMeta?.tds_item_name ?? item?.tds_item_name ?? "",
+            tds_item_id: selectedItemMeta?.tds_item_id ?? item?.tds_item_id ?? "",
             tds_make: selectedMake,
             tds_description: description,
             tds_boq_line_item: boqRef,

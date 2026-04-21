@@ -8,6 +8,12 @@ import { useUserData } from "@/hooks/useUserData";
 export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
 
+const BULK_SOCKET_EVENTS = [
+    "bulk_download_progress",
+    "bulk_download_all_ready",
+    "bulk_download_failed",
+] as const;
+
 export interface POItem {
     name: string;
     vendor_name?: string;
@@ -81,6 +87,15 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const [showProgress, setShowProgress] = useState(false);
 
     const [downloadToken, setDownloadToken] = useState<{ token: string, filename: string } | null>(null);
+
+    const offAllListeners = useCallback(() => {
+        if (!socket) return;
+        BULK_SOCKET_EVENTS.forEach(e => socket.off(e));
+    }, [socket]);
+
+    useEffect(() => {
+        return () => { offAllListeners(); };
+    }, [offAllListeners]);
 
     const toggleVendor = useCallback((v: string) => {
         setCommonVendorFilter((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
@@ -271,7 +286,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     const goToStep2 = useCallback((t: BulkDocType) => { clearFilters(); setDocType(t); setSelectedIds([]); setStep(2); }, [clearFilters]);
     const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); clearFilters(); }, [clearFilters]);
-    const resetToTypeSelection = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); clearFilters(); }, [clearFilters]);
+    const resetToTypeSelection = useCallback(() => { offAllListeners(); setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); clearFilters(); }, [clearFilters, offAllListeners]);
 
     const toggleId = useCallback((id: string) => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]), []);
     const selectAll = useCallback((ids: string[]) => setSelectedIds(ids), []);
@@ -295,6 +310,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     }, []);
 
     const handleDownload = async () => {
+        if (loading) return;
         if (!selectedIds.length) { toast({ title: "No items selected", variant: "destructive" }); return; }
         const labelMap: Record<BulkDocType, string> = { PO: "POs", WO: "WOs", Invoice: "Invoices", DC: "DCs", MIR: "MIRs", DN: "DNs" };
         const label = labelMap[docType!];
@@ -304,6 +320,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
             setDownloadToken(null);
 
             if (socket) {
+                offAllListeners();
                 socket.on("bulk_download_progress", (d: any) => {
                     if (d.progress !== undefined) {
                         setProgress(d.progress);
@@ -357,9 +374,9 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     const stopProgress = useCallback(() => {
         setLoading(false); setShowProgress(false);
-        if (socket) { ["bulk_download_progress", "bulk_download_all_ready", "bulk_download_failed"].forEach(e => socket.off(e)); }
+        offAllListeners();
         if (progress === 100) { setDownloadedCount(selectedIds.length || 1); setDownloadedLabel(docType || "batch"); setStep(3); }
-    }, [socket, progress, selectedIds, docType]);
+    }, [offAllListeners, progress, selectedIds, docType]);
 
     // Full Auto-Completion Logic
     useEffect(() => {
