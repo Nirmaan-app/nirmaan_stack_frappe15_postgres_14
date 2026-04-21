@@ -37,10 +37,13 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
   // These values are calculated from the `item` prop to determine how to render certain elements.
   
   // Determines the text and color variant for the delivery status badge.
+  // Transfer-only items (no PO) use their stored status directly.
   const {
     deliveryStatusVariant,
     deliveryStatusText
-  } = determineDeliveryStatus(item.deliveredQuantity, item.orderedQuantity);
+  } = item.isTransferredInItem
+    ? { deliveryStatusVariant: "default" as const, deliveryStatusText: "Not Ordered" as const }
+    : determineDeliveryStatus(item.deliveredQuantity, item.orderedQuantity);
 
   // Checks if the ordered quantity is higher or lower than the estimate, for tooltip display.
   const overOrdered = item.orderedQuantity > (item.estimatedQuantity ?? Infinity);
@@ -61,6 +64,11 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       {/* Column: Item Name (Sticky) */}
       <TableCell className="font-medium py-2 px-3 sticky left-0 bg-background z-10">
         {item.itemName || "N/A"}
+        {item.isTransferredInItem && (
+          <span className="ml-1.5 text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+            ↓ Transferred In
+          </span>
+        )}
       </TableCell>
       
       {/* Column: Category */}
@@ -105,7 +113,30 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       {/* Column: Delivery Note Quantity (Conditionally Hidden) */}
       {!hiddenColumns.has('deliveredQuantity') && (
         <TableCell className="text-right font-mono py-2 px-3">
-          {item.deliveredQuantity.toFixed(2)}
+          {(item.itmDeliveredQty ?? 0) > 0 ? (
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-default text-blue-600 underline decoration-dotted underline-offset-2">{item.deliveredQuantity.toFixed(2)}</span>
+                </TooltipTrigger>
+                <TooltipContent className="bg-gray-900 text-white border-gray-700 shadow-lg rounded-md p-2.5">
+                  <div className="text-xs space-y-1.5">
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-300">PO Delivered Quantity</span>
+                      <span className="font-semibold tabular-nums text-white">{(item.poDeliveredQty ?? item.deliveredQuantity).toFixed(2)}</span>
+                    </div>
+                    <hr className="border-gray-700" />
+                    <div className="flex justify-between gap-6">
+                      <span className="text-gray-300">Internal Transfer Memo Qty</span>
+                      <span className="font-semibold tabular-nums text-white">{(item.itmDeliveredQty ?? 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            item.deliveredQuantity.toFixed(2)
+          )}
         </TableCell>
       )}
 
@@ -128,6 +159,13 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
             // State 3a: Normal positive value
             <span className="tabular-nums">{item.remainingQuantity.toFixed(2)}</span>
           )}
+        </TableCell>
+      )}
+
+      {/* Column: Transferred Out (Conditionally Hidden) */}
+      {!hiddenColumns.has('transferredOut') && (
+        <TableCell className="text-right font-mono py-2 px-3">
+          {(item.transferredOut || 0).toFixed(2)}
         </TableCell>
       )}
 

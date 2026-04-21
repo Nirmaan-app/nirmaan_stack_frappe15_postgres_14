@@ -17,8 +17,9 @@ export const serviceItemSchema = z.object({
     category: z.string().min(1, { message: "Category is required" }),
     description: z.string().min(1, { message: "Description is required" }),
     uom: z.string().min(1, { message: "Unit of measure is required" }),
-    quantity: z.coerce.number().positive({ message: "Quantity must be greater than 0" }),
-    rate: z.coerce.number().optional(),
+    quantity: z.coerce.number().refine((val) => val !== 0, { message: "Quantity is required and cannot be zero" }),
+    rate: z.coerce.number().refine((val) => val !== 0, { message: "Rate is required and cannot be zero" }),
+    standard_rate: z.coerce.number().optional(),
 });
 
 export type ServiceItemType = z.infer<typeof serviceItemSchema>;
@@ -130,7 +131,8 @@ export const createServiceItem = (
     description: string = "",
     uom: string = "",
     quantity: number = 0,
-    rate?: number
+    rate: number = 0,
+    standard_rate: number = 0
 ): ServiceItemType => ({
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     category,
@@ -138,6 +140,7 @@ export const createServiceItem = (
     uom,
     quantity,
     rate,
+    standard_rate,
 });
 
 /**
@@ -154,11 +157,34 @@ export type ValidationResult = {
 export const validateStep1 = (values: Partial<SRFormValues>): ValidationResult => {
     const result = step1Schema.safeParse(values);
     if (!result.success) {
+        const error = result.error.errors[0];
+        let message = error?.message || "Please complete all required fields.";
+
+        // If error is related to a specific item, prepend the item name
+        if (error?.path[0] === "items" && typeof error.path[1] === "number") {
+            const itemIndex = error.path[1];
+            const item = values.items?.[itemIndex];
+            if (item?.description) {
+                const itemName = item.description.split('\n')[0];
+                message = `${itemName}: ${message}`;
+            }
+        }
+
         return {
             success: false,
-            error: result.error.errors[0]?.message || "Please complete all required fields.",
+            error: message,
         };
     }
+
+    // Block if total amount is negative
+    const total = calculateTotal(values.items || []);
+    if (total < 0) {
+        return {
+            success: false,
+            error: "Total Service Amount cannot be negative.",
+        };
+    }
+
     return { success: true };
 };
 
@@ -171,21 +197,33 @@ export const validateStep2 = (values: Partial<SRFormValues>): ValidationResult =
         items: values.items,
     });
     if (!result.success) {
+        const error = result.error.errors[0];
+        let message = error?.message || "Please complete all required fields.";
+
+        // If error is related to a specific item, prepend the item name
+        if (error?.path[0] === "items" && typeof error.path[1] === "number") {
+            const itemIndex = error.path[1];
+            const item = values.items?.[itemIndex];
+            if (item?.description) {
+                const itemName = item.description.split('\n')[0];
+                message = `${itemName}: ${message}`;
+            }
+        }
+
         return {
             success: false,
-            error: result.error.errors[0]?.message || "Please complete all required fields.",
+            error: message,
         };
     }
 
     // Manual check for total amount (moved from Zod schema to control timing/message)
     const items = values.items || [];
     const total = calculateTotal(items);
-    const allRatesSet = items.every((i) => (i.rate ?? 0) !== 0);
     
-    if (allRatesSet && total <= 0) {
+    if (total < 0) {
         return {
             success: false,
-            error: "Total Work Order amount must be greater than zero",
+            error: "Total Service Amount cannot be negative.",
         };
     }
 

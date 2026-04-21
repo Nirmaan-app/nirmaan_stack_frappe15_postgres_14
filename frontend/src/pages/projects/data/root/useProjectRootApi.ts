@@ -21,6 +21,8 @@ import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+
 
 export interface ProjectPOItemDataItem {
   po_number: string;
@@ -56,6 +58,7 @@ export const projectRootKeys = {
   procurementRequests: (projectId: string) => ["project-root", "procurementRequests", projectId] as const,
   procurementOrders: (projectId: string) => ["project-root", "procurementOrders", projectId] as const,
   approvedServiceRequests: (projectId: string) => ["project-root", "approvedServiceRequests", projectId] as const,
+  projectsListInvoices: () => ["project-root", "projectsListInvoices"] as const,
 };
 
 export const useProjectStatusCountCall = () => {
@@ -170,7 +173,6 @@ export const useProjectsListPayments = () => {
 
   return response;
 };
-
 export const useProjectsListExpenses = () => {
   const response = useFrappeGetDocList<ProjectExpenses>(
     "Project Expenses",
@@ -181,6 +183,25 @@ export const useProjectsListExpenses = () => {
   useApiErrorLogger(response.error, {
     hook: "useProjectsListExpenses",
     api: "Project Expenses List",
+    feature: "project-root",
+  });
+
+  return response;
+};
+
+export const useProjectsListProjectInvoices = () => {
+  const response = useFrappeGetDocList<ProjectInvoice>(
+    "Project Invoices",
+    {
+      fields: ["name", "project", "amount", "creation", "invoice_date"],
+      limit: 100000,
+    },
+    projectRootKeys.projectsListInvoices()
+  );
+
+  useApiErrorLogger(response.error, {
+    hook: "useProjectsListProjectInvoices",
+    api: "Project Invoice List",
     feature: "project-root",
   });
 
@@ -421,10 +442,10 @@ export const useProjectViewFinancialData = (projectId: string) => {
     },
     projectId
       ? ProjectQueryKeys.estimates({
-          fields: ["work_package", "quantity_estimate", "rate_estimate", "name"],
-          filters: [["project", "=", projectId]],
-          limit: 0,
-        })
+        fields: ["work_package", "quantity_estimate", "rate_estimate", "name"],
+        filters: [["project", "=", projectId]],
+        limit: 0,
+      })
       : null
   );
 

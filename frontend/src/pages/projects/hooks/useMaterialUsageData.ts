@@ -64,6 +64,14 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     projectId ? `po_delivery_docs_${projectId}` : undefined
   );
 
+  const { data: transferData } = useFrappeGetCall<{
+    message: { data: Record<string, { transferred_out: number; transferred_in: number; item_name?: string; unit?: string; category?: string }> }
+  }>(
+    "nirmaan_stack.api.internal_transfers.project_transfers.get_transfer_summary",
+    { project_id: projectId },
+    projectId ? `transfer_summary_${projectId}` : undefined
+  );
+
   // --- NEW MAP: Create Billing Category Lookup Map ---
   const billingCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -180,7 +188,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
   ], [po_item_data]);
 
   const allMaterialUsageItems = useMemo((): MaterialUsageDisplayItem[] => {
-    if (allPoItems.length === 0 || !projectEstimates) {
+    if (!projectEstimates) {
       return [];
     }
 
@@ -283,6 +291,59 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
       item.mirCount = deliveryData?.mirs?.length || 0;
     });
 
+    // Merge ITM transfer data into existing PO rows
+    const transferSummary = transferData?.message?.data || {};
+    flatList.forEach(item => {
+      if (!item.itemId) return;
+      const itmData = transferSummary[item.itemId];
+      if (itmData) {
+        item.transferredOut = itmData.transferred_out || 0;
+        item.itmDeliveredQty = itmData.transferred_in || 0;
+        item.poDeliveredQty = item.deliveredQuantity; // save PO-only value
+        item.deliveredQuantity += item.itmDeliveredQty; // combined
+      }
+    });
+
+    // Create rows for items transferred IN but not in any PO for this project
+    Object.entries(transferSummary).forEach(([itemId, itmData]) => {
+      // Skip if item already exists in table (handled by merge above)
+      const alreadyExists = Array.from(usageByItemKey.keys()).some(
+        key => key.endsWith(`_${itemId}`)
+      );
+      if (alreadyExists) return;
+
+      // Only create row if there's transferred_in qty
+      if (!(itmData.transferred_in > 0)) return;
+
+      const category = itmData.category || "Transferred In";
+      const itemKey = `${category}_${itemId}`;
+
+      const newItem: MaterialUsageDisplayItem = {
+        uniqueKey: `itm_transfer_${itemId}`,
+        itemId: itemId,
+        categoryName: category,
+        itemName: itmData.item_name || itemId,
+        unit: itmData.unit || "",
+        orderedQuantity: 0,
+        deliveredQuantity: itmData.transferred_in,
+        dcQuantity: 0,
+        mirQuantity: 0,
+        estimatedQuantity: 0,
+        totalAmount: 0,
+        poNumbers: [],
+        deliveryStatus: "Not Ordered",
+        overallPOPaymentStatus: "N/A",
+        billingCategory: resolveBillingCategory(itemId, category),
+        transferredOut: itmData.transferred_out || 0,
+        itmDeliveredQty: itmData.transferred_in,
+        poDeliveredQty: 0,
+        isTransferredInItem: true,
+      };
+
+      usageByItemKey.set(itemKey, newItem);
+      flatList.push(newItem);
+    });
+
     flatList.sort((a, b) => {
       if (a.categoryName.localeCompare(b.categoryName) !== 0) {
         return a.categoryName.localeCompare(b.categoryName);
@@ -291,7 +352,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     });
 
     return flatList;
-  }, [allPoItems, projectEstimates, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap]);
+  }, [allPoItems, projectEstimates, getIndividualPOStatus, billingCategoryMap, itemDeliveryMap, transferData]);
 
   // --- Vendor lookup by PO (shared by PO-wise and DC/MIR-wise) ---
   const vendorByPO = useMemo(() => {

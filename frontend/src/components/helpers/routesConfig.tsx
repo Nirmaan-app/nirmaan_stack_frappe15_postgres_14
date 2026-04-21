@@ -16,6 +16,7 @@ import NewMilestones from "@/components/updates/NewMilestones";
 import ApprovedQuotationsPage from "@/pages/ApprovedQuotationsFlow/ApprovedQuotationsTable";
 import DeliveryNote from "@/pages/DeliveryNotes/deliverynote";
 import DeliveryNotes from "@/pages/DeliveryNotes/deliverynotes";
+const ITMDeliveryNote = lazy(() => import("@/pages/DeliveryNotes/ITMDeliveryNote"));
 // import ItemsTesting from "@/pages/Items/ItemsTableTesting";
 import { RenderPurchaseOrdersTab } from "@/pages/ProcurementOrders/RenderPurchaseOrdersTab";
 import { ReleasePOSelect } from "@/pages/ProcurementOrders/purchase-order/release-po-select";
@@ -117,6 +118,12 @@ import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDet
 import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
 const ProjectGstPage = lazy(() => import("@/pages/ProjectGst/ProjectGstPage"));
 
+// Internal Transfer Memos (ITM)
+const InternalTransferMemosList = lazy(() => import("@/pages/InternalTransferMemos/InternalTransferMemosList"));
+const CreateITMPage = lazy(() => import("@/pages/InternalTransferMemos/Create/CreateITMPage"));
+const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
+const ITRDetail = lazy(() => import("@/pages/InternalTransferMemos/ITRDetail"));
+
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
   { path: "/login", element: <Login /> },
@@ -186,6 +193,10 @@ export const appRoutes: RouteObject[] = [
                 path: "delivery-notes",
                 children: [
                   { index: true, element: <DeliveryNotes /> },
+                  {
+                    path: "itm/:itmId",
+                    element: <Suspense fallback={null}><ITMDeliveryNote /></Suspense>,
+                  },
                   {
                     path: ":dnId",
                     children: [
@@ -704,6 +715,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: TDS APPROVAL SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: INTERNAL TRANSFER MEMOS SECTION ---
+          // ======================================================
+          {
+            path: "internal-transfer-memos",
+            children: [
+              { index: true, element: <Suspense fallback={null}><InternalTransferMemosList /></Suspense> },
+              { path: "create", element: <Suspense fallback={null}><CreateITMPage /></Suspense> },
+              { path: "itr/:id", element: <Suspense fallback={null}><ITRDetail /></Suspense> },
+              { path: ":id", element: <Suspense fallback={null}><ITMDetail /></Suspense> },
+            ],
+          },
+          // ======================================================
+          // --- END: INTERNAL TRANSFER MEMOS SECTION ---
           // ======================================================
 
         ],

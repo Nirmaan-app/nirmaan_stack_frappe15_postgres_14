@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo,useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     Dialog,
     DialogContent,
@@ -24,6 +24,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 
 interface TDSItem {
     name: string;
@@ -56,10 +57,18 @@ interface ProjectEditTDSItemModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     item: TDSItem | null;
-    onSave: (itemName: string, updates: Partial<TDSItem>, itemsToDelete?: string[]) => void;
+    onSave: (itemName: string, updates: any, itemsToDelete?: string[]) => void;
     loading?: boolean;
 }
 
+/**
+ * Edit modal for repository-linked TDS items (items whose tds_status !== "New").
+ * Work Package + Category are derived from the chosen repo entry and stay read-only.
+ * The editable part is: Item Name → Make → BOQ Ref, Description, Attachment.
+ *
+ * For the "New" item request flow (free-form WP/Category/Item/Make), use
+ * EditRequestItemModal instead.
+ */
 export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = ({
     open,
     onOpenChange,
@@ -67,131 +76,140 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     onSave,
     loading = false,
 }) => {
-    // States for selection
-    const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
-    const [selectedMake, setSelectedMake] = useState<string | null>(null);
+    // Stores tds_item_id (unique per repo item). Two repo items may share a name across
+    // different categories — keying selection by id avoids mixing their makes.
+    const [selectedItemId, setSelectedItemId] = useState("");
+    const [selectedMake, setSelectedMake] = useState("");
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
+    const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
 
-    // Dialog State for Validation
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirmInput, setConfirmInput] = useState("");
     const [duplicateDocName, setDuplicateDocName] = useState<string | null>(null);
 
-    // 1. Fetch Master Data
+    // Master repository entries — source of truth for WP/Category/Item/Make
     const { data: repoItems } = useFrappeGetDocList<TDSRepositoryDoc>("TDS Repository", {
         fields: ["name", "tds_item_id", "tds_item_name", "make", "description", "work_package", "category", "tds_attachment"],
         limit: 0,
-        enabled: open
-    });
+    }, open ? undefined : null);
 
-    // 2. Fetch Existing Project Items (to avoid duplicates)
-    // We check against all project items except the one we are editing
+    // Sibling project items — for avoiding duplicate (item+make) combinations
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
-        fields: ["name", "tds_item_id", "tds_make", "tds_status", "tdsi_project_id","tds_description"],
-        filters: (item && open) ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]] : [["name", "=", "NOT_FOUND"]],
-        limit: 0
+        fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_status", "tdsi_project_id"],
+        filters: (item && open)
+            ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]]
+            : [["name", "=", "NOT_FOUND"]],
+        limit: 0,
     });
 
-    // Initialize states when item changes or modal opens
-    // Track previous Make to detect changes
-    const prevMakeRef = useRef<string | null>(null);
-
-    // Initialize states when item changes or modal opens
-    // Initialize states when item changes or modal opens
     useEffect(() => {
         if (item && open) {
-            setSelectedItemName(item.tds_item_name || "");
+            setSelectedItemId(item.tds_item_id || "");
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
-            prevMakeRef.current = item.tds_make || "";
+            setAttachmentFile(null);
         }
     }, [item, open]);
 
-    // 3. Filter repository items to see what is "Available"
-    // An item is available if it's NOT already in the project as Approved/Pending
-    // UNLESS it's the current record being edited (handled by existingProjectItems filters)
+    // Remove repo entries already used by other pending/approved items in this project
     const availableRepoItems = useMemo(() => {
         if (!repoItems || !existingProjectItems) return repoItems || [];
-
-        // Exclude if Approved or Pending in project
         const occupiedIds = new Set(
             existingProjectItems
                 .filter((i: any) => i.tds_status === "Approved" || i.tds_status === "Pending" || !i.tds_status)
                 .map((i: any) => `${i.tds_item_id}-${i.tds_make}`)
         );
-
         return repoItems.filter(repoItem => {
             const id = `${repoItem.tds_item_id}-${repoItem.make}`;
             return !occupiedIds.has(id);
         });
     }, [repoItems, existingProjectItems]);
 
-    // 4. Compute Options
-    const itemOptions = useMemo(() => {
-        const unique = new Map();
+    const itemNameOptions = useMemo(() => {
+        // Group by tds_item_id — one option per unique item (multiple makes are collapsed).
+        const uniqueById = new Map<string, { tds_item_id: string; tds_item_name: string; category?: string }>();
         availableRepoItems.forEach(i => {
-            if (!unique.has(i.tds_item_name)) {
-                unique.set(i.tds_item_name, { label: i.tds_item_name, value: i.tds_item_name });
+            if (i.tds_item_id && !uniqueById.has(i.tds_item_id)) {
+                uniqueById.set(i.tds_item_id, {
+                    tds_item_id: i.tds_item_id,
+                    tds_item_name: i.tds_item_name,
+                    category: i.category,
+                });
             }
         });
-        return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
+        // Count name collisions so we can show category in blue only when needed.
+        const nameCounts = new Map<string, number>();
+        uniqueById.forEach(e => {
+            nameCounts.set(e.tds_item_name, (nameCounts.get(e.tds_item_name) || 0) + 1);
+        });
+        return Array.from(uniqueById.values())
+            .map(e => ({
+                label: e.tds_item_name,
+                value: e.tds_item_id,
+                category: (nameCounts.get(e.tds_item_name) || 0) > 1 ? (e.category || '') : '',
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
     }, [availableRepoItems]);
 
     const makeOptions = useMemo(() => {
-        if (!selectedItemName) return [];
+        if (!selectedItemId) return [];
         return availableRepoItems
-            .filter(i => i.tds_item_name === selectedItemName)
+            .filter(i => i.tds_item_id === selectedItemId)
             .map(i => ({ label: i.make, value: i.make }))
             .sort((a, b) => a.label.localeCompare(b.label));
-    }, [availableRepoItems, selectedItemName]);
+    }, [availableRepoItems, selectedItemId]);
 
-    // Identify Selected Repo Entry (for auto-filling WP and Category)
     const selectedRepoEntry = useMemo(() => {
-        if (!selectedItemName || !selectedMake) return null;
-        return availableRepoItems.find(i => 
-            i.tds_item_name === selectedItemName && 
-            i.make === selectedMake
-        );
-    }, [availableRepoItems, selectedItemName, selectedMake]);
+        if (!selectedItemId || !selectedMake) return null;
+        return availableRepoItems.find(i =>
+            i.tds_item_id === selectedItemId && i.make === selectedMake
+        ) || null;
+    }, [availableRepoItems, selectedItemId, selectedMake]);
 
-    // Auto-fill Description from Repo Entry when Make changes
-    useEffect(() => {
-        // Only run if make has changed (and not initial load)
-        if (selectedMake !== prevMakeRef.current) {
-            setDescription(selectedRepoEntry?.description || "");
+    // WP/Category are properties of tds_item_id (shared across makes), so resolve
+    // them from item id alone — otherwise they'd stay stale until a make is picked.
+    const selectedItemMeta = useMemo(() => {
+        if (!selectedItemId) return null;
+        return availableRepoItems.find(i => i.tds_item_id === selectedItemId) || null;
+    }, [availableRepoItems, selectedItemId]);
+
+    const displayedWP = selectedItemMeta?.work_package || item?.tds_work_package || "";
+    const displayedCategory = selectedItemMeta?.category || item?.tds_category || "";
+
+    const handleItemNameChange = (opt: any) => {
+        setSelectedItemId(opt?.value || "");
+        setSelectedMake(""); // clear downstream
+    };
+
+    const buildUpdates = () => {
+        const updates: any = {
+            tds_work_package: selectedItemMeta?.work_package ?? item?.tds_work_package ?? "",
+            tds_category: selectedItemMeta?.category ?? item?.tds_category ?? "",
+            tds_item_name: selectedItemMeta?.tds_item_name ?? item?.tds_item_name ?? "",
+            tds_item_id: selectedItemMeta?.tds_item_id ?? item?.tds_item_id ?? "",
+            tds_make: selectedMake,
+            tds_description: description,
+            tds_boq_line_item: boqRef,
+            attachmentFile,
+        };
+        // Carry forward the repo attachment only when the user didn't upload a new file
+        if (!attachmentFile && selectedRepoEntry?.tds_attachment) {
+            updates.tds_attachment = selectedRepoEntry.tds_attachment;
         }
-        // Update ref
-        prevMakeRef.current = selectedMake;
-    }, [selectedMake, selectedRepoEntry]);
-
-    // --- Handlers ---
-
-    const handleItemNameChange = (val: string | null) => {
-        setSelectedItemName(val);
-        setSelectedMake(null);
+        return updates;
     };
 
     const handleSaveAttempt = () => {
-        if (!item || !selectedRepoEntry) {
-            toast({ title: "Validation Error", description: "Please select a valid item and make from the repository.", variant: "destructive" });
+        if (!item) return;
+        if (!selectedItemId || !selectedMake) {
+            toast({ title: "Validation Error", description: "Please select an item and make.", variant: "destructive" });
             return;
         }
 
-        if (boqRef.length > 300) {
-            toast({
-                title: "Validation Error",
-                description: "BOQ Line Item cannot exceed 300 characters",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        // Project Duplicate Check for "Rejected" entries
-        // Since active ones are filtered out of options, we only need to check for Rejected duplicates
-        const duplicate = existingProjectItems?.find(i => 
-            i.tds_item_id === selectedRepoEntry.tds_item_id && 
+        const duplicate = existingProjectItems?.find(i =>
+            i.tds_item_id === selectedRepoEntry?.tds_item_id &&
             i.tds_make === selectedMake &&
             i.tds_status === "Rejected"
         );
@@ -203,158 +221,219 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
 
-        const updates: Partial<TDSItem> = {
-            tds_work_package: selectedRepoEntry.work_package,
-            tds_category: selectedRepoEntry.category,
-            tds_item_name: selectedItemName!,
-            tds_make: selectedMake!,
-            tds_item_id: selectedRepoEntry.tds_item_id,
-            tds_attachment: selectedRepoEntry.tds_attachment,
-            tds_description: description,
-            tds_boq_line_item: boqRef
-        };
-
-        onSave(item.name, updates);
+        onSave(item.name, buildUpdates());
     };
 
     const confirmResubmission = () => {
-        if (confirmInput === "1" && item && duplicateDocName && selectedRepoEntry) {
-            const updates: Partial<TDSItem> = {
-                tds_work_package: selectedRepoEntry.work_package,
-                tds_category: selectedRepoEntry.category,
-                tds_item_name: selectedItemName!,
-                tds_make: selectedMake!,
-                tds_item_id: selectedRepoEntry.tds_item_id,
-                tds_attachment: selectedRepoEntry.tds_attachment,
-                tds_description: description,
-                tds_boq_line_item: boqRef
-            };
-            onSave(item.name, updates, [duplicateDocName]);
-            setShowConfirmDialog(false);
-            setDuplicateDocName(null);
-        } else {
+        if (confirmInput !== "1") {
             toast({ title: "Invalid Input", description: "Please enter '1' to continue.", variant: "destructive" });
+            return;
         }
+        if (!item || !duplicateDocName) return;
+
+        onSave(item.name, buildUpdates(), [duplicateDocName]);
+        setShowConfirmDialog(false);
+        setDuplicateDocName(null);
+    };
+
+    const readOnlyStyles = {
+        control: (base: any) => ({
+            ...base,
+            minHeight: "44px",
+            borderRadius: "8px",
+            borderColor: "#e5e7eb",
+            backgroundColor: "#f9fafb",
+        }),
     };
 
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>Edit TDS Item</DialogTitle>
-                        <DialogDescription>
-                            Select an item and make. Work Package and Category will auto-fill.
+                <DialogContent className="sm:max-w-[480px] p-0 rounded-xl border-none max-h-[90vh] flex flex-col overflow-hidden shadow-2xl bg-white">
+                    <DialogHeader className="p-6 pb-2 border-b border-gray-50">
+                        <DialogTitle className="text-xl font-bold tracking-tight">Edit TDS Item</DialogTitle>
+                        <DialogDescription className="text-sm text-gray-500 mt-1">
+                            Select an item and make from the repository.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label>Item Name <span className="text-red-500">*</span></Label>
-                            <ReactSelect
-                                options={itemOptions}
-                                value={selectedItemName ? { label: selectedItemName, value: selectedItemName } : null}
-                                onChange={(opt) => handleItemNameChange(opt?.value || null)}
-                                placeholder="Select Item Name"
-                                isLoading={!repoItems}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label>Make <span className="text-red-500">*</span></Label>
-                            <ReactSelect
-                                options={makeOptions}
-                                value={selectedMake ? { label: selectedMake, value: selectedMake } : null}
-                                onChange={(opt) => setSelectedMake(opt?.value || null)}
-                                placeholder={selectedItemName ? "Select Make" : "Select an item first"}
-                                isDisabled={!selectedItemName}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label>Work Package (Auto-fill)</Label>
-                            <ReactSelect
-                                isDisabled
-                                value={selectedRepoEntry ? { label: selectedRepoEntry.work_package, value: selectedRepoEntry.work_package } : null}
-                                placeholder="Auto-populated"
-                                styles={{ control: (base) => ({ ...base, backgroundColor: '#f9fafb' }) }}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label>Category (Auto-fill)</Label>
-                            <ReactSelect
-                                isDisabled
-                                value={selectedRepoEntry ? { label: selectedRepoEntry.category, value: selectedRepoEntry.category } : null}
-                                placeholder="Auto-populated"
-                                styles={{ control: (base) => ({ ...base, backgroundColor: '#f9fafb' }) }}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label htmlFor="boq_ref">BOQ Line Item (Optional)</Label>
-                            <Textarea
-                                id="boq_ref"
-                                value={boqRef}
-                                onChange={(e) => setBoqRef(e.target.value)}
-                                placeholder="Edit BOQ Ref"
-                                rows={4}
-                                maxLength={500}
-                            />
-                            <div className="text-xs text-right text-gray-500 mt-1">
-                                {(boqRef || '').length}/500
+                    <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
+                        <div className="space-y-4">
+                            {/* Work Package (auto-fill, read-only) */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">Work Package (Auto-fill)</Label>
+                                <ReactSelect
+                                    options={displayedWP ? [{ label: displayedWP, value: displayedWP }] : []}
+                                    value={displayedWP ? { label: displayedWP, value: displayedWP } : null}
+                                    isDisabled
+                                    placeholder="Auto-filled from item"
+                                    classNamePrefix="react-select"
+                                    styles={readOnlyStyles}
+                                />
                             </div>
-                        </div>
 
-                        <div className="grid gap-2">
-                            <Label htmlFor="description">Description (Input Edit)</Label>
-                            <Textarea
-                                id="description"
-                                rows={3}
-                                value={description}
-                                onChange={(e) => setDescription(e.target.value)}
-                                placeholder="Edit description if needed"
-                            />
+                            {/* Item Name */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">
+                                    Item Name<span className="text-red-500 ml-0.5">*</span>
+                                </Label>
+                                <ReactSelect
+                                    options={itemNameOptions}
+                                    value={
+                                        itemNameOptions.find(opt => opt.value === selectedItemId)
+                                        || (selectedItemId && item ? { label: item.tds_item_name || "", value: selectedItemId, category: "" } : null)
+                                    }
+                                    onChange={handleItemNameChange}
+                                    placeholder="Select Item"
+                                    classNamePrefix="react-select"
+                                    formatOptionLabel={(option: any) => (
+                                        <span>
+                                            {option.label}
+                                            {option.category && (
+                                                <span className="text-blue-600 ml-1">({option.category})</span>
+                                            )}
+                                        </span>
+                                    )}
+                                    styles={{
+                                        control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
+                                    }}
+                                />
+                            </div>
+
+                            {/* Category (auto-fill, read-only) */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">Category (Auto-fill)</Label>
+                                <ReactSelect
+                                    options={displayedCategory ? [{ label: displayedCategory, value: displayedCategory }] : []}
+                                    value={displayedCategory ? { label: displayedCategory, value: displayedCategory } : null}
+                                    isDisabled
+                                    placeholder="Auto-filled from item"
+                                    classNamePrefix="react-select"
+                                    styles={readOnlyStyles}
+                                />
+                            </div>
+
+                            {/* Make */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">
+                                    Make<span className="text-red-500 ml-0.5">*</span>
+                                </Label>
+                                <ReactSelect
+                                    options={makeOptions}
+                                    value={
+                                        makeOptions.find(opt => opt.value === selectedMake)
+                                        || (selectedMake ? { label: selectedMake, value: selectedMake } : null)
+                                    }
+                                    onChange={(opt) => setSelectedMake(opt?.value || "")}
+                                    placeholder={selectedItemId ? "Select Make" : "Pick an Item first"}
+                                    isDisabled={!selectedItemId}
+                                    classNamePrefix="react-select"
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            minHeight: "44px",
+                                            borderRadius: "8px",
+                                            borderColor: "#e5e7eb",
+                                            backgroundColor: !selectedItemId ? "#f9fafb" : "white",
+                                        }),
+                                    }}
+                                />
+                            </div>
+
+                            {/* BOQ Line Item */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">TDS BOQ Line Item</Label>
+                                <Input
+                                    value={boqRef}
+                                    onChange={(e) => setBoqRef(e.target.value)}
+                                    placeholder="Enter BOQ Line Item"
+                                    className="h-11 border-gray-200 rounded-lg bg-gray-50/30 focus:bg-white transition-all font-medium"
+                                />
+                            </div>
+
+                            {/* Description */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">
+                                    Item Description <span className="text-gray-400 font-normal ml-0.5">(Optional)</span>
+                                </Label>
+                                <Textarea
+                                    rows={3}
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    placeholder="Type Description"
+                                    className="border-gray-200 rounded-lg bg-gray-50/30 focus:bg-white transition-all resize-none custom-scrollbar"
+                                />
+                            </div>
+
+                            {/* Attachment */}
+                            <div className="space-y-1.5 mt-2">
+                                <Label className="text-sm font-bold text-gray-700">
+                                    Attach Document <span className="text-gray-400 font-normal ml-0.5">(Optional)</span>
+                                </Label>
+                                <CustomAttachment
+                                    selectedFile={attachmentFile}
+                                    onFileSelect={setAttachmentFile}
+                                    acceptedTypes="application/pdf"
+                                    label="Upload PDF Document"
+                                    maxFileSize={50 * 1024 * 1024}
+                                    className="w-full"
+                                />
+                                {item?.tds_attachment && !attachmentFile && (
+                                    <p className="text-[10px] text-gray-500 flex items-center gap-1 px-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                        Current file: <a href={item.tds_attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Document</a>
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
 
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+                    <DialogFooter className="bg-gray-50 p-4 px-6 border-t border-gray-100 gap-3 justify-end items-center">
+                        <Button
+                            variant="ghost"
+                            onClick={() => onOpenChange(false)}
+                            disabled={loading}
+                            className="text-gray-500 hover:text-gray-700 h-10 px-6 font-bold tracking-tight rounded-lg"
+                        >
                             Cancel
                         </Button>
-                        <Button onClick={handleSaveAttempt} disabled={loading || !selectedRepoEntry}>
+                        <Button
+                            onClick={handleSaveAttempt}
+                            disabled={loading}
+                            className="bg-[#cc4444] hover:bg-red-700 text-white h-10 px-10 font-black tracking-tight rounded-lg shadow-lg shadow-red-100 transform transition-transform active:scale-95"
+                        >
                             {loading ? "Saving..." : "Save Changes"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* Confirmation Dialog for Rejected Duplicate */}
             <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-                <AlertDialogContent>
+                <AlertDialogContent className="rounded-xl border-none shadow-2xl">
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This item-make combination already exists as a <strong>Rejected</strong> entry in the project. 
+                            This item-make combination already exists as a <strong>Rejected</strong> entry in the project.
                             To replace it and continue, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="py-4">
-                        <Input 
+                    <div className="py-2">
+                        <Input
                             value={confirmInput}
                             onChange={(e) => setConfirmInput(e.target.value)}
                             placeholder="Enter 1 to confirm"
-                            className="text-center text-lg font-bold"
+                            className="text-center text-lg font-bold h-12 border-gray-200 rounded-lg focus:ring-red-100"
+                            autoFocus
                         />
                     </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction 
+                    <AlertDialogFooter className="pt-2">
+                        <AlertDialogCancel onClick={() => setShowConfirmDialog(false)} className="rounded-lg">Cancel</AlertDialogCancel>
+                        <AlertDialogAction
                             onClick={(e) => {
                                 e.preventDefault();
                                 confirmResubmission();
                             }}
-                            className="bg-red-600 hover:bg-red-700"
+                            className="bg-red-600 hover:bg-red-700 text-white rounded-lg px-8 font-bold shadow-lg shadow-red-100"
                             disabled={confirmInput !== "1"}
                         >
                             Confirm

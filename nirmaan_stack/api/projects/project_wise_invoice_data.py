@@ -8,9 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils.caching import redis_cache
 
-
+#@redis_cache(shared=True)
 @frappe.whitelist()
-@redis_cache(shared=True)
 def generate_project_wise_invoice_data(project_id: str):
     """
     Generate consolidated invoice data for all approved invoices in a project.

@@ -11,9 +11,10 @@ import {
   useFrappeDeleteDoc, // ADD THIS
 } from "frappe-react-sdk";
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
+import { useUserData } from "@/hooks/useUserData";
 import CameraCapture from "@/components/CameraCapture";
 import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
-import {Camera, X, MapPin, CheckCircle, FileText } from "lucide-react"
+import {Camera, X, MapPin, CheckCircle, FileText,AlertCircle } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -147,6 +148,7 @@ interface ProjectProgressReportData {
   drawing_remarks?: string; // NEW: Client/Clearance Issues - Drawing Remarks
   site_remarks?: string; // NEW: Client/Clearance Issues - Site Remarks
   client_clearance_selection?: 'yes' | 'no' | null; // NEW: Persist Tab Selection
+  declaration_user_not_at_site?: 0 | 1 | boolean | null;
 }
 
 interface FrappeProjectProgressReportPayload {
@@ -162,6 +164,7 @@ interface FrappeProjectProgressReportPayload {
   draft_last_updated?: string; // ADDED
   drawing_remarks?: string; // NEW: Client/Clearance Issues - Drawing Remarks
   site_remarks?: string; // NEW: Client/Clearance Issues - Site Remarks
+  declaration_user_not_at_site?: 0 | 1 | boolean | null;
 }
 
 // --- Client/Clearance Issues Tab Data ---
@@ -247,6 +250,7 @@ const RadioIndicator: React.FC<{ isActive: boolean, isDisabled: boolean }> = ({ 
 const MilestoneTabInner = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject, currentUser:user } = useContext(UserContext); // MODIFIED: Destructured `user`
+  const { full_name } = useUserData();
   const navigate = useNavigate();
   const {
     data: apiData,
@@ -423,11 +427,15 @@ const [newDrawingRemark, setNewDrawingRemark] = useState<string>("");
 const [newSiteRemark, setNewSiteRemark] = useState<string>("");
 const [currentCaptureType, setCurrentCaptureType] = useState<'Work' | 'Site' | 'Drawing'>('Work'); // NEW STATE
 const getClientClearanceStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Client_Clearance_Issues`;
+const [isUserNotInSite, setIsUserNotInSite] = useState(false);
+const [hasAnsweredSitePresence, setHasAnsweredSitePresence] = useState(false);
 // --- END STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
 
 // --- STATE FOR SAVE AS-IS CONFIRMATION ---
 const [isSaveAsIsConfirmOpen, setIsSaveAsIsConfirmOpen] = useState(false);
 const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneData | null>(null);
+const [isNoSiteFinalConfirmOpen, setIsNoSiteFinalConfirmOpen] = useState(false);
+const [noSiteConfirmFromManpowerDialog, setNoSiteConfirmFromManpowerDialog] = useState(false);
 // --- END STATE FOR SAVE AS-IS ---
 
   const [currentTabMilestones, setCurrentTabMilestones] = useState<LocalMilestoneData[]>([]);
@@ -603,7 +611,8 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
             photos: [],
             report_status: 'Draft',
             draft_owner: existingDraftOwner,
-            draft_last_updated: existingDraftLastUpdated
+            draft_last_updated: existingDraftLastUpdated,
+            declaration_user_not_at_site: DraftReport?.declaration_user_not_at_site ?? null
           };
         } else if (tab.project_work_header_name === "Photos") {
           const backendPhotos = DraftReport?.photos || [];
@@ -636,6 +645,7 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
             draft_last_updated: existingDraftLastUpdated,
             drawing_remarks: DraftReport?.drawing_remarks || "",
             site_remarks: DraftReport?.site_remarks || "",
+            declaration_user_not_at_site: DraftReport?.declaration_user_not_at_site ?? null,
           };
         } else {
           // MODIFIED LOGIC: Use existing draft milestones if present, OR the inherited list
@@ -673,7 +683,8 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
             report_status: 'Draft',
             report_zone: reportZone,
             draft_owner: existingDraftOwner,
-            draft_last_updated: existingDraftLastUpdated
+            draft_last_updated: existingDraftLastUpdated,
+            declaration_user_not_at_site: DraftReport?.declaration_user_not_at_site ?? null
           };
         }
         sessionStorage.setItem(storageKey, JSON.stringify(initialData));
@@ -720,6 +731,38 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
     if (storedData) {
       const parsedData: ProjectProgressReportData = JSON.parse(storedData);
       setLocalDailyReport(parsedData);
+      const photoSessionData = sessionStorage.getItem(getPhotosStorageKey(dateString));
+      if (photoSessionData) {
+        try {
+          const parsedPhotoSession = JSON.parse(photoSessionData);
+          const declarationValue = parsedPhotoSession.declaration_user_not_at_site;
+          if (declarationValue === 0 || declarationValue === 1 || typeof declarationValue === 'boolean') {
+            setHasAnsweredSitePresence(true);
+            setIsUserNotInSite(Boolean(declarationValue));
+          } else {
+            setHasAnsweredSitePresence(false);
+            setIsUserNotInSite(false);
+          }
+        } catch {
+          const declarationValue = (parsedData as ProjectProgressReportData).declaration_user_not_at_site;
+          if (declarationValue === 0 || declarationValue === 1 || typeof declarationValue === 'boolean') {
+            setHasAnsweredSitePresence(true);
+            setIsUserNotInSite(Boolean(declarationValue));
+          } else {
+            setHasAnsweredSitePresence(false);
+            setIsUserNotInSite(false);
+          }
+        }
+      } else {
+        const declarationValue = (parsedData as ProjectProgressReportData).declaration_user_not_at_site;
+        if (declarationValue === 0 || declarationValue === 1 || typeof declarationValue === 'boolean') {
+          setHasAnsweredSitePresence(true);
+          setIsUserNotInSite(Boolean(declarationValue));
+        } else {
+          setHasAnsweredSitePresence(false);
+          setIsUserNotInSite(false);
+        }
+      }
 
       if (activeTabValue === "Work force") {
         const fetchedManpower: FrappeManpowerDetail[] = parsedData.manpower || getManpowerRolesDefault().map(r => ({ label: r.label, count: r.count }));
@@ -807,7 +850,8 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
             report_status: 'Draft',
             report_zone:reportZone,
             draft_owner: user || null,
-            draft_last_updated: new Date()
+            draft_last_updated: new Date(),
+            declaration_user_not_at_site: null
           });
           if (activeTabValue === "Work force") {
             setDialogManpowerRoles(getManpowerRolesDefault());
@@ -820,8 +864,89 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
     setReportsLoading(false);
   };
 
+  const persistDeclarationToPhotoSession = (checked: boolean, answered = hasAnsweredSitePresence) => {
+    if (!projectId || !summaryWorkDate) return;
+    const dateString = formatDate(summaryWorkDate);
+    const photoStorageKey = getPhotosStorageKey(dateString);
+    const existing = sessionStorage.getItem(photoStorageKey);
+
+    if (existing) {
+      try {
+        const parsed = JSON.parse(existing);
+        sessionStorage.setItem(
+          photoStorageKey,
+          JSON.stringify({
+            ...parsed,
+            declaration_user_not_at_site: answered ? (checked ? 1 : 0) : null,
+          })
+        );
+        return;
+      } catch {
+      }
+    }
+
+    sessionStorage.setItem(
+      photoStorageKey,
+      JSON.stringify({
+        photos: [],
+        declaration_user_not_at_site: answered ? (checked ? 1 : 0) : null,
+      })
+    );
+  };
+
+  const clearWorkPhotosForDeclaration = () => {
+    if (!projectId || !summaryWorkDate) return;
+    const dateString = formatDate(summaryWorkDate);
+    const photoStorageKey = getPhotosStorageKey(dateString);
+    const existing = sessionStorage.getItem(photoStorageKey);
+    if (!existing) return;
+    try {
+      const parsed = JSON.parse(existing);
+      const filteredPhotos = (parsed.photos || []).filter((p: any) => p.attach_type && p.attach_type !== 'Work');
+      sessionStorage.setItem(
+        photoStorageKey,
+        JSON.stringify({
+          ...parsed,
+          photos: filteredPhotos,
+          declaration_user_not_at_site: 1,
+        })
+      );
+      if (activeTabValue === "Photos") {
+        setLocalPhotos(filteredPhotos);
+      }
+    } catch {
+    }
+  };
+
+  const handleSitePresenceChange = (value: 'yes' | 'no') => {
+    const isNo = value === 'no';
+    setHasAnsweredSitePresence(true);
+    setIsUserNotInSite(isNo);
+    if (isNo) {
+      clearWorkPhotosForDeclaration();
+    }
+    persistDeclarationToPhotoSession(isNo, true);
+  };
+
+  useEffect(() => {
+    if (DraftReport) {
+      const declarationValue = DraftReport.declaration_user_not_at_site;
+      if (declarationValue === 0 || declarationValue === 1 || typeof declarationValue === 'boolean') {
+        setHasAnsweredSitePresence(true);
+        setIsUserNotInSite(Boolean(declarationValue));
+      } else {
+        setHasAnsweredSitePresence(false);
+        setIsUserNotInSite(false);
+      }
+    }
+  }, [DraftReport?.name, DraftReport?.declaration_user_not_at_site]);
+
 
     const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {
+        if (isUserNotInSite && currentCaptureType === 'Work') {
+            setIsCaptureDialogOpen(false);
+            return;
+        }
         console.log("photoData received from CameraCapture:", photoData);
         // Inject the current capture type
         const newPhotoWithType = { ...photoData, attach_type: currentCaptureType };
@@ -853,6 +978,10 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
     };
 
     const handlePhotoRemarksChange = (local_id: string, remarks: string) => {
+        if (isUserNotInSite) {
+            const targetPhoto = localPhotos.find(p => p.local_id === local_id);
+            if (targetPhoto && (!targetPhoto.attach_type || targetPhoto.attach_type === 'Work')) return;
+        }
         const updatedPhotos = localPhotos.map(p => 
             p.local_id === local_id ? { ...p, remarks: remarks } : p
         );
@@ -873,6 +1002,10 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
     };
 
     const handleRemovePhoto = (local_id: string) => {
+        if (isUserNotInSite) {
+            const targetPhoto = localPhotos.find(p => p.local_id === local_id);
+            if (targetPhoto && (!targetPhoto.attach_type || targetPhoto.attach_type === 'Work')) return;
+        }
         const updatedPhotos = localPhotos.filter(p => p.local_id !== local_id);
         setLocalPhotos(updatedPhotos);
         
@@ -1150,13 +1283,14 @@ console.log(user)
         report_status: 'Draft',
         report_zone: reportZone,
         draft_owner: currentDraftOwner,
-        draft_last_updated: currentTimestamp
+        draft_last_updated: currentTimestamp,
+        declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null
       };
 
       sessionStorage.setItem(storageKey, JSON.stringify(payload));
     } else if (activeTabValue === "Photos") {
-            const payload: Pick<ProjectProgressReportData, 'photos'> = { photos: localPhotos };
-            sessionStorage.setItem(storageKey, JSON.stringify(payload));
+      const payload: Pick<ProjectProgressReportData, 'photos'> = { photos: localPhotos };
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...payload, declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null }));
     } else if (activeTabValue === "Client / Clearance Issues") {
       // Save Client/Clearance Issues tab data
       let drawingRemarksToSave = "";
@@ -1187,6 +1321,7 @@ console.log(user)
         drawing_remarks: drawingRemarksToSave,
         site_remarks: siteRemarksToSave,
         client_clearance_selection: hasClearanceIssues, // Save user selection
+        declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null,
       };
       sessionStorage.setItem(storageKey, JSON.stringify(payload));
     } else {
@@ -1199,7 +1334,8 @@ console.log(user)
         report_status: 'Draft',
         report_zone: reportZone,
         draft_owner: currentDraftOwner,
-        draft_last_updated: currentTimestamp
+        draft_last_updated: currentTimestamp,
+        declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null
       };
 
       sessionStorage.setItem(storageKey, JSON.stringify(payload));
@@ -1274,7 +1410,11 @@ console.log(user)
       return payloadEntry;
     });
 
-    const cleanedAttachments: Omit<ProjectProgressAttachment, 'local_id'>[] = allPhotos.map(photo => ({
+    const filteredAllPhotos = isUserNotInSite
+      ? allPhotos.filter(photo => photo.attach_type && photo.attach_type !== 'Work')
+      : allPhotos;
+
+    const cleanedAttachments: Omit<ProjectProgressAttachment, 'local_id'>[] = filteredAllPhotos.map(photo => ({
         image_link: photo.image_link,
         location: photo.location,
         remarks: photo.remarks,
@@ -1292,6 +1432,7 @@ console.log(user)
       report_zone: reportZone || undefined, // Ensure undefined if null
       drawing_remarks: clientClearanceDrawingRemarks, // NEW: Client/Clearance Issues
       site_remarks: clientClearanceSiteRemarks, // NEW: Client/Clearance Issues
+      declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null,
     };
 
     if (status === 'Draft') {
@@ -1319,8 +1460,9 @@ console.log(user)
     });
   };
 
-  const handleSyncAndSubmitAllData = async (isCalledFromManpowerDialog = false) => {
+  const handleSyncAndSubmitAllData = async (isCalledFromManpowerDialog = false, skipNoSiteConfirmation = false) => {
     setIsLocalSaving(true);
+
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
       const hasUnupdatedMilestones = currentTabMilestones.some(
@@ -1366,6 +1508,22 @@ console.log(user)
     let docNameForFrappeOperation: string | null = null;
 
     if (isLastTab) {
+      if (!hasAnsweredSitePresence) {
+        setIsLocalSaving(false);
+        toast({
+          title: "Validation Error 🚫",
+          description: "Please answer 'Are You At Site?' before final submission.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (isUserNotInSite && !skipNoSiteConfirmation) {
+        setIsLocalSaving(false);
+        setNoSiteConfirmFromManpowerDialog(isCalledFromManpowerDialog);
+        setIsNoSiteFinalConfirmOpen(true);
+        return;
+      }
       submissionStatus = 'Completed';
       successMessage = "Final Report Submitted Successfully! ✅";
       failureMessage = "Final Submission Failed ❌";
@@ -1375,7 +1533,7 @@ console.log(user)
       const payloadToCheckPhotos = collectAllTabData('Draft');
       const workPhotosCount = (payloadToCheckPhotos.attachments || []).filter(p => !p.attach_type || p.attach_type === 'Work').length;
       
-      if (workPhotosCount < 4) {
+      if (!isUserNotInSite && workPhotosCount < 4) {
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
@@ -2539,46 +2697,115 @@ console.log(user)
           <PlusCircledIcon className="h-5 w-5 mr-2" />
               <span> ADD PHOTOS</span>
           </Button> */}
-           <PhotoPermissionChecker
-            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-            onAddPhotosClick={() => {
-                setCurrentCaptureType('Work');
-                setIsCaptureDialogOpen(true);
-            }}
-            GEO_API={apiData?.api_key}
-          />
+           <div className="mb-3 w-full rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+            <p className="text-sm font-semibold text-amber-900 mb-1">Declaration</p>
+            <p className="text-sm font-medium text-amber-900 mb-2">Are You At Site?</p>
+            <div className="flex items-center gap-4 text-sm font-medium text-amber-900">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="site_presence"
+                  checked={hasAnsweredSitePresence && !isUserNotInSite}
+                  onChange={() => handleSitePresenceChange('yes')}
+                  disabled={isBlockedByDraftOwnership}
+                  className="h-4 w-4"
+                />
+                Yes
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="site_presence"
+                  checked={hasAnsweredSitePresence && isUserNotInSite}
+                  onChange={() => handleSitePresenceChange('no')}
+                  disabled={isBlockedByDraftOwnership}
+                  className="h-4 w-4"
+                />
+                No
+              </label>
+            </div>
+           </div>
         </CardHeader>
         <CardContent className="pt-0">
-           {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length < 4 && (
-             <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-md mb-4 text-sm font-medium border border-blue-200 w-full text-center">
-               ℹ️ At least 4 photos are required for the final submission.
-            </div>
-           )}
-          {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
-             <ImageBentoGrid
-              images={localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map(p => ({
-                image_link: p.image_link,
-                location: p.location || undefined,
-                remarks: p.remarks,
-                local_id: p.local_id
-              }))}
-              isEditable={true}
-              onRemove={handleRemovePhoto}
-              onRemarkChange={handlePhotoRemarksChange}
-              disabled={isBlockedByDraftOwnership}
-              forPdf={false}
-            />
+          {hasAnsweredSitePresence && !isUserNotInSite ? (
+            <>
+              <h3 className="w-full text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
+                <Camera className="w-4 h-4" /> Work Images (Required: 4+)
+              </h3>
+              <PhotoPermissionChecker
+                isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                onAddPhotosClick={() => {
+                    setCurrentCaptureType('Work');
+                    setIsCaptureDialogOpen(true);
+                }}
+                GEO_API={apiData?.api_key}
+              />
+              {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length < 4 && (
+                <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-md mb-4 text-sm font-medium border border-blue-200 w-full text-center">
+                  ℹ️ At least 4 photos are required for the final submission.
+                </div>
+              )}
+              {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
+                <ImageBentoGrid
+                  images={localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map(p => ({
+                    image_link: p.image_link,
+                    location: p.location || undefined,
+                    remarks: p.remarks,
+                    local_id: p.local_id
+                  }))}
+                  isEditable={true}
+                  onRemove={handleRemovePhoto}
+                  onRemarkChange={handlePhotoRemarksChange}
+                  disabled={isBlockedByDraftOwnership}
+                  forPdf={false}
+                />
+              ) : (
+                <div className="text-center py-12 px-4 bg-white rounded-lg shadow-md border border-dashed border-gray-300">
+                  <p className="text-lg text-gray-600 font-semibold mb-2">No photos captured yet!</p>
+                  <p className="text-gray-500 text-sm">Click the "ADD PHOTOS" button above to get started.</p>
+                </div>
+              )}
+            </>
+          ) : hasAnsweredSitePresence ? (
+                    <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 shadow-sm w-full">
+                      <p className="text-sm font-bold text-amber-900 mb-2 uppercase tracking-wide text-center">Declaration by {full_name || "User"}</p>
+                      <div className="text-sm shadow-inner p-3 bg-amber-100/50 rounded-md border border-amber-200 leading-relaxed text-amber-800 italic">
+                        <p className="font-bold text-amber-900 text-center">"I hereby acknowledge that I am not present at the site for this report's duration."</p>
+                      </div>
+                    </div>
           ) : (
-            <div className="text-center py-12 px-4 bg-white rounded-lg shadow-md border border-dashed border-gray-300">
-              
-              <p className="text-lg text-gray-600 font-semibold mb-2">No photos captured yet!</p>
-              <p className="text-gray-500 text-sm">Click the "ADD PHOTOS" button above to get started.</p>
+            <div className="text-center py-8 px-4 bg-red-50 rounded-lg border border-red-200 flex flex-col items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-600" />
+              <p className="text-sm font-semibold text-red-800">Please choose `Yes` or `No` for `Are You At Site?` to continue.</p>
+              <p className="text-xs text-red-600/80">This declaration is mandatory for report submission.</p>
             </div>
           )}
         </CardContent>
       </Card>
       
     </TabsContent>
+
+    <Dialog open={isNoSiteFinalConfirmOpen} onOpenChange={setIsNoSiteFinalConfirmOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Confirm Final Submission</DialogTitle>
+          <DialogDescription>
+            You selected that you are not at site. Work photos are not included. Are you sure you want to submit the final report?
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={() => setIsNoSiteFinalConfirmOpen(false)}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setIsNoSiteFinalConfirmOpen(false);
+              handleSyncAndSubmitAllData(noSiteConfirmFromManpowerDialog, true);
+            }}
+          >
+            Confirm & Submit
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
 {/* 
             {allAvailableTabs.map((tab) => (
               tab.project_work_header_name !== "Work force" && tab.project_work_header_name!=="Photos"? (

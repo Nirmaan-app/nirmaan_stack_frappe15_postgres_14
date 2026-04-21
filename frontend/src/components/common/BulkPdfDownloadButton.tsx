@@ -5,7 +5,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Download, FileDown } from "lucide-react";
+import { ChevronDown, Download, FileDown, ExternalLink } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
@@ -35,19 +36,20 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     invoiceType,
     setInvoiceType,
     initiateInvoiceDownload,
-    handleBulkDownload
+    handleBulkDownload,
+    completedBatches,
+    finalMergeToken,
+    triggerDownload,
+    stopProgress
   } = useBulkPdfDownload(projectId, projectName);
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-full md:w-64 justify-between border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
-            <div className="flex items-center gap-2">
-              <FileDown className="h-4 w-4" />
-              <span className="font-semibold">Project Bulk Download</span>
-            </div>
-            <ChevronDown className="h-4 w-4 opacity-50" />
+          <Button variant="outline" className="w-full md:w-auto px-4 border-red-400 text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors duration-200 flex items-center gap-2">
+            <Download className="h-4 w-4" />
+            <span className="font-semibold text-sm">Project Bulk Download</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64 p-1">
@@ -89,8 +91,8 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
           <div className="flex flex-col gap-4 py-4">
             <p className="text-sm text-muted-foreground">Select how you want to download the PO documents.</p>
             <div className="flex flex-col gap-2">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => handleBulkDownload("PO", "POs", { withRate: true })}
                 disabled={isProjectManager}
                 className="justify-start h-auto py-3 px-4"
@@ -103,7 +105,7 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
                   )}
                 </div>
               </Button>
-              <Button 
+              <Button
                 variant="outline"
                 onClick={() => handleBulkDownload("PO", "POs", { withRate: false })}
                 className="justify-start h-auto py-3 px-4"
@@ -142,8 +144,8 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
                 <Label htmlFor="all-inv" className="cursor-pointer">All Invoices</Label>
               </div>
             </RadioGroup>
-            <Button 
-              className="mt-4" 
+            <Button
+              className="mt-4"
               onClick={() => handleBulkDownload("Invoice", "Invoices")}
             >
               Generate Invoices PDF
@@ -153,27 +155,39 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
       </Dialog>
 
       {/* Progress Dialog */}
-      <Dialog open={showProgress} onOpenChange={(open) => !loading && setShowProgress(open)}>
-        <DialogContent 
-            className="sm:max-w-md [&>button]:hidden"
-            onPointerDownOutside={(e) => e.preventDefault()}
-            onEscapeKeyDown={(e) => e.preventDefault()}
+      <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
+        <DialogContent
+          className="sm:max-w-md [&>button]:hidden"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
         >
-            <DialogHeader>
-            <DialogTitle>Generating PDF</DialogTitle>
-            <DialogDescription>
-                Please wait while we gather and merge your documents.
-            </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col items-center justify-center space-y-4 py-4">
-                <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
-                <div 
-                    className="bg-primary h-full transition-all duration-300 ease-in-out" 
-                    style={{ width: `${progress}%` }}
+          <DialogHeader>
+            <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-primary h-full transition-all duration-300 ease-in-out"
+                  style={{ width: `${progress}%` }}
                 />
-                </div>
-                <p className="text-sm text-muted-foreground">{progress}% - {progressMessage}</p>
+              </div>
+              <div className="flex justify-between items-center text-xs text-muted-foreground">
+                <span>{progress}% - {progressMessage}</span>
+              </div>
             </div>
+
+            {/* {(progress === 100 || !loading) && (
+                    <div className="pt-2 flex justify-end">
+                        <Button 
+                            className="w-full"
+                            onClick={stopProgress}
+                        >
+                            Close and Finish
+                        </Button>
+                    </div>
+                )} */}
+          </div>
         </DialogContent>
       </Dialog>
     </>

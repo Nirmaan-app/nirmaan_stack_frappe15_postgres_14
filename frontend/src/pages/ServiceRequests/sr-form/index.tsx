@@ -33,6 +33,7 @@ import {
     defaultSRFormValues,
     validateStep1,
     validateStep2,
+    calculateTotal,
     ValidationResult,
 } from "./schema";
 import {
@@ -45,6 +46,7 @@ import {
     SR_SECTION_TITLES,
     SR_SECTION_DESCRIPTIONS,
 } from "./constants";
+import { groupItemsByCategoryFlat } from "./utils";
 
 // Step Components
 import { ServiceItemsStep, VendorRatesStep, ReviewStep } from "./steps";
@@ -108,6 +110,7 @@ export const SRFormWizard = () => {
        ───────────────────────────────────────────────────────── */
     const {
         categories,
+        serviceItems,
         vendors,
         project,
         autoSelectedGST,
@@ -199,11 +202,34 @@ export const SRFormWizard = () => {
                 // Full validation on review step
                 const result = srFormSchema.safeParse(currentFormValues);
                 if (!result.success) {
+                    const error = result.error.errors[0];
+                    let message = error?.message || "Please review all details.";
+
+                    // If error is related to a specific item, prepend the item name
+                    if (error?.path[0] === "items" && typeof error.path[1] === "number") {
+                        const itemIndex = error.path[1];
+                        const item = currentFormValues.items?.[itemIndex];
+                        if (item?.description) {
+                            const itemName = item.description.split('\n')[0];
+                            message = `${itemName}: ${message}`;
+                        }
+                    }
+
                     return {
                         success: false,
-                        error: result.error.errors[0]?.message || "Please review all details.",
+                        error: message,
                     };
                 }
+
+                // Final check for negative total
+                const finalTotal = calculateTotal(currentFormValues.items || []);
+                if (finalTotal < 0) {
+                    return {
+                        success: false,
+                        error: "Total Service Amount cannot be negative.",
+                    };
+                }
+
                 return { success: true };
             default:
                 return { success: true };
@@ -283,9 +309,12 @@ export const SRFormWizard = () => {
         setCreationState({ stage: "creating-sr" });
 
         try {
+            // Group items by category to preserve package-wise order in backend
+            const groupedItems = groupItemsByCategoryFlat(currentFormValues.items);
+
             // Build service_order_list structure
             const serviceOrderList = {
-                list: currentFormValues.items.map((item) => ({
+                list: groupedItems.map((item) => ({
                     id: item.id,
                     category: item.category,
                     description: item.description,
@@ -295,8 +324,8 @@ export const SRFormWizard = () => {
                 })),
             };
 
-            // Build service_category_list from unique categories
-            const uniqueCategories = [...new Set(currentFormValues.items.map((item) => item.category))];
+            // Build service_category_list from unique categories in the grouped order
+            const uniqueCategories = Array.from(new Set(groupedItems.map((item) => item.category)));
             const serviceCategoryList = {
                 list: uniqueCategories.map((name) => ({ name })),
             };
@@ -381,6 +410,7 @@ export const SRFormWizard = () => {
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        serviceItems={serviceItems}
                         isLoading={dataLoading}
                     />
                 );

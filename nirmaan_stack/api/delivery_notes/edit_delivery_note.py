@@ -6,6 +6,7 @@ ALWAYS_EDIT_ROLES = [
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
+    "Nirmaan Procurement Executive Profile",
 ]
 
 
@@ -72,6 +73,13 @@ def edit_delivery_note(dn_name: str, modified_items: dict):
         if dn.is_return:
             frappe.throw(
                 "Return notes cannot be edited. Create a new delivery note instead.",
+                frappe.ValidationError,
+            )
+
+        # ITM-backed DNs cannot be edited via this PO-specific endpoint
+        if not dn.procurement_order:
+            frappe.throw(
+                "This delivery note is not linked to a Procurement Order and cannot be edited here.",
                 frappe.ValidationError,
             )
 

@@ -131,7 +131,7 @@ def get_tds_request_list(
 
     # Tab Logic
     # Treat NULL/empty tds_status as 'Pending'
-    pending_expr = "SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END)"
+    pending_expr = "SUM(CASE WHEN tds_status = 'Pending' OR tds_status = 'New' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END)"
     rejected_expr = "SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END)"
     approved_expr = "SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END)"
     total_expr = "COUNT(name)"
@@ -158,7 +158,7 @@ def get_tds_request_list(
             MIN(creation) as creation,
             COUNT(name) as total_items,
             MAX(owner) as created_by,
-            SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
+            SUM(CASE WHEN tds_status = 'Pending' OR tds_status = 'New' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
             SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count,
             SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count
         FROM `tabProject TDS Item List`
@@ -216,7 +216,7 @@ def get_tds_request_list(
     count_sql = f"""
         SELECT COUNT(*) as total FROM (
             SELECT tds_request_id,
-            SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
+            SUM(CASE WHEN tds_status = 'Pending' OR tds_status = 'New' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
             SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count,
             SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count,
             COUNT(name) as total_count
@@ -245,7 +245,7 @@ def get_tds_request_list(
         FROM (
             SELECT 
                 tds_request_id,
-                SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
+                SUM(CASE WHEN tds_status = 'Pending' OR tds_status = 'New' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count,
                 SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count,
                 COUNT(name) as total_count

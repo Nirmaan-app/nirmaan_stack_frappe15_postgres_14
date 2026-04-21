@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Pencil, Printer, RotateCcw,PrinterCheck } from "lucide-react";
+import { Pencil, Printer, RotateCcw,PrinterCheck, Trash2 } from "lucide-react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from "@/utils/FormatDate";
@@ -25,6 +25,8 @@ interface PivotTableHeaderProps {
   editingDnName?: string | null;
   canEditDn?: (col: DNColumn) => boolean;
   onEditDn?: (col: DNColumn) => void;
+  onDeleteDn?: (col: DNColumn) => void;
+  isAdmin?: boolean;
   viewMode?: "create" | "view-only" | "full";
   showReturn?: boolean;
   hideTotalReceived?: boolean;
@@ -39,6 +41,8 @@ export function PivotTableHeader({
   editingDnName,
   canEditDn,
   onEditDn,
+  onDeleteDn,
+  isAdmin = false,
   viewMode = "full",
   showReturn = false,
   hideTotalReceived = false,
@@ -126,7 +130,6 @@ export function PivotTableHeader({
                       <TooltipContent>Download {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
                     </Tooltip>
                     {showEditBtn && (
-                      <>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -140,19 +143,39 @@ export function PivotTableHeader({
                         </TooltipTrigger>
                         <TooltipContent>Edit {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
                       </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                            onClick={() => onOpenVendorDC?.(col)}
-                          >
-                            <PrinterCheck className="h-3 w-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Vendor Delivery Challan {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
-                      </Tooltip>
+                    )}
+                    
+                    {!editingDnName && viewMode === "full" && (
+                      <>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                              onClick={() => onOpenVendorDC?.(col)}
+                            >
+                              <PrinterCheck className="h-3 w-3" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Vendor Delivery Challan {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
+                        </Tooltip>
+                        
+                        {isAdmin && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                                onClick={() => onDeleteDn?.(col)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
+                          </Tooltip>
+                        )}
                       </>
                     )}
                   </div>

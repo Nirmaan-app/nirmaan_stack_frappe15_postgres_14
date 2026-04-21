@@ -31,7 +31,7 @@ export type DeliveryStatus = "Fully Delivered" | "Partially Delivered" | "Pendin
 export type OverallItemPOStatus = POStatus | "N/A";
 
 // Defines which columns can be sorted and hidden.
-export type MaterialSortKey = 'deliveredQuantity' | 'orderedQuantity' | 'totalAmount' | 'dcQuantity' | 'mirQuantity' | 'remainingQuantity';
+export type MaterialSortKey = 'deliveredQuantity' | 'orderedQuantity' | 'totalAmount' | 'dcQuantity' | 'mirQuantity' | 'remainingQuantity' | 'transferredOut';
 
 // Shared type for DC/MIR document references in the Material Usage table
 export interface DeliveryDocumentInfo {
@@ -111,6 +111,10 @@ export interface MaterialUsageDisplayItem {
   isOrphanDCItem?: boolean;  // true when item comes from DC/MIR but has no matching PO item
   remainingQuantity?: number | null;
   isHighValueItem?: boolean;
+  transferredOut?: number;
+  poDeliveredQty?: number;
+  itmDeliveredQty?: number;
+  isTransferredInItem?: boolean;
 }
 
 // Data structure for DC/MIR Wise view item rows

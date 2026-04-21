@@ -226,239 +226,249 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
     Math.abs(totalAmount - Number(po?.total_amount)) >= 1;
   const remainingAmount = Number(po?.total_amount) - totalAmount;
 
+  const isCredit = po?.payment_terms?.[0]?.payment_type === "Credit";
+  // On mobile (non-credit), reduce Term by 10% and redistribute to Amount & Percent
+  const termWidth = isCredit ? "w-[35%]" : "w-[45%] md:w-[55%]";
+  const amountWidth = isCredit ? "w-[20%]" : "w-[25%] md:w-[20%]";
+  const percentWidth = isCredit ? "w-[15%]" : "w-[20%] md:w-[15%]";
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogPortal>
-        <DialogContent className="sm:max-w-4xl bg-white p-6 rounded-lg shadow-xl">
+        <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 rounded-lg shadow-xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
               Edit {po?.payment_terms?.[0]?.payment_type || "Payment"} Terms
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSave)}>
-            <div className="my-6 space-y-2">
-              <div className="flex px-2 pb-2 border-b items-center space-x-2">
-                <div className="w-[35%] text-sm font-medium text-muted-foreground">
-                  Term
-                </div>
-                <div className="w-[20%] text-right text-sm font-medium text-muted-foreground">
-                  Amount
-                </div>
-                <div className="w-[15%] text-right text-sm font-medium text-muted-foreground">
-                  Percentage (%)
-                </div>
-                {po?.payment_terms?.[0]?.payment_type === "Credit" && (
-                  <div className="w-[20%] text-center text-sm font-medium text-muted-foreground">
-                    Due Date
+            <div className="my-4 sm:my-6 space-y-2">
+              <div className="overflow-x-auto border-gray-100 pb-2">
+                <div className="min-w-[500px] md:min-w-[750px]">
+                  <div className="flex px-2 pb-2 border-b items-center space-x-2">
+                    <div className={`${termWidth} text-sm font-medium text-muted-foreground`}>
+                      Term
+                    </div>
+                    <div className={`${amountWidth} text-right text-sm font-medium text-muted-foreground`}>
+                      Amount
+                    </div>
+                    <div className={`${percentWidth} text-right text-sm font-medium text-muted-foreground`}>
+                      Percentage (%)
+                    </div>
+                    {isCredit && (
+                      <div className="w-[20%] text-center text-sm font-medium text-muted-foreground">
+                        Due Date
+                      </div>
+                    )}
+                    <div className="w-12"></div>
                   </div>
-                )}
-                <div className="w-12"></div>
-              </div>
-              <div className="space-y-1">
-                {fields.map((field, index) => {
-                  // Only "Created" status terms are editable
-                  const currentStatus = watchedTerms[index]?.term_status;
-                  const isRowDisabled = currentStatus !== "Created";
-                  const isTermInactive = watchedTerms[index]?.docstatus === 1;
-                  const isDisabled = isRowDisabled || isTermInactive;
+                  <div className="space-y-1">
+                    {fields.map((field, index) => {
+                      // Only "Created" status terms are editable
+                      const currentStatus = watchedTerms[index]?.term_status;
+                      const isRowDisabled = currentStatus !== "Created";
+                      const isTermInactive = watchedTerms[index]?.docstatus === 1;
+                      const isDisabled = isRowDisabled || isTermInactive;
 
-                  return (
-                    <div
-                      key={field.id}
-                      className="flex items-center p-2 rounded-md hover:bg-gray-50 space-x-2"
-                    >
-                      <div className="w-[35%] flex items-center space-x-2">
-                        <Controller
-                          name={`payment_terms.${index}.docstatus`}
-                          control={control}
-                          render={({ field: checkField }) => (
-                            <Checkbox
-                              id={`term-active-${index}`}
-                              checked={!isTermInactive}
-                              disabled={isRowDisabled}
-                              onCheckedChange={(checked) => {
-                                checkField.onChange(checked ? 0 : 1);
-                                if (!checked) {
-                                  setValue(`payment_terms.${index}.amount`, 0, {
-                                    shouldDirty: true,
-                                  });
-                                  setValue(
-                                    `payment_terms.${index}.percentage`,
-                                    0,
-                                    { shouldDirty: true }
-                                  );
-                                }
-                              }}
+                      return (
+                        <div
+                          key={field.id}
+                          className="flex items-center p-2 rounded-md hover:bg-gray-50 space-x-2"
+                        >
+                          <div className={`${termWidth} flex items-center space-x-2`}>
+                            <Controller
+                              name={`payment_terms.${index}.docstatus`}
+                              control={control}
+                              render={({ field: checkField }) => (
+                                <Checkbox
+                                  id={`term-active-${index}`}
+                                  checked={!isTermInactive}
+                                  disabled={isRowDisabled}
+                                  onCheckedChange={(checked) => {
+                                    checkField.onChange(checked ? 0 : 1);
+                                    if (!checked) {
+                                      setValue(`payment_terms.${index}.amount`, 0, {
+                                        shouldDirty: true,
+                                      });
+                                      setValue(
+                                        `payment_terms.${index}.percentage`,
+                                        0,
+                                        { shouldDirty: true }
+                                      );
+                                    }
+                                  }}
+                                />
+                              )}
                             />
-                          )}
-                        />
-                        <Controller
-                          name={`payment_terms.${index}.label`}
-                          control={control}
-                          rules={{ required: "Term label is required." }}
-                          render={({ field: labelField }) => (
-                            <Input
-                              placeholder="e.g., On Delivery"
-                              className={`h-9 w-full ${errors?.payment_terms?.[index]?.label
-                                  ? "border-red-500"
-                                  : ""
-                                }`}
-                              disabled={isDisabled}
-                              {...labelField}
-                            />
-                          )}
-                        />
-                      </div>
-                      <div className="w-[20%] px-1">
-                        <Controller
-                          name={`payment_terms.${index}.amount`}
-                          control={control}
-                          render={({ field: amountField }) => (
-                            <Input
-                              type="number"
-                              className="text-right h-9"
-                              disabled={isDisabled}
-                              step="0.01"
-                              {...amountField} // This passes value, name, ref
-                              // 1. SIMPLIFIED onChange: Only update state and recalculate percentage
-                              onChange={(e) => {
-                                const rawValue = e.target.value;
-                                // Let react-hook-form handle the state update with the raw value
-                                amountField.onChange(rawValue);
-
-                                // Recalculate percentage on every keystroke for live feedback
-                                const newAmount = Number(rawValue) || 0;
-                                const totalPoAmount =
-                                  Number(po.total_amount) || 1;
-                                const newPercentage =
-                                  (newAmount / totalPoAmount) * 100;
-                                setValue(
-                                  `payment_terms.${index}.percentage`,
-                                  newPercentage
-                                );
-                              }}
-                              // 2. NEW onBlur: Format the number to two decimal places
-                              onBlur={(e) => {
-                                // First, call the original onBlur from react-hook-form
-                                amountField.onBlur(e);
-
-                                // Now, format the value
-                                const value =
-                                  parseFloat(amountField.value) || 0;
-                                // Use setValue to update the form state with the formatted string
-                                setValue(
-                                  `payment_terms.${index}.amount`,
-                                  value.toFixed(2),
-                                  {
-                                    shouldValidate: true, // Optional: re-run validation
-                                    shouldDirty: true, // Ensure the form knows it has changed
-                                  }
-                                );
-                              }}
-                            />
-                          )}
-                        />
-                      </div>
-                      <div className="w-[15%] px-1">
-                        <Input
-                          className="text-right h-9 bg-gray-100 cursor-not-allowed"
-                          readOnly
-                          disabled={isDisabled}
-                          value={`${(
-                            Number(watchedTerms[index]?.percentage) || 0
-                          ).toFixed(2)}`}
-                        />
-                      </div>
-                      {po?.payment_terms?.[0]?.payment_type === "Credit" && (
-                        <div className="w-[20%] px-1">
-                          <Controller
-                            name={`payment_terms.${index}.due_date`}
-                            control={control}
-                            rules={{
-                              validate: (value) => {
-                                // Get the status of the current row
-                                const status =
-                                  getValues().payment_terms[index].term_status;
-
-                                // Due date is required for credit terms
-                                if (!value) {
-                                  return "Due date is required for credit terms.";
-                                }
-
-                                // If the row is not editable (not Created), skip further validation
-                                if (status !== "Created") {
-                                  return true;
-                                }
-
-                                // For Created terms, due date must be today or in the future
-                                if (new Date(value) < new Date(today)) {
-                                  return "Due date must be today or in the future.";
-                                }
-
-                                return true;
-                              },
-                            }}
-                            render={({ field: dateField }) => (
-                              <Input
-                                type="date"
-                                className={`h-9 ${errors?.payment_terms?.[index]?.due_date
+                            <Controller
+                              name={`payment_terms.${index}.label`}
+                              control={control}
+                              rules={{ required: "Term label is required." }}
+                              render={({ field: labelField }) => (
+                                <Input
+                                  placeholder="e.g., On Delivery"
+                                  className={`h-9 w-full ${errors?.payment_terms?.[index]?.label
                                     ? "border-red-500"
                                     : ""
-                                  }`}
-                                // min={today}
-                                disabled={isDisabled}
-                                {...dateField}
+                                    }`}
+                                  disabled={isDisabled}
+                                  {...labelField}
+                                />
+                              )}
+                            />
+                          </div>
+                          <div className={`${amountWidth} px-1`}>
+                            <Controller
+                              name={`payment_terms.${index}.amount`}
+                              control={control}
+                              render={({ field: amountField }) => (
+                                <Input
+                                  type="number"
+                                  className="text-right h-9"
+                                  disabled={isDisabled}
+                                  step="0.01"
+                                  {...amountField} // This passes value, name, ref
+                                  // 1. SIMPLIFIED onChange: Only update state and recalculate percentage
+                                  onChange={(e) => {
+                                    const rawValue = e.target.value;
+                                    // Let react-hook-form handle the state update with the raw value
+                                    amountField.onChange(rawValue);
+
+                                    // Recalculate percentage on every keystroke for live feedback
+                                    const newAmount = Number(rawValue) || 0;
+                                    const totalPoAmount =
+                                      Number(po.total_amount) || 1;
+                                    const newPercentage =
+                                      (newAmount / totalPoAmount) * 100;
+                                    setValue(
+                                      `payment_terms.${index}.percentage`,
+                                      newPercentage
+                                    );
+                                  }}
+                                  // 2. NEW onBlur: Format the number to two decimal places
+                                  onBlur={(e) => {
+                                    // First, call the original onBlur from react-hook-form
+                                    amountField.onBlur(e);
+
+                                    // Now, format the value
+                                    const value =
+                                      parseFloat(amountField.value) || 0;
+                                    // Use setValue to update the form state with the formatted string
+                                    setValue(
+                                      `payment_terms.${index}.amount`,
+                                      value.toFixed(2),
+                                      {
+                                        shouldValidate: true, // Optional: re-run validation
+                                        shouldDirty: true, // Ensure the form knows it has changed
+                                      }
+                                    );
+                                  }}
+                                />
+                              )}
+                            />
+                          </div>
+                          <div className={`${percentWidth} px-1`}>
+                            <Input
+                              className="text-right h-9 bg-gray-100 cursor-not-allowed"
+                              readOnly
+                              disabled={isDisabled}
+                              value={`${(
+                                Number(watchedTerms[index]?.percentage) || 0
+                              ).toFixed(2)}`}
+                            />
+                          </div>
+                          {isCredit && (
+                            <div className="w-[20%] px-1">
+                              <Controller
+                                name={`payment_terms.${index}.due_date`}
+                                control={control}
+                                rules={{
+                                  validate: (value) => {
+                                    // Get the status of the current row
+                                    const status =
+                                      getValues().payment_terms[index].term_status;
+
+                                    // Due date is required for credit terms
+                                    if (!value) {
+                                      return "Due date is required for credit terms.";
+                                    }
+
+                                    // If the row is not editable (not Created), skip further validation
+                                    if (status !== "Created") {
+                                      return true;
+                                    }
+
+                                    // For Created terms, due date must be today or in the future
+                                    if (new Date(value) < new Date(today)) {
+                                      return "Due date must be today or in the future.";
+                                    }
+
+                                    return true;
+                                  },
+                                }}
+                                render={({ field: dateField }) => (
+                                  <Input
+                                    type="date"
+                                    className={`h-9 ${errors?.payment_terms?.[index]?.due_date
+                                      ? "border-red-500"
+                                      : ""
+                                      }`}
+                                    // min={today}
+                                    disabled={isDisabled}
+                                    {...dateField}
+                                  />
+                                )}
                               />
-                            )}
-                          />
+                            </div>
+                          )}
+                          <div className="w-12 flex-shrink-0 flex justify-center">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => remove(index)}
+                              disabled={isRowDisabled}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                      )}
-                      <div className="w-12 flex-shrink-0 flex justify-center">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => remove(index)}
-                          disabled={isRowDisabled}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-start pt-3 px-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="text-sm h-9"
+                      onClick={handleAddTerm}
+                    >
+                      <PlusCircle className="h-4 w-4 mr-2" /> Add Payment Term
+                    </Button>
+                  </div>
+                  <div className="px-2 pt-4 mt-4 border-t space-y-2">
+                    <div className="flex">
+                      <div className={`${termWidth} text-base font-bold text-gray-800`}>
+                        Total
+                      </div>
+                      <div className={`${amountWidth} text-right text-base font-bold text-gray-800`}>
+                        {formatToIndianRupee(totalAmount)}
+                      </div>
+                      <div className={`${percentWidth} text-right text-base font-bold text-gray-800`}>
+                        {calculateTotals(watchedTerms)?.percentage.toFixed(2)}%
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-start pt-3 px-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="text-sm h-9"
-                  onClick={handleAddTerm}
-                >
-                  <PlusCircle className="h-4 w-4 mr-2" /> Add Payment Term
-                </Button>
-              </div>
-              <div className="px-2 pt-4 mt-4 border-t space-y-2">
-                <div className="flex">
-                  <div className="w-[35%] text-base font-bold text-gray-800">
-                    Total
+                    {/* NEW: Remaining amount display */}
+                    <div className="flex justify-end text-right">
+                      <span className="text-sm font-semibold">
+                        {getAllocationStatusMessage(
+                          remainingAmount,
+                          isTotalAmountMismatched
+                        )}
+                      </span>
+                    </div>
                   </div>
-                  <div className="w-[20%] text-right text-base font-bold text-gray-800">
-                    {formatToIndianRupee(totalAmount)}
-                  </div>
-                  <div className="w-[15%] text-right text-base font-bold text-gray-800">
-                    {calculateTotals(watchedTerms)?.percentage.toFixed(2)}%
-                  </div>
-                </div>
-                {/* NEW: Remaining amount display */}
-                <div className="flex justify-end text-right">
-                  <span className="text-sm font-semibold">
-                    {getAllocationStatusMessage(
-                      remainingAmount,
-                      isTotalAmountMismatched
-                    )}
-                  </span>
                 </div>
               </div>
             </div>
@@ -575,7 +585,7 @@ const EditGstNotesDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg bg-white p-6 rounded-lg shadow-xl">
+      <DialogContent className="w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-gray-800">
             Nirmaan GST for Billing & Notes
@@ -699,7 +709,7 @@ const RequestPaymentDialog = ({
   if (!isOpen || !term) return null;
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg bg-white p-6 rounded-lg shadow-xl">
+      <DialogContent className="w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-gray-800 text-center">
             Request Payment

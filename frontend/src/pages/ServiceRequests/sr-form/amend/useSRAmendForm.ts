@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm, UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
@@ -81,6 +81,8 @@ export interface UseSRAmendFormReturn {
     // Submission
     /** Submit the amendment */
     handleSubmit: () => Promise<void>;
+    /** Whether any structural changes have been made */
+    hasChanges: boolean;
     /** Whether submission is in progress */
     isSubmitting: boolean;
 
@@ -128,7 +130,27 @@ export const useSRAmendForm = ({
         mode: "onChange",
     });
 
-    const { trigger, getValues, reset } = form;
+    const { trigger, getValues, reset, watch } = form;
+
+    // Watch all values to detect changes in real-time
+    const watchedValues = watch();
+
+    /* ─────────────────────────────────────────────────────────
+       CHANGE DETECTION
+       ───────────────────────────────────────────────────────── */
+    const hasChanges = useMemo(() => {
+        if (!initialFormValues) return false;
+        // Guard against the render between initialFormValues becoming defined and
+        // reset() populating the form — watchedValues may still be the empty default.
+        if (!watchedValues?.project?.id) return false;
+
+        // Transform both initial and current values to their persistence payload format
+        // This ensures we are only comparing meaningful fields (vendor, items, rates, etc.)
+        const initialPayload = transformFormValuesToSRPayload(initialFormValues);
+        const currentPayload = transformFormValuesToSRPayload(watchedValues);
+
+        return JSON.stringify(initialPayload) !== JSON.stringify(currentPayload);
+    }, [watchedValues, initialFormValues]);
 
     /* ─────────────────────────────────────────────────────────
        RESET FORM WHEN INITIAL VALUES BECOME AVAILABLE
@@ -339,6 +361,7 @@ export const useSRAmendForm = ({
         createDoc,
         userData?.user_id,
         onSuccess,
+        hasChanges,
     ]);
 
     /* ─────────────────────────────────────────────────────────
@@ -361,6 +384,7 @@ export const useSRAmendForm = ({
 
         // Submission
         handleSubmit,
+        hasChanges,
         isSubmitting: updateLoading || createLoading,
 
         // Submission dialog state

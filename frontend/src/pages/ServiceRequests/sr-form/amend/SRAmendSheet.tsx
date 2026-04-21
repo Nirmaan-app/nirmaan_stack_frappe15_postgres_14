@@ -8,7 +8,9 @@ import {
     XCircle,
     FileEdit,
     MessageSquarePlus,
+    AlertTriangle,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { WizardSteps } from "@/components/ui/wizard-steps";
 import {
@@ -107,7 +109,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
     /* ─────────────────────────────────────────────────────────
        DATA HOOK
        ───────────────────────────────────────────────────────── */
-    const { initialFormValues, categories, vendors, isLoading, hasError } =
+    const { initialFormValues, categories, serviceItems, vendors, isLoading, hasError } =
         useSRAmendData(srId);
 
     /* ─────────────────────────────────────────────────────────
@@ -125,6 +127,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
         isFirstStep,
         isLastStep,
         handleSubmit,
+        hasChanges,
         isSubmitting,
         showSubmissionDialog,
         setShowSubmissionDialog,
@@ -153,6 +156,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        serviceItems={serviceItems}
                         isLoading={isLoading}
                     />
                 );
@@ -261,7 +265,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
        ───────────────────────────────────────────────────────── */
     return (
         <Sheet open={isOpen} onOpenChange={onOpenChange}>
-            <SheetContent className="overflow-auto md:min-w-[700px] sm:min-w-[500px] flex flex-col">
+            <SheetContent className="overflow-auto min-w-[300px] sm:max-w-[60vw] w-full flex flex-col">
                 {/* Header with title and compact step indicator */}
                 <SheetHeader>
                     <SheetTitle>Amend Service Request: {srId}</SheetTitle>
@@ -393,7 +397,10 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                                         Submit Amendment
                                     </Button>
                                 ) : (
-                                    <Button onClick={handleNext} disabled={isSubmitting}>
+                                    <Button
+                                        onClick={handleNext}
+                                        disabled={isSubmitting}
+                                    >
                                         Next
                                         <ChevronRight className="h-4 w-4 ml-2" />
                                     </Button>

@@ -113,7 +113,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
   const { items, hiddenColumns, remainingReportDate, remainingSubmittedBy } = props;
 
   // Calculate the number of visible columns to correctly set the `colSpan` for placeholder rows.
-  const totalColumns = 16;
+  const totalColumns = 17;
   const visibleColumnCount = totalColumns - hiddenColumns.size;
     
   // Helper function to bundle all sorting-related props for the SortableHeader.
@@ -173,6 +173,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
                 </div>
               </SortableHeader>
             )}
+            {!hiddenColumns.has('transferredOut') && <SortableHeader {...createSortableHeaderProps('transferredOut')} className="text-right min-w-[140px]">Transferred Out</SortableHeader>}
             {!hiddenColumns.has('dcQuantity') && <SortableHeader {...createSortableHeaderProps('dcQuantity')} className="text-right min-w-[120px]">DC Qty</SortableHeader>}
             {!hiddenColumns.has('mirQuantity') && <SortableHeader {...createSortableHeaderProps('mirQuantity')} className="text-right min-w-[120px]">MIR Qty</SortableHeader>}
             {!hiddenColumns.has('totalAmount') && <SortableHeader {...createSortableHeaderProps('totalAmount')} className="text-center min-w-[190px]">PO Amount(inc.GST)</SortableHeader>}

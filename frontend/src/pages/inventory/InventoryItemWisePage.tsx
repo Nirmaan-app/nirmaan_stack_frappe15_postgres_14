@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ChevronRight,
   ChevronDown,
@@ -8,11 +8,14 @@ import {
   Download,
   ArrowDown,
   ArrowUp,
+  ArrowLeftRight,
   ChevronsUpDown,
   ListX,
   Warehouse,
   FileText,
 } from "lucide-react";
+import { useUserData } from "@/hooks/useUserData";
+import { ITM_CREATE_ROLES } from "@/constants/itm";
 import {
   Table,
   TableHeader,
@@ -219,6 +222,9 @@ function renderInventoryPONumbers(poNumbers: string[], project: string) {
 
 export default function InventoryItemWisePage() {
   const { data: items, isLoading, error } = useInventoryItemWise();
+  const navigate = useNavigate();
+  const { role } = useUserData();
+  const canCreateITM = ITM_CREATE_ROLES.includes(role);
 
   // Search
   const [search, setSearch] = useState("");
@@ -402,15 +408,26 @@ export default function InventoryItemWisePage() {
             Inventory — Item-Wise Summary
           </h2>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => exportInventoryCsv(filteredItems)}
-          disabled={!filteredItems.length}
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          {canCreateITM && (
+            <Button
+              size="sm"
+              onClick={() => navigate("/internal-transfer-memos/create")}
+            >
+              <ArrowLeftRight className="mr-2 h-4 w-4" />
+              Create Internal Transfer Memo
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportInventoryCsv(filteredItems)}
+            disabled={!filteredItems.length}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}

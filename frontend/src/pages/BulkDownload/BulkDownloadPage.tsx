@@ -1,8 +1,10 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
-import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw } from "lucide-react";
+import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
 import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps } from "./steps";
@@ -44,7 +46,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         mirItems,
         poDeliveryDocsLoading,
         criticalTasks,
-        
+
         // Filters & Derived State
         vendorOptions,
         commonVendorFilter,
@@ -55,7 +57,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         withRate,
         setWithRate,
         poStatuses,
-        
+
         // General
         itemCounts,
         invoiceSubType,
@@ -69,6 +71,21 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         showProgress,
         setShowProgress,
         handleDownload,
+        completedBatches,
+        finalMergeToken,
+        triggerDownload,
+        stopProgress,
+
+        // New properties
+        filteredPoList,
+        filteredWoList,
+        filteredDnList,
+        filteredInvoiceItemsBase,
+        filteredPoDeliveryDocItems,
+        searchQuery,
+        setSearchQuery,
+        statusFilter,
+        toggleStatus,
     } = useBulkDownloadWizard(projectId, projectName);
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
@@ -84,17 +101,23 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
     };
 
     return (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-6">
             {/* Quick Bulk Download */}
-            <div className="rounded-xl border bg-card p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                    <FileDown className="h-5 w-5 text-primary" />
-                    <h3 className="text-lg font-semibold">Quick Download</h3>
+            <div className="rounded-xl border-gray-200 border bg-white p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                        <FileDown className="h-6 w-6 text-red-500" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-gray-900 leading-tight">Quick Download</h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Download all documents for this project at once.
+                        </p>
+                    </div>
                 </div>
-                <p className="text-sm text-muted-foreground mb-4">
-                    Download all documents for this project at once.
-                </p>
-                <BulkPdfDownloadButton projectId={projectId} projectName={projectName} />
+                <div className="shrink-0">
+                    <BulkPdfDownloadButton projectId={projectId} projectName={projectName} />
+                </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -135,8 +158,13 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
 
                     {step === 2 && docType === "PO" && (
                         <POSteps
-                            {...sharedProps}
+                            selectedIds={selectedIds}
+                            onToggle={toggleId}
+                            onBack={goBack}
+                            onDownload={handleDownload}
+                            loading={loading}
                             items={poList}
+                            filteredItems={filteredPoList}
                             isLoading={posLoading}
                             withRate={withRate}
                             onWithRateChange={setWithRate}
@@ -149,6 +177,10 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
                             poStatuses={poStatuses}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            statusFilter={statusFilter}
+                            toggleStatus={toggleStatus}
                         />
                     )}
 
@@ -156,6 +188,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                         <WOSteps
                             {...sharedProps}
                             items={woList}
+                            filteredItems={filteredWoList}
                             isLoading={wosLoading}
                             vendorOptions={vendorOptions}
                             vendorFilter={commonVendorFilter}
@@ -163,6 +196,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -179,6 +214,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -193,6 +230,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
@@ -207,13 +246,15 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
                         />
                     )}
 
                     {step === 2 && docType === "DN" && (
                         <DNSteps
                             {...sharedProps}
-                            items={dnList}
+                            items={filteredDnList}
                             isLoading={posLoading}
                             vendorOptions={vendorOptions}
                             poVendorFilter={commonVendorFilter}
@@ -223,6 +264,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             onClearPoFilters={clearFilters}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
                         />
                     )}
 
@@ -256,24 +299,28 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
             </div>
 
             {/* Progress Dialog */}
-            <Dialog open={showProgress} onOpenChange={(open) => !loading && setShowProgress(open)}>
+            <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
                 <DialogContent
                     className="sm:max-w-md [&>button]:hidden"
                     onPointerDownOutside={(e) => e.preventDefault()}
                     onEscapeKeyDown={(e) => e.preventDefault()}
                 >
                     <DialogHeader>
-                        <DialogTitle>Generating PDF</DialogTitle>
-                        <DialogDescription>Please wait while we gather and merge your documents.</DialogDescription>
+                        <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
                     </DialogHeader>
-                    <div className="flex flex-col items-center space-y-4 py-4">
-                        <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
-                            <div
-                                className="bg-primary h-full transition-all duration-300 ease-in-out"
-                                style={{ width: `${progress}%` }}
-                            />
+
+                    <div className="flex flex-col space-y-4 py-4">
+                        <div className="space-y-2">
+                            <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
+                                <div
+                                    className="bg-primary h-full transition-all duration-300 ease-in-out"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-muted-foreground">
+                                <span>{progress}% — {progressMessage}</span>
+                            </div>
                         </div>
-                        <p className="text-sm text-muted-foreground">{progress}% — {progressMessage}</p>
                     </div>
                 </DialogContent>
             </Dialog>

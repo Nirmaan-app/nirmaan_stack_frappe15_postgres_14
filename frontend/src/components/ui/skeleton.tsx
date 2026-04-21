@@ -730,7 +730,7 @@ export const NewPRSkeleton = () => {
       </div>
 
       <div className="flex gap-4">
-        {[...Array(5)].map((_, i) => (
+        {[...Array(5)].map((_) => (
           <div className="flex flex-col gap-4 p-4 border border-gray-300 rounded-xl">
             <Skeleton className="w-28 h-32" />
             <Skeleton className="w-28 h-4" />
@@ -743,5 +743,126 @@ export const NewPRSkeleton = () => {
 
 
 
+export const CardListSkeleton = () => {
+  return (
+    <div className="flex-1 md:space-y-4">
+      {/* Header Skeleton */}
+      <div className="mb-6">
+        <Skeleton className="h-9 w-64 mb-2" />
+        <Skeleton className="h-4 w-96 font-roboto" />
+      </div>
+
+      {/* Search & Filter Bar Skeleton */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <Skeleton className="h-10 flex-1 rounded-md" />
+        <Skeleton className="h-10 w-32 rounded-md" />
+      </div>
+
+      {/* Grid Skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="border border-gray-200 bg-white rounded-xl h-full min-h-[220px] p-4 flex flex-col justify-between">
+            <div>
+               <div className="flex justify-between items-start mb-4">
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-6 w-3/4 rounded-md" />
+                    <Skeleton className="h-4 w-20 rounded-md" />
+                  </div>
+                  <Skeleton className="size-[38px] rounded-full" />
+               </div>
+
+               <div className="grid grid-cols-2 gap-2 mb-4">
+                  {[...Array(4)].map((_, j) => (
+                    <Skeleton key={j} className="h-[34px] rounded-md" />
+                  ))}
+               </div>
+            </div>
+
+            <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const ProjectDetailSkeleton = () => {
+  return (
+    <div className="flex-1 md:space-y-4">
+      {/* Breadcrumb Skeleton */}
+      <div className="flex items-center gap-1 mb-4">
+        <Skeleton className="h-5 w-5 rounded-full" />
+        <Skeleton className="h-4 w-32 rounded-sm" />
+      </div>
+
+      {/* Project Info Card Skeleton */}
+      <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="px-6 py-6">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Skeleton className="h-8 w-64 rounded-md" />
+            <Skeleton className="h-6 w-24 rounded-full" />
+          </div>
+        </div>
+        <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">
+           <div className="flex items-center gap-8">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-5 w-32" />
+              <div className="ml-auto w-[40%] flex items-center gap-3">
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-2 w-full rounded-full" />
+              </div>
+           </div>
+        </div>
+      </div>
+
+      {/* Task Overview Table Skeleton */}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6">
+        <Skeleton className="h-6 w-40 mb-6" />
+
+        <div className="overflow-hidden rounded-lg border border-gray-200">
+           <div className="bg-gray-50 p-4 flex gap-4 border-b">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-4 flex-1" />
+              ))}
+           </div>
+           {[...Array(6)].map((_, i) => (
+             <div key={i} className="p-4 flex items-center gap-4 border-b last:border-0 font-roboto">
+                <div className="flex-1 flex items-center gap-2">
+                   <Skeleton className="h-3 w-3 rounded-full" />
+                   <Skeleton className="h-4 w-3/4" />
+                </div>
+                <Skeleton className="h-6 w-20 rounded-md" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-8" />
+             </div>
+           ))}
+        </div>
+      </div>
+
+      {/* Status Overview Skeleton */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+         <Skeleton className="h-6 w-44 mb-4" />
+         <div className="rounded-lg border border-gray-100 bg-slate-50/50 px-6 py-6">
+            <div className="flex gap-16">
+               {[...Array(3)].map((_, i) => (
+                 <div key={i} className="space-y-3">
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-8 w-48 rounded-lg shadow-sm" />
+                 </div>
+               ))}
+            </div>
+         </div>
+      </div>
+    </div>
+  );
+};
+
 export { Skeleton };
+
 

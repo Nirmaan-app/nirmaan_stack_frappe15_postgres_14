@@ -18,6 +18,8 @@ export interface UseSRAmendDataReturn {
     initialFormValues: SRFormValues | undefined;
     /** Service categories for dropdown */
     categories: CategoryOption[];
+    /** Service items (rate card) */
+    serviceItems: any[];
     /** Service vendors for dropdown */
     vendors: VendorOption[];
     /** Project document */
@@ -89,6 +91,7 @@ export function useSRAmendData(srId: string | undefined): UseSRAmendDataReturn {
        ───────────────────────────────────────────────────────── */
     const {
         categories,
+        serviceItems,
         vendors,
         project,
         isLoading: formDataLoading,
@@ -109,9 +112,10 @@ export function useSRAmendData(srId: string | undefined): UseSRAmendDataReturn {
         return transformSRToFormValues(
             srDoc,
             project || null,
-            vendor || null
+            vendor || null,
+            serviceItems
         );
-    }, [srDoc, project, vendor]);
+    }, [srDoc, project, vendor, serviceItems]);
 
     /* ─────────────────────────────────────────────────────────
        COMBINED LOADING STATE
@@ -133,6 +137,7 @@ export function useSRAmendData(srId: string | undefined): UseSRAmendDataReturn {
         srDoc,
         initialFormValues,
         categories,
+        serviceItems,
         vendors,
         project,
         vendor,

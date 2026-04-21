@@ -27,7 +27,7 @@ interface AddTDSItemDialogProps {
 }
 
 // Custom Item Dialog Component
-interface CustomItemDialogProps {
+export interface CustomItemDialogProps {
     open: boolean;
     onClose: () => void;
     onSelect: (item: { id: string; name: string; category: string; workPackage: string; isNew: boolean }) => void;
@@ -36,7 +36,7 @@ interface CustomItemDialogProps {
     catList: any[];
 }
 
-const CustomItemDialog: React.FC<CustomItemDialogProps> = ({ 
+export const CustomItemDialog: React.FC<CustomItemDialogProps> = ({ 
     open, onClose, onSelect, allCustomItems, standardItems, catList 
 }) => {
     const [searchQuery, setSearchQuery] = useState("");
@@ -218,14 +218,19 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
 
     // Build item options with "+ Custom Item" at the end
     const itemOptionsWithCustom = useMemo(() => {
+        const nameCounts = new Map<string, number>();
+        itemOptionsForWP.forEach(item => {
+            nameCounts.set(item.label, (nameCounts.get(item.label) || 0) + 1);
+        });
         const standardItems = itemOptionsForWP.map(item => ({
             label: item.label,
             value: item.value,
             category: item.category,
-            categoryName: item.categoryName
+            categoryName: item.categoryName,
+            showCategory: (nameCounts.get(item.label) || 0) > 1,
         }));
 
-        return [...standardItems, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "" }];
+        return [...standardItems, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "", showCategory: false }];
     }, [itemOptionsForWP]);
 
     // Track previous values
@@ -473,10 +478,17 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                                     className="react-select-container"
                                                     classNamePrefix="react-select"
                                                     isDisabled={!selectedWP}
-                                                    formatOptionLabel={(option) => (
+                                                    formatOptionLabel={(option: any) => (
                                                         option.value === "__custom__" ? (
                                                             <span className="text-blue-600 font-medium">+ Custom Item</span>
-                                                        ) : option.label
+                                                        ) : (
+                                                            <span>
+                                                                {option.label}
+                                                                {option.showCategory && option.categoryName && (
+                                                                    <span className="text-blue-600 ml-1">({option.categoryName})</span>
+                                                                )}
+                                                            </span>
+                                                        )
                                                     )}
                                                 />
                                             )}

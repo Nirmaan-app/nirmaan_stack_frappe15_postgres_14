@@ -128,8 +128,8 @@ def get_customer_financial_details(customer_id):
         frappe.log_error(frappe.get_traceback(), _("Error fetching customer financial details"))
         frappe.throw(_("An error occurred while fetching financial details: {}").format(e))
 
+#@redis_cache(shared=True)
 @frappe.whitelist()
-@redis_cache(shared=True)
 def get_customer_financial_details_api(customer_id):
     """
     Whitelist function to expose the API.

@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useGstOptions } from "@/hooks/useGstOptions";
@@ -29,13 +28,30 @@ export interface ProjectGSTOption {
     gst: string;
 }
 
+export interface WOServiceCategory {
+    name: string;
+    category_name: string;
+}
+
+export interface WOServiceItem {
+    name: string;
+    item_name: string;
+    category_link: string;
+    unit?: string;
+    rate?: number;
+}
+
 export interface UseSRFormDataReturn {
+    // Service items (all available items for the rate card)
+    serviceItems: WOServiceItem[];
+    itemsLoading: boolean;
+
     // Service categories
     categories: CategoryOption[];
     categoriesLoading: boolean;
     categoriesError: unknown;
 
-    // Service vendors
+    // Loading states
     vendors: VendorOption[];
     vendorsLoading: boolean;
     vendorsError: unknown;
@@ -72,11 +88,21 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
         data: categoryData,
         isLoading: categoriesLoading,
         error: categoriesError,
-    } = useFrappeGetDocList<CategoryType>("Category", {
-        fields: ["name", "image_url"],
-        filters: [["work_package", "=", "Services"]],
-        orderBy: { field: "name", order: "asc" },
+    } = useFrappeGetDocList<WOServiceCategory>("WO Service Category", {
+        fields: ["name", "category_name"],
+        orderBy: { field: "category_name", order: "asc" },
         limit: 1000,
+    });
+
+    /* ─────────────────────────────────────────────────────────
+       FETCH WO SERVICE ITEMS
+       ───────────────────────────────────────────────────────── */
+    const {
+        data: itemData,
+        isLoading: itemsLoading,
+    } = useFrappeGetDocList<WOServiceItem>("WO Service Item", {
+        fields: ["name", "item_name", "category_link", "unit", "rate"],
+        limit: 10000,
     });
 
     /* ─────────────────────────────────────────────────────────
@@ -112,10 +138,13 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
         if (!categoryData) return [];
         return categoryData.map((cat) => ({
             value: cat.name,
-            label: cat.name,
-            image_url: cat.image_url,
+            label: cat.category_name,
         }));
     }, [categoryData]);
+
+    const serviceItems = useMemo<WOServiceItem[]>(() => {
+        return itemData || [];
+    }, [itemData]);
 
     /* ─────────────────────────────────────────────────────────
        TRANSFORM VENDORS TO OPTIONS
@@ -150,7 +179,7 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
     /* ─────────────────────────────────────────────────────────
        COMBINED LOADING STATE
        ───────────────────────────────────────────────────────── */
-    const isLoading = categoriesLoading || vendorsLoading || (!!projectId && projectLoading);
+    const isLoading = categoriesLoading || vendorsLoading || itemsLoading || (!!projectId && projectLoading);
     const hasError = !!(categoriesError || vendorsError || projectError);
 
     /* ─────────────────────────────────────────────────────────
@@ -161,6 +190,10 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
         categories,
         categoriesLoading,
         categoriesError: categoriesError ?? null,
+
+        // Items
+        serviceItems,
+        itemsLoading,
 
         // Vendors
         vendors,

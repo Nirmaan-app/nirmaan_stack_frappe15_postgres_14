@@ -229,7 +229,16 @@ doc_events = {
     },
     "Delivery Notes": {
         "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
-        "on_trash": "nirmaan_stack.integrations.controllers.delivery_notes.on_trash",
+        "after_delete": "nirmaan_stack.integrations.controllers.delivery_notes.after_delete",
+    },
+    "Internal Transfer Memo": {
+        "validate": "nirmaan_stack.integrations.controllers.internal_transfer_memo.validate",
+        "before_delete": "nirmaan_stack.integrations.controllers.internal_transfer_memo.before_delete",
+        "on_update": "nirmaan_stack.integrations.controllers.internal_transfer_memo.on_update",
+    },
+    "Internal Transfer Request": {
+        "validate": "nirmaan_stack.integrations.controllers.internal_transfer_request.validate",
+        "after_insert": "nirmaan_stack.integrations.controllers.internal_transfer_request.after_insert",
     },
     "Category": {
         "after_rename": "nirmaan_stack.integrations.controllers.category.handle_category_rename"
@@ -352,10 +361,6 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
-    "PR Tag Headers",
-    "Project GST",
-    "PMO Task Category",
-    "PMO Task Master"
     # "Pincodes"
 ]
 

@@ -15,6 +15,7 @@ import {
   useSidebar
 } from "@/components/ui/sidebar";
 import {
+  ArrowLeftRight,
   BlendIcon,
   ChevronRight,
   CircleDollarSign,
@@ -525,6 +526,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          key: '/internal-transfer-memos',
+          icon: ArrowLeftRight,
+          label: 'Internal Transfer Memos',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
@@ -668,6 +678,7 @@ export function NewSidebar() {
     'cashflow-plan-tracker',
     'tds-approval',
     'inventory',
+    'internal-transfer-memos',
     'help-repository',
     "work-order-rate-card",
     "pmo-dashboard",
@@ -707,6 +718,7 @@ export function NewSidebar() {
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
     '/inventory': ['inventory'],
+    '/internal-transfer-memos': ['internal-transfer-memos'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
@@ -818,6 +830,7 @@ export function NewSidebar() {
                     "TDS Approval",
                     "Work Order Rate Card",
                     "Inventory",
+                    "Internal Transfer Memos",
                     "PMO Dashboard"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)

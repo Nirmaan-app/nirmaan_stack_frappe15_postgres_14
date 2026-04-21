@@ -33,6 +33,12 @@ export const ApproveServiceRequest: React.FC = () => {
 
     const { data: service_request, isLoading: service_request_loading, mutate: srMutate } = useFrappeGetDoc("Service Requests", id)
 
+    // Rate-card items for STD-rate fallback (older SRs may not have standard_rate stored)
+    const { data: woServiceItems } = useFrappeGetDocList("WO Service Item", {
+        fields: ["item_name", "rate"],
+        limit: 10000,
+    }, "WO_Service_Items_for_std_lookup")
+
     useFrappeDocumentEventListener("Service Requests", id, (event) => {
         console.log("Service Requests document updated (real-time):", event);
         toast({
@@ -75,15 +81,27 @@ export const ApproveServiceRequest: React.FC = () => {
                     ? JSON.parse(service_request.service_order_list)
                     : service_request.service_order_list;
 
+                // Build rate-card lookup (item_name -> rate) for fallback when
+                // stored standard_rate is missing on older SR documents.
+                const rateCardByName: Record<string, number> = {};
+                (woServiceItems || []).forEach((it: any) => {
+                    if (it?.item_name) rateCardByName[it.item_name] = parseNumber(it.rate);
+                });
+
                 // Convert to ServiceItem format with numbers
-                const items: ServiceItem[] = (parsed?.list || []).map((item: ServiceItemType) => ({
-                    id: item.id,
-                    category: item.category,
-                    description: item.description,
-                    uom: item.uom,
-                    quantity: parseNumber(item.quantity),
-                    rate: parseNumber(item.rate),
-                }));
+                const items: ServiceItem[] = (parsed?.list || []).map((item: ServiceItemType) => {
+                    const storedStd = parseNumber((item as any).standard_rate);
+                    const fallbackStd = rateCardByName[item.description] ?? 0;
+                    return {
+                        id: item.id,
+                        category: item.category,
+                        description: item.description,
+                        uom: item.uom,
+                        quantity: parseNumber(item.quantity),
+                        rate: parseNumber(item.rate),
+                        standard_rate: storedStd > 0 ? storedStd : fallbackStd,
+                    };
+                });
 
                 setServiceOrderData(items);
             } catch (e) {
@@ -91,7 +109,7 @@ export const ApproveServiceRequest: React.FC = () => {
                 setServiceOrderData([]);
             }
         }
-    }, [service_request]);
+    }, [service_request, woServiceItems]);
 
     const handleApprove = async () => {
         // CEO Hold guard

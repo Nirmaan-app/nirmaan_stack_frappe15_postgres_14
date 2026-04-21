@@ -188,7 +188,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
       tax: curItem.tax,
       make: curMake?.value || undefined,
       comment: curComment.trim() || undefined,
-      work_package: categoryToPackageMap[curItem.category] || (selectedHeaderTags.length > 0 ? selectedHeaderTags[0].tag_package : selectedWP),
+      work_package: categoryToPackageMap[curItem.category] || "",
     });
     setCurItem(null);
     setCurMake(null);

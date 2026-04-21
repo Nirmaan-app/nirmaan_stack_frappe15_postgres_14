@@ -20,6 +20,8 @@ export interface DeliveryNote {
   nirmaan_attachment?: string;
   notes?: string;
   items: DeliveryNoteItem[];
+  parent_doctype?: "Procurement Orders" | "Internal Transfer Memo";
+  parent_docname?: string;
   is_stub: 0 | 1;
   is_return?: 0 | 1;
   creation: string;

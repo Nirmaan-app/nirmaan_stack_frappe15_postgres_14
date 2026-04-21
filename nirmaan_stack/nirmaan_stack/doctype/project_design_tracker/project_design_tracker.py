@@ -7,8 +7,11 @@ from frappe.model.document import Document
 
 class ProjectDesignTracker(Document):
     def validate(self):
-        self.validate_file_link_for_submitted()
-        self.validate_approval_proof_for_approved()
+        # Bulk Status flow sets this flag to bypass evidence checks
+        # (file_link for Submitted, approval_proof for Approved).
+        if not self.flags.get("ignore_design_tracker_status_validation"):
+            self.validate_file_link_for_submitted()
+            self.validate_approval_proof_for_approved()
         self.update_last_submitted_date()
 
     def _get_old_tasks_map(self):

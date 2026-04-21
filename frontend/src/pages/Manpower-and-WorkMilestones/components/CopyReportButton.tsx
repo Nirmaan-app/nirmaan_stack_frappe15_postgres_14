@@ -26,6 +26,7 @@ import PhotoPermissionChecker from "./PhotoPermissionChecker"; // Adjust path if
 import { useFrappeGetDoc as useFrappeGetDocForMap } from "frappe-react-sdk"; // Aliased to avoid conflict if needed
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
+import { useUserData } from "@/hooks/useUserData";
 
 // --- NEW INTERFACES ---
 interface ProjectWorkHeaderChildEntry {
@@ -57,6 +58,10 @@ interface ProjectProgressAttachment {
   attach_type?: 'Work' | 'Site' | 'Drawing'; // NEW: Photo category type
 }
 
+interface PreviousReportData {
+  declaration_user_not_at_site?: 0 | 1 | boolean | null;
+}
+
 // --- Helper Functions & Styles ---
 const formatDateForInput = (date: Date) => {
   const d = new Date(date);
@@ -81,6 +86,7 @@ const getStatusBadgeClasses = (status: string) => {
 export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDetailsDisable, GEO_API }: { selectedProject: string, selectedZone: string, dailyReportDetailsDisable: boolean, GEO_API: string | undefined }) => {
   const navigate = useNavigate();
   const { currentUser: user } = useContext(UserContext);
+  const { full_name } = useUserData();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
 
@@ -114,6 +120,9 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
   const [hasChanges, setHasChanges] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isUserNotInSite, setIsUserNotInSite] = useState(false);
+  const [hasAnsweredSitePresence, setHasAnsweredSitePresence] = useState(false);
+  const [isNoSiteFinalConfirmOpen, setIsNoSiteFinalConfirmOpen] = useState(false);
 
   // Delimiter for remarks
   const REMARKS_DELIMITER = "$#,,,";
@@ -144,7 +153,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
   const { createDoc } = useFrappeCreateDoc();
   const { updateDoc } = useFrappeUpdateDoc();
-  
+
   // State for highlighting invalid milestone
   const [highlightedErrorMilestone, setHighlightedErrorMilestone] = useState<string | null>(null);
 
@@ -190,7 +199,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
   const { workHeaderOrderMap } = useWorkHeaderOrder();
 
-  const { data: fullPreviousReport, isLoading: isLoadingReport } = useFrappeGetDoc(
+  const { data: fullPreviousReport, isLoading: isLoadingReport } = useFrappeGetDoc<PreviousReportData & any>(
     "Project Progress Reports",
     previousReportName,
     previousReportName ? undefined : null  // ← FIXED: Fetch as soon as report name is available (not waiting for dialog)
@@ -282,6 +291,10 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
       // Reset changes tracking
       setHasChanges(false);
       setLocalPhotos([]);
+      // --- NEW: Reset site declaration to force fresh user selection ---
+      setHasAnsweredSitePresence(false);
+      setIsUserNotInSite(false);
+
     }
   }, [isDialogOpen, fullPreviousReport, REMARKS_DELIMITER]);
 
@@ -326,6 +339,10 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
   // --- 10. CAMERA HANDLERS ---
   const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {
+    if (isUserNotInSite && currentCaptureType === 'Work') {
+      setIsCaptureDialogOpen(false);
+      return;
+    }
     // Inject current capture type
     const newPhotoWithType = { ...photoData, attach_type: currentCaptureType };
     setLocalPhotos((prev) => [...prev, newPhotoWithType]);
@@ -339,13 +356,35 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
   };
 
   const handleRemovePhoto = (local_id: string) => {
+    if (isUserNotInSite) {
+      const targetPhoto = localPhotos.find(p => p.local_id === local_id);
+      if (targetPhoto && (!targetPhoto.attach_type || targetPhoto.attach_type === 'Work')) return;
+    }
     setLocalPhotos((prev) => prev.filter((p) => p.local_id !== local_id));
     setHasChanges(true);
   };
 
   const handlePhotoRemarksChange = (local_id: string, remarks: string) => {
+    if (isUserNotInSite) {
+      const targetPhoto = localPhotos.find(p => p.local_id === local_id);
+      if (targetPhoto && (!targetPhoto.attach_type || targetPhoto.attach_type === 'Work')) return;
+    }
     setLocalPhotos((prev) => prev.map(p => p.local_id === local_id ? { ...p, remarks } : p));
     setHasChanges(true);
+  };
+
+  const clearWorkPhotosForDeclaration = () => {
+    setLocalPhotos((prev) => prev.filter((p) => p.attach_type && p.attach_type !== 'Work'));
+    setHasChanges(true);
+  };
+
+  const handleSitePresenceChange = (value: 'yes' | 'no') => {
+    const isNo = value === 'no';
+    setHasAnsweredSitePresence(true);
+    setIsUserNotInSite(isNo);
+    if (isNo) {
+      clearWorkPhotosForDeclaration();
+    }
   };
 
   // --- 11. MILESTONE EDIT HANDLERS ---
@@ -522,6 +561,15 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
   // --- 14. SAVE AS DRAFT ---
   const handleSaveDraft = async () => {
+    if (!hasAnsweredSitePresence) {
+      toast({
+        title: "Validation Error 🚫",
+        description: "Please answer 'Are You At Site?' before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!hasChanges && localPhotos.length === 0) {
       // No changes to save
       setIsDialogOpen(false);
@@ -530,7 +578,10 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
     setIsSavingDraft(true);
     try {
-      const attachmentsPayload = localPhotos.map(p => ({
+      const attachmentsPayload = (isUserNotInSite
+        ? localPhotos.filter(p => p.attach_type && p.attach_type !== 'Work')
+        : localPhotos
+      ).map(p => ({
         image_link: p.image_link,
         location: p.location,
         remarks: p.remarks,
@@ -560,6 +611,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
         attachments: attachmentsPayload,
         drawing_remarks: serializeRemarks(drawingRemarkPoints),
         site_remarks: serializeRemarks(siteRemarkPoints),
+        declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null,
       };
 
       // CHECK IF REPORT ALREADY EXISTS FOR TODAY
@@ -610,8 +662,17 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
   };
 
   // --- 16. SUBMIT FINAL REPORT ---
-  const handleConfirmCopy = async () => {
+  const handleConfirmCopy = async (skipNoSiteConfirmation = false) => {
     if (editableMilestones.length === 0) return;
+
+    if (!hasAnsweredSitePresence) {
+      toast({
+        title: "Validation Error 🚫",
+        description: "Please answer 'Are You At Site?' before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // --- VALIDATION START ---
     for (const m of editableMilestones) {
@@ -665,7 +726,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
         }
       }
       if (m.status === 'WIP' && m.progress > 75) {
-         if (!m.expected_completion_date || m.expected_completion_date < todayStr) {
+        if (!m.expected_completion_date || m.expected_completion_date < todayStr) {
           toast({
             title: "Invalid Completion Date",
             description: `Expected Completion Date for "${m.work_milestone_name}" is in the past. Please update the date or change the status.`,
@@ -677,12 +738,17 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
       }
     }
 
+    if (isUserNotInSite && !skipNoSiteConfirmation) {
+      setIsNoSiteFinalConfirmOpen(true);
+      return;
+    }
+
     setIsCopying(true);
 
     try {
       // Validate photos - require at least 3 Work type photos
       const workPhotosCount = localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length;
-      if (workPhotosCount < 4) {
+      if (!isUserNotInSite && workPhotosCount < 4) {
         toast({
           title: "Work Photos Required 📷",
           description: `You have added ${workPhotosCount} work photos. Please add at least 4 work photos to proceed.`,
@@ -692,7 +758,10 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
         return;
       }
 
-      const attachmentsPayload = localPhotos.map(p => ({
+      const attachmentsPayload = (isUserNotInSite
+        ? localPhotos.filter(p => p.attach_type && p.attach_type !== 'Work')
+        : localPhotos
+      ).map(p => ({
         image_link: p.image_link,
         location: p.location,
         remarks: p.remarks,
@@ -721,6 +790,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
         attachments: attachmentsPayload,
         drawing_remarks: serializeRemarks(drawingRemarkPoints),
         site_remarks: serializeRemarks(siteRemarkPoints),
+        declaration_user_not_at_site: hasAnsweredSitePresence ? (isUserNotInSite ? 1 : 0) : null,
       };
 
       // CHECK IF REPORT ALREADY EXISTS FOR TODAY
@@ -851,38 +921,82 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
                 {/* --- WORK PHOTOS SECTION --- */}
                 <div>
-                  <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
-                    <Camera className="w-4 h-4" /> Work Images (Required: 4+)
-                  </h3>
-
-                  <div className="mb-4">
-                    <PhotoPermissionChecker
-                      isBlockedByDraftOwnership={false}
-                      onAddPhotosClick={() => {
-                        setCurrentCaptureType('Work');
-                        setIsCaptureDialogOpen(true);
-                      }}
-                    />
+                  <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+                    <p className="text-sm font-semibold text-amber-900 mb-1">Declaration</p>
+                    <p className="text-sm font-medium text-amber-900 mb-2">Are You At Site?</p>
+                    <div className="flex items-center gap-4 text-sm font-medium text-amber-900">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="copy_site_presence"
+                          checked={hasAnsweredSitePresence && !isUserNotInSite}
+                          onChange={() => handleSitePresenceChange('yes')}
+                          className="h-4 w-4"
+                        />
+                        Yes
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="copy_site_presence"
+                          checked={hasAnsweredSitePresence && isUserNotInSite}
+                          onChange={() => handleSitePresenceChange('no')}
+                          className="h-4 w-4"
+                        />
+                        No
+                      </label>
+                    </div>
                   </div>
 
-                  {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
-                    <div className="w-full">
-                       <ImageBentoGrid
-                        images={localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map(p => ({
-                          image_link: p.image_link,
-                          location: p.location || undefined,
-                          remarks: p.remarks,
-                          local_id: p.local_id
-                        }))}
-                        isEditable={true}
-                        onRemove={handleRemovePhoto}
-                        onRemarkChange={handlePhotoRemarksChange}
-                        forPdf={false}
-                      />
+                  {hasAnsweredSitePresence && !isUserNotInSite ? (
+                    <>
+                      <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
+                        <Camera className="w-4 h-4" /> Work Images (Required: 4+)
+                      </h3>
+
+                      <div className="mb-4">
+                        <PhotoPermissionChecker
+                          isBlockedByDraftOwnership={false}
+                          onAddPhotosClick={() => {
+                            setCurrentCaptureType('Work');
+                            setIsCaptureDialogOpen(true);
+                          }}
+                        />
+                      </div>
+
+                      {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
+                        <div className="w-full">
+                          <ImageBentoGrid
+                            images={localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map(p => ({
+                              image_link: p.image_link,
+                              location: p.location || undefined,
+                              remarks: p.remarks,
+                              local_id: p.local_id
+                            }))}
+                            isEditable={true}
+                            onRemove={handleRemovePhoto}
+                            onRemarkChange={handlePhotoRemarksChange}
+                            forPdf={false}
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+                          <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 4 photos.</p>
+                        </div>
+                      )}
+                    </>
+                  ) : hasAnsweredSitePresence ? (
+                    <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 shadow-sm">
+                      <p className="text-sm font-bold text-amber-900 mb-2 uppercase tracking-wide">Declaration by {full_name || "User"}</p>
+                      <p className="text-sm leading-relaxed text-amber-800">
+                        <strong>"I hereby acknowledge that I am not present at the site for this report's duration."</strong>
+                      </p>
                     </div>
                   ) : (
-                    <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-                      <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 4 photos.</p>
+                    <div className="text-center py-8 px-4 bg-red-50 rounded-lg border border-red-200 flex flex-col items-center gap-2">
+                       <AlertCircle className="w-5 h-5 text-red-600" />
+                       <p className="text-sm font-semibold text-red-800">Please choose `Yes` or `No` for `Are You At Site?` to continue.</p>
+                       <p className="text-xs text-red-600/80">This declaration is mandatory for report submission.</p>
                     </div>
                   )}
                 </div>
@@ -1021,6 +1135,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                                     local_id: p.local_id
                                   }))}
                                   isEditable={true}
+                                  disabled={false}
                                   onRemove={handleRemovePhoto}
                                   onRemarkChange={handlePhotoRemarksChange}
                                   forPdf={false}
@@ -1118,6 +1233,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                                     local_id: p.local_id
                                   }))}
                                   isEditable={true}
+                                  disabled={false}
                                   onRemove={handleRemovePhoto}
                                   onRemarkChange={handlePhotoRemarksChange}
                                   forPdf={false}
@@ -1156,14 +1272,13 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                           </div>
                           <div className="divide-y divide-gray-100">
                             {milestones.map((m: any, mIdx: number) => (
-                              <div 
-                                key={mIdx} 
+                              <div
+                                key={mIdx}
                                 id={`milestone-row-${m.work_milestone_name.replace(/[^a-zA-Z0-9-_]/g, '_')}`}
-                                className={`p-3 text-xs space-y-2 transition-colors duration-500 ${
-                                    highlightedErrorMilestone === m.work_milestone_name 
-                                    ? 'bg-red-50 border-l-4 border-l-red-500 ring-1 ring-inset ring-red-200' 
-                                    : ''
-                                }`}
+                                className={`p-3 text-xs space-y-2 transition-colors duration-500 ${highlightedErrorMilestone === m.work_milestone_name
+                                  ? 'bg-red-50 border-l-4 border-l-red-500 ring-1 ring-inset ring-red-200'
+                                  : ''
+                                  }`}
                               >
                                 <div className="flex justify-between items-center">
                                   <span className="font-medium text-gray-800 break-words flex-1 pr-2">{m.work_milestone_name}</span>
@@ -1234,7 +1349,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                                 {/* Work Plan - Point Based */}
                                 <div className="mt-2 pt-2 border-t border-gray-100">
                                   <div className="flex items-center justify-between mb-1">
-                                     <span className="text-[10px] font-medium text-gray-500">Activities Planned for Today</span>
+                                    <span className="text-[10px] font-medium text-gray-500">Activities Planned for Today</span>
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1362,6 +1477,28 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
             </Button>
           </DialogFooter>
 
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isNoSiteFinalConfirmOpen} onOpenChange={setIsNoSiteFinalConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Final Submission</DialogTitle>
+            <DialogDescription>
+              You selected that you are not at site. Work photos are not included. Are you sure you want to submit the final report?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsNoSiteFinalConfirmOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                setIsNoSiteFinalConfirmOpen(false);
+                handleConfirmCopy(true);
+              }}
+            >
+              Confirm & Submit
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

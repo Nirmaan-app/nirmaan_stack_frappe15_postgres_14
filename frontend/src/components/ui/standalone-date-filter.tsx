@@ -176,12 +176,15 @@ interface StandaloneDateFilterProps {
     value?: DateFilterValue;
     onChange: (value: DateFilterValue | undefined) => void;
     placeholder?: string;
+    /** Override trigger button className when provided */
+    triggerClassName?: string;
 }
 
 export function StandaloneDateFilter({
     value,
     onChange,
     placeholder = 'Filter by date',
+    triggerClassName,
 }: StandaloneDateFilterProps) {
     const [operator, setOperator] = React.useState<string>(value?.operator || 'Between');
     const [date, setDate] = React.useState<Date | undefined>(() =>
@@ -268,18 +271,20 @@ export function StandaloneDateFilter({
                 <Button
                     variant="outline"
                     size="sm"
-                    className={cn(
+                    className={triggerClassName ?? cn(
                         'h-8 text-xs font-normal border-gray-300 gap-1.5',
                         isActive && 'border-primary/40 bg-primary/5 text-primary'
                     )}
                 >
                     <CalendarDays className="h-3.5 w-3.5" />
-                    {displayLabel ? (
+                    {triggerClassName ? (
+                        <span>{placeholder}</span>
+                    ) : displayLabel ? (
                         <span className="font-medium truncate max-w-[180px]">{displayLabel}</span>
                     ) : (
                         <span className="text-muted-foreground">{placeholder}</span>
                     )}
-                    {isActive && (
+                    {!triggerClassName && isActive && (
                         <Badge variant="secondary" className="ml-1 px-1 py-0 text-[10px] rounded-sm">
                             1
                         </Badge>

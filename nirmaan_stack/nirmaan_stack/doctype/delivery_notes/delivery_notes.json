@@ -9,6 +9,8 @@
  "field_order": [
   "links_section",
   "procurement_order",
+  "parent_doctype",
+  "parent_docname",
   "project",
   "vendor",
   "column_break_links",
@@ -38,7 +40,19 @@
    "in_standard_filter": 1,
    "label": "Procurement Order",
    "options": "Procurement Orders",
-   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "parent_doctype",
+   "fieldtype": "Select",
+   "label": "Parent Doctype",
+   "options": "Procurement Orders\nInternal Transfer Memo"
+  },
+  {
+   "fieldname": "parent_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Parent Docname",
+   "options": "parent_doctype",
    "search_index": 1
   },
   {

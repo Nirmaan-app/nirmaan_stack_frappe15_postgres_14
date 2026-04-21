@@ -348,8 +348,10 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <Button
                 variant="outline"
                 size="sm"
+                disabled={orderData?.status === "Amendment"}
                 onClick={onAmend}
-                className="flex items-center gap-1 border-primary text-primary shrink-0"
+                className="flex items-center gap-1 border-primary text-primary shrink-0 transition-opacity"
+                title={orderData?.status === "Amendment" ? "An amendment is already in progress" : undefined}
               >
                 <PencilRuler className="h-3.5 w-3.5" />
                 Amend
