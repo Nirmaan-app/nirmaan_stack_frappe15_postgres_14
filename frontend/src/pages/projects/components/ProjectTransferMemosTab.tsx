@@ -126,7 +126,7 @@ const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
       <Table>
         <TableHeader className="bg-background">
           <TableRow>
-            <TableHead className="min-w-[130px]">
+            <TableHead className="w-[100px]">
               <div className="flex items-center gap-1">
                 <SimpleFacetedFilter
                   title="Direction"
@@ -137,10 +137,10 @@ const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
                 <span>Direction</span>
               </div>
             </TableHead>
-            <TableHead className="min-w-[160px]">Transfer ID</TableHead>
-            <TableHead className="min-w-[140px]">Creation Date</TableHead>
-            <TableHead className="min-w-[200px]">Counterpart Project</TableHead>
-            <TableHead className="min-w-[150px]">
+            <TableHead>Transfer ID</TableHead>
+            <TableHead>Creation Date</TableHead>
+            <TableHead>Counterpart Project</TableHead>
+            <TableHead className="w-[110px]">
               <div className="flex items-center gap-1">
                 <SimpleFacetedFilter
                   title="Status"
@@ -151,9 +151,9 @@ const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
                 <span>Status</span>
               </div>
             </TableHead>
-            <TableHead className="min-w-[140px]">Dispatched On</TableHead>
-            <TableHead className="min-w-[140px]">Latest Delivery</TableHead>
-            <TableHead className="min-w-[150px]">Approved By</TableHead>
+            <TableHead>Dispatched On</TableHead>
+            <TableHead>Latest Delivery</TableHead>
+            <TableHead>Approved By</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
