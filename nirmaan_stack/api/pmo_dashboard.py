@@ -628,26 +628,126 @@ def get_all_tasks(
         # Apply UI Column Filters
         filter_fail = False
         for f in ui_filters:
-            # typical frappe filter Format: ["DocType", "field", "=", "value"]
-            if len(f) >= 3:
-                field = f[1]
-                op = f[2].lower()
-                val = f[3] if len(f) > 3 else None
-                
-                row_val = task.get(field)
-                s_row = str(row_val) if row_val is not None else ""
-                s_val = str(val) if val is not None else ""
-                
-                if op == '=' and s_row != s_val:
+            # Handle both [field, op, val] and [doctype, field, op, val] formats
+            if len(f) == 4:
+                field, op, val = f[1], f[2], f[3]
+            elif len(f) == 3:
+                field, op, val = f[0], f[1], f[2]
+            else:
+                continue
+
+            op = op.lower()
+            row_val = task.get(field)
+            s_row = str(row_val) if row_val is not None else ""
+            s_val = str(val) if val is not None else ""
+
+            if op == '=' and s_row != s_val:
+                filter_fail = True
+            elif op == '!=' and s_row == s_val:
+                filter_fail = True
+            elif op == 'in' and isinstance(val, list) and row_val not in val:
+                filter_fail = True
+            elif op == 'not in' and isinstance(val, list) and row_val in val:
+                filter_fail = True
+            elif op == 'like' and s_val.replace('%', '').lower() not in s_row.lower():
+                filter_fail = True
+            elif op == 'between':
+                if isinstance(val, (list, tuple)) and len(val) == 2:
+                    try:
+                        d_val = getdate(row_val) if row_val else None
+                        start_date = getdate(val[0]) if val[0] else None
+                        end_date = getdate(val[1]) if val[1] else None
+                        if start_date and end_date:
+                            if not d_val:
+                                filter_fail = True
+                            elif not (start_date <= d_val <= end_date):
+                                filter_fail = True
+                    except:
+                        pass
+            elif op in ('>', '<', '>=', '<='):
+                try:
+                    d_val = getdate(row_val) if row_val else None
+                    comp_val = getdate(val) if val else None
+                    if comp_val:
+                        if not d_val:
+                            filter_fail = True
+                        elif op == '>' and not (d_val > comp_val):
+                            filter_fail = True
+                        elif op == '<' and not (d_val < comp_val):
+                            filter_fail = True
+                        elif op == '>=' and not (d_val >= comp_val):
+                            filter_fail = True
+                        elif op == '<=' and not (d_val <= comp_val):
+                            filter_fail = True
+                except:
+                    pass
+            elif op == 'is':
+                if val == 'set' and not row_val:
                     filter_fail = True
-                elif op == '!=' and s_row == s_val:
+                elif val == 'not set' and row_val:
                     filter_fail = True
-                elif op == 'in' and isinstance(val, list) and row_val not in val:
-                    filter_fail = True
-                elif op == 'not in' and isinstance(val, list) and row_val in val:
-                    filter_fail = True
-                elif op == 'like' and s_val.replace('%', '').lower() not in s_row.lower():
-                    filter_fail = True
+                else:
+                    # Treat 'is' as equality (e.g. Is 2025-12-23)
+                    if s_row != s_val:
+                        filter_fail = True
+            elif op == 'timespan':
+                try:
+                    from frappe.utils import now_datetime, add_to_date
+                    d_val = getdate(row_val) if row_val else None
+                    if not d_val:
+                        filter_fail = True
+                    else:
+                        now = now_datetime().date()
+                        start_date = end_date = None
+                        ts = str(val).lower()
+                        if ts == 'today':
+                            start_date = end_date = now
+                        elif ts == 'yesterday':
+                            start_date = end_date = add_to_date(now, days=-1)
+                        elif ts == 'this week':
+                            start_date = add_to_date(now, days=-now.weekday())
+                            end_date = now
+                        elif ts == 'last week':
+                            start_date = add_to_date(now, days=-(now.weekday() + 7))
+                            end_date = add_to_date(start_date, days=6)
+                        elif ts == 'this month':
+                            start_date = now.replace(day=1)
+                            end_date = now
+                        elif ts == 'last month':
+                            first_of_month = now.replace(day=1)
+                            end_date = add_to_date(first_of_month, days=-1)
+                            start_date = end_date.replace(day=1)
+                        elif ts == 'this quarter':
+                            q_month = ((now.month - 1) // 3) * 3 + 1
+                            start_date = now.replace(month=q_month, day=1)
+                            end_date = now
+                        elif ts == 'last quarter':
+                            q_month = ((now.month - 1) // 3) * 3 + 1
+                            start_date = add_to_date(now.replace(month=q_month, day=1), months=-3)
+                            end_date = add_to_date(now.replace(month=q_month, day=1), days=-1)
+                        elif ts == 'this year':
+                            start_date = now.replace(month=1, day=1)
+                            end_date = now
+                        elif ts == 'last year':
+                            start_date = now.replace(year=now.year - 1, month=1, day=1)
+                            end_date = now.replace(year=now.year - 1, month=12, day=31)
+                        elif ts.startswith('last ') and ts.endswith(' days'):
+                            days = int(ts.replace('last ', '').replace(' days', ''))
+                            start_date = add_to_date(now, days=-days)
+                            end_date = now
+                        elif ts == 'last 6 months':
+                            start_date = add_to_date(now, months=-6)
+                            end_date = now
+
+                        if start_date and end_date:
+                            start_date = getdate(start_date)
+                            end_date = getdate(end_date)
+                            if not (start_date <= d_val <= end_date):
+                                filter_fail = True
+                        else:
+                            filter_fail = True
+                except:
+                    pass
 
             if filter_fail: break
             

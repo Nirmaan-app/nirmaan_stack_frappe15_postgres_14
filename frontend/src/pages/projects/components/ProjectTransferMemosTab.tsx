@@ -16,7 +16,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ITMStatusBadge } from "@/pages/InternalTransferMemos/components/ITMStatusBadge";
 import { SimpleFacetedFilter } from "./SimpleFacetedFilter";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 interface ProjectTransferMemosTabProps {
   projectId: string;
@@ -32,46 +31,44 @@ interface ProjectITM {
   total_items: number;
   estimated_value: number;
   creation: string;
+  dispatched_on?: string;
+  latest_delivery_date?: string;
+  latest_dn_date?: string;
+  approved_by_full_name?: string;
+  direction: string;
+  counterpart_project_name?: string;
 }
 
-type Direction = "Incoming" | "Outgoing";
+const COLUMN_COUNT = 8;
 
 const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
   projectId,
 }) => {
   const { data: itmData, isLoading, error: fetchError } = useFrappeGetCall<{
-    message: ProjectITM[];
+    message: { data: ProjectITM[] };
   }>(
     "nirmaan_stack.api.internal_transfers.project_transfers.get_project_itms",
     projectId ? { project_id: projectId } : undefined,
     projectId ? undefined : null
   );
 
-  const itms = itmData?.message ?? [];
+  const itms = itmData?.message?.data ?? [];
 
   const [directionFilter, setDirectionFilter] = useState<Set<string>>(
     new Set()
   );
-
-  const itemsWithDirection = useMemo(() => {
-    return itms.map((itm) => ({
-      ...itm,
-      direction: (itm.target_project === projectId
-        ? "Incoming"
-        : "Outgoing") as Direction,
-      counterpartProject:
-        itm.target_project === projectId
-          ? itm.source_project_name || itm.source_project
-          : itm.target_project_name || itm.target_project,
-    }));
-  }, [itms, projectId]);
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
 
   const filteredItems = useMemo(() => {
-    if (directionFilter.size === 0) return itemsWithDirection;
-    return itemsWithDirection.filter((itm) =>
-      directionFilter.has(itm.direction)
-    );
-  }, [itemsWithDirection, directionFilter]);
+    let items = itms;
+    if (directionFilter.size > 0) {
+      items = items.filter((itm) => directionFilter.has(itm.direction));
+    }
+    if (statusFilter.size > 0) {
+      items = items.filter((itm) => statusFilter.has(itm.status));
+    }
+    return items;
+  }, [itms, directionFilter, statusFilter]);
 
   const directionOptions = useMemo(
     () => [
@@ -81,12 +78,28 @@ const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
     []
   );
 
+  const statusOptions = useMemo(() => {
+    const unique = new Set(itms.map((itm) => itm.status));
+    return Array.from(unique)
+      .sort()
+      .map((s) => ({ label: s, value: s }));
+  }, [itms]);
+
   if (isLoading) {
     return (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
+      <div className="rounded-md border">
+        <div className="bg-muted/30 px-3 py-3">
+          <div className="flex gap-4">
+            {Array.from({ length: COLUMN_COUNT }).map((_, i) => (
+              <Skeleton key={i} className="h-4 w-24" />
+            ))}
+          </div>
+        </div>
+        <div className="p-3 space-y-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -124,18 +137,29 @@ const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
                 <span>Direction</span>
               </div>
             </TableHead>
-            <TableHead className="min-w-[160px]">ITM ID</TableHead>
+            <TableHead className="min-w-[160px]">Transfer ID</TableHead>
+            <TableHead className="min-w-[140px]">Creation Date</TableHead>
             <TableHead className="min-w-[200px]">Counterpart Project</TableHead>
-            <TableHead className="min-w-[150px]">Status</TableHead>
-            <TableHead className="text-center min-w-[80px]">Items</TableHead>
-            <TableHead className="text-right min-w-[140px]">Est. Value</TableHead>
-            <TableHead className="min-w-[120px]">Date</TableHead>
+            <TableHead className="min-w-[150px]">
+              <div className="flex items-center gap-1">
+                <SimpleFacetedFilter
+                  title="Status"
+                  options={statusOptions}
+                  selectedValues={statusFilter}
+                  onSelectedValuesChange={setStatusFilter}
+                />
+                <span>Status</span>
+              </div>
+            </TableHead>
+            <TableHead className="min-w-[140px]">Dispatched On</TableHead>
+            <TableHead className="min-w-[140px]">Latest Delivery</TableHead>
+            <TableHead className="min-w-[150px]">Approved By</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {filteredItems.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="h-24 text-center">
+              <TableCell colSpan={COLUMN_COUNT} className="h-24 text-center">
                 No results found.
               </TableCell>
             </TableRow>
@@ -167,20 +191,25 @@ const ProjectTransferMemosTab: React.FC<ProjectTransferMemosTabProps> = ({
                     {itm.name}
                   </Link>
                 </TableCell>
+                <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                  {formatDate(itm.creation)}
+                </TableCell>
                 <TableCell className="py-2 px-3 text-sm">
-                  {itm.counterpartProject}
+                  {itm.counterpart_project_name ?? "—"}
                 </TableCell>
                 <TableCell className="py-2 px-3">
                   <ITMStatusBadge status={itm.status} />
                 </TableCell>
-                <TableCell className="text-center py-2 px-3 font-mono text-sm">
-                  {itm.total_items}
-                </TableCell>
-                <TableCell className="text-right py-2 px-3 font-mono text-sm">
-                  {formatToRoundedIndianRupee(itm.estimated_value)}
+                <TableCell className="py-2 px-3 text-sm text-muted-foreground">
+                  {itm.dispatched_on ? formatDate(itm.dispatched_on) : "—"}
                 </TableCell>
                 <TableCell className="py-2 px-3 text-sm text-muted-foreground">
-                  {formatDate(itm.creation)}
+                  {(itm.latest_dn_date || itm.latest_delivery_date)
+                    ? formatDate(itm.latest_dn_date || itm.latest_delivery_date!)
+                    : "—"}
+                </TableCell>
+                <TableCell className="py-2 px-3 text-sm">
+                  {itm.approved_by_full_name ?? "—"}
                 </TableCell>
               </TableRow>
             ))

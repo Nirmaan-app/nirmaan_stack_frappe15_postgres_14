@@ -8,6 +8,7 @@ import {
     useReactTable,
 } from "@tanstack/react-table";
 import { Edit, ExternalLink } from "lucide-react";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ const getTaskWiseColumns = (
     return [
         {
             accessorKey: "project_name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
             cell: ({ row }) => (
                 <Link
                     to={`/pmo-dashboard/${row.original.project}`}
@@ -59,10 +60,12 @@ const getTaskWiseColumns = (
         {
             accessorKey: "task_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
+            enableColumnFilter: true,
         },
         {
             accessorKey: "expected_completion_date",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Expected Date" />,
+            enableColumnFilter: true,
             cell: ({ row }) => {
                 const date = row.original.expected_completion_date;
                 if (!date) return "--";
@@ -142,6 +145,69 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
         setEditOpen(true);
     };
 
+    // Fetch distinct project IDs that have PMO tasks
+    const { data: pmoTaskProjects } = useFrappeGetDocList("PMO Project Task", {
+        fields: ["project"],
+        groupBy: "project",
+        limit: 1000,
+    }, "pmo-task-wise-project-ids");
+
+    // Fetch project names for those project IDs
+    const projectFilters = useMemo(() => {
+        if (!pmoTaskProjects?.length) return null;
+        const ids = pmoTaskProjects.map((p) => p.project).filter(Boolean);
+        return ids.length ? [["name", "in", ids]] : null;
+    }, [pmoTaskProjects]);
+
+    const { data: projectsData } = useFrappeGetDocList("Projects", {
+        fields: ["name", "project_name"],
+        filters: projectFilters as any,
+        limit: 1000,
+        orderBy: { field: "project_name", order: "asc" },
+    }, projectFilters ? `pmo-task-wise-projects-${JSON.stringify(projectFilters)}` : null);
+
+    const projectOptions = useMemo(() => {
+        return projectsData?.map((p) => ({ label: p.project_name, value: p.project_name })) || [];
+    }, [projectsData]);
+
+    // Fetch distinct categories for facet filter
+    const { data: categoriesData } = useFrappeGetDocList("PMO Task Category", {
+        fields: ["category_name"],
+        limit: 1000,
+        orderBy: { field: "creation", order: "asc" },
+    }, "pmo-task-wise-categories");
+
+    // Fetch distinct task names for facet filter
+    const { data: taskMastersData } = useFrappeGetDocList("PMO Task Master", {
+        fields: ["task_name"],
+        limit: 1000,
+        orderBy: { field: "creation", order: "asc" },
+    }, "pmo-task-wise-task-masters");
+
+    const facetFilterOptions = useMemo(() => ({
+        project_name: {
+            title: "Project Name",
+            options: projectOptions,
+        },
+        category: {
+            title: "Category",
+            options: categoriesData?.map((c) => ({ label: c.category_name, value: c.category_name })) || [],
+        },
+        task_name: {
+            title: "Task Name",
+            options: taskMastersData?.map((t) => ({ label: t.task_name, value: t.task_name })) || [],
+        },
+        status: {
+            title: "Status",
+            options: [
+                { label: "Not Defined", value: "Not Defined" },
+                { label: "WIP", value: "WIP" },
+                { label: "Sent/Submission", value: "Sent/Submision" },
+                { label: "Completed", value: "Approve by client" },
+            ],
+        },
+    }), [projectOptions, categoriesData, taskMastersData]);
+
     const additionalFilters = useMemo(() => {
         const filters: any[] = [];
         if (statusFilter && statusFilter !== "All") {
@@ -213,6 +279,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
                         ]}
                         selectedSearchField={serverDataTable.selectedSearchField}
                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
+                        facetFilterOptions={facetFilterOptions}
+                        dateFilterColumns={["expected_completion_date"]}
                         searchTerm={serverDataTable.searchTerm}
                         onSearchTermChange={serverDataTable.setSearchTerm}
                         showExportButton={true}

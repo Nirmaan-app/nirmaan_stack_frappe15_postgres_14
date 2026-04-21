@@ -31,8 +31,14 @@ def get_project_itms(project_id: str) -> dict:
             itm.total_items,
             itm.total_quantity,
             itm.transfer_request,
+            itm.dispatched_on,
+            itm.latest_delivery_date,
+            (SELECT MAX(dn.delivery_date) FROM "tabDelivery Notes" dn
+             WHERE dn.parent_doctype = 'Internal Transfer Memo' AND dn.parent_docname = itm.name
+            ) AS latest_dn_date,
             src.project_name AS source_project_name,
             tgt.project_name AS target_project_name,
+            approved_user.full_name AS approved_by_full_name,
             CASE
                 WHEN itm.source_project = %(project_id)s THEN 'Outgoing'
                 ELSE 'Incoming'
@@ -44,6 +50,7 @@ def get_project_itms(project_id: str) -> dict:
         FROM "tabInternal Transfer Memo" itm
         LEFT JOIN "tabProjects" src ON src.name = itm.source_project
         LEFT JOIN "tabProjects" tgt ON tgt.name = itm.target_project
+        LEFT JOIN "tabUser" approved_user ON approved_user.name = itm.approved_by
         WHERE itm.source_project = %(project_id)s
            OR itm.target_project = %(project_id)s
         ORDER BY itm.creation DESC
