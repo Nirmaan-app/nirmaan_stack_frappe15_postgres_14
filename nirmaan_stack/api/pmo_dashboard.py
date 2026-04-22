@@ -77,6 +77,22 @@ def _compute_expected_date(base_date, deadline_offset):
 
 
 @frappe.whitelist()
+def get_assigned_project_ids(user_id):
+    """
+    Return list of project IDs where the given user has at least one
+    assigned PMO task (assigned_to JSON contains their userId).
+    Uses SQL LIKE on the JSON string for efficiency.
+    """
+    rows = frappe.db.sql("""
+        SELECT DISTINCT pt.project
+        FROM `tabPMO Project Task` pt
+        WHERE pt.assigned_to LIKE %s
+    """, (f'%"{user_id}"%',), as_dict=True)
+
+    return [r.project for r in rows]
+
+
+@frappe.whitelist()
 def get_pmo_projects():
     """
     Get all non-completed projects with their PMO task summary.
@@ -206,7 +222,7 @@ def get_project_tasks(project):
         SELECT 
             pt.name, pt.task_name, pt.category, pt.status,
             pt.expected_completion_date, pt.completion_date, pt.attachment,
-            pt.task_master, tm.deadline_offset, pc.is_handover_restricted
+            pt.task_master, pt.assigned_to, tm.deadline_offset, pc.is_handover_restricted
         FROM 
             `tabPMO Project Task` pt
         LEFT JOIN 
@@ -511,6 +527,44 @@ def get_project_status_overview(project):
 
 
 @frappe.whitelist()
+def get_pmo_users():
+    """
+    Get all users with the Nirmaan PMO Executive Profile role.
+    Returns list of {user_id, full_name, email}.
+    """
+    users = frappe.get_all(
+        "Nirmaan Users",
+        filters={"role_profile": "Nirmaan PMO Executive Profile"},
+        fields=["name", "full_name", "email"],
+    )
+    return [
+        {"user_id": u.name, "full_name": u.full_name or u.name, "email": u.email}
+        for u in users
+    ]
+
+
+@frappe.whitelist()
+def assign_pmo_tasks(task_names, assigned_to):
+    """
+    Assign PMO users to one or more tasks.
+    task_names: list of PMO Project Task names
+    assigned_to: list of {userId, userName, userEmail}
+    """
+    if isinstance(task_names, str):
+        task_names = json.loads(task_names)
+    if isinstance(assigned_to, str):
+        assigned_to = json.loads(assigned_to)
+
+    for task_name in task_names:
+        doc = frappe.get_doc("PMO Project Task", task_name)
+        doc.assigned_to = json.dumps({"list": assigned_to})
+        doc.save(ignore_permissions=True)
+
+    frappe.db.commit()
+    return {"status": "success", "count": len(task_names)}
+
+
+@frappe.whitelist()
 def update_project_pmo_visibility(project_name, disabled):
     """
     Update the disabled_pmo status for a project.
@@ -566,7 +620,7 @@ def get_all_tasks(
         SELECT 
             pt.name, pt.task_name, pt.category, pt.status,
             pt.expected_completion_date, pt.completion_date, pt.attachment,
-            pt.project, p.project_name,
+            pt.project, p.project_name, pt.assigned_to,
             tm.deadline_offset, pc.is_handover_restricted
         FROM 
             `tabPMO Project Task` pt
@@ -625,6 +679,47 @@ def get_all_tasks(
             if not found:
                 continue
 
+        # Apply assigned_to filter (special handling for JSON field)
+        assigned_to_filter_fail = False
+        for f in ui_filters:
+            f_field = f[1] if len(f) == 4 else f[0] if len(f) == 3 else None
+            if f_field == "assigned_to":
+                f_op = (f[2] if len(f) == 4 else f[1] if len(f) == 3 else "").lower()
+                f_val = f[3] if len(f) == 4 else f[2] if len(f) == 3 else None
+                raw = task.get("assigned_to") or ""
+                # Parse the JSON field — handles both string and dict from DB
+                try:
+                    if isinstance(raw, dict):
+                        parsed = raw
+                    elif isinstance(raw, str) and raw.strip():
+                        parsed = json.loads(raw)
+                    else:
+                        parsed = {}
+                except Exception:
+                    parsed = {}
+                assigned_user_ids = [d.get("userId", "") for d in (parsed.get("list") or [])]
+
+                if f_op == "=" and f_val:
+                    if f_val not in assigned_user_ids:
+                        assigned_to_filter_fail = True
+                elif f_op == "in":
+                    filter_list = f_val
+                    if isinstance(filter_list, str):
+                        try:
+                            filter_list = json.loads(filter_list)
+                        except Exception:
+                            filter_list = []
+                    if not isinstance(filter_list, list):
+                        filter_list = [filter_list]
+                    if not assigned_user_ids or not any(uid in filter_list for uid in assigned_user_ids):
+                        assigned_to_filter_fail = True
+                elif f_op == "is" and f_val == "not set":
+                    if assigned_user_ids:
+                        assigned_to_filter_fail = True
+                break
+        if assigned_to_filter_fail:
+                continue
+
         # Apply UI Column Filters
         filter_fail = False
         for f in ui_filters:
@@ -634,6 +729,10 @@ def get_all_tasks(
             elif len(f) == 3:
                 field, op, val = f[0], f[1], f[2]
             else:
+                continue
+
+            # Skip assigned_to — handled separately above
+            if field == "assigned_to":
                 continue
 
             op = op.lower()

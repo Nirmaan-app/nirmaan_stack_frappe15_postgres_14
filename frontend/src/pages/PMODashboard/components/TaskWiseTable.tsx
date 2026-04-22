@@ -6,18 +6,24 @@ import {
     getFacetedRowModel,
     getFacetedUniqueValues,
     useReactTable,
+    RowSelectionState,
 } from "@tanstack/react-table";
-import { Edit, ExternalLink } from "lucide-react";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { Edit, ExternalLink, Users, UserCheck } from "lucide-react";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { safeFormatDate } from "@/lib/utils";
+import { useUserData } from "@/hooks/useUserData";
+import { toast } from "@/components/ui/use-toast";
+import { parseAssignedFromField, type AssignedPMODetail } from "../utils";
 import EditTaskModal from "./EditTaskModal";
+import { AssignPMODialog } from "./AssignPMODialog";
 
 interface FlattenedPMOTask {
     name: string;
@@ -29,6 +35,7 @@ interface FlattenedPMOTask {
     attachment: string | null;
     project: string;
     project_name: string;
+    assigned_to?: string | null;
 }
 
 interface TaskWiseTableProps {
@@ -36,31 +43,74 @@ interface TaskWiseTableProps {
 }
 
 const getTaskWiseColumns = (
-    handleEditClick: (task: FlattenedPMOTask) => void
+    handleEditClick: (task: FlattenedPMOTask) => void,
+    isAdmin: boolean,
+    isPMO: boolean,
+    userId: string,
 ): ColumnDef<FlattenedPMOTask>[] => {
-    return [
+    const cols: ColumnDef<FlattenedPMOTask>[] = [];
+
+    // Row selection checkbox (admin only)
+    if (isAdmin) {
+        cols.push({
+            id: "select",
+            header: ({ table }) => (
+                <Checkbox
+                    checked={table.getIsAllPageRowsSelected()}
+                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    aria-label="Select all"
+                    className="translate-y-[2px]"
+                />
+            ),
+            cell: ({ row }) => (
+                <Checkbox
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label="Select row"
+                    className="translate-y-[2px]"
+                />
+            ),
+            enableSorting: false,
+            enableHiding: false,
+            size: 40,
+        });
+    }
+
+    cols.push(
         {
             accessorKey: "project_name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
             cell: ({ row }) => (
                 <Link
                     to={`/pmo-dashboard/${row.original.project}`}
-                    className="text-red-700 underline-offset-2 hover:underline font-medium"
+                    className="text-red-700 underline-offset-2 hover:underline font-medium truncate block"
                 >
                     {row.original.project_name}
                 </Link>
             ),
             enableColumnFilter: true,
+            size: 140,
+            minSize: 100,
         },
         {
             accessorKey: "category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+            cell: ({ row }) => (
+                <span className="truncate block">{row.original.category}</span>
+            ),
             enableColumnFilter: true,
+            size: 120,
+            minSize: 90,
         },
         {
             accessorKey: "task_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
+            cell: ({ row }) => (
+                <span className="truncate block">{row.original.task_name}</span>
+            ),
             enableColumnFilter: true,
+            size: 150,
+            minSize: 100,
         },
         {
             accessorKey: "expected_completion_date",
@@ -71,13 +121,15 @@ const getTaskWiseColumns = (
                 if (!date) return "--";
 
                 const isOverdue = new Date(date) < new Date() && (row.original.status === "Not Defined" || row.original.status === "WIP");
-                
+
                 return (
-                    <span className={isOverdue ? "text-red-600 font-semibold" : ""}>
+                    <span className={`whitespace-nowrap ${isOverdue ? "text-red-600 font-semibold" : ""}`}>
                         {safeFormatDate(date)}
                     </span>
                 );
             },
+            size: 110,
+            minSize: 95,
         },
         {
             accessorKey: "status",
@@ -90,16 +142,45 @@ const getTaskWiseColumns = (
                 if (status === "WIP") colorClass = "bg-amber-100 text-amber-800";
 
                 return (
-                    <Badge variant="outline" className={`${colorClass} border-none`}>
+                    <Badge variant="outline" className={`${colorClass} border-none whitespace-nowrap`}>
                         {status}
                     </Badge>
                 );
             },
             enableColumnFilter: true,
+            size: 100,
+            minSize: 80,
+        },
+        {
+            id: "assigned_to",
+            accessorKey: "assigned_to",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,
+            cell: ({ row }) => {
+                const assigned = parseAssignedFromField(row.original.assigned_to);
+                if (assigned.length === 0) {
+                    return <span className="text-xs text-gray-400">--</span>;
+                }
+                return (
+                    <div className="flex flex-wrap gap-0.5">
+                        {assigned.map((d, idx) => (
+                            <Badge
+                                key={idx}
+                                variant="secondary"
+                                className="px-1.5 py-0 text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
+                            >
+                                {d.userName || d.userId}
+                            </Badge>
+                        ))}
+                    </div>
+                );
+            },
+            enableColumnFilter: true,
+            size: 120,
+            minSize: 90,
         },
         {
             accessorKey: "attachment",
-            header: () => <div className="text-center">Attachment</div>,
+            header: () => <div className="text-center">Attach</div>,
             cell: ({ row }) => (
                 <div className="flex justify-center">
                     {row.original.attachment ? (
@@ -116,34 +197,83 @@ const getTaskWiseColumns = (
                     )}
                 </div>
             ),
+            size: 60,
+            minSize: 50,
         },
         {
             id: "actions",
             header: () => <div className="text-center">Actions</div>,
-            cell: ({ row }) => (
-                <div className="flex justify-center">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleEditClick(row.original)}
-                    >
-                        <Edit className="h-4 w-4" />
-                    </Button>
-                </div>
-            ),
+            cell: ({ row }) => {
+                const canEdit = !isPMO || (() => {
+                    const assigned = parseAssignedFromField(row.original.assigned_to);
+                    return assigned.some((d) => d.userId === userId);
+                })();
+
+                return (
+                    <div className="flex justify-center">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-8 w-8 p-0 ${!canEdit ? "text-gray-300 cursor-not-allowed" : ""}`}
+                            disabled={!canEdit}
+                            onClick={() => canEdit && handleEditClick(row.original)}
+                        >
+                            <Edit className="h-4 w-4" />
+                        </Button>
+                    </div>
+                );
+            },
+            size: 60,
+            minSize: 50,
         },
-    ];
+    );
+
+    return cols;
 };
 
 export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) => {
+    const { user_id, role } = useUserData();
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const isPMO = role === "Nirmaan PMO Executive Profile";
+
     const [editingTask, setEditingTask] = useState<FlattenedPMOTask | null>(null);
     const [editOpen, setEditOpen] = useState(false);
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [showMyTasksOnly, setShowMyTasksOnly] = useState(isPMO);
+    const [assignDialogOpen, setAssignDialogOpen] = useState(false);
 
     const handleEditClick = (task: FlattenedPMOTask) => {
         setEditingTask(task);
         setEditOpen(true);
     };
+
+    // Fetch PMO users for assign dialog + facet filter
+    const { call: fetchPMOUsers } = useFrappePostCall(
+        "nirmaan_stack.api.pmo_dashboard.get_pmo_users"
+    );
+    const [pmoUsers, setPmoUsers] = useState<{ user_id: string; full_name: string; email: string }[]>([]);
+    const [pmoUsersLoaded, setPmoUsersLoaded] = useState(false);
+
+    const loadPMOUsers = useCallback(async () => {
+        if (pmoUsersLoaded) return;
+        try {
+            const res = await fetchPMOUsers({});
+            setPmoUsers(res?.message || []);
+            setPmoUsersLoaded(true);
+        } catch {
+            // silent fail
+        }
+    }, [fetchPMOUsers, pmoUsersLoaded]);
+
+    // Load PMO users on mount for the facet filter
+    React.useEffect(() => {
+        loadPMOUsers();
+    }, [loadPMOUsers]);
+
+    // Assign API
+    const { call: assignCall } = useFrappePostCall(
+        "nirmaan_stack.api.pmo_dashboard.assign_pmo_tasks"
+    );
 
     // Fetch distinct project IDs that have PMO tasks
     const { data: pmoTaskProjects } = useFrappeGetDocList("PMO Project Task", {
@@ -184,6 +314,10 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
         orderBy: { field: "creation", order: "asc" },
     }, "pmo-task-wise-task-masters");
 
+    const assignedFilterOptions = useMemo(() => {
+        return pmoUsers.map((u) => ({ label: u.full_name || u.user_id, value: u.user_id }));
+    }, [pmoUsers]);
+
     const facetFilterOptions = useMemo(() => ({
         project_name: {
             title: "Project Name",
@@ -206,20 +340,28 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
                 { label: "Completed", value: "Approve by client" },
             ],
         },
-    }), [projectOptions, categoriesData, taskMastersData]);
+        assigned_to: {
+            title: "Assigned To",
+            options: assignedFilterOptions,
+        },
+    }), [projectOptions, categoriesData, taskMastersData, assignedFilterOptions]);
 
     const additionalFilters = useMemo(() => {
         const filters: any[] = [];
         if (statusFilter && statusFilter !== "All") {
             filters.push(["PMO Project Task", "status", "=", statusFilter]);
         }
+        // "My Tasks" toggle filters to assigned tasks
+        if (showMyTasksOnly && isPMO && user_id) {
+            filters.push(["PMO Project Task", "assigned_to", "=", user_id]);
+        }
         return filters;
-    }, [statusFilter]);
+    }, [statusFilter, showMyTasksOnly, isPMO, user_id]);
 
     const serverDataTable = useServerDataTable<FlattenedPMOTask>({
         doctype: "PMO Project Task",
         apiEndpoint: "nirmaan_stack.api.pmo_dashboard.get_all_tasks",
-        columns: useMemo(() => getTaskWiseColumns(handleEditClick), []),
+        columns: useMemo(() => getTaskWiseColumns(handleEditClick, isAdmin, isPMO, user_id), [isAdmin, isPMO, user_id]),
         fetchFields: [
             "name",
             "task_name",
@@ -229,6 +371,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
             "completion_date",
             "attachment",
             "project",
+            "assigned_to",
         ],
         searchableFields: [
             { value: "task_name", label: "Task Name", default: true },
@@ -251,21 +394,83 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
             sorting: serverDataTable.sorting,
             columnFilters: serverDataTable.columnFilters,
             globalFilter: serverDataTable.searchTerm,
+            rowSelection: isAdmin ? rowSelection : {},
         },
         onPaginationChange: serverDataTable.setPagination,
         onSortingChange: serverDataTable.setSorting,
         onColumnFiltersChange: serverDataTable.setColumnFilters,
         onGlobalFilterChange: serverDataTable.setSearchTerm,
+        onRowSelectionChange: isAdmin ? setRowSelection : undefined,
+        enableRowSelection: isAdmin,
         getFacetedRowModel: getFacetedRowModel(),
         getFacetedUniqueValues: getFacetedUniqueValues(),
     });
 
+    const selectedRows = table.getFilteredSelectedRowModel().rows;
+    const selectedTasks = selectedRows.map((r) => r.original);
+
+    const handleBulkAssign = async (taskNames: string[], assignedTo: AssignedPMODetail[]) => {
+        try {
+            await assignCall({
+                task_names: JSON.stringify(taskNames),
+                assigned_to: JSON.stringify(assignedTo),
+            });
+            toast({
+                title: "Success",
+                description: `Assigned ${taskNames.length} task(s) successfully.`,
+                variant: "success",
+            });
+            setRowSelection({});
+            serverDataTable.refetch();
+        } catch (error: any) {
+            toast({
+                title: "Error",
+                description: error.message || "Failed to assign tasks.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const openAssignDialog = async () => {
+        await loadPMOUsers();
+        setAssignDialogOpen(true);
+    };
+
     return (
         <div className="space-y-4">
+            {/* My Tasks toggle (PMO) + Bulk Assign button (Admin) */}
+            <div className="flex items-center gap-2 flex-wrap">
+                {isPMO && (
+                    <button
+                        onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${
+                            showMyTasksOnly
+                                ? "bg-blue-600 text-white border-transparent shadow-sm"
+                                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                        }`}
+                    >
+                        <UserCheck className="h-3.5 w-3.5" />
+                        <span>My Tasks</span>
+                    </button>
+                )}
+
+                {isAdmin && selectedTasks.length > 0 && (
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-700 hover:bg-red-50"
+                        onClick={openAssignDialog}
+                    >
+                        <Users className="h-3.5 w-3.5 mr-1.5" />
+                        BulkAssign ({selectedTasks.length})
+                    </Button>
+                )}
+            </div>
+
             {serverDataTable.isLoading && !serverDataTable.data?.length ? (
                 <TableSkeleton />
             ) : (
-                <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                <div>
                     <DataTable<FlattenedPMOTask>
                         table={table}
                         columns={table.options.columns}
@@ -300,6 +505,16 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
                         serverDataTable.refetch();
                         setEditingTask(null);
                     }}
+                />
+            )}
+
+            {isAdmin && (
+                <AssignPMODialog
+                    isOpen={assignDialogOpen}
+                    onOpenChange={setAssignDialogOpen}
+                    selectedTasks={selectedTasks}
+                    pmoUsers={pmoUsers}
+                    onAssign={handleBulkAssign}
                 />
             )}
         </div>
