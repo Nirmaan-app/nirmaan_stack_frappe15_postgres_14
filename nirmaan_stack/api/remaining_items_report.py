@@ -89,7 +89,12 @@ def submit_remaining_items_report(project, report_date, items):
 
 @frappe.whitelist()
 def get_latest_remaining_quantities(project):
-    """Get the latest submitted report's remaining quantities for a project."""
+    """Get the latest submitted report's remaining quantities for a project.
+
+    Remaining quantities are reduced by dispatched ITM transfer quantities
+    for ITMs dispatched after this report's date, so "Copy Previous Report"
+    reflects committed transfers and avoids double-counting.
+    """
     latest = frappe.get_all(
         "Remaining Items Report",
         filters={"project": project, "status": "Submitted"},
@@ -105,11 +110,38 @@ def get_latest_remaining_quantities(project):
     submitted_by_full_name = None
     if doc.submitted_by:
         submitted_by_full_name = frappe.db.get_value("User", doc.submitted_by, "full_name") or doc.submitted_by
+
+    # Fetch dispatched ITM transfer deductions dispatched after this report date.
+    # Keyed by {category}_{item_id} to match the items_dict structure.
+    deduction_map = {}
+    itm_deductions = frappe.db.sql(
+        """
+        SELECT itmi.item_id, itmi.category,
+               SUM(itmi.transfer_quantity) AS deducted_qty
+        FROM "tabInternal Transfer Memo Item" itmi
+        JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+        WHERE itm.source_project = %(project)s
+          AND itm.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
+          AND itm.dispatched_on::date > %(report_date)s
+        GROUP BY itmi.item_id, itmi.category
+        """,
+        {"project": project, "report_date": str(doc.report_date)},
+        as_dict=True,
+    )
+    for d in itm_deductions:
+        key = f"{d.category}_{d.item_id}"
+        deduction_map[key] = d.deducted_qty or 0
+
     items_dict = {}
     for item in doc.items:
         key = f"{item.category}_{item.item_id}"
+        remaining = item.remaining_quantity
+        # Only deduct from real values; preserve -1 sentinel ("not filled")
+        if remaining is not None and remaining != -1:
+            deduction = deduction_map.get(key, 0)
+            remaining = max(remaining - deduction, 0)
         items_dict[key] = {
-            "remaining_quantity": item.remaining_quantity,
+            "remaining_quantity": remaining,
             "dn_quantity": item.dn_quantity,
         }
 
