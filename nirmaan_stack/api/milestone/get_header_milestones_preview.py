@@ -179,13 +179,19 @@ def _update_report_for_header(report_name, work_header, master_rows, active_set)
             milestone_names.add(key[0])
 
     for name in milestone_names:
-        desired_status = "Not Started" if name in active_set else "Not Applicable"
-        key = (name, work_header)
-        existing = existing_by_key.get(key)
+        is_checked = name in active_set
+        existing = existing_by_key.get((name, work_header))
+
         if existing:
-            if existing.status != desired_status:
-                existing.status = desired_status
-                if desired_status == "Not Applicable":
+            if is_checked:
+                # Only reactivate rows that were deselected. In-progress
+                # work (Not Started / WIP / Completed) is preserved.
+                if existing.status == "Not Applicable":
+                    existing.status = "Not Started"
+                    existing.progress = 0
+            else:
+                if existing.status != "Not Applicable":
+                    existing.status = "Not Applicable"
                     existing.progress = 0
         else:
             doc.append(
@@ -193,7 +199,7 @@ def _update_report_for_header(report_name, work_header, master_rows, active_set)
                 {
                     "work_milestone_name": name,
                     "work_header": work_header,
-                    "status": desired_status,
+                    "status": "Not Started" if is_checked else "Not Applicable",
                     "progress": 0,
                 },
             )
