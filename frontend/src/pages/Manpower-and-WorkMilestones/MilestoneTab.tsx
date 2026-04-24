@@ -1689,6 +1689,18 @@ console.log(user)
       return;
     }
 
+    // Testing / Commissioning milestones can only be Not Started or Completed.
+    const nameLower = (selectedMilestoneForDialog.work_milestone_name || '').toLowerCase();
+    const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+    if (isTestingMilestone && (newStatus === 'WIP' || newStatus === 'Not Applicable')) {
+      toast({
+        title: "Invalid Status ⚠️",
+        description: `Testing milestone "${selectedMilestoneForDialog.work_milestone_name}" can only be Not Started or Completed.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -1821,6 +1833,23 @@ console.log(user)
 
   // --- SAVE AS-IS HANDLERS ---
   const handleSaveAsIsClick = (milestone: LocalMilestoneData) => {
+    // --- TESTING MILESTONE RULE ---
+    // Testing milestones can only be Not Started or Completed. If the
+    // previous report left it in WIP / Not Applicable, "Same As Before"
+    // would silently carry that forward — force the user into the
+    // update dialog instead so they have to pick a valid status.
+    const nameLower = (milestone.work_milestone_name || '').toLowerCase();
+    const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+    if (isTestingMilestone && (milestone.status === 'WIP' || milestone.status === 'Not Applicable')) {
+        toast({
+            title: "Update Required",
+            description: `Testing milestone "${milestone.work_milestone_name}" is currently ${milestone.status}. Only Not Started or Completed are allowed — please update it.`,
+            variant: "destructive",
+        });
+        openUpdateMilestoneDialog(milestone, false);
+        return;
+    }
+
     // --- DATE VALIDATION ---
     // Use Date objects for comparison instead of strings
     const today = new Date();
@@ -3186,40 +3215,58 @@ console.log(user)
             
             <div className="flex flex-col">
                 <label className="block text-base font-semibold text-gray-900 mb-2">Select New Status</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <Button 
-                        className={`py-3 text-sm font-semibold ${newStatus === 'Not Applicable' ? 'bg-gray-700 text-white hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                        onClick={() => setNewStatus('Not Applicable')}
-                        disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    >
-                        Not Applicable
-                    </Button>
+                {(() => {
+                    const nameLower = (selectedMilestoneForDialog?.work_milestone_name || '').toLowerCase();
+                    const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+                    const restrictedTitle = isTestingMilestone
+                        ? 'Testing milestones can only be Not Started or Completed'
+                        : undefined;
+                    return (
+                        <>
+                            {isTestingMilestone && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+                                    Testing milestone — only <span className="font-semibold">Not Started</span> or <span className="font-semibold">Completed</span> are allowed.
+                                </p>
+                            )}
+                            <div className="grid grid-cols-2 gap-3">
+                                <Button
+                                    className={`py-3 text-sm font-semibold ${newStatus === 'Not Applicable' ? 'bg-gray-700 text-white hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    onClick={() => setNewStatus('Not Applicable')}
+                                    disabled={isBlockedByDraftOwnership || isTestingMilestone}
+                                    title={restrictedTitle}
+                                >
+                                    Not Applicable
+                                </Button>
 
-                    <Button 
-                        className={`py-3 text-sm font-semibold ${newStatus === 'Not Started' ? 'bg-red-700 text-white hover:bg-red-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                        onClick={() => setNewStatus('Not Started')}
-                        disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    >
-                        Not Started
-                    </Button>
+                                <Button
+                                    className={`py-3 text-sm font-semibold ${newStatus === 'Not Started' ? 'bg-red-700 text-white hover:bg-red-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    onClick={() => setNewStatus('Not Started')}
+                                    disabled={isBlockedByDraftOwnership}
+                                >
+                                    Not Started
+                                </Button>
 
-                    
-                    <Button 
-                        className={`py-3 text-sm font-semibold ${newStatus === 'WIP' ? 'bg-yellow-400 text-gray-900 hover:bg-yellow-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                        onClick={() => setNewStatus('WIP')}
-                        disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    >
-                        WIP
-                    </Button>
-                     
-                    <Button 
-                        className={`py-3 text-sm font-semibold ${newStatus === 'Completed' ? 'bg-green-400 text-white hover:bg-green-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                        onClick={() => setNewStatus('Completed')}
-                        disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    >
-                        Completed
-                    </Button>
-                </div>
+
+                                <Button
+                                    className={`py-3 text-sm font-semibold ${newStatus === 'WIP' ? 'bg-yellow-400 text-gray-900 hover:bg-yellow-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    onClick={() => setNewStatus('WIP')}
+                                    disabled={isBlockedByDraftOwnership || isTestingMilestone}
+                                    title={restrictedTitle}
+                                >
+                                    WIP
+                                </Button>
+
+                                <Button
+                                    className={`py-3 text-sm font-semibold ${newStatus === 'Completed' ? 'bg-green-400 text-white hover:bg-green-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                    onClick={() => setNewStatus('Completed')}
+                                    disabled={isBlockedByDraftOwnership}
+                                >
+                                    Completed
+                                </Button>
+                            </div>
+                        </>
+                    );
+                })()}
             </div>
 
             {(newStatus === 'WIP') && (
