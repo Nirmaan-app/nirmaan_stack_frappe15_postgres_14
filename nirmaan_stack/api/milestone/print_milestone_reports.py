@@ -55,19 +55,25 @@ from pypdf import PdfWriter, PdfReader
 
 
 @frappe.whitelist()
-def get_merged_zone_reports_pdf(project_id: str, report_date: str):
+def get_merged_zone_reports_pdf(project_id: str, report_date: str, is_admin: str = "0"):
     """
     Get all zone reports for a project on a given date,
     generate PDFs for each, merge them, and return combined PDF.
-    
+
     Args:
         project_id: The project document name
         report_date: Date in YYYY-MM-DD format
-    
+        is_admin: "1" when the caller is an admin (enables Target Progress
+                  blocks inside the Jinja print format). Default "0".
+
     Returns:
         Merged PDF file download
     """
     try:
+        # Ensure the admin flag is visible to the Jinja template via form_dict,
+        # regardless of how get_print re-initialises the render context.
+        frappe.local.form_dict["is_admin"] = is_admin
+
         # 1. Get all completed reports for this project on this date
         reports = frappe.get_all(
             "Project Progress Reports",
@@ -151,19 +157,24 @@ def get_report_doc_name(project_id: str, report_date: str, zone: str):
 
 
 @frappe.whitelist()
-def get_all_zones_overall_report_pdf(project_id: str):
+def get_all_zones_overall_report_pdf(project_id: str, is_admin: str = "0"):
     """
     Get 14-days (Overall) reports for all zones by iterating zone-by-zone,
     generating individual 'Overall Milestones Report' PDFs for the Project via zone filter,
     and merging them into one.
-    
+
     Args:
         project_id: The project document name (ID)
-    
+        is_admin: "1" when the caller is an admin (enables Target Progress
+                  blocks inside the Jinja print format). Default "0".
+
     Returns:
         Merged PDF file download
     """
     try:
+        # Ensure the admin flag is visible to the Jinja template via form_dict.
+        frappe.local.form_dict["is_admin"] = is_admin
+
         # 1. Fetch project to get list of zones
         project = frappe.get_doc("Projects", project_id)
         if not project:

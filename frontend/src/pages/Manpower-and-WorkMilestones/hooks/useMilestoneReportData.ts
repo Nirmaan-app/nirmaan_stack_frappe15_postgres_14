@@ -70,9 +70,24 @@ export const useMilestoneReportData = ({
   // Fetch Work Headers ordering
   const { workHeaderOrderMap } = useWorkHeaderOrder();
 
-  // Fetch Work Milestones for ordering and weightage
+  // Fetch Work Milestones for ordering, weightage, and weekly target plan
   const { data: workMilestonesList } = useFrappeGetDocList('Work Milestones', {
-    fields: ['work_milestone_name', 'work_milestone_order', 'work_header', 'weightage'],
+    fields: [
+      'name',
+      'work_milestone_name',
+      'work_milestone_order',
+      'work_header',
+      'weightage',
+      'week_1',
+      'week_2',
+      'week_3',
+      'week_4',
+      'week_5',
+      'week_6',
+      'week_7',
+      'week_8',
+      'week_9',
+    ],
     limit: 0,
   });
 

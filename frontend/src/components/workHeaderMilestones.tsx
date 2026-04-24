@@ -18,6 +18,7 @@ import {
   ChevronRight,
   X,
   Edit3,
+  Scale,
 } from "lucide-react";
 import {
   Dialog,
@@ -78,6 +79,7 @@ export interface WorkHeaders {
   work_header_name: string;
   work_package_link?: string;
   order?: number;
+  header_weightage?: number;
   creation?: string;
   modified?: string;
   owner?: string;
@@ -114,6 +116,9 @@ export interface WorkPackage {
 const workHeaderFormSchema = z.object({
   work_header_name: z.string().min(1, "Work Header Name is required."),
   work_package_link: z.string().optional(),
+  header_weightage: z.coerce
+    .number({ invalid_type_error: "Header Weightage must be a number." })
+    .min(0, "Header Weightage cannot be negative."),
 });
 type WorkHeaderFormValues = z.infer<typeof workHeaderFormSchema>;
 
@@ -141,7 +146,13 @@ export const WorkHeaderMilestones: React.FC = () => {
     error: workHeadersError,
     mutate: workHeadersMutate,
   } = useFrappeGetDocList<WorkHeaders>("Work Headers", {
-    fields: ["name", "work_header_name", "order", "work_package_link"],
+    fields: [
+      "name",
+      "work_header_name",
+      "order",
+      "work_package_link",
+      "header_weightage",
+    ],
     limit: 0,
     orderBy: { field: "`order`", order: "asc" },
   });
@@ -433,7 +444,7 @@ export const WorkHeaderMilestones: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold text-slate-900 tracking-tight">
-                Work Headers & Milestones
+                DPR Work Headers & Milestones
               </h1>
               <p className="text-sm text-slate-500 mt-0.5">
                 Configure work categories and their milestones
@@ -521,6 +532,7 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({
     defaultValues: {
       work_header_name: "",
       work_package_link: "",
+      header_weightage: 0,
     },
   });
 
@@ -530,6 +542,7 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({
         work_header_name: values.work_header_name,
         work_package_link: values.work_package_link || null,
         order: maxOrder + 1,
+        header_weightage: values.header_weightage,
       });
 
       toast({
@@ -624,6 +637,30 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="header_weightage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Header Weightage
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g., 10"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"
@@ -677,6 +714,7 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({
     defaultValues: {
       work_header_name: header.work_header_name,
       work_package_link: header.work_package_link || "",
+      header_weightage: header.header_weightage ?? 0,
     },
   });
 
@@ -685,6 +723,7 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({
     form.reset({
       work_header_name: header.work_header_name,
       work_package_link: header.work_package_link || "",
+      header_weightage: header.header_weightage ?? 0,
     });
   }, [header, form]);
 
@@ -692,8 +731,10 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({
     const nameChanged = values.work_header_name !== header.work_header_name;
     const packageChanged =
       (values.work_package_link || null) !== (header.work_package_link || null);
+    const weightageChanged =
+      (values.header_weightage ?? 0) !== (header.header_weightage ?? 0);
 
-    if (!nameChanged && !packageChanged) {
+    if (!nameChanged && !packageChanged && !weightageChanged) {
       toast({
         title: "No Changes",
         description: "No changes were detected.",
@@ -715,12 +756,17 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({
         });
       }
 
-      // Handle work package update separately
-      if (packageChanged) {
+      // Handle work package / weightage update
+      if (packageChanged || weightageChanged) {
         const docName = nameChanged ? values.work_header_name : header.name;
-        await updateDoc("Work Headers", docName, {
-          work_package_link: values.work_package_link || null,
-        });
+        const updatePayload: Record<string, any> = {};
+        if (packageChanged) {
+          updatePayload.work_package_link = values.work_package_link || null;
+        }
+        if (weightageChanged) {
+          updatePayload.header_weightage = values.header_weightage;
+        }
+        await updateDoc("Work Headers", docName, updatePayload);
       }
 
       toast({
@@ -822,6 +868,30 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({
                       </Button>
                     )}
                   </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="header_weightage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Header Weightage
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g., 10"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -2076,9 +2146,22 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({
                 />
               </div>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {milestones.length} milestone{milestones.length !== 1 ? "s" : ""}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-slate-500">
+                {milestones.length} milestone{milestones.length !== 1 ? "s" : ""}
+              </p>
+              {header.header_weightage != null && header.header_weightage > 0 && (
+                <span className="inline-flex items-center gap-1.5 pl-2 pr-0.5 py-0.5 rounded bg-amber-50 text-amber-700 text-xs font-medium ring-1 ring-inset ring-amber-200">
+                  <Scale className="w-3 h-3" />
+                  <span className="uppercase tracking-wide text-[10px] text-amber-600/80">
+                    Weightage
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white text-xs font-semibold tabular-nums">
+                    {header.header_weightage.toFixed(2)}
+                  </span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
