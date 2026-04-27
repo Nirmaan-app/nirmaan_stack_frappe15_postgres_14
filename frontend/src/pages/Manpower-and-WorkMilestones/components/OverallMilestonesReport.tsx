@@ -8,8 +8,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ChevronDown, ChevronUp, AlertCircle, Info, MapPin, MessagesSquare, FileText, Download, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
+import { useTargetProgress, TargetWorkMilestone } from '../hooks/useTargetProgress';
 
 // import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder'; // Removed as backend sorts now
 
@@ -45,6 +56,7 @@ interface OverallMilestonesReportProps {
   selectedProject: string;
   projectData?: any;
   selectedZone: string;
+  isAdmin?: boolean;
 }
 
 // Helper function to get badge classes based on status
@@ -59,7 +71,7 @@ const getStatusBadgeClasses = (status: string) => {
   }
 };
 
-const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selectedProject, projectData, selectedZone }) => {
+const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selectedProject, projectData, selectedZone, isAdmin = false }) => {
   const {
     data: reportsData,
     isLoading: isReportsLoading,
@@ -75,7 +87,11 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
 
   // Fetch Work Milestones to get the order and weightage for milestones
   const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
-    fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
+    fields: [
+      "work_milestone_name", "work_milestone_order", "work_header", "weightage",
+      "week_1", "week_2", "week_3", "week_4", "week_5",
+      "week_6", "week_7", "week_8", "week_9",
+    ],
     limit: 0
   });
 
@@ -84,6 +100,60 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   const [latestReport, setLatestReport] = useState<ReportDoc | null>(null);
   const [report7DaysAgo, setReport7DaysAgo] = useState<ReportDoc | null>(null);
   const [report14DaysAgo, setReport14DaysAgo] = useState<ReportDoc | null>(null);
+
+  // Target progress for each snapshot date (admin only uses these)
+  const currentRefDate = useMemo(
+    () => (latestReport?.report_date ? new Date(latestReport.report_date) : undefined),
+    [latestReport?.report_date],
+  );
+  const sevenRefDate = useMemo(
+    () => (report7DaysAgo?.report_date ? new Date(report7DaysAgo.report_date) : undefined),
+    [report7DaysAgo?.report_date],
+  );
+  const fourteenRefDate = useMemo(
+    () => (report14DaysAgo?.report_date ? new Date(report14DaysAgo.report_date) : undefined),
+    [report14DaysAgo?.report_date],
+  );
+
+  const { milestoneTarget: targetCurrent } = useTargetProgress({
+    projectId: isAdmin ? selectedProject : null,
+    referenceDate: currentRefDate,
+    workMilestonesList: workMilestonesList as TargetWorkMilestone[] | undefined,
+  });
+  const { milestoneTarget: target7d } = useTargetProgress({
+    projectId: isAdmin ? selectedProject : null,
+    referenceDate: sevenRefDate,
+    workMilestonesList: workMilestonesList as TargetWorkMilestone[] | undefined,
+  });
+  const { milestoneTarget: target14d } = useTargetProgress({
+    projectId: isAdmin ? selectedProject : null,
+    referenceDate: fourteenRefDate,
+    workMilestonesList: workMilestonesList as TargetWorkMilestone[] | undefined,
+  });
+
+  // Weighted header-level target for a given milestone-target map, matching
+  // calculateHeaderAverage's weightage logic but substituting target for progress.
+  const calculateHeaderTarget = (
+    targetMap: Map<string, number>,
+    header: string,
+    activeMilestones: MilestoneSnapshot[],
+  ) => {
+    if (!targetMap.size || !activeMilestones.length) return 0;
+    let weightedSum = 0;
+    let weightTotal = 0;
+    for (const m of activeMilestones) {
+      if (m.status === 'Not Applicable') continue;
+      const wm = workMilestonesList?.find(
+        x => x.work_milestone_name === m.work_milestone_name && x.work_header === header,
+      );
+      const w = wm?.weightage ?? 1.0;
+      const t = targetMap.get(m.work_milestone_name);
+      if (typeof t !== 'number') continue;
+      weightedSum += w * t;
+      weightTotal += w;
+    }
+    return weightTotal > 0 ? Math.round(weightedSum / weightTotal) : 0;
+  };
 
   // --- Filter Photos for Specific Comparison Dates ---
   const currentWorkPhotos = useMemo(() => {
@@ -105,18 +175,18 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   const [allExpanded, setAllExpanded] = useState(false);
   const [showPrintHeader, setShowPrintHeader] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showAdminDownloadDialog, setShowAdminDownloadDialog] = useState(false);
 
   // PDF Download handler
-  const handleDownloadReport = async () => {
+  const handleDownloadReport = async (includeTarget: boolean = false) => {
     if (!selectedProject) return;
 
     try {
       setIsDownloading(true);
-      // Note: toast is not imported, so we'll use console/alert for now
-      // If toast is needed, import from '@/components/ui/use-toast'
 
       const headerParam = showPrintHeader ? '1' : '0';
-      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Projects&name=${encodeURIComponent(selectedProject)}&format=Overall%20Milestones%20Report&no_letterhead=0${selectedZone ? `&zone=${encodeURIComponent(selectedZone)}` : ''}&show_header=${headerParam}`;
+      const adminParam = includeTarget ? '&is_admin=1' : '';
+      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Projects&name=${encodeURIComponent(selectedProject)}&format=Overall%20Milestones%20Report&no_letterhead=0${selectedZone ? `&zone=${encodeURIComponent(selectedZone)}` : ''}&show_header=${headerParam}${adminParam}`;
 
       const response = await fetch(printUrl);
       if (!response.ok) throw new Error("Failed to generate PDF");
@@ -605,96 +675,117 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             {/* Collapsible Content - Comparison Table */}
             {expandedSections[header] && (
               <div className="p-0 overflow-x-auto">
-                <Table className="w-full min-w-[1200px]">
+                <Table className={`w-full ${isAdmin ? 'min-w-[1500px]' : 'min-w-[1200px]'}`}>
                   <TableHeader className="bg-gray-100">
 
-                    {/* 1. TOP HEADER ROW */}
+                    {/* 1. TOP HEADER ROW — date headers */}
                     <TableRow>
                       <TableHead
-                        className="w-[15%] font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
-                        rowSpan={2}
+                        className="font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
+                        rowSpan={isAdmin ? 3 : 2}
                       >
                         Work
                       </TableHead>
-                      <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={isAdmin ? 4 : 3}>
                         Current ({latestReport.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'})
                       </TableHead>
-                      <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={isAdmin ? 4 : 3}>
                         7 Days Ago ({report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'})
                       </TableHead>
-                      <TableHead className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={3}>
+                      <TableHead className="text-center font-semibold text-gray-700 text-sm py-2 border-r" colSpan={isAdmin ? 4 : 3}>
                         14 Days Ago ({report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'})
                       </TableHead>
                     </TableRow>
 
-                    {/* 2. BOTTOM HEADER ROW */}
+                    {/* 2. SUB-HEADER ROW — Status | Done | Remarks per snapshot */}
                     <TableRow className="bg-gray-200">
-                      <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                      <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                      <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
-
-                      <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                      <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                      <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
-
-                      <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                      <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                      <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
+                      {[0, 1, 2].map(i => (
+                        <React.Fragment key={i}>
+                          <TableHead className="text-center font-semibold text-gray-700 text-sm py-2" rowSpan={isAdmin ? 2 : 1}>Status</TableHead>
+                          <TableHead className="text-center font-semibold text-gray-700 text-sm py-2" colSpan={isAdmin ? 2 : 1}>Done</TableHead>
+                          <TableHead className="text-center font-semibold text-gray-700 text-sm py-2 border-r" rowSpan={isAdmin ? 2 : 1}>Remarks</TableHead>
+                        </React.Fragment>
+                      ))}
                     </TableRow>
+
+                    {/* 3. SUB-SUB-HEADER ROW — Target | Actual under Done (admin only) */}
+                    {isAdmin && (
+                      <TableRow className="bg-gray-300">
+                        {[0, 1, 2].map(i => (
+                          <React.Fragment key={i}>
+                            <TableHead className="text-center font-semibold text-gray-700 text-xs py-1">Target</TableHead>
+                            <TableHead className="text-center font-semibold text-gray-700 text-xs py-1">Actual</TableHead>
+                          </React.Fragment>
+                        ))}
+                      </TableRow>
+                    )}
                   </TableHeader>
 
                   {/* TABLE BODY */}
                   <TableBody>
 
-                    {/* --- NEW SUMMARY ROW (Matching PDF Layout) --- */}
-                    <TableRow className="bg-gray-50 border-b-2 border-gray-100 bg-gray-300 align-middle">
-                      <TableCell className="py-2 px-4 text-sm font-bold text-gray-800">
-                        Overall Progress
-                      </TableCell>
+                    {/* --- SUMMARY ROW — Overall Progress (and Target if admin) --- */}
+                    {(() => {
+                      const currentHeaderTarget = isAdmin ? calculateHeaderTarget(targetCurrent, header, activeMilestones) : 0;
+                      const sevenHeaderTarget = isAdmin ? calculateHeaderTarget(target7d, header, activeMilestones) : 0;
+                      const fourteenHeaderTarget = isAdmin ? calculateHeaderTarget(target14d, header, activeMilestones) : 0;
 
-                      {/* Current Overall */}
-                      <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
-                        <div className="flex items-center justify-center gap-2">
-                          <span className="text-xs font-bold text-gray-700">Overall:</span>
-                          <MilestoneProgress
-                            milestoneStatus="Completed" // Always show color for avg
-                            value={currentAvg}
-                            sizeClassName="size-[36px]"
-                            textSizeClassName="text-xs"
-                          />
-                        </div>
-                      </TableCell>
+                      const renderSummaryCell = (report: ReportDoc | null, target: number, actual: number) => {
+                        if (!report) {
+                          return (
+                            <TableCell colSpan={isAdmin ? 4 : 3} className="py-2 px-2 text-center border-r">
+                              <span className="text-gray-400 text-xs">--</span>
+                            </TableCell>
+                          );
+                        }
+                        if (!isAdmin) {
+                          return (
+                            <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
+                              <MilestoneProgress
+                                milestoneStatus="Completed"
+                                value={actual}
+                                sizeClassName="size-[44px]"
+                                textSizeClassName="text-xs"
+                              />
+                            </TableCell>
+                          );
+                        }
+                        // Admin: Status (1 col, blank) + Target + Actual + Remarks (1 col, blank)
+                        return (
+                          <>
+                            <TableCell className="py-2 px-2" />
+                            <TableCell className="py-2 px-2 text-center">
+                              <MilestoneProgress
+                                milestoneStatus="In Progress"
+                                value={target}
+                                sizeClassName="size-[44px]"
+                                textSizeClassName="text-xs"
+                              />
+                            </TableCell>
+                            <TableCell className="py-2 px-2 text-center">
+                              <MilestoneProgress
+                                milestoneStatus="Completed"
+                                value={actual}
+                                sizeClassName="size-[44px]"
+                                textSizeClassName="text-xs"
+                              />
+                            </TableCell>
+                            <TableCell className="py-2 px-2 border-r" />
+                          </>
+                        );
+                      };
 
-                      {/* 7 Days Overall */}
-                      <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
-                        {report7DaysAgo ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <span className="text-xs font-bold text-gray-700">Overall:</span>
-                            <MilestoneProgress
-                              milestoneStatus="Completed"
-                              value={sevenDaysAvg}
-                              sizeClassName="size-[36px]"
-                              textSizeClassName="text-xs"
-                            />
-                          </div>
-                        ) : <span className="text-gray-400 text-xs">--</span>}
-                      </TableCell>
-
-                      {/* 14 Days Overall */}
-                      <TableCell colSpan={3} className="py-2 px-2 text-center border-r">
-                        {report14DaysAgo ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <span className="text-xs font-bold text-gray-700">Overall:</span>
-                            <MilestoneProgress
-                              milestoneStatus="Completed"
-                              value={fourteenDaysAvg}
-                              sizeClassName="size-[36px]"
-                              textSizeClassName="text-xs"
-                            />
-                          </div>
-                        ) : <span className="text-gray-400 text-xs">--</span>}
-                      </TableCell>
-                    </TableRow>
+                      return (
+                        <TableRow className="bg-gray-50 border-b-2 border-gray-100 bg-gray-300 align-middle">
+                          <TableCell className="py-2 px-4 text-sm font-bold text-gray-800">
+                            Overall Progress
+                          </TableCell>
+                          {renderSummaryCell(latestReport, currentHeaderTarget, currentAvg)}
+                          {renderSummaryCell(report7DaysAgo, sevenHeaderTarget, sevenDaysAvg)}
+                          {renderSummaryCell(report14DaysAgo, fourteenHeaderTarget, fourteenDaysAvg)}
+                        </TableRow>
+                      );
+                    })()}
 
                     {/* --- INDIVIDUAL MILESTONES --- */}
                     {(milestones as MilestoneSnapshot[]).map((milestone, idx) => {
@@ -726,11 +817,27 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                           <MilestoneProgress
                             milestoneStatus={data.status}
                             value={data.progress}
-                            sizeClassName="size-[60px]"
-                            textSizeClassName="text-md"
+                            sizeClassName="size-[40px]"
+                            textSizeClassName="text-xs"
                           />
                         </TableCell>
                       );
+
+                      const renderTargetCell = (targetMap: Map<string, number>) => {
+                        const t = targetMap.get(milestone.work_milestone_name);
+                        return (
+                          <TableCell className="text-center py-3 px-2 text-sm font-medium">
+                            {typeof t === 'number' ? (
+                              <MilestoneProgress
+                                milestoneStatus="In Progress"
+                                value={Number(t.toFixed(1))}
+                                sizeClassName="size-[40px]"
+                                textSizeClassName="text-md"
+                              />
+                            ) : <span className="text-gray-400 text-xs">--</span>}
+                          </TableCell>
+                        );
+                      };
 
                       return (
                         <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} align-middle`}>
@@ -742,6 +849,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                               {currentData.status}
                             </Badge>
                           </TableCell>
+                          {isAdmin && renderTargetCell(targetCurrent)}
                           {renderProgressCell(currentData)}
                           {renderRemarksCell(currentData.remarks)}
 
@@ -751,6 +859,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                               <Badge variant="secondary" className={`${getStatusBadgeClasses(sevenDaysAgoData.status)} text-xs`}>{sevenDaysAgoData.status}</Badge>
                             ) : <span className="text-gray-400 text-xs">N/A</span>}
                           </TableCell>
+                          {isAdmin && (report7DaysAgo ? renderTargetCell(target7d) : <TableCell className="text-center text-gray-400 text-xs">--</TableCell>)}
                           {report7DaysAgo ? renderProgressCell(sevenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
                           {report7DaysAgo ? renderRemarksCell(sevenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs border-r">N/A</TableCell>}
 
@@ -760,6 +869,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                               <Badge variant="secondary" className={`${getStatusBadgeClasses(fourteenDaysAgoData.status)} text-xs`}>{fourteenDaysAgoData.status}</Badge>
                             ) : <span className="text-gray-400 text-xs">N/A</span>}
                           </TableCell>
+                          {isAdmin && (report14DaysAgo ? renderTargetCell(target14d) : <TableCell className="text-center text-gray-400 text-xs">--</TableCell>)}
                           {report14DaysAgo ? renderProgressCell(fourteenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
                           {report14DaysAgo ? renderRemarksCell(fourteenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs border-r">N/A</TableCell>}
 
@@ -843,7 +953,13 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
               </Button>
             </div>
             <Button
-              onClick={handleDownloadReport}
+              onClick={() => {
+                if (isAdmin) {
+                  setShowAdminDownloadDialog(true);
+                } else {
+                  handleDownloadReport(false);
+                }
+              }}
               disabled={isDownloading}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white disabled:bg-red-400"
             >
@@ -871,6 +987,51 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
           selectedZone={selectedZone}
         /> */}
       </div>
+
+      {/* Admin: choose whether the PDF should include Target Progress */}
+      <AlertDialog open={showAdminDownloadDialog} onOpenChange={setShowAdminDownloadDialog}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <Download className="h-4 w-4" />
+              </div>
+              <AlertDialogTitle className="text-lg">Download 14 Days Report</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-sm text-slate-600 leading-relaxed">
+              Choose a version of the PDF. The admin version splits the{' '}
+              <span className="font-semibold text-slate-800">Done</span> column into{' '}
+              <span className="font-semibold text-slate-800">Target</span> and{' '}
+              <span className="font-semibold text-slate-800">Actual</span> sub-columns for each snapshot.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
+            <AlertDialogCancel className="mt-0 sm:mt-0">Cancel</AlertDialogCancel>
+            <div className="flex flex-col-reverse sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                className="border-slate-300"
+                onClick={() => {
+                  setShowAdminDownloadDialog(false);
+                  handleDownloadReport(false);
+                }}
+              >
+                Without Target Progress
+              </Button>
+              <AlertDialogAction
+                onClick={() => {
+                  setShowAdminDownloadDialog(false);
+                  handleDownloadReport(true);
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                With Target Progress
+              </AlertDialogAction>
+            </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
 
 

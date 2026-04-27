@@ -225,34 +225,73 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                 const isOver = overallDiffPct > 0;
                 const TrendIcon = isOver ? TrendingUp : TrendingDown;
                 return (
-                    <div className="flex items-center justify-between gap-4 rounded-md border border-gray-200 bg-gray-50/60 px-3 py-1.5 text-xs">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                            <BarChart3 className="h-3.5 w-3.5" />
-                            <span className="font-semibold uppercase tracking-wide text-[10px]">
-                                vs Rate Card
-                            </span>
-                        </div>
-                        <div className="flex items-center divide-x divide-gray-300">
-                            <span className="px-3">
-                                <span className="text-muted-foreground">STD </span>
-                                <span className="font-semibold text-slate-700">
-                                    {formatToIndianRupee(stdTotal)}
-                                </span>
-                            </span>
-                            <span className="px-3">
-                                <span className="text-muted-foreground">Total(excl.gst) </span>
-                                <span className="font-semibold text-slate-900">
-                                    {formatToIndianRupee(estForStd)}
-                                </span>
-                            </span>
-                            <span
-                                className={`inline-flex items-center gap-1 font-bold pl-3 ${isOver ? "text-red-600" : "text-emerald-600"
+                    <div className="rounded-md border border-gray-200 bg-gray-50/60 px-3 py-1.5 text-xs">
+                        {/* Mobile: stacked, two rows */}
+                        <div className="md:hidden flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 text-muted-foreground">
+                                    <BarChart3 className="h-3.5 w-3.5" />
+                                    <span className="font-semibold uppercase tracking-wide text-[10px]">
+                                        vs Rate Card
+                                    </span>
+                                </div>
+                                <span
+                                    className={`inline-flex items-center gap-1 font-bold ${
+                                        isOver ? "text-red-600" : "text-emerald-600"
                                     }`}
-                            >
-                                <TrendIcon className="h-3.5 w-3.5" />
-                                {isOver ? "+" : ""}
-                                {overallDiffPct.toFixed(2)}%
-                            </span>
+                                >
+                                    <TrendIcon className="h-3.5 w-3.5" />
+                                    {isOver ? "+" : ""}
+                                    {overallDiffPct.toFixed(2)}%
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 border-t border-gray-200 pt-1.5">
+                                <span>
+                                    <span className="text-muted-foreground">STD </span>
+                                    <span className="font-semibold text-slate-700">
+                                        {formatToIndianRupee(stdTotal)}
+                                    </span>
+                                </span>
+                                <span>
+                                    <span className="text-muted-foreground">Total(excl.gst) </span>
+                                    <span className="font-semibold text-slate-900">
+                                        {formatToIndianRupee(estForStd)}
+                                    </span>
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Desktop / tablet: single row */}
+                        <div className="hidden md:flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                                <BarChart3 className="h-3.5 w-3.5" />
+                                <span className="font-semibold uppercase tracking-wide text-[10px]">
+                                    vs Rate Card
+                                </span>
+                            </div>
+                            <div className="flex items-center divide-x divide-gray-300">
+                                <span className="px-3">
+                                    <span className="text-muted-foreground">STD </span>
+                                    <span className="font-semibold text-slate-700">
+                                        {formatToIndianRupee(stdTotal)}
+                                    </span>
+                                </span>
+                                <span className="px-3">
+                                    <span className="text-muted-foreground">Total(excl.gst) </span>
+                                    <span className="font-semibold text-slate-900">
+                                        {formatToIndianRupee(estForStd)}
+                                    </span>
+                                </span>
+                                <span
+                                    className={`inline-flex items-center gap-1 font-bold pl-3 ${
+                                        isOver ? "text-red-600" : "text-emerald-600"
+                                    }`}
+                                >
+                                    <TrendIcon className="h-3.5 w-3.5" />
+                                    {isOver ? "+" : ""}
+                                    {overallDiffPct.toFixed(2)}%
+                                </span>
+                            </div>
                         </div>
                     </div>
                 );
@@ -292,22 +331,98 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                                 </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-0 pb-0">
-                                <Table>
+                                {/* Mobile card layout */}
+                                <div className="md:hidden divide-y">
+                                    {categoryItems.map((item, index) => {
+                                        const amount = item.quantity * (item.rate ?? 0);
+                                        const std = item.standard_rate ?? 0;
+                                        const rate = item.rate ?? 0;
+                                        const hasStd = std > 0;
+                                        const diffPct =
+                                            hasStd && std > 0
+                                                ? ((rate - std) / std) * 100
+                                                : 0;
+                                        return (
+                                            <div key={item.id} className="px-3 py-2.5">
+                                                <div className="flex items-start gap-2">
+                                                    <span className="text-xs text-muted-foreground pt-0.5 min-w-[1.25rem]">
+                                                        {index + 1}.
+                                                    </span>
+                                                    <p className="text-sm flex-1 leading-snug">
+                                                        {item.description}
+                                                    </p>
+                                                </div>
+                                                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 pl-6 text-xs">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">Qty</span>
+                                                        <span>
+                                                            {item.quantity} {item.uom}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">Rate</span>
+                                                        <span>{formatToIndianRupee(rate)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">STD</span>
+                                                        {hasStd ? (
+                                                            <span className="flex items-baseline gap-1">
+                                                                <span>{formatToIndianRupee(std)}</span>
+                                                                {Math.abs(diffPct) >= 0.01 && (
+                                                                    <span
+                                                                        className={`text-[10px] ${
+                                                                            diffPct > 0
+                                                                                ? "text-red-600"
+                                                                                : "text-green-600"
+                                                                        }`}
+                                                                    >
+                                                                        {diffPct > 0 ? "+" : ""}
+                                                                        {diffPct.toFixed(2)}%
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-muted-foreground">—</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex justify-between font-medium">
+                                                        <span className="text-muted-foreground font-normal">
+                                                            Amount
+                                                        </span>
+                                                        <span>{formatToIndianRupee(amount)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    <div className="px-3 py-2 bg-gray-50/80 flex justify-between text-sm">
+                                        <span className="font-medium">Category Subtotal</span>
+                                        <span className="font-semibold">
+                                            {formatToIndianRupee(categoryTotal)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Desktop / tablet table layout */}
+                                <Table className="hidden md:table">
                                     <TableHeader>
                                         <TableRow className="bg-gray-50/50">
-                                            <TableHead className="w-[5%] text-xs text-center">
+                                            <TableHead className="w-[4%] text-xs text-center">
                                                 #
                                             </TableHead>
-                                            <TableHead className="w-[45%] text-xs">
+                                            <TableHead className="w-[40%] text-xs">
                                                 Description
                                             </TableHead>
-                                            <TableHead className="w-[12%] text-xs text-center">
+                                            <TableHead className="w-[10%] text-xs text-center">
                                                 Unit
                                             </TableHead>
-                                            <TableHead className="w-[12%] text-xs text-center">
+                                            <TableHead className="w-[8%] text-xs text-center">
                                                 Qty
                                             </TableHead>
                                             <TableHead className="w-[13%] text-xs text-right">
+                                                STD Rate
+                                            </TableHead>
+                                            <TableHead className="w-[12%] text-xs text-right">
                                                 Rate
                                             </TableHead>
                                             <TableHead className="w-[13%] text-xs text-right">
@@ -318,6 +433,13 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                                     <TableBody>
                                         {categoryItems.map((item, index) => {
                                             const amount = item.quantity * (item.rate ?? 0);
+                                            const std = item.standard_rate ?? 0;
+                                            const rate = item.rate ?? 0;
+                                            const hasStd = std > 0;
+                                            const diffPct =
+                                                hasStd && std > 0
+                                                    ? ((rate - std) / std) * 100
+                                                    : 0;
                                             return (
                                                 <TableRow key={item.id}>
                                                     <TableCell className="text-xs text-center text-muted-foreground">
@@ -335,7 +457,32 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                                                         {item.quantity}
                                                     </TableCell>
                                                     <TableCell className="text-sm text-right">
-                                                        {formatToIndianRupee(item.rate ?? 0)}
+                                                        {hasStd ? (
+                                                            <div className="flex flex-col items-end leading-tight">
+                                                                <span>
+                                                                    {formatToIndianRupee(std)}
+                                                                </span>
+                                                                {Math.abs(diffPct) >= 0.01 && (
+                                                                    <span
+                                                                        className={`text-[10px] ${
+                                                                            diffPct > 0
+                                                                                ? "text-red-600"
+                                                                                : "text-green-600"
+                                                                        }`}
+                                                                    >
+                                                                        {diffPct > 0 ? "+" : ""}
+                                                                        {diffPct.toFixed(2)}%
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-muted-foreground">
+                                                                —
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-right">
+                                                        {formatToIndianRupee(rate)}
                                                     </TableCell>
                                                     <TableCell className="text-sm text-right font-medium">
                                                         {formatToIndianRupee(amount)}
@@ -347,7 +494,7 @@ export const ServiceItemsAccordion: React.FC<ServiceItemsAccordionProps> = ({
                                     <TableFooter>
                                         <TableRow className="bg-gray-50/80">
                                             <TableCell
-                                                colSpan={5}
+                                                colSpan={6}
                                                 className="text-right text-sm font-medium"
                                             >
                                                 Category Subtotal

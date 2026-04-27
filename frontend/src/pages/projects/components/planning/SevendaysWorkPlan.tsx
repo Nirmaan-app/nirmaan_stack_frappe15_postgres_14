@@ -648,6 +648,15 @@ export const SevendaysWorkPlan = ({
         urlStateManager.updateParam("planningZone", zone);
     };
 
+    // --- View Tab State (Activities | Work Milestones) ---
+    const planningViewParam = useUrlParam("planningView");
+    const activeView: "activities" | "milestones" =
+        planningViewParam === "milestones" ? "milestones" : "activities";
+
+    const handleViewChange = (view: "activities" | "milestones") => {
+        urlStateManager.updateParam("planningView", view);
+    };
+
     const [expandedHeaders, setExpandedHeaders] = useState<Record<string, boolean>>({});
 
     const toggleHeader = (header: string) => {
@@ -997,23 +1006,23 @@ export const SevendaysWorkPlan = ({
             </div>
 
             {zones.length > 0 && (
-                <div className="border border-gray-200 rounded bg-white mb-4">
-                    {/* Zone Tabs - Horizontal scroll on mobile, wrap on larger screens */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-100">
-                        <span className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
-                            Zone
-                        </span>
-                        {/* Horizontal scroll container on mobile */}
-                        <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
-                            <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+                <div className="border border-gray-200 rounded bg-[#F3F6F7] mb-4">
+                    {/* Zone Tabs + Download Buttons — single row, wrap to next row when space runs out */}
+                    <div className="flex flex-wrap items-start gap-x-4 gap-y-2 px-3 sm:px-4 py-2 sm:py-3">
+                        {/* LEFT: Zone label + wrapping tabs */}
+                        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                            <span className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0 self-start mt-1.5">
+                                Zone
+                            </span>
+                            <div className="flex flex-wrap gap-1.5 flex-1">
                                 {zones.filter(zone => (zoneCounts[zone] || 0) >= (canViewEmptyZones ? 0 : 1)).map((zone) => (
                                     <button
                                         key={zone}
                                         type="button"
                                         onClick={() => handleZoneChange(zone)}
-                                        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap flex-shrink-0 ${activeZone === zone
-                                            ? "bg-sky-500 text-white"
-                                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${activeZone === zone
+                                            ? "bg-sky-500 text-white border border-sky-500"
+                                            : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"
                                             }`}
                                     >
                                         {zone}
@@ -1027,35 +1036,65 @@ export const SevendaysWorkPlan = ({
                                 ))}
                             </div>
                         </div>
-                    </div>
 
-                    {/* Zone-specific Export Buttons */}
-                    <div className="flex flex-col lg:flex-row items-stretch lg:items-center lg:justify-end gap-2 px-3 lg:px-4 py-2 bg-gray-50/50 rounded-b">
-                        <Button
-                            variant="outline"
-                            className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 gap-2 px-3 border-gray-300"
-                            onClick={(e) => openBufferDialog(e, activeZone)}
-                            disabled={isDownloading}
-                            title={`Client Buffer Export ${activeZone}`}
-                        >
-                            <Download className="h-4 w-4" />
-                            <span>Client Download <span className="text-red-600 font-medium">{activeZone}</span></span>
-                        </Button>
-                        <Button
-                            variant="outline"
-                            className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 hover:text-blue-600 gap-2 px-3"
-                            onClick={handleDownloadZone}
-                            disabled={isDownloading}
-                            title={`Internal Export ${activeZone} data`}
-                        >
-                            {isDownloading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
+                        {/* RIGHT: Zone-specific Download Buttons — side-by-side when space allows, stack when constrained */}
+                        <div className="flex flex-col sm:flex-row flex-wrap gap-2 flex-shrink-0">
+                            <Button
+                                variant="outline"
+                                className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 gap-2 px-3 border-gray-300"
+                                onClick={(e) => openBufferDialog(e, activeZone)}
+                                disabled={isDownloading}
+                                title={`Client Buffer Export ${activeZone}`}
+                            >
                                 <Download className="h-4 w-4" />
-                            )}
-                            <span>Internal Download <span className="text-red-600 font-medium">{activeZone}</span></span>
-                        </Button>
+                                <span>Client Download <span className="text-red-600 font-medium">{activeZone}</span></span>
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 hover:text-blue-600 gap-2 px-3"
+                                onClick={handleDownloadZone}
+                                disabled={isDownloading}
+                                title={`Internal Export ${activeZone} data`}
+                            >
+                                {isDownloading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
+                                <span>Internal Download <span className="text-red-600 font-medium">{activeZone}</span></span>
+                            </Button>
+                        </div>
                     </div>
+                </div>
+            )}
+
+            {/* View Tabs — connected button group dashboard style (hidden in Overview) */}
+            {!isOverview && (
+                <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC] mb-3 shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => handleViewChange("activities")}
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors border-r border-[#D7D7EC] ${
+                            activeView === "activities"
+                                ? "bg-red-600 text-white"
+                                : "bg-white text-gray-800 hover:bg-gray-50"
+                        }`}
+                    >
+                        <Activity className="h-3.5 w-3.5" />
+                        Activities view
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleViewChange("milestones")}
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
+                            activeView === "milestones"
+                                ? "bg-red-600 text-white"
+                                : "bg-white text-gray-800 hover:bg-gray-50"
+                        }`}
+                    >
+                        <Flag className="h-3.5 w-3.5" />
+                        Work Milestones
+                    </button>
                 </div>
             )}
 
@@ -1067,6 +1106,11 @@ export const SevendaysWorkPlan = ({
                             <div className="text-lg font-medium mb-1">No Plan Activities</div>
                             <div className="text-sm">There are no planned activities available in <span className="font-semibold">{activeZone}</span> zone.</div>
                         </div>
+                    ) : (!isOverview && activeView === "activities" && totalPlannedActivities === 0) ? (
+                        <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
+                            <div className="text-base font-medium text-gray-700 mb-1">No activities here now</div>
+                            <div className="text-sm">No planned activities found{activeZone ? <> in <span className="font-semibold">{activeZone}</span> zone</> : ""}.</div>
+                        </div>
                     ) : !hasData ? (
                         <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
                             {result?.message?.reason || "No work plan items found."}
@@ -1075,8 +1119,8 @@ export const SevendaysWorkPlan = ({
                         workHeaders.map((header) => {
                             let items = result?.message?.data[header] || [];
 
-                            // Filter to only show milestones with plan activities for overview or PM
-                            if (isOverview || isProjectManager) {
+                            // Filter to only show milestones with plan activities for overview, PM, or Activities tab
+                            if (isOverview || isProjectManager || activeView === "activities") {
                                 items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
                             }
 
@@ -1099,7 +1143,7 @@ export const SevendaysWorkPlan = ({
                             const plannedActivitiesCount = items.reduce((acc, item) => acc + (item.work_plan_doc?.length || 0), 0);
                             const isExpanded = expandedHeaders[header] !== false;
 
-                            if (isOverview) {
+                            if (isOverview || activeView === "activities") {
                                 return (
                                     <WorkPlanOverview
                                         key={header}
@@ -1107,6 +1151,7 @@ export const SevendaysWorkPlan = ({
                                         items={items}
                                         getHeaderStats={() => ({ avgProgress, plannedActivitiesCount })}
                                         isProjectManager={isProjectManager}
+                                        onEditTask={handleEditTask}
                                     />
                                 );
                             }

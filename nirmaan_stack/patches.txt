@@ -104,4 +104,6 @@ nirmaan_stack.patches.v3_0.fix_stale_vendor_category_json
 nirmaan_stack.patches.v3_0.disabled_module_completed_project
 nirmaan_stack.patches.v3_0.update_vendor_credit_limits
 nirmaan_stack.patches.v3_0.fix_child_item_category_package_mismatch #v4
+nirmaan_stack.patches.v3_0.backfill_work_headers_weightage
+nirmaan_stack.patches.v3_0.set_material_plan_delivery_status #v1
 #nirmaan_stack.patches.v3_0.itm_phase2_migration

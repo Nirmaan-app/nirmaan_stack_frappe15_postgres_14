@@ -244,21 +244,34 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
     if (isDialogOpen && fullPreviousReport) {
       // Initialize editable milestones from previous report
       setEditableMilestones(
-        fullPreviousReport.milestones?.map((m: any) => ({
-          work_milestone_name: m.work_milestone_name,
-          work_header: m.work_header,
-          status: m.status,
-          progress: m.progress,
-          expected_starting_date: m.expected_starting_date,
-          expected_completion_date: m.expected_completion_date,
-          remarks: m.remarks || "",
-          // Deserialize work_plan array for point-based editing
-          work_plan_points: m.work_plan ? m.work_plan.split(REMARKS_DELIMITER).filter((p: string) => p.trim() !== '') : [],
-          work_plan_ratio: m.work_plan_ratio,
-          // UI state for editing
-          is_editing_work_plan: false,
-          new_work_plan_input: ""
-        })) || []
+        fullPreviousReport.milestones?.map((m: any) => {
+          // Testing milestones can only be Not Started or Completed.
+          // Normalize any stale WIP / Not Applicable carried over from the
+          // previous report so the submit can't smuggle them through.
+          const nameLower = (m.work_milestone_name || '').toLowerCase();
+          const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+          let normalizedStatus = m.status;
+          let normalizedProgress = m.progress;
+          if (isTestingMilestone && (normalizedStatus === 'WIP' || normalizedStatus === 'Not Applicable')) {
+            normalizedStatus = 'Not Started';
+            normalizedProgress = 0;
+          }
+          return {
+            work_milestone_name: m.work_milestone_name,
+            work_header: m.work_header,
+            status: normalizedStatus,
+            progress: normalizedProgress,
+            expected_starting_date: m.expected_starting_date,
+            expected_completion_date: m.expected_completion_date,
+            remarks: m.remarks || "",
+            // Deserialize work_plan array for point-based editing
+            work_plan_points: m.work_plan ? m.work_plan.split(REMARKS_DELIMITER).filter((p: string) => p.trim() !== '') : [],
+            work_plan_ratio: m.work_plan_ratio,
+            // UI state for editing
+            is_editing_work_plan: false,
+            new_work_plan_input: ""
+          };
+        }) || []
       );
 
       // Initialize editable manpower from yesterday's report
@@ -449,7 +462,13 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
         // Handle status changes with proper logic
         if (field === 'status') {
-          const newStatus = value;
+          let newStatus = value;
+          // "Testing" milestones can only be Not Started or Completed.
+          const nameLower = (m.work_milestone_name || '').toLowerCase();
+          const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+          if (isTestingMilestone && (newStatus === 'WIP' || newStatus === 'Not Applicable')) {
+            newStatus = 'Not Started';
+          }
           let updatedMilestone = { ...m, status: newStatus };
 
           if (newStatus === 'Completed') {
@@ -674,6 +693,21 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
       return;
     }
 
+    // --- TESTING MILESTONE RULE: only Not Started / Completed allowed ---
+    for (const m of editableMilestones) {
+      const nameLower = (m.work_milestone_name || '').toLowerCase();
+      const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+      if (isTestingMilestone && (m.status === 'WIP' || m.status === 'Not Applicable')) {
+        toast({
+          title: "Invalid Status ⚠️",
+          description: `Testing milestone "${m.work_milestone_name}" can only be Not Started or Completed.`,
+          variant: "destructive",
+        });
+        scrollToMilestone(m.work_milestone_name);
+        return;
+      }
+    }
+
     // --- VALIDATION START ---
     for (const m of editableMilestones) {
       // 1. Check Not Started -> Expected Start Date Mandatory
@@ -683,6 +717,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
           description: `Please set Expected Start Date for "${m.work_milestone_name}"`,
           variant: "destructive",
         });
+        scrollToMilestone(m.work_milestone_name);
         return;
       }
 
@@ -693,6 +728,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
           description: `Please set Expected Completion Date for "${m.work_milestone_name}" (Progress > 75%)`,
           variant: "destructive",
         });
+        scrollToMilestone(m.work_milestone_name);
         return;
       }
 
@@ -705,6 +741,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
             description: `Progress for "${m.work_milestone_name}" must be between 1% and 99% for WIP status.`,
             variant: "destructive",
           });
+          scrollToMilestone(m.work_milestone_name);
           return;
         }
       }
@@ -994,9 +1031,9 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                     </div>
                   ) : (
                     <div className="text-center py-8 px-4 bg-red-50 rounded-lg border border-red-200 flex flex-col items-center gap-2">
-                       <AlertCircle className="w-5 h-5 text-red-600" />
-                       <p className="text-sm font-semibold text-red-800">Please choose `Yes` or `No` for `Are You At Site?` to continue.</p>
-                       <p className="text-xs text-red-600/80">This declaration is mandatory for report submission.</p>
+                      <AlertCircle className="w-5 h-5 text-red-600" />
+                      <p className="text-sm font-semibold text-red-800">Please choose `Yes` or `No` for `Are You At Site?` to continue.</p>
+                      <p className="text-xs text-red-600/80">This declaration is mandatory for report submission.</p>
                     </div>
                   )}
                 </div>
@@ -1282,16 +1319,23 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                               >
                                 <div className="flex justify-between items-center">
                                   <span className="font-medium text-gray-800 break-words flex-1 pr-2">{m.work_milestone_name}</span>
-                                  <select
-                                    value={m.status}
-                                    onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'status', e.target.value)}
-                                    className={`text-[10px] px-2 py-1 rounded border ${getStatusBadgeClasses(m.status)}`}
-                                  >
-                                    <option value="Not Started">Not Started</option>
-                                    <option value="WIP">WIP</option>
-                                    <option value="Completed">Completed</option>
-                                    <option value="Not Applicable">Not Applicable</option>
-                                  </select>
+                                  {(() => {
+                                    const nameLower = (m.work_milestone_name || '').toLowerCase();
+                                    const isTestingMilestone = nameLower.includes('testing') && nameLower.includes('commissioning');
+                                    return (
+                                      <select
+                                        value={m.status}
+                                        onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'status', e.target.value)}
+                                        className={`text-[10px] px-2 py-1 rounded border ${getStatusBadgeClasses(m.status)}`}
+                                        title={isTestingMilestone ? 'Testing milestones can only be Not Started or Completed' : undefined}
+                                      >
+                                        <option value="Not Started">Not Started</option>
+                                        {!isTestingMilestone && <option value="WIP">WIP</option>}
+                                        <option value="Completed">Completed</option>
+                                        {!isTestingMilestone && <option value="Not Applicable">Not Applicable</option>}
+                                      </select>
+                                    );
+                                  })()}
                                 </div>
 
                                 {/* Progress Bar - Only editable for WIP status */}

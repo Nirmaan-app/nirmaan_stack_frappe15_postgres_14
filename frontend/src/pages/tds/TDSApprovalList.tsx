@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { 
-    useReactTable, 
-    getCoreRowModel, 
+import {
+    useReactTable,
+    getCoreRowModel,
     getSortedRowModel,
     getPaginationRowModel,
     getFilteredRowModel,
@@ -10,8 +10,8 @@ import {
     SortingState,
     ColumnFiltersState,
 } from "@tanstack/react-table";
-import { DataTable } from "@/components/data-table/new-data-table"; 
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"; 
+import { DataTable } from "@/components/data-table/new-data-table";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { toast } from "@/components/ui/use-toast";
@@ -60,7 +60,7 @@ const formatDateClean = (dateStr: string) => {
 export const TDSApprovalList: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
-    
+
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
 
@@ -71,7 +71,7 @@ export const TDSApprovalList: React.FC = () => {
 
     const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
 
-    
+
     const { activeTab, setActiveTab, tabCounts, setTabCounts } = useTDSStore();
 
     const [searchTerm, setSearchTerm] = useState("");
@@ -114,10 +114,10 @@ export const TDSApprovalList: React.FC = () => {
                 page_length: 50000, // Large limit to get all records
                 tab: activeTab,
                 // Client-side search & filtering, so we don't pass search/filter params to backend
-                search_term: null, 
+                search_term: null,
                 user_id: user_id,
             });
-            
+
             if (response?.message) {
                 setData(response.message.data || []);
                 setTotalCount(response.message.total_count || 0);
@@ -141,7 +141,7 @@ export const TDSApprovalList: React.FC = () => {
     const StatusBadge = ({ status }: { status: string }) => {
         let variant: "default" | "secondary" | "destructive" | "outline" = "outline";
         let className = "font-medium border-0";
-        
+
         switch (status) {
             case "Approved":
                 className += " bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20";
@@ -161,7 +161,7 @@ export const TDSApprovalList: React.FC = () => {
                 className += " bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20";
                 break;
         }
-        
+
         return <Badge variant={variant} className={className}>{status}</Badge>;
     };
 
@@ -265,7 +265,7 @@ export const TDSApprovalList: React.FC = () => {
             },
             {
                 accessorKey: "created_by_full_name",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Creted By" />,
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
                 cell: ({ row }) => <span className="text-sm text-slate-600">{row.getValue("created_by_full_name")}</span>,
                 size: 180,
                 filterFn: (row, id, filterValue) => {
@@ -343,7 +343,7 @@ export const TDSApprovalList: React.FC = () => {
                     Manage and audit Technical Data Sheet approval requests across projects.
                 </p>
             </div>
-            
+
             {/* Scrollable Tabs */}
             <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
                 <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0 items-center">
@@ -358,9 +358,9 @@ export const TDSApprovalList: React.FC = () => {
                                 className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
                                     transition-colors flex items-center gap-1.5 whitespace-nowrap
                                     ${isActive
-                                    ? "bg-red-600 text-white"
-                                    : "bg-gray-200 text-gray-700 hover:bg-red-600 hover:text-white"
-                                }`}
+                                        ? "bg-red-600 text-white"
+                                        : "bg-gray-200 text-gray-700 hover:bg-red-600 hover:text-white"
+                                    }`}
                             >
                                 <span>{tab.label}</span>
                                 {tabCounts[tab.countKey] > 0 && (
@@ -389,9 +389,9 @@ export const TDSApprovalList: React.FC = () => {
                                 className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
                                     transition-colors flex items-center gap-1.5 whitespace-nowrap
                                     ${isActive
-                                    ? "bg-red-600 text-white"
-                                   : "bg-gray-200 text-gray-700 hover:bg-red-600 hover:text-white"
-                                }`}
+                                        ? "bg-red-600 text-white"
+                                        : "bg-gray-200 text-gray-700 hover:bg-red-600 hover:text-white"
+                                    }`}
                             >
                                 <span>{tab.label}</span>
                                 {tabCounts[tab.countKey] > 0 && (

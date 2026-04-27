@@ -55,6 +55,7 @@ export const useMaterialDeliveryPlans = (
             "critical_po_task",
             "critical_po_sub_category",
             "delivery_date",
+            "delivery_status",
             "mp_items",
             "creation",
             "po_type",

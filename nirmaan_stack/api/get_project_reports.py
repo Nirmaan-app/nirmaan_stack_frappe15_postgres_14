@@ -60,10 +60,15 @@ def get_project_progress_reports_comparison(project,report_zone):
     2. Report from 7 days ago (or closest available)
     3. Report from 14 days ago (or closest available)
     """
-    # Get all reports for the project, ordered by date descending
+    # Get all completed reports for the project, ordered by date descending.
+    # Drafts are excluded so the 14-day comparison only reflects finalized data.
     reports = frappe.get_all(
         "Project Progress Reports",
-        filters={"project": project,"report_zone": report_zone},
+        filters={
+            "project": project,
+            "report_zone": report_zone,
+            "report_status": "Completed",
+        },
         fields=["name", "report_date"],
         order_by="report_date desc"
     )

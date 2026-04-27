@@ -391,11 +391,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   ]), []);
 
   // Allowed tabs for Estimates Executive
-  const estimatesExecutiveAllowedTabs = useMemo(() => new Set([
+  const estimatesExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.WORK_REPORT,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
+    PROJECT_PAGE_TABS.FINANCIALS,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
@@ -526,6 +527,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Design Tracker",
           key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+        },
+        {
+          label: "Financials",
+          key: PROJECT_PAGE_TABS.FINANCIALS,
         },
         {
           label: "WO Summary",

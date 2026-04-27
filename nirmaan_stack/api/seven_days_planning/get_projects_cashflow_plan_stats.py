@@ -98,15 +98,25 @@ def get_projects_with_cashflow_plan_stats():
     user = frappe.session.user
     role = _get_user_role(user)
 
+    # 1. Fetch all Cashflow Plans (with permission scoping for restricted roles).
+    #    Only projects that already have at least one plan will appear in the response —
+    #    the WIP / status filter on the frontend further narrows the list.
     plan_filters = {}
-
     if _should_filter_by_permissions(user, role):
         allowed_projects = _get_allowed_projects(user)
         if not allowed_projects:
             return []
         plan_filters["project"] = ["in", allowed_projects]
 
-    # Initialize projects data structure
+    all_plans = frappe.get_all(
+        "Cashflow Plan",
+        filters=plan_filters,
+        fields=["name", "project", "planned_date", "type"]
+    )
+    if not all_plans:
+        return []
+
+    # 2. Group plan stats by project / category.
     projects_data = defaultdict(lambda: {
         "po_cashflow": {"done": 0, "total": 0},
         "wo_cashflow": {"done": 0, "total": 0},
@@ -114,38 +124,24 @@ def get_projects_with_cashflow_plan_stats():
         "misc_cashflow": {"done": 0, "total": 0},
     })
 
-    # Fetch Data from single "Cashflow Plan" DocType
-    all_plans = frappe.get_all(
-        "Cashflow Plan",
-        filters=plan_filters,
-        fields=["name", "project", "planned_date", "type"]
-    )
-    
-    if not all_plans:
-        return []
-
     for plan in all_plans:
         project_id = plan.project
         if not project_id:
             continue
-            
+
         plan_type = (plan.type or "").strip()
         is_plan_done = _is_done(plan)
-        
-        # Categorize based on type string
+
         if "PO" in plan_type:
-             target_category = "po_cashflow"
+            target_category = "po_cashflow"
         elif "WO" in plan_type:
-             target_category = "wo_cashflow"
+            target_category = "wo_cashflow"
         elif "Inflow" in plan_type:
-             target_category = "inflow_cashflow"
+            target_category = "inflow_cashflow"
         elif "Misc" in plan_type or "Miscellaneous" in plan_type:
-             target_category = "misc_cashflow"
+            target_category = "misc_cashflow"
         else:
-            # Fallback for unknown types - maybe skip or count as Misc?
-            # User instructions implies specific mappings, so skipping unknown/unmapped might be safer
-            # or map to Misc if broadly interpreted. Let's skip for accuracy unless it matches known patterns.
-            continue 
+            continue
 
         projects_data[project_id][target_category]["total"] += 1
         if is_plan_done:
@@ -154,48 +150,47 @@ def get_projects_with_cashflow_plan_stats():
     if not projects_data:
         return []
 
-    # Fetch project names
+    # 3. Fetch project name + lifecycle status for the projects that have plans.
     project_ids = list(projects_data.keys())
     project_docs = frappe.get_all(
         "Projects",
         filters={"name": ["in", project_ids]},
-        fields=["name", "project_name"]
+        fields=["name", "project_name", "status"]
     )
-    project_name_map = {p.name: p.project_name for p in project_docs}
+    project_meta_map = {
+        p.name: {"project_name": p.project_name, "status": p.status or ""}
+        for p in project_docs
+    }
 
-    # Build result
+    # 4. Build result.
     result = []
-
     for project_id, data in projects_data.items():
-        project_name = project_name_map.get(project_id, project_id)
-        
-        # Calculate overall progress
+        meta = project_meta_map.get(project_id, {})
+
         total_done = (
-            data["po_cashflow"]["done"] +
-            data["wo_cashflow"]["done"] +
-            data["inflow_cashflow"]["done"] +
-            data["misc_cashflow"]["done"]
+            data["po_cashflow"]["done"]
+            + data["wo_cashflow"]["done"]
+            + data["inflow_cashflow"]["done"]
+            + data["misc_cashflow"]["done"]
         )
         total_plans = (
-            data["po_cashflow"]["total"] +
-            data["wo_cashflow"]["total"] +
-            data["inflow_cashflow"]["total"] +
-            data["misc_cashflow"]["total"]
+            data["po_cashflow"]["total"]
+            + data["wo_cashflow"]["total"]
+            + data["inflow_cashflow"]["total"]
+            + data["misc_cashflow"]["total"]
         )
-        
         overall_progress = round((total_done / total_plans * 100)) if total_plans > 0 else 0
-        
+
         result.append({
             "project": project_id,
-            "project_name": project_name,
+            "project_name": meta.get("project_name", project_id),
+            "status_of_project": meta.get("status", ""),
             "po_cashflow": data["po_cashflow"],
             "wo_cashflow": data["wo_cashflow"],
             "inflow_cashflow": data["inflow_cashflow"],
             "misc_cashflow": data["misc_cashflow"],
-            "overall_progress": overall_progress
+            "overall_progress": overall_progress,
         })
 
-    # Sort by project name
     result.sort(key=lambda x: x["project_name"].lower())
-
     return result

@@ -100,7 +100,7 @@ def get_projects_with_work_plan_stats():
     projects = frappe.get_all(
         "Projects",
         filters=project_filters,
-        fields=["name", "project_name"],
+        fields=["name", "project_name", "status"],
         order_by="project_name asc"
     )
 
@@ -112,13 +112,11 @@ def get_projects_with_work_plan_stats():
     for project in projects:
         project_id = project.name
         project_name = project.project_name
+        status_of_project = project.status or ""
 
         # Get all zones for this project
         project_doc = frappe.get_doc("Projects", project_id)
         zones = [z.zone_name for z in project_doc.project_zones] if project_doc.get("project_zones") else []
-
-        if not zones:
-            continue
 
         # Collect all work plans for this project
         total_activities = 0
@@ -166,20 +164,21 @@ def get_projects_with_work_plan_stats():
                     except (ValueError, TypeError):
                         pass
 
-        # Only include projects that have work plan activities
-        if total_activities > 0:
-            # Calculate overall progress
-            overall_progress = 0
-            if progress_values:
-                overall_progress = round(sum(progress_values) / len(progress_values))
+        # Calculate overall progress (0 when there are no activities yet)
+        overall_progress = 0
+        if progress_values:
+            overall_progress = round(sum(progress_values) / len(progress_values))
 
-            result.append({
-                "project": project_id,
-                "project_name": project_name,
-                "total_activities": total_activities,
-                "status_counts": dict(status_counts),
-                "overall_progress": overall_progress
-            })
+        # Include every milestone-tracked project — even those with 0 activities
+        # so users can see "0/0 Activities" cards for newly enabled projects.
+        result.append({
+            "project": project_id,
+            "project_name": project_name,
+            "status_of_project": status_of_project,
+            "total_activities": total_activities,
+            "status_counts": dict(status_counts),
+            "overall_progress": overall_progress
+        })
 
     # Sort by project name
     result.sort(key=lambda x: x["project_name"].lower())

@@ -15,6 +15,8 @@ export interface ProjectWithMaterialPlanStats {
   project: string;
   /** Human-readable project name */
   project_name: string;
+  /** Project lifecycle status (WIP / Completed / Halted / CEO Hold / Handover / Created) */
+  status_of_project?: string;
   /** Total number of material plans */
   total_plans: number;
   /** Counts by status (Delivered / Not Delivered) */

@@ -10,6 +10,7 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight, Package, CheckCircle2, Clock } from "lucide-react";
 import { ProjectWithMaterialPlanStats } from "../types";
 import { getStatusStyle, getProgressColor, MATERIAL_PLAN_STATUSES } from "../utils";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 interface MaterialPlanProjectCardProps {
   project: ProjectWithMaterialPlanStats;
@@ -20,7 +21,15 @@ export const MaterialPlanProjectCard: React.FC<MaterialPlanProjectCardProps> = (
   project,
   onClick,
 }) => {
-  const { status_counts, total_plans, overall_progress, project_name, total_pos, total_items } = project;
+  const {
+    status_counts,
+    total_plans,
+    overall_progress,
+    project_name,
+    total_pos,
+    total_items,
+    status_of_project,
+  } = project;
 
   const progressColor = getProgressColor(overall_progress);
   const deliveredCount = status_counts[MATERIAL_PLAN_STATUSES.DELIVERED] || 0;
@@ -42,12 +51,15 @@ export const MaterialPlanProjectCard: React.FC<MaterialPlanProjectCardProps> = (
     >
       <CardHeader className="pb-3 space-y-0">
         <div className="flex items-start justify-between gap-3">
-          <CardTitle
-            className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug flex-1"
-            title={project_name}
-          >
-            {project_name}
-          </CardTitle>
+          <div className="flex-1 min-w-0 flex items-start gap-2 flex-wrap">
+            <CardTitle
+              className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug min-w-0"
+              title={project_name}
+            >
+              {project_name}
+            </CardTitle>
+            <ProjectStatusBadge status={status_of_project} />
+          </div>
 
           {/* Progress Circle - Shows overall progress */}
           <ProgressCircle
@@ -76,7 +88,7 @@ export const MaterialPlanProjectCard: React.FC<MaterialPlanProjectCardProps> = (
           </div>
           
           {/* PO and Items counts */}
-          {(total_pos || total_items) && (
+          {((total_pos ?? 0) > 0 || (total_items ?? 0) > 0) && (
             <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
               {total_pos !== undefined && total_pos > 0 && (
                 <span className="flex items-center gap-1">

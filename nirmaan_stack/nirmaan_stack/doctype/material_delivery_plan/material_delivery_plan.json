@@ -15,6 +15,7 @@
   "material_plan_section",
   "mp_items",
   "delivery_date",
+  "delivery_status",
   "po_type"
  ],
  "fields": [
@@ -54,6 +55,13 @@
    "fieldname": "delivery_date",
    "fieldtype": "Date",
    "label": "Delivery Date"
+  },
+  {
+   "default": "Not Delivered",
+   "fieldname": "delivery_status",
+   "fieldtype": "Select",
+   "label": "Delivery Status",
+   "options": "Not Delivered\nDelivered"
   },
   {
    "fieldname": "po_type",

@@ -1,5 +1,5 @@
 // src/pages/projects/ProjectWorkReportTab.tsx
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Projects, ProjectWorkHeaderEntry, ProjectZoneEntry } from "@/types/NirmaanStack/Projects";
 import { FrappeDoc } from "frappe-react-sdk";
 import type { KeyedMutator } from "swr";
@@ -12,6 +12,7 @@ import { Pencil, Check, ChevronDown, ChevronUp, Settings } from "lucide-react";
 
 import { SetupProgressTrackingDialog } from "./components/SetupProgressTrackingDialog";
 import { ProjectZoneEditSection } from "./components/projectZoneEditSection";
+import { HeaderMilestonesCollapse, HeaderMilestonesCollapseHandle } from "./components/HeaderMilestonesCollapse";
 import { useProjectWorkReportApi } from "./data/tab/work-report/useProjectWorkReportTabApi";
 import type { WorkHeaderDoc } from "./data/tab/work-report/useProjectWorkReportTabApi";
 
@@ -46,6 +47,15 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
     const [isEditingZones, setIsEditingZones] = useState(false);
     const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
     const [selectedZone, setSelectedZone] = useState<string | null>(null);
+    const [expandedHeaderIds, setExpandedHeaderIds] = useState<Set<string>>(new Set());
+    // Tracks which header collapses are mounted during the current edit
+    // session. Once mounted, a collapse stays mounted even if the user
+    // toggles its chevron — preserving in-progress checkbox changes across
+    // collapse/expand. Reset whenever edit mode exits.
+    const [mountedDuringEditIds, setMountedDuringEditIds] = useState<Set<string>>(new Set());
+    const [dirtyHeaderIds, setDirtyHeaderIds] = useState<Set<string>>(new Set());
+    const [savingUnified, setSavingUnified] = useState(false);
+    const collapseRefs = useRef<Map<string, HeaderMilestonesCollapseHandle>>(new Map());
 
     const isMilestoneTrackingEnabled = Boolean(projectData.enable_project_milestone_tracking);
 
@@ -141,42 +151,29 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         });
     }, []);
 
-    const handleSaveHeaders = async () => {
-        try {
-            const headersToSave = localWorkHeaders
-                .filter((entry) => entry.enabled)
-                .map((entry) => ({
-                    name: entry.name,
-                    project_work_header_name: entry.work_header_doc_name,
-                    enabled: true,
-                }));
+    const persistHeaders = useCallback(async () => {
+        const headersToSave = localWorkHeaders
+            .filter((entry) => entry.enabled)
+            .map((entry) => ({
+                name: entry.name,
+                project_work_header_name: entry.work_header_doc_name,
+                enabled: true,
+            }));
 
-            await updateProjectDoc(projectData.name, {
-                project_work_header_entries: headersToSave,
-            });
-            await project_mutate();
-            toast({
-                title: "Success",
-                description: "Work headers updated successfully.",
-                variant: "success",
-            });
-            setIsEditingHeaders(false);
-        } catch (error) {
-            console.error("Failed to update work headers:", error);
-            toast({
-                title: "Error",
-                description: "Failed to update work headers.",
-                variant: "destructive",
-            });
-        }
-    };
+        await updateProjectDoc(projectData.name, {
+            project_work_header_entries: headersToSave,
+        });
+        await project_mutate();
+    }, [localWorkHeaders, projectData?.name, updateProjectDoc, project_mutate]);
 
-    const handleCancelHeaders = useCallback(() => {
+    const handleCancelEdit = useCallback(() => {
         if (allWorkHeaders && projectData) {
             setLocalWorkHeaders(generateCombinedHeaders(projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName));
         } else {
             setLocalWorkHeaders([]);
         }
+        collapseRefs.current.forEach((h) => h.cancel());
+        setDirtyHeaderIds(new Set());
         setIsEditingHeaders(false);
     }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName, generateCombinedHeaders]);
 
@@ -204,6 +201,53 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         return true;
     }, [localWorkHeaders, projectData?.project_work_header_entries, toBoolean, getLinkedWorkHeaderName]);
 
+    const handleUnifiedSave = useCallback(async () => {
+        const headerDirty = !isSaveDisabledHeaders;
+        const milestoneDirty = dirtyHeaderIds.size > 0;
+
+        if (!headerDirty && !milestoneDirty) {
+            setIsEditingHeaders(false);
+            return;
+        }
+
+        setSavingUnified(true);
+        try {
+            if (headerDirty) {
+                await persistHeaders();
+            }
+
+            if (milestoneDirty) {
+                // Only save milestones for headers still enabled after header save.
+                const stillEnabled = new Set(
+                    localWorkHeaders.filter((h) => h.enabled).map((h) => h.work_header_doc_name)
+                );
+                for (const id of dirtyHeaderIds) {
+                    if (!stillEnabled.has(id)) continue;
+                    const handle = collapseRefs.current.get(id);
+                    if (handle && handle.hasChanges()) {
+                        await handle.save();
+                    }
+                }
+            }
+
+            toast({
+                title: "Saved",
+                description: "Headers and milestones updated.",
+                variant: "success",
+            });
+            setDirtyHeaderIds(new Set());
+            setIsEditingHeaders(false);
+        } catch (e: any) {
+            toast({
+                title: "Save Failed",
+                description: e?.message || "Could not save changes.",
+                variant: "destructive",
+            });
+        } finally {
+            setSavingUnified(false);
+        }
+    }, [isSaveDisabledHeaders, dirtyHeaderIds, persistHeaders, localWorkHeaders]);
+
     // Group work headers by package
     const groupedWorkHeaders = useMemo(() => {
         const groups = new Map<string, LocalProjectWorkHeaderEntry[]>();
@@ -218,6 +262,85 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
     }, [localWorkHeaders]);
 
     const enabledHeadersCount = localWorkHeaders.filter((h) => h.enabled).length;
+
+    const toggleHeaderExpanded = useCallback((docName: string) => {
+        setExpandedHeaderIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(docName)) next.delete(docName);
+            else next.add(docName);
+            return next;
+        });
+    }, []);
+
+    const registerCollapseRef = useCallback(
+        (docName: string) => (handle: HeaderMilestonesCollapseHandle | null) => {
+            if (handle) collapseRefs.current.set(docName, handle);
+            else collapseRefs.current.delete(docName);
+        },
+        []
+    );
+
+    const handleCollapseDirtyChange = useCallback((docName: string, dirty: boolean) => {
+        setDirtyHeaderIds((prev) => {
+            const has = prev.has(docName);
+            if (dirty === has) return prev;
+            const next = new Set(prev);
+            if (dirty) next.add(docName);
+            else next.delete(docName);
+            return next;
+        });
+    }, []);
+
+    const enabledHeaderIds = useMemo(
+        () => localWorkHeaders.filter((h) => h.enabled).map((h) => h.work_header_doc_name),
+        [localWorkHeaders]
+    );
+
+    const projectZoneNames = useMemo(
+        () =>
+            (projectDataWithZones?.project_zones || [])
+                .map((z: any) => z.zone_name)
+                .filter(Boolean),
+        [projectDataWithZones?.project_zones]
+    );
+
+    const handleStartEdit = useCallback(() => {
+        setIsEditingHeaders(true);
+        setExpandedHeaderIds(new Set(enabledHeaderIds));
+    }, [enabledHeaderIds]);
+
+    // Auto-expand newly-enabled headers during edit so their milestones become editable.
+    useEffect(() => {
+        if (!isEditingHeaders) {
+            // Leaving edit mode: drop the "keep mounted" set so view mode
+            // can lazy-mount fresh on expand.
+            setMountedDuringEditIds(new Set());
+            return;
+        }
+        setExpandedHeaderIds((prev) => {
+            const next = new Set(prev);
+            for (const id of enabledHeaderIds) next.add(id);
+            return next;
+        });
+    }, [isEditingHeaders, enabledHeaderIds]);
+
+    // While editing, accumulate every header that has been expanded at least
+    // once so its collapse stays mounted (and retains in-progress selection)
+    // even if the user toggles its chevron closed.
+    useEffect(() => {
+        if (!isEditingHeaders) return;
+        setMountedDuringEditIds((prev) => {
+            let changed = false;
+            const next = new Set(prev);
+            for (const id of expandedHeaderIds) {
+                if (!next.has(id)) {
+                    next.add(id);
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [isEditingHeaders, expandedHeaderIds]);
 
     const handleSetupSuccess = async () => {
         await project_mutate();
@@ -321,84 +444,139 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                                         </p>
                                     </div>
 
-                                    {isEditingHeaders ? (
-                                        <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2">
+                                        {isEditingHeaders ? (
+                                            <>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={handleCancelEdit}
+                                                    disabled={savingUnified || updateDocLoading}
+                                                    className="h-8 text-gray-600"
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    onClick={handleUnifiedSave}
+                                                    disabled={
+                                                        savingUnified ||
+                                                        updateDocLoading ||
+                                                        (isSaveDisabledHeaders && dirtyHeaderIds.size === 0)
+                                                    }
+                                                    className="h-8 bg-emerald-500 hover:bg-emerald-600 text-white"
+                                                >
+                                                    {savingUnified || updateDocLoading ? (
+                                                        <TailSpin width={14} height={14} color="white" />
+                                                    ) : (
+                                                        <>
+                                                            <Check className="h-3.5 w-3.5 mr-1" /> Save
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </>
+                                        ) : (
                                             <Button
-                                                variant="ghost"
+                                                variant="outline"
                                                 size="sm"
-                                                onClick={handleCancelHeaders}
-                                                disabled={updateDocLoading}
-                                                className="h-8 text-gray-600"
+                                                onClick={handleStartEdit}
+                                                disabled={isEditingZones}
+                                                className="h-8"
                                             >
-                                                Cancel
+                                                <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
                                             </Button>
-                                            <Button
-                                                size="sm"
-                                                onClick={handleSaveHeaders}
-                                                disabled={updateDocLoading || isSaveDisabledHeaders}
-                                                className="h-8 bg-emerald-500 hover:bg-emerald-600 text-white"
-                                            >
-                                                {updateDocLoading ? (
-                                                    <TailSpin width={14} height={14} color="white" />
-                                                ) : (
-                                                    <>
-                                                        <Check className="h-3.5 w-3.5 mr-1" /> Save
-                                                    </>
-                                                )}
-                                            </Button>
-                                        </div>
-                                    ) : (
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setIsEditingHeaders(true)}
-                                            disabled={isEditingZones}
-                                            className="h-8"
-                                        >
-                                            <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
-                                        </Button>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Work Headers List */}
-                                <div className="border border-gray-200 rounded max-h-64 overflow-y-auto">
+                                <div className="border border-gray-200 rounded max-h-96 overflow-y-auto">
                                     {groupedWorkHeaders.map(([packageName, headers], groupIdx) => (
                                         <div key={packageName} className={groupIdx > 0 ? "border-t border-gray-200" : ""}>
-                                            <div className="px-3 py-2 bg-gray-50 sticky top-0">
+                                            <div className="px-3 py-2 bg-gray-50 sticky top-0 z-[1]">
                                                 <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">
                                                     {packageName}
                                                 </span>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-3 py-2">
-                                                {headers.map((entry) => (
-                                                    <label
-                                                        key={entry.work_header_doc_name}
-                                                        className={`flex items-center gap-2 py-1.5 ${isEditingHeaders ? "cursor-pointer" : ""}`}
-                                                    >
-                                                        {isEditingHeaders ? (
-                                                            <Checkbox
-                                                                checked={entry.enabled}
-                                                                onCheckedChange={(checked) =>
-                                                                    handleCheckboxChange(entry.work_header_doc_name, checked)
-                                                                }
-                                                                disabled={isEditingZones}
-                                                            />
-                                                        ) : (
-                                                            <span
-                                                                className={`h-4 w-4 rounded-sm border flex items-center justify-center flex-shrink-0 ${
-                                                                    entry.enabled
-                                                                        ? "bg-emerald-500 border-emerald-500"
-                                                                        : "bg-gray-100 border-gray-300"
-                                                                }`}
-                                                            >
-                                                                {entry.enabled && <Check className="h-3 w-3 text-white" />}
-                                                            </span>
-                                                        )}
-                                                        <span className={`text-sm ${entry.enabled ? "text-gray-900" : "text-gray-500"}`}>
-                                                            {entry.work_header_display_name}
-                                                        </span>
-                                                    </label>
-                                                ))}
+                                            <div className="divide-y divide-gray-100">
+                                                {headers.map((entry) => {
+                                                    const isExpanded = expandedHeaderIds.has(entry.work_header_doc_name);
+                                                    // Collapse is visible whenever the header is enabled (whether editing or not).
+                                                    const canExpand = entry.enabled;
+                                                    const canToggleExpand = canExpand;
+                                                    // During edit, keep the collapse mounted once expanded so local
+                                                    // checkbox state survives chevron toggles. Outside edit, mount only
+                                                    // while expanded (lazy).
+                                                    const shouldMount =
+                                                        canExpand &&
+                                                        (isExpanded ||
+                                                            (isEditingHeaders &&
+                                                                mountedDuringEditIds.has(entry.work_header_doc_name)));
+                                                    return (
+                                                        <div key={entry.work_header_doc_name}>
+                                                            <div className="flex items-center gap-2 px-3 py-2">
+                                                                {isEditingHeaders ? (
+                                                                    <Checkbox
+                                                                        checked={entry.enabled}
+                                                                        onCheckedChange={(checked) =>
+                                                                            handleCheckboxChange(entry.work_header_doc_name, checked)
+                                                                        }
+                                                                        disabled={isEditingZones}
+                                                                    />
+                                                                ) : (
+                                                                    <span
+                                                                        className={`h-4 w-4 rounded-sm border flex items-center justify-center flex-shrink-0 ${
+                                                                            entry.enabled
+                                                                                ? "bg-emerald-500 border-emerald-500"
+                                                                                : "bg-gray-100 border-gray-300"
+                                                                        }`}
+                                                                    >
+                                                                        {entry.enabled && <Check className="h-3 w-3 text-white" />}
+                                                                    </span>
+                                                                )}
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        canToggleExpand && toggleHeaderExpanded(entry.work_header_doc_name)
+                                                                    }
+                                                                    disabled={!canToggleExpand}
+                                                                    className={`flex-1 flex items-center justify-between text-left ${
+                                                                        canToggleExpand ? "cursor-pointer" : "cursor-default"
+                                                                    }`}
+                                                                >
+                                                                    <span
+                                                                        className={`text-sm ${
+                                                                            entry.enabled ? "text-gray-900" : "text-gray-500"
+                                                                        }`}
+                                                                    >
+                                                                        {entry.work_header_display_name}
+                                                                    </span>
+                                                                    {canExpand && (
+                                                                        isExpanded ? (
+                                                                            <ChevronUp className="h-4 w-4 text-gray-500" />
+                                                                        ) : (
+                                                                            <ChevronDown className="h-4 w-4 text-gray-500" />
+                                                                        )
+                                                                    )}
+                                                                </button>
+                                                            </div>
+
+                                                            {shouldMount && (
+                                                                <div style={{ display: isExpanded ? undefined : "none" }}>
+                                                                    <HeaderMilestonesCollapse
+                                                                        ref={registerCollapseRef(entry.work_header_doc_name)}
+                                                                        project={projectData.name}
+                                                                        workHeaderDocName={entry.work_header_doc_name}
+                                                                        zones={projectZoneNames}
+                                                                        isEditing={isEditingHeaders}
+                                                                        onDirtyChange={handleCollapseDirtyChange}
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     ))}
