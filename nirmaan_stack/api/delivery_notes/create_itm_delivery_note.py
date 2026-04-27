@@ -30,16 +30,25 @@ def create_itm_delivery_note(itm_id, items, delivery_date=None, attachment=None)
             "ITM must be Dispatched or Partially Delivered."
         )
 
-    # Build item lookup from ITM (all items are approved by definition)
+    # Build item lookup from ITM keyed by (item_id, make_or_None) so an ITM
+    # with the same item in two makes (e.g., Tata + Jindal from warehouse) is
+    # disambiguated when matching the request rows.
+    def _norm_make(value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value or None
+
     itm_items_map = {}
     for item in itm.items:
-        itm_items_map[item.item_id] = item
+        itm_items_map[(item.item_id, _norm_make(item.make))] = item
 
-    # Validate all request items exist in ITM
+    # Validate all request items exist in ITM (matched by (item_id, make))
     for req_item in items:
-        if req_item["item_id"] not in itm_items_map:
+        key = (req_item["item_id"], _norm_make(req_item.get("make")))
+        if key not in itm_items_map:
+            label = req_item["item_id"] + (f" ({key[1]})" if key[1] else "")
             frappe.throw(
-                f"Item '{req_item['item_id']}' not found in ITM {itm_id}"
+                f"Item '{label}' not found in ITM {itm_id}"
             )
 
     # Filter out items with delivered_quantity <= 0
@@ -70,13 +79,18 @@ def create_itm_delivery_note(itm_id, items, delivery_date=None, attachment=None)
     if not delivery_date:
         delivery_date = datetime.now().strftime("%Y-%m-%d")
 
+    # DN.project is mandatory. For warehouse-target ITMs, target_project is null —
+    # fall back to source_project (the project the material is leaving).
+    target_type = getattr(itm, "target_type", None) or "Project"
+    dn_project = itm.target_project if target_type != "Warehouse" else itm.source_project
+
     # Create the Delivery Notes document
     dn = frappe.new_doc("Delivery Notes")
     dn.update({
         "parent_doctype": "Internal Transfer Memo",
         "parent_docname": itm_id,
         "procurement_order": None,
-        "project": itm.target_project,
+        "project": dn_project,
         "vendor": None,
         "note_no": note_no,
         "delivery_date": delivery_date,
@@ -85,14 +99,16 @@ def create_itm_delivery_note(itm_id, items, delivery_date=None, attachment=None)
         "is_return": 0,
     })
 
-    # Add child items
+    # Add child items — match by (item_id, make) so the right ITM row
+    # contributes its metadata (and the DN line records the right make).
     for req_item in valid_items:
-        itm_item = itm_items_map[req_item["item_id"]]
+        itm_item = itm_items_map[(req_item["item_id"], _norm_make(req_item.get("make")))]
         dn.append("items", {
             "item_id": itm_item.item_id,
             "item_name": itm_item.item_name,
             "unit": itm_item.unit,
             "category": itm_item.category,
+            "make": itm_item.make,
             "delivered_quantity": _safe_float(req_item["delivered_quantity"]),
         })
 
@@ -103,7 +119,7 @@ def create_itm_delivery_note(itm_id, items, delivery_date=None, attachment=None)
     if attachment:
         attachment_doc = frappe.new_doc("Nirmaan Attachments")
         attachment_doc.update({
-            "project": itm.target_project,
+            "project": dn_project,
             "attachment": attachment,
             "attachment_type": "itm delivery challan",
             "associated_doctype": "Delivery Notes",

@@ -227,8 +227,10 @@ export default function ITRDetail() {
     );
   }
 
-  const sourceProjectName = sourceProjectDoc?.project_name || itr.source_project;
-  const targetProjectName = targetProjectDoc?.project_name || itr.target_project;
+  const isWarehouseSource = (itr as any).source_type === "Warehouse";
+  const isWarehouseTarget = (itr as any).target_type === "Warehouse";
+  const sourceProjectName = isWarehouseSource ? "Warehouse" : (sourceProjectDoc?.project_name || itr.source_project);
+  const targetProjectName = isWarehouseTarget ? "Warehouse" : (targetProjectDoc?.project_name || itr.target_project);
 
   // Use context-appropriate items for totals:
   // Pending tab → pending items only, Rejected tab → rejected items, All Requests → all items

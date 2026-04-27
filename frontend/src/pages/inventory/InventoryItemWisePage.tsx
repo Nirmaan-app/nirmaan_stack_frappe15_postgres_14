@@ -128,6 +128,7 @@ type FlatRow =
       data: {
         project: string;
         project_name: string;
+        make: string | null;
         remaining_quantity: number;
         estimated_cost: number;
         po_numbers: string[];
@@ -143,6 +144,7 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
 
   const headers = [
     "Item Name",
+    "Make",
     "Category",
     "Billing Category",
     "Unit",
@@ -153,6 +155,7 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
 
   const rows = items.map((item) => [
     item.item_name,
+    item.distinctMakes.join(", "),
     item.category,
     item.billingCategory,
     item.unit,
@@ -236,12 +239,13 @@ export default function InventoryItemWisePage() {
   const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
   const [selectedBillingCategories, setSelectedBillingCategories] = useState<Set<string>>(new Set());
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
+  const [selectedMakes, setSelectedMakes] = useState<Set<string>>(new Set());
 
   // Sort
   const [sortKey, setSortKey] = useState<SortKey | null>("totalEstimatedCost");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  // Expand
+  // Expand — keyed by item_id (page now clubs by item, like the ITM picker).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const toggleExpand = useCallback((itemId: string) => {
@@ -287,6 +291,22 @@ export default function InventoryItemWisePage() {
       .map((u) => ({ label: u, value: u }));
   }, [items]);
 
+  const makeOptions = useMemo(() => {
+    const makes = new Set<string>();
+    for (const i of items) {
+      for (const p of i.projects) {
+        makes.add(p.make ?? "");
+      }
+    }
+    return Array.from(makes)
+      .sort((a, b) => {
+        if (a === "") return -1;
+        if (b === "") return 1;
+        return a.localeCompare(b);
+      })
+      .map((m) => ({ label: m === "" ? "—" : m, value: m }));
+  }, [items]);
+
   // Filtered + sorted items
   const filteredItems = useMemo(() => {
     let result = items;
@@ -314,6 +334,14 @@ export default function InventoryItemWisePage() {
       result = result.filter((item) => selectedUnits.has(item.unit));
     }
 
+    // Make filter — keep an item if ANY of its projects matches a selected
+    // make. Empty string represents NULL/—.
+    if (selectedMakes.size > 0) {
+      result = result.filter((item) =>
+        item.projects.some((p) => selectedMakes.has(p.make ?? ""))
+      );
+    }
+
     // Project filter
     if (selectedProjects.size > 0) {
       result = result.filter((item) =>
@@ -337,7 +365,7 @@ export default function InventoryItemWisePage() {
     }
 
     return result;
-  }, [items, search, selectedCategories, selectedBillingCategories, selectedUnits, selectedProjects, sortKey, sortDir]);
+  }, [items, search, selectedCategories, selectedBillingCategories, selectedUnits, selectedMakes, selectedProjects, sortKey, sortDir]);
 
   // Flatten for virtualization
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -351,6 +379,7 @@ export default function InventoryItemWisePage() {
             data: {
               project: proj.project,
               project_name: proj.project_name,
+              make: proj.make,
               remaining_quantity: proj.remaining_quantity,
               estimated_cost: proj.estimated_cost,
               po_numbers: proj.po_numbers,
@@ -483,6 +512,17 @@ export default function InventoryItemWisePage() {
               >
                 Item Name
               </SortableHeader>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  <SimpleFacetedFilter
+                    title="Make"
+                    options={makeOptions}
+                    selectedValues={selectedMakes}
+                    onSelectedValuesChange={setSelectedMakes}
+                  />
+                  <span>Make</span>
+                </div>
+              </TableHead>
               <TableHead className="text-right">
                 <div className="flex items-center gap-1 justify-end">
                   <SimpleFacetedFilter
@@ -592,7 +632,7 @@ export default function InventoryItemWisePage() {
           <TableBody>
             {virtualizer.getVirtualItems().length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                   No inventory items found.
                 </TableCell>
               </TableRow>
@@ -602,7 +642,7 @@ export default function InventoryItemWisePage() {
                 {virtualizer.getVirtualItems()[0]?.start > 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       style={{
                         height: virtualizer.getVirtualItems()[0].start,
                       }}
@@ -631,6 +671,17 @@ export default function InventoryItemWisePage() {
                         </TableCell>
                         <TableCell className="font-medium max-w-[250px] truncate">
                           {item.item_name}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {item.distinctMakes.length === 0 ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : item.distinctMakes.length === 1 ? (
+                            <span>{item.distinctMakes[0]}</span>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs">
+                              {item.distinctMakes.length} makes
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Badge variant="secondary" className="text-xs">
@@ -677,6 +728,13 @@ export default function InventoryItemWisePage() {
                             {proj.project_name}
                           </Link>
                         </TableCell>
+                        <TableCell className="text-xs">
+                          {proj.make ? (
+                            proj.make
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell />
                         <TableCell>
                           {renderInventoryPONumbers(proj.po_numbers, proj.project)}
@@ -698,7 +756,7 @@ export default function InventoryItemWisePage() {
                 {virtualizer.getVirtualItems().length > 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       style={{
                         height:
                           virtualizer.getTotalSize() -

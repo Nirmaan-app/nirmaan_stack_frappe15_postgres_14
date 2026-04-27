@@ -10,7 +10,8 @@ interface CreateResponse {
 }
 
 interface CreatePayload {
-  target_project: string;
+  target_project?: string | null;
+  target_type?: "Project" | "Warehouse";
   selections: CreateItmsPayloadSelection[];
 }
 

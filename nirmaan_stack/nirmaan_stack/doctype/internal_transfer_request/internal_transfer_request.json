@@ -7,7 +7,9 @@
  "engine": "InnoDB",
  "field_order": [
   "details_section",
+  "source_type",
   "source_project",
+  "target_type",
   "target_project",
   "status",
   "column_break_details",
@@ -24,23 +26,41 @@
    "label": "Details"
   },
   {
+   "default": "Project",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "label": "Source Type",
+   "options": "Project\nWarehouse",
+   "in_standard_filter": 1
+  },
+  {
+   "depends_on": "eval:doc.source_type !== 'Warehouse'",
    "fieldname": "source_project",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Source Project",
+   "mandatory_depends_on": "eval:doc.source_type !== 'Warehouse'",
    "options": "Projects",
-   "reqd": 1,
    "search_index": 1
   },
   {
+   "default": "Project",
+   "fieldname": "target_type",
+   "fieldtype": "Select",
+   "label": "Target Type",
+   "options": "Project\nWarehouse",
+   "in_standard_filter": 1
+  },
+  {
+   "depends_on": "eval:doc.target_type !== 'Warehouse'",
    "fieldname": "target_project",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Target Project",
+   "mandatory_depends_on": "eval:doc.target_type !== 'Warehouse'",
    "options": "Projects",
-   "reqd": 1,
    "search_index": 1
   },
   {

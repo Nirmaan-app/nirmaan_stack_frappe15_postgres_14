@@ -22,8 +22,10 @@ export interface ITMListRow {
   creation: string;
   modified?: string;
   status: string;
+  source_type?: string;
   source_project: string;
   source_project_name?: string | null;
+  target_type?: string;
   target_project: string;
   target_project_name?: string | null;
   transfer_request?: string | null;
@@ -77,8 +79,10 @@ export const ITM_FETCH_FIELDS: (keyof ITMListRow)[] = [
   "creation",
   "status",
   "transfer_request",
+  "source_type",
   "source_project",
   "source_project_name",
+  "target_type",
   "target_project",
   "target_project_name",
   "estimated_value",
@@ -136,8 +140,8 @@ export function getItrListColumns(tabValue: string): ColumnDef<ITMListRow>[] {
       <DataTableColumnHeader column={column} title="From" />
     ),
     cell: ({ row }) => (
-      <div className="truncate max-w-[200px]" title={(row.original as any).source_project_name || "--"}>
-        {(row.original as any).source_project_name || "--"}
+      <div className="truncate max-w-[200px]" title={(row.original as any).source_type === "Warehouse" ? "Warehouse" : ((row.original as any).source_project_name || "--")}>
+        {(row.original as any).source_type === "Warehouse" ? "Warehouse" : ((row.original as any).source_project_name || "--")}
       </div>
     ),
     size: 200,
@@ -151,15 +155,19 @@ export function getItrListColumns(tabValue: string): ColumnDef<ITMListRow>[] {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="To" />
     ),
-    cell: ({ row }) => (
-      <div className="truncate max-w-[200px]" title={row.original.target_project_name || row.original.target_project || ""}>
-        {row.original.target_project_name || row.original.target_project || "--"}
-      </div>
-    ),
+    cell: ({ row }) => {
+      const label = row.original.target_type === "Warehouse"
+        ? "Warehouse"
+        : (row.original.target_project_name || row.original.target_project || "--");
+      return (
+        <div className="truncate max-w-[200px]" title={label}>{label}</div>
+      );
+    },
     size: 200,
     meta: {
       exportHeaderName: "To",
-      exportValue: (row: ITMListRow) => row.target_project_name || row.target_project || "",
+      exportValue: (row: ITMListRow) =>
+        row.target_type === "Warehouse" ? "Warehouse" : (row.target_project_name || row.target_project || ""),
     },
   },
   {
@@ -306,8 +314,9 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
       <DataTableColumnHeader column={column} title="From" />
     ),
     cell: ({ row }) => {
-      const label =
-        row.original.source_project_name || row.original.source_project || "--";
+      const label = row.original.source_type === "Warehouse"
+        ? "Warehouse"
+        : (row.original.source_project_name || row.original.source_project || "--");
       return (
         <div className="truncate max-w-[200px]" title={label}>
           {label}
@@ -319,7 +328,7 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
     meta: {
       exportHeaderName: "From",
       exportValue: (row: ITMListRow) =>
-        row.source_project_name || row.source_project || "",
+        row.source_type === "Warehouse" ? "Warehouse" : (row.source_project_name || row.source_project || ""),
     },
   },
   {
@@ -328,8 +337,9 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
       <DataTableColumnHeader column={column} title="To" />
     ),
     cell: ({ row }) => {
-      const label =
-        row.original.target_project_name || row.original.target_project || "--";
+      const label = row.original.target_type === "Warehouse"
+        ? "Warehouse"
+        : (row.original.target_project_name || row.original.target_project || "--");
       return (
         <div className="truncate max-w-[200px]" title={label}>
           {label}
@@ -341,7 +351,7 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
     meta: {
       exportHeaderName: "To",
       exportValue: (row: ITMListRow) =>
-        row.target_project_name || row.target_project || "",
+        row.target_type === "Warehouse" ? "Warehouse" : (row.target_project_name || row.target_project || ""),
     },
   },
   {

@@ -6,6 +6,11 @@ per project, joined with max PO rates for estimated cost calculation.
 
 Dispatched ITM transfers after the latest RIR are deducted from
 remaining quantities so the summary reflects committed transfers.
+
+Rows are keyed by `(project, item_id, make)` so that the same item in
+different makes appears as distinct rows — mirroring how Warehouse
+Stock is keyed `(item_id, make)`. NULL/empty makes are treated as a
+single bucket via `IS NOT DISTINCT FROM`.
 """
 
 import frappe
@@ -13,7 +18,7 @@ import frappe
 
 @frappe.whitelist()
 def get_inventory_item_wise_summary():
-    """Return flat per-project-per-item rows from latest submitted reports,
+    """Return flat per-project-per-(item, make) rows from latest submitted reports,
     enriched with max PO quote rates for estimated cost.
 
     Remaining quantities are reduced by dispatched ITM transfer quantities
@@ -24,7 +29,7 @@ def get_inventory_item_wise_summary():
     sql = """
     WITH latest_reports AS (
         SELECT DISTINCT ON (project)
-            name, project, report_date
+            name, project, report_date, modified
         FROM "tabRemaining Items Report"
         WHERE status = 'Submitted'
         ORDER BY project, report_date DESC
@@ -37,41 +42,48 @@ def get_inventory_item_wise_summary():
             ri.item_name,
             ri.unit,
             ri.category,
+            ri.make,
             ri.remaining_quantity
         FROM latest_reports lr
         JOIN "tabRemaining Item Entry" ri ON ri.parent = lr.name
         WHERE ri.remaining_quantity > 0
     ),
     dispatched_itm_deductions AS (
+        -- Dispatches AFTER the latest RIR was last saved (modified) are not
+        -- yet reflected in the PM's recorded remaining_quantity, so deduct
+        -- them. Grouped by (project, item_id, make) so a Tata-make dispatch
+        -- never reduces a Jindal-make row.
         SELECT
             itm.source_project AS project,
             itmi.item_id,
+            itmi.make,
             SUM(itmi.transfer_quantity) AS deducted_qty
         FROM "tabInternal Transfer Memo Item" itmi
         JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
         JOIN latest_reports lr ON lr.project = itm.source_project
         WHERE itm.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
-          AND itm.dispatched_on::date > lr.report_date
-        GROUP BY itm.source_project, itmi.item_id
+          AND itm.dispatched_on > lr.modified
+        GROUP BY itm.source_project, itmi.item_id, itmi.make
     ),
     max_rates AS (
-        SELECT DISTINCT ON (po.project, poi.item_id)
+        SELECT DISTINCT ON (po.project, poi.item_id, poi.make)
             po.project,
             poi.item_id,
+            poi.make,
             poi.quote AS max_quote,
             poi.tax AS max_quote_tax
         FROM "tabPurchase Order Item" poi
         JOIN "tabProcurement Orders" po ON poi.parent = po.name
         WHERE po.status NOT IN ('Merged', 'Inactive', 'PO Amendment')
-        ORDER BY po.project, poi.item_id, poi.quote DESC
+        ORDER BY po.project, poi.item_id, poi.make, poi.quote DESC
     ),
     po_numbers AS (
-        SELECT po.project, poi.item_id,
+        SELECT po.project, poi.item_id, poi.make,
                array_agg(DISTINCT po.name ORDER BY po.name) AS po_list
         FROM "tabPurchase Order Item" poi
         JOIN "tabProcurement Orders" po ON poi.parent = po.name
         WHERE po.status NOT IN ('Merged', 'Inactive', 'PO Amendment')
-        GROUP BY po.project, poi.item_id
+        GROUP BY po.project, poi.item_id, poi.make
     )
     SELECT
         ri.project,
@@ -81,6 +93,7 @@ def get_inventory_item_wise_summary():
         ri.item_name,
         ri.unit,
         ri.category,
+        ri.make,
         GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0) AS remaining_quantity,
         COALESCE(mr.max_quote, 0) AS max_rate,
         COALESCE(mr.max_quote_tax, 18) AS tax,
@@ -91,13 +104,19 @@ def get_inventory_item_wise_summary():
     FROM report_items ri
     JOIN "tabProjects" p ON p.name = ri.project
     LEFT JOIN dispatched_itm_deductions dd
-        ON dd.project = ri.project AND dd.item_id = ri.item_id
+        ON dd.project = ri.project
+       AND dd.item_id = ri.item_id
+       AND dd.make IS NOT DISTINCT FROM ri.make
     LEFT JOIN max_rates mr
-        ON mr.project = ri.project AND mr.item_id = ri.item_id
+        ON mr.project = ri.project
+       AND mr.item_id = ri.item_id
+       AND mr.make IS NOT DISTINCT FROM ri.make
     LEFT JOIN po_numbers pn
-        ON pn.project = ri.project AND pn.item_id = ri.item_id
+        ON pn.project = ri.project
+       AND pn.item_id = ri.item_id
+       AND pn.make IS NOT DISTINCT FROM ri.make
     WHERE GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0) > 0
-    ORDER BY ri.item_id, ri.project
+    ORDER BY ri.item_id, ri.make NULLS FIRST, ri.project
     """
 
     rows = frappe.db.sql(sql, as_dict=True)

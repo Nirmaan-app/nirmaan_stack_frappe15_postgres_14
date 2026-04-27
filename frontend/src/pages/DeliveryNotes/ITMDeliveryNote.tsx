@@ -30,12 +30,19 @@ import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 interface ItemRow {
   item_id: string;
   item_name: string;
+  /** Make of this ITM row — needed to disambiguate two rows with same item_id. */
+  make: string | null;
   unit: string;
   category?: string;
   transfer_quantity: number;
   total_received: number;
   new_qty: number;
 }
+
+// Composite key so two ITM rows with same item_id but different makes don't
+// share an input slot or aggregation bucket. NULL/empty make → single bucket.
+const rowKey = (itemId: string, make?: string | null) =>
+  `${itemId}|${make ?? ""}`;
 
 // --- Component ---
 
@@ -89,30 +96,33 @@ const ITMDeliveryNote: React.FC = () => {
   const itm = payload?.itm;
   const dns = useMemo(() => dnsData?.message || [], [dnsData]);
 
-  // --- Derive item rows with received totals ---
+  // --- Derive item rows with received totals (keyed by item_id+make) ---
   const itemRows: ItemRow[] = useMemo(() => {
     if (!itm?.items) return [];
 
-    // Aggregate received quantities from existing DNs
+    // Aggregate received quantities from existing DNs by (item_id, make).
     const receivedByItem: Record<string, number> = {};
     for (const dn of dns) {
       if (dn.is_return === 1) continue;
       for (const item of dn.items || []) {
-        receivedByItem[item.item_id] =
-          (receivedByItem[item.item_id] || 0) + (item.delivered_quantity || 0);
+        const k = rowKey(item.item_id, (item as any).make ?? null);
+        receivedByItem[k] = (receivedByItem[k] || 0) + (item.delivered_quantity || 0);
       }
     }
 
-    return itm.items
-      .map((item) => ({
+    return itm.items.map((item) => {
+      const k = rowKey(item.item_id, item.make ?? null);
+      return {
         item_id: item.item_id,
         item_name: item.item_name || item.item_id,
+        make: item.make ?? null,
         unit: item.unit || "",
         category: item.category,
         transfer_quantity: item.transfer_quantity,
-        total_received: receivedByItem[item.item_id] || 0,
-        new_qty: quantities[item.item_id] || 0,
-      }));
+        total_received: receivedByItem[k] || 0,
+        new_qty: quantities[k] || 0,
+      };
+    });
   }, [itm, dns, quantities]);
 
   const hasValidInput = useMemo(
@@ -122,11 +132,11 @@ const ITMDeliveryNote: React.FC = () => {
 
   // --- Handlers ---
 
-  const handleQtyChange = (itemId: string, value: string) => {
+  const handleQtyChange = (key: string, value: string) => {
     const num = parseFloat(value);
     setQuantities((prev) => ({
       ...prev,
-      [itemId]: isNaN(num) || num < 0 ? 0 : num,
+      [key]: isNaN(num) || num < 0 ? 0 : num,
     }));
   };
 
@@ -138,6 +148,7 @@ const ITMDeliveryNote: React.FC = () => {
       .filter((r) => r.new_qty > 0)
       .map((r) => ({
         item_id: r.item_id,
+        make: r.make,
         delivered_quantity: r.new_qty,
       }));
 
@@ -300,15 +311,24 @@ const ITMDeliveryNote: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {itemRows.map((row) => {
-                  // Find this item's qty in the first DN
+                  // Find this (item, make) row's qty in the first DN.
                   const dnQty = dns.length > 0
-                    ? (dns[0].items || []).find((di) => di.item_id === row.item_id)?.delivered_quantity || 0
+                    ? (dns[0].items || []).find(
+                        (di) =>
+                          di.item_id === row.item_id &&
+                          ((di as any).make ?? null) === row.make
+                      )?.delivered_quantity || 0
                     : 0;
 
                   return (
-                    <TableRow key={row.item_id}>
+                    <TableRow key={rowKey(row.item_id, row.make)}>
                       <TableCell className="text-sm max-w-[250px]">
                         <span className="font-medium">{row.item_name}</span>
+                        {row.make && (
+                          <span className="text-xs text-blue-600 ml-1.5">
+                            - {row.make}
+                          </span>
+                        )}
                         {row.category && (
                           <span className="block text-xs text-muted-foreground">
                             {row.category}
@@ -378,11 +398,17 @@ const ITMDeliveryNote: React.FC = () => {
                 </TableHeader>
                 <TableBody>
                   {itemRows.map((row) => {
+                    const k = rowKey(row.item_id, row.make);
                     const remaining = row.transfer_quantity - row.total_received;
                     return (
-                      <TableRow key={row.item_id}>
+                      <TableRow key={k}>
                         <TableCell className="max-w-[250px]">
                           <span className="font-medium">{row.item_name}</span>
+                          {row.make && (
+                            <span className="text-xs text-blue-600 ml-1.5">
+                              - {row.make}
+                            </span>
+                          )}
                           {row.category && (
                             <span className="block text-xs text-muted-foreground">
                               {row.category}
@@ -415,7 +441,7 @@ const ITMDeliveryNote: React.FC = () => {
                             step="any"
                             value={row.new_qty || ""}
                             onChange={(e) =>
-                              handleQtyChange(row.item_id, e.target.value)
+                              handleQtyChange(k, e.target.value)
                             }
                             className="w-[100px] mx-auto text-center"
                             disabled={remaining <= 0}

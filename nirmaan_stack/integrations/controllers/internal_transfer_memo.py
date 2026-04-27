@@ -62,8 +62,25 @@ def before_delete(doc, method):
 
 
 def on_update(doc, method):
-    """Emit real-time events on status transitions."""
+    """Emit real-time events and adjust warehouse stock on status transitions."""
+    _adjust_warehouse_stock_on_dispatch(doc)
     _emit_transition_events(doc)
+
+
+def _adjust_warehouse_stock_on_dispatch(doc):
+    """When ITM source=Warehouse transitions Approved → Dispatched, deduct stock."""
+    before = doc.get_doc_before_save()
+    if not before:
+        return
+    old_status = before.status
+    new_status = doc.status
+    if old_status == "Approved" and new_status == "Dispatched":
+        source_type = getattr(doc, "source_type", None) or "Project"
+        if source_type == "Warehouse":
+            from nirmaan_stack.integrations.controllers.warehouse_stock import (
+                adjust_on_dispatch_from_warehouse,
+            )
+            adjust_on_dispatch_from_warehouse(doc)
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +88,18 @@ def on_update(doc, method):
 # ---------------------------------------------------------------------------
 
 def _validate_basic_invariants(doc):
-    if doc.source_project and doc.target_project and doc.source_project == doc.target_project:
+    source_type = getattr(doc, "source_type", None) or "Project"
+    target_type = getattr(doc, "target_type", None) or "Project"
+
+    if target_type == "Project" and not doc.target_project:
+        frappe.throw("Target Project is required for project transfers.")
+    if source_type == "Warehouse" and target_type == "Warehouse":
+        frappe.throw("Source and target cannot both be Warehouse.")
+    if (
+        source_type == "Project" and target_type == "Project"
+        and doc.source_project and doc.target_project
+        and doc.source_project == doc.target_project
+    ):
         frappe.throw("Source and target projects must differ.")
 
     if not doc.items:
@@ -146,9 +174,13 @@ def _emit_transition_events(doc):
         return
 
     event = None
+    target_type = getattr(doc, "target_type", None) or "Project"
     if old_status == "Approved" and new_status == "Dispatched":
         event = "itm:dispatched"
-        recipients = _get_project_users(doc.target_project) | {doc.requested_by}
+        if target_type == "Warehouse":
+            recipients = _get_admins() | {doc.requested_by}
+        else:
+            recipients = _get_project_users(doc.target_project) | {doc.requested_by}
     elif new_status in ("Delivered", "Partially Delivered"):
         event = "itm:delivered"
         recipients = {doc.requested_by}

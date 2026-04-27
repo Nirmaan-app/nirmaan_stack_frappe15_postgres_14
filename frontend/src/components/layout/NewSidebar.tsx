@@ -535,6 +535,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          key: '/warehouse',
+          icon: Package,
+          label: 'Warehouse',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
@@ -671,6 +680,7 @@ export function NewSidebar() {
     'tds-approval',
     'inventory',
     'internal-transfer-memos',
+    'warehouse',
     'help-repository',
     "work-order-rate-card",
     "pmo-dashboard",
@@ -711,6 +721,7 @@ export function NewSidebar() {
     '/tds-approval': ['tds-approval'],
     '/inventory': ['inventory'],
     '/internal-transfer-memos': ['internal-transfer-memos'],
+    '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
@@ -823,6 +834,7 @@ export function NewSidebar() {
                     "Work Order Rate Card",
                     "Inventory",
                     "Internal Transfer Memos",
+                    "Warehouse",
                     "PMO Dashboard"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
