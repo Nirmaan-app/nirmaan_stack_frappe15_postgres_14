@@ -1,12 +1,18 @@
 import React, { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 
-import { X, Search, Calendar } from "lucide-react";
+import { X, Search, Calendar, CheckCircle2, Lock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useProcurementOrderDoc } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
 import { useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { useToast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const ADMIN_ROLE = "Nirmaan Admin Profile";
+const PROCUREMENT_ROLE = "Nirmaan Procurement Executive Profile";
+const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, PROCUREMENT_ROLE];
 
 interface EditMaterialPlanFormProps {
     plan: any;
@@ -30,9 +36,17 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
     const isNewPO = plan.po_type === "New PO";
     const { toast } = useToast();
+    const { role } = useUserData();
+    const isAdmin = role === ADMIN_ROLE;
+    const canEditDeliveryStatus = DELIVERY_STATUS_AUTHORIZED_ROLES.includes(role || "");
+    // Admin can edit everything; Procurement can only change delivery_status.
+    const canEditAll = isAdmin;
 
     // State
     const [deliveryDate, setDeliveryDate] = useState<string>(plan.delivery_date || "");
+    const [deliveryStatus, setDeliveryStatus] = useState<"Delivered" | "Not Delivered">(
+        plan.delivery_status === "Delivered" ? "Delivered" : "Not Delivered"
+    );
     
     // --- Existing PO State ---
     // Map of item_name -> boolean (for selection)
@@ -97,7 +111,37 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
     // Update Doc
     const { updateMaterialPlan, loading: isUpdating } = useUpdateMaterialDeliveryPlan();
 
+    // Validation — Admin must keep at least one item; Procurement is exempt (only updates status)
+    const manualItemsCount = React.useMemo(
+        () => manualItemsText.split('\n').map(l => l.trim()).filter(Boolean).length,
+        [manualItemsText]
+    );
+    const itemsInvalid = canEditAll && (isNewPO ? manualItemsCount === 0 : selectedCount === 0);
+    const isConfirmDisabled = isUpdating || itemsInvalid;
+
     const handleConfirm = async () => {
+        // Procurement-only path: only delivery_status changes; skip all date/items validation.
+        if (!canEditAll) {
+            try {
+                await updateMaterialPlan(plan.name, { delivery_status: deliveryStatus });
+                toast({
+                    title: "Success",
+                    description: "Delivery status updated",
+                    variant: "default",
+                });
+                onSuccess();
+                onClose();
+            } catch (e) {
+                console.error("Failed to update delivery status", e);
+                toast({
+                    title: "Error",
+                    description: "Failed to update delivery status. Please try again.",
+                    variant: "destructive",
+                });
+            }
+            return;
+        }
+
         if (!deliveryDate) {
             toast({
                 title: "Validation Error",
@@ -156,10 +200,15 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         }
 
         try {
-            await updateMaterialPlan(plan.name, {
+            const updatePayload: any = {
                 delivery_date: deliveryDate,
                 mp_items: JSON.stringify({ list: itemsToSave })
-            });
+            };
+            // Only authorized roles can change delivery_status; others' value is ignored server-side anyway
+            if (canEditDeliveryStatus) {
+                updatePayload.delivery_status = deliveryStatus;
+            }
+            await updateMaterialPlan(plan.name, updatePayload);
             toast({
                 title: "Success",
                 description: "Material plan updated successfully",
@@ -224,55 +273,133 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
                 {/* Body */}
                 <div className="p-6 overflow-y-auto space-y-6 flex-1">
-                    
-                    {/* Date Picker */}
+
+                    {/* Date Picker — Admin only */}
                     <div className="space-y-2">
                         <Label className="flex items-center gap-2 font-bold text-gray-700">
                             <Calendar className="w-4 h-4" />
                             Delivery Date
+                            {!canEditAll && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                                    <Lock className="w-3 h-3" /> Read-only
+                                </span>
+                            )}
                         </Label>
-                        <input 
-                            type="date" 
+                        <input
+                            type="date"
                             value={deliveryDate}
                             onChange={(e) => setDeliveryDate(e.target.value)}
-                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                              min={new Date().toISOString().split('T')[0]} // Restrict to future dates
-                                    className="w-full p-2 border rounded-md cursor-pointer"
+                            onClick={(e) => canEditAll && (e.target as HTMLInputElement).showPicker?.()}
+                            min={new Date().toISOString().split('T')[0]} // Restrict to future dates
+                            disabled={!canEditAll}
+                            className={`w-full p-2 border rounded-md ${canEditAll ? "cursor-pointer" : "cursor-not-allowed bg-gray-50 text-gray-500"}`}
                         />
                         <p className="text-xs text-gray-500">This delivery date will apply to all selected items in this plan</p>
+                    </div>
+
+                    {/* Delivery Status — select dropdown (role-gated) */}
+                    <div className="space-y-2">
+                        <Label className="flex items-center gap-2 font-bold text-gray-700">
+                            <CheckCircle2 className="w-4 h-4" />
+                            Delivery Status
+                            {!canEditDeliveryStatus && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                                    <Lock className="w-3 h-3" /> Read-only
+                                </span>
+                            )}
+                        </Label>
+                        <Select
+                            value={deliveryStatus}
+                            onValueChange={(v) => setDeliveryStatus(v as "Delivered" | "Not Delivered")}
+                            disabled={!canEditDeliveryStatus}
+                        >
+                            <SelectTrigger className="w-full h-10">
+                                <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="Not Delivered">
+                                    <span className="inline-flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-red-500" />
+                                        Not Delivered
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="Delivered">
+                                    <span className="inline-flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                        Delivered
+                                    </span>
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-gray-500">
+                            {canEditDeliveryStatus
+                                ? "Mark whether the materials in this plan have been delivered to site."
+                                : "Only Admin and Procurement Executives can change delivery status."}
+                        </p>
                     </div>
 
                     <div className="h-px bg-gray-100" />
 
                     {isNewPO ? (
-                        /* --- NEW PO EDIT INTERFACE --- */
+                        /* --- NEW PO EDIT INTERFACE — Admin only --- */
                          <div className="space-y-2">
-                            <Label className="text-xs font-bold text-gray-700">List Materials (One per line)</Label>
-                            <textarea 
+                            <Label className="flex items-center gap-2 text-xs font-bold text-gray-700">
+                                List Materials (One per line)
+                                {!canEditAll && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                                        <Lock className="w-3 h-3" /> Read-only
+                                    </span>
+                                )}
+                            </Label>
+                            <textarea
                                 placeholder="Enter material names here..."
                                 value={manualItemsText}
                                 onChange={(e) => setManualItemsText(e.target.value)}
-                                className="w-full h-48 p-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                disabled={!canEditAll}
+                                className={`w-full h-48 p-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
+                                    !canEditAll
+                                        ? "bg-gray-50 text-gray-500 cursor-not-allowed border-gray-300"
+                                        : itemsInvalid
+                                            ? "border-red-300 focus:ring-red-500"
+                                            : "border-gray-300"
+                                }`}
                             />
-                            <p className="text-[10px] text-gray-500">
-                                Each line will be saved as a separate material item.
-                            </p>
+                            {canEditAll && itemsInvalid ? (
+                                <p className="text-[11px] text-red-600 font-medium">
+                                    Please enter at least one material (one per line).
+                                </p>
+                            ) : (
+                                <p className="text-[10px] text-gray-500">
+                                    Each line will be saved as a separate material item.
+                                </p>
+                            )}
                         </div>
                     ) : (
                         /* --- EXISTING PO EDIT INTERFACE --- */
                         <>
                             <div className="space-y-4">
                                 <div className="flex flex-col gap-1">
-                                    <h3 className="font-bold text-gray-800 text-md">
+                                    <h3 className="flex items-center gap-2 font-bold text-gray-800 text-md">
                                         {selectedCount} of {poItems.length} items selected
+                                        {!canEditAll && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                                                <Lock className="w-3 h-3" /> Read-only
+                                            </span>
+                                        )}
                                     </h3>
-                                    <p className="text-gray-500 text-sm">Select or de-select items to update this delivery plan</p>
+                                    <p className={`text-sm ${canEditAll && itemsInvalid ? "text-red-600 font-medium" : "text-gray-500"}`}>
+                                        {canEditAll
+                                            ? itemsInvalid
+                                                ? "At least one item must be selected before saving."
+                                                : "Select or de-select items to update this delivery plan"
+                                            : "Items are read-only. Only Admin can change items; you can update the delivery status above."}
+                                    </p>
                                 </div>
-                                
+
                                 <div className="flex gap-3">
                                     <div className="relative flex-1">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                        <input 
+                                        <input
                                             type="text"
                                             placeholder="Search Items in PO"
                                             value={searchTerm}
@@ -280,18 +407,22 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                                             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         />
                                     </div>
-                                    <button 
-                                        onClick={handleSelectAll}
-                                        className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                                    >
-                                        Select All
-                                    </button>
-                                    <button 
-                                        onClick={handleClearAll}
-                                        className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                                    >
-                                        Clear All
-                                    </button>
+                                    {canEditAll && (
+                                        <>
+                                            <button
+                                                onClick={handleSelectAll}
+                                                className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                                            >
+                                                Select All
+                                            </button>
+                                            <button
+                                                onClick={handleClearAll}
+                                                className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                                            >
+                                                Clear All
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 
@@ -303,17 +434,21 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                                     <div className="p-8 text-center text-gray-500">No items found matching "{searchTerm}"</div>
                                 ) : (
                                     filteredItems.map((item: any) => (
-                                        <div 
-                                            key={item.name} 
-                                            className={`flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors ${selectedItems[item.name] ? 'bg-blue-50/30' : ''}`}
+                                        <div
+                                            key={item.name}
+                                            className={`flex items-center gap-4 p-4 transition-colors ${canEditAll ? "hover:bg-gray-50" : ""} ${selectedItems[item.name] ? 'bg-blue-50/30' : ''}`}
                                         >
-                                            <Checkbox 
+                                            <Checkbox
                                                 checked={!!selectedItems[item.name]}
-                                                onCheckedChange={() => handleToggle(item.name)}
+                                                onCheckedChange={() => canEditAll && handleToggle(item.name)}
+                                                disabled={!canEditAll}
                                                 id={`edit-item-${item.name}`}
                                             />
-                                            <div className="flex-1 cursor-pointer" onClick={() => handleToggle(item.name)}>
-                                                <label htmlFor={`edit-item-${item.name}`} className="font-medium text-gray-800 text-sm cursor-pointer block">
+                                            <div
+                                                className={`flex-1 ${canEditAll ? "cursor-pointer" : ""}`}
+                                                onClick={() => canEditAll && handleToggle(item.name)}
+                                            >
+                                                <label htmlFor={`edit-item-${item.name}`} className={`font-medium text-gray-800 text-sm block ${canEditAll ? "cursor-pointer" : ""}`}>
                                                     {item.item_name}
                                                 </label>
                                                 <div className="flex gap-4 mt-1 text-xs text-gray-500">
@@ -339,10 +474,11 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                     >
                         Cancel
                     </button>
-                    <button 
+                    <button
                         onClick={handleConfirm}
-                        disabled={isUpdating}
-                        className="px-6 py-2 bg-red-600 rounded-lg text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                        disabled={isConfirmDisabled}
+                        title={itemsInvalid ? (isNewPO ? "Add at least one material line" : "Select at least one item") : undefined}
+                        className="px-6 py-2 bg-red-600 rounded-lg text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-gray-300"
                     >
                         {isUpdating ? "Updating..." : "Confirm"}
                     </button>

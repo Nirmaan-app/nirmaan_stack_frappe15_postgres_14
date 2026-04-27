@@ -3,7 +3,7 @@ import { useProjectDocForMaterialPlan, useMaterialDeliveryPlans } from "@/pages/
 import { useDeleteMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
-import { Loader2, ChevronDown, Trash2, Download, Edit2 } from "lucide-react";
+import { Loader2, ChevronDown, Trash2, Download, Edit2, PlusCircle } from "lucide-react";
 import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
 import { DateRange } from "react-day-picker";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -13,7 +13,11 @@ import { Button } from "@/components/ui/button";
 import { AddMaterialPlanForm } from "./AddMaterialPlanForm";
 import { EditMaterialPlanForm } from "./EditMaterialPlanForm";
 import { useToast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
 import { downloadProjectPrintFormatPdf } from "@/pages/projects/data/tab/planning/useProjectPlanningDownloadApi";
+
+const ADMIN_ROLE = "Nirmaan Admin Profile";
+const PROCUREMENT_ROLE = "Nirmaan Procurement Executive Profile";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -47,7 +51,12 @@ const getMaterialItems = (plan: any): any[] => {
 
 
 export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: SevenDaysMaterialPlanProps) => {
-    
+
+    // --- Role gates ---
+    const { role } = useUserData();
+    const isAdmin = role === ADMIN_ROLE;
+    const canEditPlan = isAdmin || role === PROCUREMENT_ROLE;
+
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");
     
@@ -224,50 +233,44 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                             />
                         </div>
                     )}
-                    <div className="flex justify-between items-start mb-2">
+                    <div className="flex justify-between items-start mb-2 gap-3">
                         <div className="flex items-center gap-2">
-                        <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
-                        {existingPlans && existingPlans.length > 0 && (
-                            <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                                {existingPlans.length }
-                            </Badge>
-                        )}
-                     </div>
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="gap-2 h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white"
-                            onClick={handleDownload}
-                            disabled={isDownloading}
-                        >
-                            {isDownloading ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                                <Download className="h-3.5 w-3.5" />
+                            <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
+                            {existingPlans && existingPlans.length > 0 && (
+                                <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
+                                    {existingPlans.length}
+                                </Badge>
                             )}
-                            {isDownloading ? "Downloading..." : "Download"}
-                        </Button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-2 h-9 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white"
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                            >
+                                {isDownloading ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <Download className="h-3.5 w-3.5" />
+                                )}
+                                {isDownloading ? "Downloading..." : "Download"}
+                            </Button>
+                            <button
+                                onClick={addPlanForm}
+                                disabled={materialPlanForms.length > 0}
+                                title={materialPlanForms.length > 0 ? "Finish or cancel the current plan first" : undefined}
+                                className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white font-medium h-9 px-3 rounded transition-colors text-xs disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-gray-300"
+                            >
+                                <PlusCircle className="h-3.5 w-3.5" />
+                                Add Material Plan
+                            </button>
+                        </div>
                     </div>
                     <p className="text-sm text-gray-600 mb-4">
                         Materials must already exist inside an existing PO. New POs should only be created if materials are not available in existing POs.
                     </p>
-                    <div className="flex">
-                        {materialPlanForms.length === 0 ? (
-                            <button 
-                                onClick={addPlanForm}
-                                className="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded transition-colors text-sm"
-                            >
-                                Add Material Plan
-                            </button>
-                        ) : (
-                            <button 
-                                onClick={addPlanForm}
-                                className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded transition-colors text-sm border border-gray-300"
-                            >
-                                Add Another Plan
-                            </button>
-                        )}
-                    </div>
                 </div>
             ) : (
                 <>
@@ -338,9 +341,25 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                 />
             )}
 
+            {/* Section Divider — separates Drafts (above) from Saved Plans (below) */}
+            {!isOverview && existingPlans && existingPlans.length > 0 && (
+                <div className="flex items-center gap-3 pt-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                        <h4 className="text-sm font-semibold text-gray-700">Saved Material Plans</h4>
+                        <Badge variant="secondary" className="bg-gray-200 text-gray-700 hover:bg-gray-200 rounded-full px-2 py-0 text-[10px] font-semibold">
+                            {existingPlans.length}
+                        </Badge>
+                    </div>
+                    <div className="flex-1 h-px bg-gray-200" />
+                    <span className="text-[10px] text-gray-400 uppercase tracking-wider shrink-0">
+                        Sorted by latest
+                    </span>
+                </div>
+            )}
+
             {/* List Existing Plans */}
             <div className="space-y-3">
-                
+
                 {isLoadingPlans && (
                     <div className="text-gray-500 text-sm">Loading plans...</div>
                 )}
@@ -350,141 +369,151 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                 )}
 
                 {existingPlans?.map((plan: any, index: number) => {
-                    // Parse mp_items safely to get count
                     const itemsList = getMaterialItems(plan);
                     const itemsCount = itemsList.length;
-
-                    // Calculate Plan Number (Oldest is Plan 1 if we sort desc)
-                    const planNum = index+1;
+                    const planNum = index + 1;
                     const isExpanded = isOverview || expandedPlans.includes(plan.name);
-
-                    // Parse items for display in expanded view
-                    // const itemsList = getMaterialItems(plan); // Already parsed above
-                    
                     const isMissingCriticalInfo = (plan.po_type === "Existing PO" || plan.po_type === "New PO") && (!plan.critical_po_category || !plan.critical_po_task);
+                    const isDelivered = plan.delivery_status === "Delivered";
 
                     return (
-                        <div key={plan.name} className={`border rounded-lg bg-blue-50/50 shadow-sm overflow-hidden transition-all hover:shadow-md ${
-                                isMissingCriticalInfo ? "border-red-200 bg-red-50/30" : "border-gray-200"
-                            }`}>
-                                <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap items-start lg:items-center p-3 gap-3">
-                                    
-                                    {/* Section 1: Task Info */}
-                                    <div className="flex items-start gap-2 w-full md:w-[45%] lg:w-[25%] shrink-0">
-                                        {/* Dot Indicator (Placeholder if needed, or matching POCashflow's w-8 flex-center) */}
-                                        <div className="hidden md:flex w-8 shrink-0 justify-center mt-1">
-                                            <div className="w-6 h-6 bg-red-50 rounded-full flex items-center justify-center">
-                                                <span className="block w-2 h-2 bg-red-500 rounded-full"></span>
-                                            </div>
-                                        </div>
+                        <div
+                            key={plan.name}
+                            className={`border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:shadow-md ${
+                                isMissingCriticalInfo ? "border-red-200" : "border-gray-200"
+                            }`}
+                        >
+                            {/* Top Row: Plan Badge + View Material List Toggle */}
+                            <div className="flex items-center justify-between px-3 md:px-4 pt-3 pb-2 border-b border-gray-100 bg-gray-50/40">
+                                <div className="flex items-center gap-2">
+                                    <span className="block w-2 h-2 bg-red-500 rounded-full" />
+                                    <Badge
+                                        variant="secondary"
+                                        className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded px-2 py-0.5 text-[11px] font-medium"
+                                    >
+                                        Plan {planNum}
+                                    </Badge>
+                                </div>
+                                {!isOverview && (
+                                    <button
+                                        onClick={() => togglePlan(plan.name)}
+                                        className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                                    >
+                                        View material list
+                                        <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                                    </button>
+                                )}
+                            </div>
 
-                                        {/* Toggle button */}
-                                        {!isOverview && (
-                                            <button 
-                                                onClick={() => togglePlan(plan.name)}
-                                                className="mt-1 text-gray-400 hover:text-gray-600 shrink-0"
-                                            >
-                                                <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? "" : "-rotate-90"}`} />
-                                            </button>
+                            {/* Data Row: Column Header + Value */}
+                            <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap items-stretch px-3 md:px-4 py-3 gap-x-4 gap-y-3">
+                                {/* TASK */}
+                                <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-[2] min-w-0">
+                                    <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Task</span>
+                                    <span className="font-semibold text-gray-900 text-sm break-words">
+                                        {plan.critical_po_task || plan.package_name || "Untitled Task"}
+                                        {plan.critical_po_sub_category && (
+                                            <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
                                         )}
-                                        
-                                        <div className="flex flex-col gap-0.5 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
-                                                    Plan {planNum}
-                                                </Badge>
-                                            </div>
-                                            
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Task</span>
-                                            <h4 className="font-semibold text-gray-900 leading-tight text-sm break-words">
-                                                {plan.critical_po_task || plan.package_name || "Untitled Task"}
-                                                {plan.critical_po_sub_category && (
-                                                    <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
-                                                )}
-                                            </h4>
-                                        </div>
-                                    </div>
+                                    </span>
+                                </div>
 
-                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
+                                {/* CATEGORY */}
+                                <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-1 min-w-0">
+                                    <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Category</span>
+                                    <span className={`text-sm font-medium truncate ${!plan.critical_po_category ? "text-red-500" : "text-gray-700"}`}>
+                                        {plan.critical_po_category || "—"}
+                                    </span>
+                                </div>
 
-                                    {/* Section 1.5: Category Info */}
-                                    <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:w-[15%] shrink-0 min-w-0">
-                                        <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Category</span>
-                                        <span className={`text-[11px] font-medium truncate ${!plan.critical_po_category ? "text-red-500" : "text-gray-500"}`}>
-                                            {plan.critical_po_category || "Category Undefined"}
-                                        </span>
-                                    </div>
-
-                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
-
-                                    {/* Section 2: PO Info */}
-                                    <div className="flex flex-col gap-1 w-full md:w-[45%] lg:w-[20%] shrink-0 min-w-0">
-                                        <div className="font-medium text-gray-900 text-sm truncate" title={plan.po_link}>
-                                            {plan.po_link || "--"}
-                                        </div>
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            <Badge variant="outline" className={`px-1.5 py-0 text-[10px] font-normal ${plan.po_type === "Existing PO" ? "bg-blue-50 text-blue-700 border-blue-100" : "bg-yellow-50 text-yellow-700 border-yellow-100"}`}>
-                                                {plan.po_type || "--"}
-                                            </Badge>
-                                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
-                                                {itemsCount} Items
-                                            </Badge>
-                                        </div>
-                                    </div>
-
-                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
-
-                                    {/* Section 3: Delivery Date */}
-                                    <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-1 shrink-0">
-                                        <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Delivery Date</span>
-                                        <span className="font-semibold text-gray-900 text-sm">
-                                            {safeFormatDateDD_MMM_YYYY(plan.delivery_date)}
-                                        </span>
-                                    </div>
-
-                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
-
-                                    {/* Section 4: Actions */}
-                                    <div className="flex items-center justify-between w-full md:w-full lg:w-auto gap-3 min-w-0 border-t border-gray-100 pt-2 lg:border-0 lg:pt-0 mt-1 lg:mt-0">
-                                        {!isOverview && (
-                                            <div className="flex items-center gap-1 pl-0 lg:pl-3 lg:border-l border-gray-100 shrink-0 ml-auto">
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); setEditingPlan(plan); }}
-                                                    className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors hover:bg-blue-50 rounded-md"
-                                                    title="Edit Plan"
-                                                >
-                                                    <Edit2 className="w-4 h-4" />
-                                                </button>
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); setDeleteDialogState({ isOpen: true, planName: plan.name }); }}
-                                                    className="p-1.5 text-gray-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded-md"
-                                                    title="Delete Plan"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        )}
+                                {/* PO — heading shows the actual PO link */}
+                                <div className="flex flex-col gap-1 w-full md:w-[45%] lg:flex-[1.5] min-w-0">
+                                    <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider truncate" title={plan.po_link || "--"}>
+                                        {plan.po_link || "--"}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <Badge
+                                            variant="outline"
+                                            className={`px-1.5 py-0 text-[10px] font-normal ${
+                                                plan.po_type === "Existing PO"
+                                                    ? "bg-blue-50 text-blue-700 border-blue-100"
+                                                    : "bg-yellow-50 text-yellow-700 border-yellow-100"
+                                            }`}
+                                        >
+                                            {plan.po_type || "--"}
+                                        </Badge>
+                                        <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
+                                            {itemsCount} Items
+                                        </Badge>
                                     </div>
                                 </div>
 
-                                {/* Expanded Content: Materials List */}
-                                {isExpanded && (
-                                    <div className="bg-gray-50/50 border-t p-4 pl-4 md:pl-6 pt-2 pb-6 flex flex-col md:flex-row md:items-start gap-4 animate-in slide-in-from-top-2 duration-200">
-                                         <span className="text-xs font-bold text-gray-800 shrink-0 mt-1.5">
-                                             Materials ({itemsCount}):
-                                         </span>
-                                         <div className="flex flex-wrap gap-2">
-                                             {itemsList.map((item: any, i: number) => (
-                                                 <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
-                                                     {item.item_name}
-                                                 </div>
-                                             ))}
-                                         </div>
+                                {/* DELIVERY DATE */}
+                                <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-1 min-w-0">
+                                    <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Delivery Date</span>
+                                    <span className="font-semibold text-gray-900 text-sm">
+                                        {safeFormatDateDD_MMM_YYYY(plan.delivery_date)}
+                                    </span>
+                                </div>
+
+                                {/* STATUS */}
+                                <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-1 min-w-0">
+                                    <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Status</span>
+                                    <span
+                                        className={`inline-flex items-center w-fit px-2 py-0.5 rounded text-[11px] font-medium border ${
+                                            isDelivered
+                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                : "bg-red-50 text-red-700 border-red-200"
+                                        }`}
+                                    >
+                                        {plan.delivery_status || "Not Delivered"}
+                                    </span>
+                                </div>
+
+                                {/* ACTIONS — Edit: Admin + Procurement, Delete: Admin only */}
+                                {!isOverview && (canEditPlan || isAdmin) && (
+                                    <div className="flex items-center gap-1 shrink-0 self-start lg:self-center w-full md:w-auto justify-end border-t md:border-0 border-gray-100 pt-2 md:pt-0 mt-1 md:mt-0">
+                                        <span className="hidden md:block w-px h-6 bg-gray-200 mr-1" aria-hidden="true" />
+                                        {canEditPlan && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setEditingPlan(plan); }}
+                                                className="p-1.5 text-blue-600 hover:text-blue-700 transition-colors hover:bg-blue-50 rounded-md"
+                                                title="Edit Plan"
+                                            >
+                                                <Edit2 className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                        {isAdmin && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setDeleteDialogState({ isOpen: true, planName: plan.name }); }}
+                                                className="p-1.5 text-red-600 hover:text-red-700 transition-colors hover:bg-red-50 rounded-md"
+                                                title="Delete Plan"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        )}
                                     </div>
                                 )}
                             </div>
-                        );
-                    })}
+
+                            {/* Expanded Content: Materials List */}
+                            {isExpanded && (
+                                <div className="bg-gray-50/50 border-t p-4 pl-4 md:pl-6 pt-2 pb-6 flex flex-col md:flex-row md:items-start gap-4 animate-in slide-in-from-top-2 duration-200">
+                                    <span className="text-xs font-bold text-gray-800 shrink-0 mt-1.5">
+                                        Materials ({itemsCount}):
+                                    </span>
+                                    <div className="flex flex-wrap gap-2">
+                                        {itemsList.map((item: any, i: number) => (
+                                            <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                                {item.item_name}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
                 </div>
             
             <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
