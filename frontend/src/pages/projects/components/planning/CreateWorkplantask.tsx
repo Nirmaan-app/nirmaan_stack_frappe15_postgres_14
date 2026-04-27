@@ -31,6 +31,14 @@ interface CreateWorkplantaskProps {
     };
 }
 
+const getTodayStr = (): string => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+};
+
 export const CreateWorkplantask = ({
     isOpen,
     onClose,
@@ -45,13 +53,15 @@ export const CreateWorkplantask = ({
     const [formData, setFormData] = useState({
         wp_title: "",
         wp_status: "Not Started", // Default status
-        wp_start_date: "",
+        wp_start_date: getTodayStr(), // Default Planned Start Date = today
         wp_end_date: "",
         wp_description: "",
     });
 
     useEffect(() => {
+        if (!isOpen) return;
         if (initialData) {
+            // Edit mode — populate from existing record
             setFormData({
                 wp_title: initialData.wp_title || "",
                 wp_status: initialData.wp_status || "Not Started",
@@ -59,8 +69,17 @@ export const CreateWorkplantask = ({
                 wp_end_date: initialData.wp_end_date || "",
                 wp_description: initialData.wp_description || "",
             });
+        } else {
+            // Create mode — start date defaults to today, user can change
+            setFormData({
+                wp_title: "",
+                wp_status: "Not Started",
+                wp_start_date: getTodayStr(),
+                wp_end_date: "",
+                wp_description: "",
+            });
         }
-    }, [initialData]);
+    }, [isOpen, initialData]);
 
     const { createWorkPlan, loading: creating } = useCreateWorkPlan();
     const { updateWorkPlan, loading: updating } = useUpdateWorkPlan();
@@ -122,7 +141,7 @@ export const CreateWorkplantask = ({
                 setFormData({
                     wp_title: "",
                     wp_status: "Not Started",
-                    wp_start_date: "",
+                    wp_start_date: getTodayStr(),
                     wp_end_date: "",
                     wp_description: "",
                 });
