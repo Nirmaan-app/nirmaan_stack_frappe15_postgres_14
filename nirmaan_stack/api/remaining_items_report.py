@@ -111,7 +111,11 @@ def get_latest_remaining_quantities(project):
     if doc.submitted_by:
         submitted_by_full_name = frappe.db.get_value("User", doc.submitted_by, "full_name") or doc.submitted_by
 
-    # Fetch dispatched ITM transfer deductions dispatched after this report date.
+    # Fetch dispatched ITM transfers dispatched AFTER this report was last saved.
+    # We compare against rir.modified (timestamp) rather than report_date (date)
+    # so a same-day dispatch that happened AFTER the PM finalized the report is
+    # correctly deducted. Pre-submit dispatches are assumed already reflected in
+    # the PM's recorded remaining_quantity.
     # Keyed by {category}_{item_id} to match the items_dict structure.
     deduction_map = {}
     itm_deductions = frappe.db.sql(
@@ -122,15 +126,18 @@ def get_latest_remaining_quantities(project):
         JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
         WHERE itm.source_project = %(project)s
           AND itm.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
-          AND itm.dispatched_on::date > %(report_date)s
+          AND itm.dispatched_on > %(rir_modified)s
         GROUP BY itmi.item_id, itmi.category
         """,
-        {"project": project, "report_date": str(doc.report_date)},
+        {"project": project, "rir_modified": doc.modified},
         as_dict=True,
     )
     for d in itm_deductions:
         key = f"{d.category}_{d.item_id}"
         deduction_map[key] = d.deducted_qty or 0
+
+    # Warehouse-bound material is now transferred via ITMs (target_type=Warehouse),
+    # already counted in itm_deductions above.
 
     items_dict = {}
     for item in doc.items:

@@ -1,17 +1,13 @@
 """
-DataTable-backed list endpoint for Internal Transfer Memos.
+List endpoint for per-item warehouse stock.
 
-Powers the 6-tab sidebar view (Pending Approval / Rejected / All Requests /
-Approved / Dispatched / Delivered) via ``useServerDataTable`` on the frontend.
-Accepts the same query envelope as the generic
-``nirmaan_stack.api.data-table.get_list_with_count_enhanced`` so the hook can
-be wired by overriding its ``apiEndpoint`` prop alone — and layers on SQL
-joins against ``Projects`` + ``User`` to return the display names the list
-columns need without N+1 fetches.
+Conforms to the standard envelope consumed by ``useServerDataTable`` so the
+frontend can sort/filter/search/paginate server-side, matching the pattern
+used by ``get_itms_list`` / ``get_itrs_list``.
 
-Respects the ``for_export`` escape hatch (capped at
-``EXPORT_MAX_PAGE_LENGTH``) and defers Frappe-level read permissions to
-``frappe.has_permission`` on the parent doctype.
+On-hand stock is read from ``Warehouse Stock Item`` (updated by ITM delivery
+for inward, ITM dispatch for outward). Reservations come from Approved ITMs
+not yet dispatched and Pending/Approved ITRs from warehouse.
 """
 
 import json
@@ -28,49 +24,43 @@ from nirmaan_stack.api.data_table.constants import (
 )
 
 
-DOCTYPE = "Internal Transfer Memo"
+DOCTYPE = "Warehouse Stock Item"
 
 # Whitelist of sortable columns → SQL expression. Keeps ORDER BY clauses
 # injection-safe while still letting the frontend sort by joined labels.
 _ORDER_BY_FIELDS = {
-	"name": "itm.name",
-	"creation": "itm.creation",
-	"modified": "itm.modified",
-	"status": "itm.status",
-	"source_project": "itm.source_project",
-	"source_project_name": "src.project_name",
-	"target_project": "itm.target_project",
-	"target_project_name": "tgt.project_name",
-	"estimated_value": "itm.estimated_value",
-	"total_items": "itm.total_items",
-	"total_quantity": "itm.total_quantity",
-	"requested_by": "itm.requested_by",
-	"requested_by_full_name": "usr.full_name",
-	"approved_on": "itm.approved_on",
-	"transfer_request": "itm.transfer_request",
+	"item_id": "w.item_id",
+	"item_name": "w.item_name",
+	"category": "w.category",
+	"unit": "w.unit",
+	"make": "w.make",
+	"current_stock": "w.current_stock",
+	"total_reserved": "total_reserved",
+	"available_quantity": "available_quantity",
+	"estimated_rate": "w.estimated_rate",
+	"estimated_value": "estimated_value",
+	"creation": "w.creation",
+	"modified": "w.modified",
 }
 
-# Frappe filter field → SQL expression, constrains which fields the
-# frontend can push filters against (scalar-only; multi-value uses IN).
+# Whitelist of filter fields → SQL expression.
 _FILTER_FIELDS = {
-	"name": "itm.name",
-	"status": "itm.status",
-	"source_project": "itm.source_project",
-	"target_project": "itm.target_project",
-	"requested_by": "itm.requested_by",
-	"approved_by": "itm.approved_by",
-	"creation": "itm.creation",
-	"modified": "itm.modified",
-	"transfer_request": "itm.transfer_request",
+	"item_id": "w.item_id",
+	"item_name": "w.item_name",
+	"category": "w.category",
+	"unit": "w.unit",
+	"make": "w.make",
+	"creation": "w.creation",
+	"modified": "w.modified",
 }
 
 
 @frappe.whitelist()
-def get_itms_list(
+def get_warehouse_stock(
 	doctype: str | None = None,
 	fields: str | list | None = None,
 	filters: str | list | None = "[]",
-	order_by: str | None = "creation desc",
+	order_by: str | None = "item_name asc",
 	limit_start: int | str = 0,
 	limit_page_length: int | str | None = None,
 	search_term: str | None = None,
@@ -83,12 +73,7 @@ def get_itms_list(
 	for_export: bool | str = False,
 	**kwargs: Any,
 ) -> dict:
-	"""Return paginated ITM rows with joined project/user display names.
-
-	Args mirror the generic ``get_list_with_count_enhanced`` envelope for
-	drop-in compatibility with ``useServerDataTable``. Only fields relevant
-	to ITMs are honoured; aggregates/group_by are accepted for signature
-	parity but not implemented (no Phase 1 need).
+	"""Return paginated warehouse stock rows.
 
 	Returns:
 	    ``{"data": [...rows...], "total_count": int, "aggregates": {},
@@ -121,7 +106,6 @@ def get_itms_list(
 	for idx, (field, operator, value) in enumerate(parsed_filters):
 		sql_expr = _FILTER_FIELDS.get(field)
 		if not sql_expr:
-			# Silently skip unknown fields rather than reject the whole request.
 			continue
 
 		op = (operator or "=").lower()
@@ -139,7 +123,6 @@ def get_itms_list(
 			values[value_key] = tuple(value)
 		elif op == "like":
 			conditions.append(f"{sql_expr} ILIKE %({value_key})s")
-			# Frappe clients may already send %-wrapped value from converter; normalise.
 			values[value_key] = value if (isinstance(value, str) and "%" in value) else f"%{value}%"
 		elif op in ("=", "!=", ">", ">=", "<", "<="):
 			conditions.append(f"{sql_expr} {op} %({value_key})s")
@@ -150,58 +133,72 @@ def get_itms_list(
 			else:
 				conditions.append(f"({sql_expr} IS NULL OR {sql_expr} = '')")
 		else:
-			# Fallback to equality for unrecognised operators.
 			conditions.append(f"{sql_expr} = %({value_key})s")
 			values[value_key] = value
 
-	# --- Search: ILIKE across ITM name + joined project names ---
+	# --- Search: ILIKE across item_id / item_name / make / category ---
 	if search_term and isinstance(search_term, str) and search_term.strip():
 		tokens = search_term.strip().split()
 		for t_idx, token in enumerate(tokens):
 			token_key = f"s_{t_idx}"
 			conditions.append(
-				f"(itm.name ILIKE %({token_key})s "
-				f"OR src.project_name ILIKE %({token_key})s "
-				f"OR tgt.project_name ILIKE %({token_key})s)"
+				f"(w.item_id ILIKE %({token_key})s "
+				f"OR w.item_name ILIKE %({token_key})s "
+				f"OR w.make ILIKE %({token_key})s "
+				f"OR w.category ILIKE %({token_key})s)"
 			)
 			values[token_key] = f"%{token}%"
+
+	# Stock page never shows zero-stock rows
+	conditions.append("w.current_stock > 0")
 
 	where_clause = " AND ".join(conditions)
 	order_clause = _build_order_clause(order_by)
 
-	# --- Main query ---
+	# --- Main query (data + computed columns) ---
 	data_sql = f"""
-		SELECT
-			itm.name,
-			itm.creation,
-			itm.modified,
-			itm.status,
-			itm.source_type,
-			itm.source_project,
-			CASE WHEN itm.source_type = 'Warehouse' THEN 'Warehouse' ELSE src.project_name END AS source_project_name,
-			itm.target_type,
-			itm.target_project,
-			CASE WHEN itm.target_type = 'Warehouse' THEN 'Warehouse' ELSE tgt.project_name END AS target_project_name,
-			itm.source_rir,
-			itm.estimated_value,
-			itm.total_items,
-			itm.total_quantity,
-			itm.requested_by,
-			usr.full_name AS requested_by_full_name,
-			itm.approved_by,
-			appr.full_name AS approved_by_full_name,
-			itm.approved_on,
-			itm.rejection_reason,
-			itm.dispatched_by,
-			itm.dispatched_on,
-			itm.latest_delivery_date,
-			itm.owner,
-			itm.transfer_request
-		FROM "tabInternal Transfer Memo" itm
-		LEFT JOIN "tabProjects" src ON src.name = itm.source_project
-		LEFT JOIN "tabProjects" tgt ON tgt.name = itm.target_project
-		LEFT JOIN "tabUser" usr ON usr.name = itm.requested_by
-		LEFT JOIN "tabUser" appr ON appr.name = itm.approved_by
+		WITH itm_approved AS (
+			SELECT itmi.item_id, itmi.make, SUM(itmi.transfer_quantity) AS reserved_itm
+			FROM "tabInternal Transfer Memo Item" itmi
+			JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+			WHERE itm.source_type = 'Warehouse'
+			  AND itm.status = 'Approved'
+			GROUP BY itmi.item_id, itmi.make
+		),
+		itr_reserved AS (
+			SELECT itri.item_id, itri.make, SUM(itri.transfer_quantity) AS reserved_itr
+			FROM "tabInternal Transfer Request Item" itri
+			JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
+			WHERE itr.source_type = 'Warehouse'
+			  AND itri.status IN ('Pending', 'Approved')
+			  AND NOT EXISTS (
+			      SELECT 1 FROM "tabInternal Transfer Memo" itm_chk
+			      WHERE itm_chk.name = itri.linked_itm
+			        AND itm_chk.status IN ('Approved', 'Dispatched', 'Partially Delivered', 'Delivered')
+			  )
+			GROUP BY itri.item_id, itri.make
+		),
+		base AS (
+			SELECT
+				wsi.name,
+				wsi.item_id,
+				wsi.item_name,
+				wsi.unit,
+				wsi.category,
+				wsi.make,
+				wsi.quantity AS current_stock,
+				wsi.estimated_rate,
+				wsi.creation,
+				wsi.modified,
+				(COALESCE(a.reserved_itm, 0) + COALESCE(r.reserved_itr, 0)) AS total_reserved,
+				GREATEST(wsi.quantity - COALESCE(a.reserved_itm, 0) - COALESCE(r.reserved_itr, 0), 0) AS available_quantity,
+				(wsi.quantity * wsi.estimated_rate) AS estimated_value
+			FROM "tabWarehouse Stock Item" wsi
+			LEFT JOIN itm_approved a ON a.item_id = wsi.item_id AND a.make IS NOT DISTINCT FROM wsi.make
+			LEFT JOIN itr_reserved r ON r.item_id = wsi.item_id AND r.make IS NOT DISTINCT FROM wsi.make
+		)
+		SELECT *
+		FROM base w
 		WHERE {where_clause}
 		{order_clause}
 		LIMIT %(_limit)s OFFSET %(_offset)s
@@ -213,12 +210,48 @@ def get_itms_list(
 
 	# --- Count query (share WHERE, drop pagination args) ---
 	count_sql = f"""
-		SELECT COUNT(*) AS total
-		FROM "tabInternal Transfer Memo" itm
-		LEFT JOIN "tabProjects" src ON src.name = itm.source_project
-		LEFT JOIN "tabProjects" tgt ON tgt.name = itm.target_project
-		LEFT JOIN "tabUser" usr ON usr.name = itm.requested_by
-		LEFT JOIN "tabUser" appr ON appr.name = itm.approved_by
+		WITH itm_approved AS (
+			SELECT itmi.item_id, itmi.make, SUM(itmi.transfer_quantity) AS reserved_itm
+			FROM "tabInternal Transfer Memo Item" itmi
+			JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+			WHERE itm.source_type = 'Warehouse'
+			  AND itm.status = 'Approved'
+			GROUP BY itmi.item_id, itmi.make
+		),
+		itr_reserved AS (
+			SELECT itri.item_id, itri.make, SUM(itri.transfer_quantity) AS reserved_itr
+			FROM "tabInternal Transfer Request Item" itri
+			JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
+			WHERE itr.source_type = 'Warehouse'
+			  AND itri.status IN ('Pending', 'Approved')
+			  AND NOT EXISTS (
+			      SELECT 1 FROM "tabInternal Transfer Memo" itm_chk
+			      WHERE itm_chk.name = itri.linked_itm
+			        AND itm_chk.status IN ('Approved', 'Dispatched', 'Partially Delivered', 'Delivered')
+			  )
+			GROUP BY itri.item_id, itri.make
+		),
+		base AS (
+			SELECT
+				wsi.name,
+				wsi.item_id,
+				wsi.item_name,
+				wsi.unit,
+				wsi.category,
+				wsi.make,
+				wsi.quantity AS current_stock,
+				wsi.estimated_rate,
+				wsi.creation,
+				wsi.modified,
+				(COALESCE(a.reserved_itm, 0) + COALESCE(r.reserved_itr, 0)) AS total_reserved,
+				GREATEST(wsi.quantity - COALESCE(a.reserved_itm, 0) - COALESCE(r.reserved_itr, 0), 0) AS available_quantity,
+				(wsi.quantity * wsi.estimated_rate) AS estimated_value
+			FROM "tabWarehouse Stock Item" wsi
+			LEFT JOIN itm_approved a ON a.item_id = wsi.item_id AND a.make IS NOT DISTINCT FROM wsi.make
+			LEFT JOIN itr_reserved r ON r.item_id = wsi.item_id AND r.make IS NOT DISTINCT FROM wsi.make
+		)
+		SELECT COUNT(*)
+		FROM base w
 		WHERE {where_clause}
 	"""
 	count_values = {k: v for k, v in values.items() if k not in ("_limit", "_offset")}
@@ -250,13 +283,8 @@ def _to_bool(value: Any) -> bool:
 def _parse_filters(filters: Any) -> list[tuple[str, str, Any]]:
 	"""Parse the filter envelope into ``(field, operator, value)`` tuples.
 
-	Accepts:
-	  - JSON string of a list
-	  - list of ``[field, op, value]`` or ``[field, op, value, doctype]``
-	  - list of ``[doctype, field, op, value]`` (Frappe's 4-tuple form)
-	  - list of ``{"id": field, "value": ...}`` (TanStack column filter shape)
+	Accepts the same shapes as ``get_itms_list._parse_filters``.
 	"""
-
 	if not filters:
 		return []
 
@@ -276,7 +304,6 @@ def _parse_filters(filters: Any) -> list[tuple[str, str, Any]]:
 			if len(item) == 3:
 				field, op, value = item[0], item[1], item[2]
 			elif len(item) == 4:
-				# Either [doctype, field, op, value] or [field, op, value, doctype].
 				if isinstance(item[0], str) and frappe.db.exists("DocType", item[0]):
 					field, op, value = item[1], item[2], item[3]
 				else:
@@ -302,7 +329,7 @@ def _parse_filters(filters: Any) -> list[tuple[str, str, Any]]:
 
 
 def _build_order_clause(order_by: str | None) -> str:
-	default = 'ORDER BY itm.creation DESC'
+	default = "ORDER BY w.item_name ASC"
 	if not order_by or not isinstance(order_by, str):
 		return default
 
@@ -310,13 +337,11 @@ def _build_order_clause(order_by: str | None) -> str:
 	if not parts:
 		return default
 
-	# Strip backticks that Frappe sometimes prepends (e.g. `tabDoctype`.`field`).
 	field_raw = parts[0].strip("`")
-	# If the field includes a table prefix (``tabDoctype`.`field``), keep only the suffix.
 	if "." in field_raw:
 		field_raw = field_raw.rsplit(".", 1)[-1].strip("`")
 
-	direction = "DESC"
+	direction = "ASC"
 	if len(parts) > 1 and parts[1].strip(",").upper() in ("ASC", "DESC"):
 		direction = parts[1].strip(",").upper()
 
