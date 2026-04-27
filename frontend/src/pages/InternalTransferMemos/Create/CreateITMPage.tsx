@@ -29,6 +29,8 @@ interface ProjectOption extends FuzzyOptionType {
   value: string;
 }
 
+const WAREHOUSE_VALUE = "__warehouse__";
+
 export default function CreateITMPage() {
   const navigate = useNavigate();
   const { role } = useUserData();
@@ -48,10 +50,13 @@ export default function CreateITMPage() {
   );
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
-    return (projects ?? [])
+    const base = (projects ?? [])
       .map((p) => ({ label: p.project_name || p.name, value: p.name }))
       .sort((a, b) => a.label.localeCompare(b.label));
+    return [{ label: "Warehouse", value: WAREHOUSE_VALUE }, ...base];
   }, [projects]);
+
+  const isWarehouseTarget = targetProject?.value === WAREHOUSE_VALUE;
 
   const { isValid, flatSelections, invalidReason } = useMemo(() => {
     if (!targetProject) {
@@ -65,21 +70,30 @@ export default function CreateITMPage() {
     let valid = true;
     let reason = "";
     for (const [source, byItem] of Object.entries(selection)) {
-      if (source === targetProject.value) {
+      if (isWarehouseTarget && source === "warehouse") {
+        valid = false;
+        reason = "Cannot transfer from warehouse to warehouse";
+        continue;
+      }
+      if (!isWarehouseTarget && source !== "warehouse" && source === targetProject.value) {
         valid = false;
         reason = "Source and target cannot be the same";
         continue;
       }
-      for (const [itemId, row] of Object.entries(byItem)) {
+      // Iterate values — the dict key is `${item_id}|${make}` (composite),
+      // so the entry itself is the source of truth for item_id and make.
+      for (const row of Object.values(byItem)) {
         if (!(row.qty > 0) || row.qty > row.available_quantity) {
           valid = false;
           reason = `Invalid qty for ${row.item_name}`;
           continue;
         }
         flat.push({
-          item_id: itemId,
+          item_id: row.item_id,
           source_project: source,
+          source_type: source === "warehouse" ? "Warehouse" : "Project",
           transfer_quantity: row.qty,
+          make: row.make,
         });
       }
     }
@@ -88,7 +102,7 @@ export default function CreateITMPage() {
       reason = "Select at least one item";
     }
     return { isValid: valid, flatSelections: flat, invalidReason: reason };
-  }, [targetProject, selection]);
+  }, [targetProject, selection, isWarehouseTarget]);
 
   // Role guard — after hooks
   if (role && role !== "Loading" && !ITM_CREATE_ROLES.includes(role)) {
@@ -99,7 +113,8 @@ export default function CreateITMPage() {
     if (!targetProject || !isValid) return;
     try {
       const result = await create({
-        target_project: targetProject.value,
+        target_project: isWarehouseTarget ? null : targetProject.value,
+        target_type: isWarehouseTarget ? "Warehouse" : "Project",
         selections: flatSelections,
       });
       const count = result?.message?.count ?? 1;
@@ -189,7 +204,7 @@ export default function CreateITMPage() {
         ) : (
           <InventoryPickerTable
             data={items}
-            targetProject={targetProject?.value ?? null}
+            targetProject={isWarehouseTarget ? null : (targetProject?.value ?? null)}
             selection={selection}
             onSelectionChange={setSelection}
           />

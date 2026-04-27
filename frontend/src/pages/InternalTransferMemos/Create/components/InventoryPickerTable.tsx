@@ -195,9 +195,14 @@ export function InventoryPickerTable({
     });
   }, []);
 
+  // Selection sub-key composes item_id + make so a project that ever holds
+  // the same item in two makes (forward-compat) keeps them as separate picks.
+  const selectionKey = (itemId: string, make: string | null | undefined) =>
+    `${itemId}|${make ?? ""}`;
+
   const isSelected = useCallback(
-    (source: string, itemId: string) => {
-      return Boolean(selection[source]?.[itemId]);
+    (source: string, itemId: string, make: string | null | undefined) => {
+      return Boolean(selection[source]?.[selectionKey(itemId, make)]);
     },
     [selection]
   );
@@ -209,6 +214,7 @@ export function InventoryPickerTable({
       checked: boolean
     ) => {
       const next: SelectionState = { ...selection };
+      const subKey = selectionKey(item.item_id, source.make);
       if (checked) {
         const entry: ItemSelection = {
           qty: 0,
@@ -218,15 +224,16 @@ export function InventoryPickerTable({
           item_name: item.item_name,
           unit: item.unit,
           category: item.category,
+          make: source.make ?? null,
           source_project_name: source.source_project_name,
         };
         next[source.source_project] = {
           ...(next[source.source_project] ?? {}),
-          [item.item_id]: entry,
+          [subKey]: entry,
         };
       } else {
         if (next[source.source_project]) {
-          const { [item.item_id]: _removed, ...rest } = next[source.source_project];
+          const { [subKey]: _removed, ...rest } = next[source.source_project];
           if (Object.keys(rest).length === 0) {
             delete next[source.source_project];
           } else {
@@ -240,14 +247,15 @@ export function InventoryPickerTable({
   );
 
   const updateQty = useCallback(
-    (source: string, itemId: string, qty: number) => {
-      const cur = selection[source]?.[itemId];
+    (source: string, itemId: string, make: string | null | undefined, qty: number) => {
+      const subKey = selectionKey(itemId, make);
+      const cur = selection[source]?.[subKey];
       if (!cur) return;
       const next: SelectionState = {
         ...selection,
         [source]: {
           ...selection[source],
-          [itemId]: { ...cur, qty },
+          [subKey]: { ...cur, qty },
         },
       };
       onSelectionChange(next);
@@ -271,6 +279,7 @@ export function InventoryPickerTable({
             <TableHead className="w-10" />
             <TableHead className="w-10" />
             <TableHead>Item Name</TableHead>
+            <TableHead>Make</TableHead>
             <TableHead className="text-right">
               <div className="flex items-center gap-1 justify-end">
                 <SimpleFacetedFilter
@@ -313,6 +322,12 @@ export function InventoryPickerTable({
         <TableBody>
           {filteredData.map((item) => {
             const isExpanded = expanded.has(item.item_id);
+            // Distinct non-empty makes across this item's sources — drives
+            // the parent row's Make badge: shows the make if all sources
+            // share one, "{n} makes" if mixed, or "—" if none.
+            const distinctMakes = Array.from(
+              new Set(item.sources.map((s) => s.make ?? "").filter(Boolean))
+            );
             return (
               <Fragment key={`row-${item.item_id}`}>
                 {/* Parent row */}
@@ -330,6 +345,17 @@ export function InventoryPickerTable({
                   <TableCell className="w-10" />
                   <TableCell className="font-medium max-w-[280px] truncate">
                     {item.item_name}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {distinctMakes.length === 0 ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : distinctMakes.length === 1 ? (
+                      <span>{distinctMakes[0]}</span>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">
+                        {distinctMakes.length} makes
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Badge variant="secondary" className="text-xs">
@@ -359,12 +385,19 @@ export function InventoryPickerTable({
                 {/* Sub-rows */}
                 {isExpanded &&
                   item.sources.map((src) => {
-                    const selected = isSelected(src.source_project, item.item_id);
+                    const selected = isSelected(
+                      src.source_project,
+                      item.item_id,
+                      src.make
+                    );
                     const isSameAsTarget = targetProject === src.source_project;
-                    const entry = selection[src.source_project]?.[item.item_id];
+                    const entry =
+                      selection[src.source_project]?.[
+                        selectionKey(item.item_id, src.make)
+                      ];
                     return (
                       <TableRow
-                        key={`sub-${item.item_id}-${src.source_project}`}
+                        key={`sub-${item.item_id}-${src.source_project}-${src.make ?? ""}`}
                         className={cn(
                           "bg-muted/30",
                           isSameAsTarget && "opacity-60"
@@ -391,7 +424,7 @@ export function InventoryPickerTable({
                               onCheckedChange={(v) =>
                                 toggleRow(item, src, Boolean(v))
                               }
-                              aria-label={`Select ${item.item_name} from ${src.source_project_name}`}
+                              aria-label={`Select ${item.item_name}${src.make ? ` (${src.make})` : ""} from ${src.source_project_name}`}
                             />
                           )}
                         </TableCell>
@@ -399,6 +432,13 @@ export function InventoryPickerTable({
                           <span className="text-blue-600 text-sm">
                             {src.source_project_name}
                           </span>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {src.make ? (
+                            src.make
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell />
                         <TableCell>
@@ -414,7 +454,12 @@ export function InventoryPickerTable({
                                 value={entry.qty}
                                 max={src.available_quantity}
                                 onChange={(n) =>
-                                  updateQty(src.source_project, item.item_id, n)
+                                  updateQty(
+                                    src.source_project,
+                                    item.item_id,
+                                    src.make,
+                                    n
+                                  )
                                 }
                               />
                             )}
