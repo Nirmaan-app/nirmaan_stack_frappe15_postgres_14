@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download, FileText, MapPin } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download, FileText, MapPin, UserCheck, UserX } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatDate } from '@/utils/FormatDate';
 import { toast } from "@/components/ui/use-toast";
@@ -252,7 +252,28 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     <div className="bg-white p-3 md:p-4 rounded-lg shadow-sm border border-gray-300">
       {/* Report Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b pb-2 gap-2">
-        <h2 className="text-lg md:text-xl font-bold">Daily Work Report</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg md:text-xl font-bold">Daily Work Report</h2>
+          <Badge
+            className={`gap-1.5 font-medium ${
+              dailyReportDetails.declaration_user_not_at_site
+                ? "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-50"
+                : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+            }`}
+          >
+            {dailyReportDetails.declaration_user_not_at_site ? (
+              <>
+                <UserX className="h-3.5 w-3.5" />
+                PM Off Site
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-3.5 w-3.5" />
+                PM On Site
+              </>
+            )}
+          </Badge>
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-gray-600 text-sm md:text-base">
             {dailyReportDetails.report_date ? formatDate(dailyReportDetails.report_date) : formatDate(displayDate)}

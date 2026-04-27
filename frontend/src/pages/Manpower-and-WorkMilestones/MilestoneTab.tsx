@@ -456,7 +456,21 @@ const [noSiteConfirmFromManpowerDialog, setNoSiteConfirmFromManpowerDialog] = us
   // };
 
   const getManpowerRolesDefault = (): ManpowerRole[] => {
-  const source = DraftReport?.manpower ?? fullManpowerDetails;
+  // Resolution order:
+  //   1. Today's Draft report's manpower (user is mid-editing).
+  //   2. Today's Completed report's manpower — this covers the Copy Previous
+  //      Report flow, which saves directly as "Completed" (no Draft). Without
+  //      this fallback, any custom manpower row added in the Copy dialog was
+  //      silently overwritten by the 7 hardcoded defaults on the next save.
+  //   3. The hardcoded DEFAULT_MANPOWER_ROLES list (first-time seeding).
+  const completedForToday =
+    latestCompletedReportDateIsToday && Array.isArray(lastCompletedReport?.manpower)
+      ? lastCompletedReport!.manpower
+      : undefined;
+  const source =
+    DraftReport?.manpower ??
+    completedForToday ??
+    fullManpowerDetails;
 
   return source.map(item => {
     const label = item.label  // adjust if your key is different

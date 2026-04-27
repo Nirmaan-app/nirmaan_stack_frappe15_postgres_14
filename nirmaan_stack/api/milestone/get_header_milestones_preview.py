@@ -226,10 +226,30 @@ def _create_seed_report(project, zone, work_header, master_rows, active_set):
                 }
                 for m in master_rows
             ],
+            "manpower": _default_manpower_rows(),
         }
     )
     new_doc.insert(ignore_permissions=True)
     return new_doc.name
+
+
+# Mirror of frontend DEFAULT_MANPOWER_ROLES (utils/manpowerDefaults.ts).
+# Auto-seeded reports get this list with count=0 so the Copy Previous Report
+# dialog and the MilestoneTab "Work force" tab always have the canonical
+# 7 roles to start from. Keep both lists in sync.
+_DEFAULT_MANPOWER_LABELS = [
+    "MEP Engineer",
+    "Safety Engineer",
+    "Electrical Team",
+    "Fire Fighting Team",
+    "Data & Networking Team",
+    "HVAC Team",
+    "ELV Team",
+]
+
+
+def _default_manpower_rows():
+    return [{"label": label, "count": "0"} for label in _DEFAULT_MANPOWER_LABELS]
 
 
 @frappe.whitelist()
@@ -262,6 +282,7 @@ def ensure_zone_reports(project, zones):
     # Pick the project-wide reference report (any zone, most recent).
     reference = _get_latest_completed_report(project)
     reference_rows = []
+    reference_manpower = []
     if reference:
         reference_rows = frappe.get_all(
             "Project Progress Report Work Milestones",
@@ -274,6 +295,12 @@ def ensure_zone_reports(project, zones):
                 "expected_starting_date",
                 "expected_completion_date",
             ],
+            order_by="idx asc",
+        )
+        reference_manpower = frappe.get_all(
+            "Project Progress Report Manpower Details",
+            filters={"parent": reference.name},
+            fields=["label", "count"],
             order_by="idx asc",
         )
 
@@ -300,6 +327,23 @@ def ensure_zone_reports(project, zones):
             milestones = _build_seed_from_project_master(project)
             origin = "from_master"
 
+        # Seed manpower: clone the reference report's labels (counts reset to
+        # 0 since manpower is zone-specific), or fall back to the canonical
+        # default list when no reference report exists.
+        if reference_manpower:
+            seen_labels = set()
+            manpower_rows = []
+            for mp in reference_manpower:
+                if mp.label and mp.label not in seen_labels:
+                    seen_labels.add(mp.label)
+                    manpower_rows.append({"label": mp.label, "count": "0"})
+            for default_label in _DEFAULT_MANPOWER_LABELS:
+                if default_label not in seen_labels:
+                    seen_labels.add(default_label)
+                    manpower_rows.append({"label": default_label, "count": "0"})
+        else:
+            manpower_rows = _default_manpower_rows()
+
         new_doc = frappe.get_doc(
             {
                 "doctype": "Project Progress Reports",
@@ -308,6 +352,7 @@ def ensure_zone_reports(project, zones):
                 "report_zone": z,
                 "report_status": "Completed",
                 "milestones": milestones,
+                "manpower": manpower_rows,
             }
         )
         new_doc.insert(ignore_permissions=True)
