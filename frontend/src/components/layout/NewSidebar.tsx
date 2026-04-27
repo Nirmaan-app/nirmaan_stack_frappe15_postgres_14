@@ -616,15 +616,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(["Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
-      ? [
-        {
-          key: '/work-order-rate-card',
-          icon: Tickets,
-          label: 'Work Order Rate Card',
-        },
-      ]
-      : []),
+
 
 
   ], [user_id, role]);
