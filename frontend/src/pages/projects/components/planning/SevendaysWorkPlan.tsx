@@ -398,27 +398,26 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                                             <span className="hidden sm:inline">Status</span>
                                                                         </div>
                                                                         <div className="flex items-center justify-center gap-1.5">
-                                                                            <span className={`inline-flex items-center px-1.5 lg:px-2 py-0.5 text-[10px] lg:text-[11px] font-medium rounded ${
-                                                                                plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
-                                                                                plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
-                                                                                plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
-                                                                                plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
-                                                                                'bg-red-100 text-red-700'
-                                                                            }`}>
+                                                                            <span className={`inline-flex items-center px-1.5 lg:px-2 py-0.5 text-[10px] lg:text-[11px] font-medium rounded ${plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                                                    plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
+                                                                                        plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
+                                                                                            plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
+                                                                                                'bg-red-100 text-red-700'
+                                                                                }`}>
                                                                                 {plan.wp_status || 'Pending'}
                                                                             </span>
                                                                             {plan.wp_status === 'On Hold' && plan.wp_remarks && (
                                                                                 <Popover>
                                                                                     <PopoverTrigger asChild>
-                                                                                        <div 
-                                                                                            className="flex-shrink-0 text-red-500 hover:text-red-600 flex items-center justify-center cursor-pointer p-1 rounded hover:bg-red-50 transition-colors" 
+                                                                                        <div
+                                                                                            className="flex-shrink-0 text-red-500 hover:text-red-600 flex items-center justify-center cursor-pointer p-1 rounded hover:bg-red-50 transition-colors"
                                                                                             onClick={(e) => e.stopPropagation()}
                                                                                         >
                                                                                             <MessageCircle className="h-3.5 w-3.5" />
                                                                                         </div>
                                                                                     </PopoverTrigger>
-                                                                                    <PopoverContent 
-                                                                                        align="center" 
+                                                                                    <PopoverContent
+                                                                                        align="center"
                                                                                         sideOffset={8}
                                                                                         onClick={(e) => e.stopPropagation()}
                                                                                     >
@@ -536,13 +535,13 @@ export const SevendaysWorkPlan = ({
 
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");
-    
+
     const activeDuration = useMemo(() => {
         if (activeDurationParam === "All") return "All";
         const num = Number(activeDurationParam);
         if (!isNaN(num) && [3, 7, 14].includes(num)) return num;
         if (activeDurationParam === "custom") return "custom";
-        return "All"; 
+        return "All";
     }, [activeDurationParam]);
 
     const startDateParam = useUrlParam("startDate");
@@ -552,16 +551,16 @@ export const SevendaysWorkPlan = ({
         const today = startOfDay(new Date());
 
         if (activeDuration === "All") return undefined;
-        
+
         if (typeof activeDuration === 'number') {
-             return { from: today, to: addDays(today, activeDuration) };
+            return { from: today, to: addDays(today, activeDuration) };
         }
 
         if (activeDuration === 'custom') {
             if (startDateParam && endDateParam) {
                 return { from: parseISO(startDateParam), to: parseISO(endDateParam) };
             }
-             return undefined;
+            return undefined;
         }
         return undefined;
     }, [activeDuration, startDateParam, endDateParam]);
@@ -957,7 +956,7 @@ export const SevendaysWorkPlan = ({
         <div className="space-y-4 md:space-y-6">
             {/* Header Section */}
             {setDaysRange && activeDuration && (
-                    <div className="mb-6">
+                <div className="mb-6">
                     <SevenDayPlanningHeader
                         isOverview={isOverview}
                         dateRange={dateRange}
@@ -1074,26 +1073,24 @@ export const SevendaysWorkPlan = ({
                     <button
                         type="button"
                         onClick={() => handleViewChange("activities")}
-                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors border-r border-[#D7D7EC] ${
-                            activeView === "activities"
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors border-r border-[#D7D7EC] ${activeView === "activities"
                                 ? "bg-red-600 text-white"
                                 : "bg-white text-gray-800 hover:bg-gray-50"
-                        }`}
+                            }`}
                     >
                         <Activity className="h-3.5 w-3.5" />
-                        Activities view
+                        Planned Activities View
                     </button>
                     <button
                         type="button"
                         onClick={() => handleViewChange("milestones")}
-                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${
-                            activeView === "milestones"
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium transition-colors ${activeView === "milestones"
                                 ? "bg-red-600 text-white"
                                 : "bg-white text-gray-800 hover:bg-gray-50"
-                        }`}
+                            }`}
                     >
                         <Flag className="h-3.5 w-3.5" />
-                        Work Milestones
+                        Milestones View
                     </button>
                 </div>
             )}
