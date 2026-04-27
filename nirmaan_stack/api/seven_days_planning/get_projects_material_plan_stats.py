@@ -116,26 +116,26 @@ def get_projects_with_material_plan_stats():
     user = frappe.session.user
     role = _get_user_role(user)
 
+    # 1. Fetch all Material Delivery Plans (with permission scoping for restricted roles).
+    #    Only projects that already have at least one plan will appear in the response —
+    #    the WIP / status filter on the frontend further narrows the list.
     plan_filters = {}
-
     if _should_filter_by_permissions(user, role):
         allowed_projects = _get_allowed_projects(user)
         if not allowed_projects:
             return []
         plan_filters["project"] = ["in", allowed_projects]
 
-    # Get all Material Delivery Plans
     plans = frappe.get_all(
         "Material Delivery Plan",
         filters=plan_filters,
-        fields=["name", "project", "po_link", "po_type", "mp_items", "delivery_date", 
+        fields=["name", "project", "po_link", "po_type", "mp_items", "delivery_date",
                 "critical_po_category", "critical_po_task"]
     )
-
     if not plans:
         return []
 
-    # Group plans by project
+    # 2. Group plan stats by project.
     projects_data = defaultdict(lambda: {
         "total_plans": 0,
         "delivered": 0,
@@ -148,19 +148,15 @@ def get_projects_with_material_plan_stats():
         project_id = plan.project
         if not project_id:
             continue
-            
+
         proj = projects_data[project_id]
         proj["total_plans"] += 1
-        
-        # Track unique POs
+
         if plan.po_link:
             proj["po_set"].add(plan.po_link)
-        
-        # Count items
-        items_count = _count_items_in_plan(plan.mp_items)
-        proj["total_items"] += items_count
-        
-        # Determine delivery status
+
+        proj["total_items"] += _count_items_in_plan(plan.mp_items)
+
         if _is_delivered(plan):
             proj["delivered"] += 1
         else:
@@ -169,41 +165,40 @@ def get_projects_with_material_plan_stats():
     if not projects_data:
         return []
 
-    # Fetch project names
+    # 3. Fetch project name + lifecycle status for the projects that have plans.
     project_ids = list(projects_data.keys())
     project_docs = frappe.get_all(
         "Projects",
         filters={"name": ["in", project_ids]},
-        fields=["name", "project_name"]
+        fields=["name", "project_name", "status"]
     )
-    project_name_map = {p.name: p.project_name for p in project_docs}
+    project_meta_map = {
+        p.name: {"project_name": p.project_name, "status": p.status or ""}
+        for p in project_docs
+    }
 
-    # Build result
+    # 4. Build result.
     result = []
-
     for project_id, data in projects_data.items():
-        project_name = project_name_map.get(project_id, project_id)
+        meta = project_meta_map.get(project_id, {})
         total_plans = data["total_plans"]
         delivered = data["delivered"]
         not_delivered = data["not_delivered"]
-        
-        # Calculate progress as percentage of delivered plans
         overall_progress = round((delivered / total_plans * 100)) if total_plans > 0 else 0
-        
+
         result.append({
             "project": project_id,
-            "project_name": project_name,
+            "project_name": meta.get("project_name", project_id),
+            "status_of_project": meta.get("status", ""),
             "total_plans": total_plans,
             "status_counts": {
                 "Delivered": delivered,
-                "Not Delivered": not_delivered 
+                "Not Delivered": not_delivered,
             },
             "overall_progress": overall_progress,
             "total_pos": len(data["po_set"]),
-            "total_items": data["total_items"]
+            "total_items": data["total_items"],
         })
 
-    # Sort by project name
     result.sort(key=lambda x: x["project_name"].lower())
-
     return result

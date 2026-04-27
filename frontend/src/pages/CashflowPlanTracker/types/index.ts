@@ -14,6 +14,8 @@ export interface ProjectWithCashflowPlanStats {
   project: string;
   /** Human-readable project name */
   project_name: string;
+  /** Project lifecycle status (WIP / Completed / Halted / CEO Hold / Handover / Created) */
+  status_of_project?: string;
   /** PO Cashflow stats */
   po_cashflow: CashflowCounts;
   /** WO Cashflow stats */

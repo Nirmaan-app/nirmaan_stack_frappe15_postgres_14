@@ -10,6 +10,8 @@ export interface WorkPlanStatusCounts {
   [key: string]: number | undefined;
 }
 
+// Project status types/options now live in @/components/common/projectStatus.
+
 /**
  * Project with work plan statistics from the API
  */
@@ -18,6 +20,8 @@ export interface ProjectWithWorkPlanStats {
   project: string;
   /** Human-readable project name */
   project_name: string;
+  /** Project lifecycle status (WIP / Completed / Halted / CEO Hold / Handover) */
+  status_of_project?: string;
   /** Total number of work plan activities */
   total_activities: number;
   /** Counts by status */
