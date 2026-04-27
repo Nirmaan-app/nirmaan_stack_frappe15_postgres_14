@@ -62,6 +62,10 @@ export const AllProjectInvoices: React.FC<{
   const isAdmin =
     role === "Nirmaan Admin Profile" ||
     role === "Nirmaan PMO Executive Profile";
+  const isAccountant = role === "Nirmaan Accountant Profile";
+  // Edit available to Admin + Accountant; Delete remains Admin-only.
+  const canEdit = isAdmin || isAccountant;
+  const canDelete = isAdmin;
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // CEO Hold row highlighting
@@ -199,7 +203,8 @@ export const AllProjectInvoices: React.FC<{
   const tableColumns = useMemo(
     () =>
       getProjectInvoiceColumns({
-        isAdmin,
+        canEdit,
+        canDelete,
         getProjectName,
         getCustomerName,
         getUserName,
@@ -209,7 +214,8 @@ export const AllProjectInvoices: React.FC<{
         hideCustomerColumn: !!customerId, // Hide customer column when viewing from customer page
       }),
     [
-      isAdmin,
+      canEdit,
+      canDelete,
       getProjectName,
       getCustomerName,
       getUserName,
