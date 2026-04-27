@@ -2,10 +2,10 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "hash",
- "creation": "2026-03-28 10:00:00.000000",
+ "creation": "2026-03-28 10:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
-  "field_order": [
+ "field_order": [
   "project_section",
   "project",
   "task_master",
@@ -27,6 +27,7 @@
   {
    "fieldname": "project",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Project",
    "options": "Projects",
    "reqd": 1
@@ -46,12 +47,14 @@
   {
    "fieldname": "task_name",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Task Name",
    "reqd": 1
   },
   {
    "fieldname": "category",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Category",
    "reqd": 1
   },
@@ -60,7 +63,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Not Defined\nWIP\nSent/Submision\nApprove by client"
+   "options": "Not Defined\nWIP\nSent/Submision\nApprove by client\nDone\nNot Done"
   },
   {
    "fieldname": "expected_completion_date",
@@ -85,10 +88,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-28 10:00:00.000000",
+ "modified": "2026-04-27 19:01:50.338406",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "PMO Project Task",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
@@ -145,6 +149,8 @@
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

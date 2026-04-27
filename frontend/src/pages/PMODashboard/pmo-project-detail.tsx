@@ -254,6 +254,16 @@ const PMOProjectDetail: React.FC = () => {
     };
   }, [user_id]);
 
+  // PMO can edit a task if it's assigned to them, or if it has no assignees yet
+  const canPMOEdit = useCallback(
+    (task: TaskItem) => {
+      const assigned = parseAssignedFromField(task.assigned_to);
+      if (assigned.length === 0) return true;
+      return assigned.some((d) => d.userId === user_id);
+    },
+    [user_id]
+  );
+
   // My Tasks filter for the task overview table
   const visibleTasks = useMemo(() => {
     if (!showMyTasksOnly) return tasks;
@@ -644,14 +654,14 @@ const PMOProjectDetail: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-right">
                         <button
-                          disabled={isPMO && !isAssignedToMe(task)}
+                          disabled={isPMO && !canPMOEdit(task)}
                           onClick={() => {
-                            if (isPMO && !isAssignedToMe(task)) return;
+                            if (isPMO && !canPMOEdit(task)) return;
                             setEditTask(task);
                             setEditOpen(true);
                           }}
                           className={`p-1 ${
-                            isPMO && !isAssignedToMe(task)
+                            isPMO && !canPMOEdit(task)
                               ? "text-gray-300 cursor-not-allowed"
                               : "text-gray-400 hover:text-gray-600"
                           }`}
