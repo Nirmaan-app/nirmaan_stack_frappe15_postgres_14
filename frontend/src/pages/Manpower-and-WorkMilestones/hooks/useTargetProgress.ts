@@ -27,7 +27,6 @@ interface UseTargetProgressParams {
 
 export interface UseTargetProgressResult {
   milestoneTarget: Map<string, number>;
-  headerTarget: Map<string, number>;
   anchorDays: number[];
   elapsedDays: number | null;
   totalDays: number | null;
@@ -54,7 +53,6 @@ const readWeek = (m: TargetWorkMilestone, idx: number): number => {
 
 const emptyResult = (isLoading: boolean): UseTargetProgressResult => ({
   milestoneTarget: new Map(),
-  headerTarget: new Map(),
   anchorDays: [],
   elapsedDays: null,
   totalDays: null,
@@ -114,18 +112,6 @@ export const useTargetProgress = ({
     const frac = span > 0 ? (elapsedDays - anchorLow) / span : 0;
 
     const milestoneTarget = new Map<string, number>();
-    const headerAccum = new Map<string, { weighted: number; weightSum: number }>();
-
-    // eslint-disable-next-line no-console
-    console.log('[useTargetProgress]', {
-      projectId,
-      totalDays,
-      elapsedDays,
-      bucket,
-      frac,
-      milestoneCount: workMilestonesList?.length ?? 0,
-      sampleMilestone: workMilestonesList?.[0],
-    });
 
     for (const m of workMilestonesList ?? []) {
       if (!m?.work_milestone_name) continue;
@@ -135,25 +121,10 @@ export const useTargetProgress = ({
       const raw = lowerW + (upperW - lowerW) * frac;
       const target = clamp(raw, 0, 100);
       milestoneTarget.set(m.work_milestone_name, target);
-
-      if (m.work_header) {
-        const w = typeof m.weightage === 'number' ? m.weightage : 0;
-        const entry =
-          headerAccum.get(m.work_header) ?? { weighted: 0, weightSum: 0 };
-        entry.weighted += w * target;
-        entry.weightSum += w;
-        headerAccum.set(m.work_header, entry);
-      }
-    }
-
-    const headerTarget = new Map<string, number>();
-    for (const [header, { weighted, weightSum }] of headerAccum) {
-      headerTarget.set(header, weightSum > 0 ? weighted / weightSum : 0);
     }
 
     return {
       milestoneTarget,
-      headerTarget,
       anchorDays,
       elapsedDays,
       totalDays,

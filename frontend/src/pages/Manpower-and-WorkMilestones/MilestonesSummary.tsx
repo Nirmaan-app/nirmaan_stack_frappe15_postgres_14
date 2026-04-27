@@ -123,8 +123,8 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     reportType,
   });
 
-  // Per-milestone and per-header target progress (admin-only column)
-  const { milestoneTarget, headerTarget } = useTargetProgress({
+  // Per-milestone target progress (admin-only column)
+  const { milestoneTarget } = useTargetProgress({
     projectId: selectedProject,
     referenceDate: displayDate,
     workMilestonesList,
@@ -492,7 +492,6 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
               workMilestonesList={workMilestonesList}
               workHeaderOrderMap={workHeaderOrderMap}
               milestoneTarget={milestoneTarget}
-              headerTarget={headerTarget}
               showTargetColumn={isAdmin}
             />
           ) : (

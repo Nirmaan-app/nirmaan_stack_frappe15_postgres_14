@@ -97,7 +97,7 @@ export const MilestoneDailySummary: React.FC = () => {
   });
 
   // Target progress for Daily view (admin only)
-  const { milestoneTarget, headerTarget } = useTargetProgress({
+  const { milestoneTarget } = useTargetProgress({
     projectId: isAdmin ? initialProjectId : null,
     referenceDate: displayDate,
     workMilestonesList,
@@ -199,7 +199,6 @@ export const MilestoneDailySummary: React.FC = () => {
               workMilestonesList={workMilestonesList}
               workHeaderOrderMap={workHeaderOrderMap}
               milestoneTarget={milestoneTarget}
-              headerTarget={headerTarget}
               showTargetColumn={isAdmin}
             />
           ) : (

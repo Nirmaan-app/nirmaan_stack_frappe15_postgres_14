@@ -48,7 +48,6 @@ interface DailyReportViewProps {
 
   // Target progress (admin-only column)
   milestoneTarget?: Map<string, number>;
-  headerTarget?: Map<string, number>;
   showTargetColumn?: boolean;
 }
 
@@ -64,7 +63,6 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
   totalManpowerInReport,
   workMilestonesList,
   milestoneTarget,
-  headerTarget,
   showTargetColumn = false,
 }) => {
   // Expand/Collapse state
@@ -165,6 +163,28 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     if (totalHeaderWeight === 0) return 0;
     return Math.round(weightedSum / totalHeaderWeight);
   }, [milestoneGroups, workMilestonesList, calculateWeightedProgress]);
+
+  // Header-level Target %: mirrors calculateWeightedProgress but substitutes
+  // milestoneTarget for actual progress, using the report's milestones
+  // (N/A excluded) — matches the print PDF and Zone Target logic.
+  const calculateHeaderTarget = useCallback((header: string, milestones: any[]) => {
+    if (!milestoneTarget || milestoneTarget.size === 0) return null;
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const m of milestones) {
+      if (m.status === "Not Applicable") continue;
+      const wm = workMilestonesList?.find(
+        x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
+      );
+      const weight = wm?.weightage || 1.0;
+      const target = milestoneTarget.get(m.work_milestone_name);
+      if (typeof target !== 'number') continue;
+      weightedSum += weight * target;
+      totalWeight += weight;
+    }
+    if (totalWeight === 0) return null;
+    return weightedSum / totalWeight;
+  }, [milestoneTarget, workMilestonesList]);
 
   // Zone-level Target %: weighted average of per-milestone targets across all
   // rendered milestones, weighted by weightage (N/A excluded). Mirrors the
@@ -519,6 +539,9 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
 
           {milestoneGroups.map(([header, milestones], groupIdx) => {
             const averageProgress = calculateWeightedProgress(header, milestones as any[]);
+            const headerTargetPct = showTargetColumn
+              ? calculateHeaderTarget(header, milestones as any[])
+              : null;
 
             return (
               <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
@@ -533,12 +556,12 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                     </h3>
                   </div>
                   <div className="flex items-center">
-                    {showTargetColumn && headerTarget?.has(header) && (
+                    {showTargetColumn && headerTargetPct !== null && (
                       <div className="flex items-center text-end gap-2 mr-3">
                         <span className="text-xs text-gray-500 font-medium hidden sm:inline">Target:</span>
                         <MilestoneProgress
                           milestoneStatus="In Progress"
-                          value={Number((headerTarget.get(header) ?? 0).toFixed(1))}
+                          value={Number(headerTargetPct.toFixed(1))}
                           sizeClassName="size-[44px]"
                           textSizeClassName="text-[11px]"
                         />
@@ -608,6 +631,16 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                               {showTargetColumn && (
                                 <TableCell className="text-center py-3 px-4 font-medium">
                                   {(() => {
+                                    if (milestone.status === "Not Applicable") {
+                                      return (
+                                        <MilestoneProgress
+                                          milestoneStatus="Not Applicable"
+                                          value={0}
+                                          sizeClassName="size-[40px]"
+                                          textSizeClassName="text-[10px]"
+                                        />
+                                      );
+                                    }
                                     const t = milestoneTarget?.get(milestone.work_milestone_name);
                                     return typeof t === 'number' ? (
                                       <MilestoneProgress
@@ -686,6 +719,16 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                             <div className="mt-3 flex justify-between items-center">
                               <p className="text-xs text-gray-500">Target</p>
                               {(() => {
+                                if (milestone.status === "Not Applicable") {
+                                  return (
+                                    <MilestoneProgress
+                                      milestoneStatus="Not Applicable"
+                                      value={0}
+                                      sizeClassName="size-[48px]"
+                                      textSizeClassName="text-xs"
+                                    />
+                                  );
+                                }
                                 const t = milestoneTarget?.get(milestone.work_milestone_name);
                                 return typeof t === 'number' ? (
                                   <MilestoneProgress
