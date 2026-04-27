@@ -3,6 +3,9 @@ API endpoint for cross-project item-wise inventory summary.
 
 Aggregates items from the latest submitted Remaining Items Report
 per project, joined with max PO rates for estimated cost calculation.
+
+Dispatched ITM transfers after the latest RIR are deducted from
+remaining quantities so the summary reflects committed transfers.
 """
 
 import frappe
@@ -11,7 +14,12 @@ import frappe
 @frappe.whitelist()
 def get_inventory_item_wise_summary():
     """Return flat per-project-per-item rows from latest submitted reports,
-    enriched with max PO quote rates for estimated cost."""
+    enriched with max PO quote rates for estimated cost.
+
+    Remaining quantities are reduced by dispatched ITM transfer quantities
+    for ITMs dispatched after the latest RIR date (prevents double-counting
+    once the PM submits a new report with reduced values).
+    """
 
     sql = """
     WITH latest_reports AS (
@@ -33,6 +41,18 @@ def get_inventory_item_wise_summary():
         FROM latest_reports lr
         JOIN "tabRemaining Item Entry" ri ON ri.parent = lr.name
         WHERE ri.remaining_quantity > 0
+    ),
+    dispatched_itm_deductions AS (
+        SELECT
+            itm.source_project AS project,
+            itmi.item_id,
+            SUM(itmi.transfer_quantity) AS deducted_qty
+        FROM "tabInternal Transfer Memo Item" itmi
+        JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+        JOIN latest_reports lr ON lr.project = itm.source_project
+        WHERE itm.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
+          AND itm.dispatched_on::date > lr.report_date
+        GROUP BY itm.source_project, itmi.item_id
     ),
     max_rates AS (
         SELECT DISTINCT ON (po.project, poi.item_id)
@@ -61,18 +81,22 @@ def get_inventory_item_wise_summary():
         ri.item_name,
         ri.unit,
         ri.category,
-        ri.remaining_quantity,
+        GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0) AS remaining_quantity,
         COALESCE(mr.max_quote, 0) AS max_rate,
         COALESCE(mr.max_quote_tax, 18) AS tax,
-        ri.remaining_quantity * COALESCE(mr.max_quote, 0)
+        GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0)
+            * COALESCE(mr.max_quote, 0)
             * (1 + COALESCE(mr.max_quote_tax, 18) / 100.0) AS estimated_cost,
         COALESCE(pn.po_list, ARRAY[]::text[]) AS po_numbers
     FROM report_items ri
     JOIN "tabProjects" p ON p.name = ri.project
+    LEFT JOIN dispatched_itm_deductions dd
+        ON dd.project = ri.project AND dd.item_id = ri.item_id
     LEFT JOIN max_rates mr
         ON mr.project = ri.project AND mr.item_id = ri.item_id
     LEFT JOIN po_numbers pn
         ON pn.project = ri.project AND pn.item_id = ri.item_id
+    WHERE GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0) > 0
     ORDER BY ri.item_id, ri.project
     """
 

@@ -15,7 +15,8 @@
   "status",
   "expected_completion_date",
   "completion_date",
-  "attachment"
+  "attachment",
+  "assigned_to"
  ],
  "fields": [
   {
@@ -75,6 +76,11 @@
    "fieldname": "attachment",
    "fieldtype": "Attach",
    "label": "Attachment"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "JSON",
+   "label": "Assigned To"
   }
  ],
  "index_web_pages_for_search": 1,

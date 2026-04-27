@@ -22,6 +22,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ITM_APPROVE_ROLES, ITM_VIEW_ROLES } from "@/constants/itm";
 import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { useITR } from "./hooks/useITR";
 import { useITMMutations } from "./hooks/useITMMutations";
@@ -132,7 +133,14 @@ export default function ITRDetail() {
         variant: "success",
       });
       setSelected(new Set());
-      mutate();
+
+      // If all pending items were approved, navigate back to pending tab
+      const approvedAll = items.length >= pendingItems.length;
+      if (approvedAll) {
+        navigate("/internal-transfer-memos?tab=Pending");
+      } else {
+        mutate();
+      }
     } catch (e: any) {
       toast({
         title: "Approval failed",
@@ -140,7 +148,7 @@ export default function ITRDetail() {
         variant: "destructive",
       });
     }
-  }, [selected, pendingItems, approveITRItems, itr, mutate]);
+  }, [selected, pendingItems, approveITRItems, itr, mutate, navigate]);
 
   const handleReject = useCallback(
     async (reason: string) => {
@@ -157,7 +165,14 @@ export default function ITRDetail() {
         });
         setRejectOpen(false);
         setSelected(new Set());
-        mutate();
+
+        // If all pending items were rejected, navigate back to pending tab
+        const rejectedAll = items.length >= pendingItems.length;
+        if (rejectedAll) {
+          navigate("/internal-transfer-memos?tab=Pending");
+        } else {
+          mutate();
+        }
       } catch (e: any) {
         toast({
           title: "Rejection failed",
@@ -166,7 +181,7 @@ export default function ITRDetail() {
         });
       }
     },
-    [selected, pendingItems, rejectITRItems, itr, mutate]
+    [selected, pendingItems, rejectITRItems, itr, mutate, navigate]
   );
 
   // --- Guards ---
@@ -215,6 +230,14 @@ export default function ITRDetail() {
   const sourceProjectName = sourceProjectDoc?.project_name || itr.source_project;
   const targetProjectName = targetProjectDoc?.project_name || itr.target_project;
 
+  // Use context-appropriate items for totals:
+  // Pending tab → pending items only, Rejected tab → rejected items, All Requests → all items
+  const contextItems = itemFilter === "Pending" ? pendingItems
+    : itemFilter === "Rejected" ? rejectedItems
+    : itr?.items ?? [];
+  const totalQuantity = contextItems.reduce((sum, r) => sum + (r.transfer_quantity || 0), 0);
+  const estimatedValue = contextItems.reduce((sum, r) => sum + (r.transfer_quantity || 0) * (r.estimated_rate || 0), 0);
+
   const allSelected =
     selected.size === pendingItems.length && pendingItems.length > 0;
 
@@ -228,28 +251,28 @@ export default function ITRDetail() {
           </h3>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-start">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 items-start">
             <div>
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
                 Request ID
               </div>
               <div className="text-sm font-semibold mt-1">#{itr.name}</div>
             </div>
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 md:col-span-2">
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
                   From
                 </div>
-                <div className="text-sm font-semibold mt-1 truncate" title={sourceProjectName}>
+                <div className="text-sm font-semibold mt-1 break-words">
                   {sourceProjectName}
                 </div>
               </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 mt-4" />
+              <ArrowRight className="h-4 w-10 text-muted-foreground shrink-0 mt-4" />
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
                   To
                 </div>
-                <div className="text-sm font-semibold mt-1 truncate" title={targetProjectName}>
+                <div className="text-sm font-semibold mt-1 break-words">
                   {targetProjectName}
                 </div>
               </div>
@@ -264,32 +287,15 @@ export default function ITRDetail() {
             </div>
             <div>
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                Items ({itr.items.length})
+                Est Value
               </div>
-              <div className="flex items-center gap-3 mt-1.5">
-                {itr.items.filter((r) => r.status === "Pending").length > 0 && (
-                  <span className="flex items-center gap-1 text-sm text-amber-600 font-semibold">
-                    <Circle className="h-3 w-3 fill-amber-400 stroke-amber-600" />
-                    {itr.items.filter((r) => r.status === "Pending").length}
-                  </span>
-                )}
-                {itr.items.filter((r) => r.status === "Approved").length > 0 && (
-                  <span className="flex items-center gap-1 text-sm text-emerald-600 font-semibold">
-                    <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                    {itr.items.filter((r) => r.status === "Approved").length}
-                  </span>
-                )}
-                {itr.items.filter((r) => r.status === "Rejected").length > 0 && (
-                  <span className="flex items-center gap-1 text-sm text-rose-600 font-semibold">
-                    <X className="h-3.5 w-3.5" strokeWidth={3} />
-                    {itr.items.filter((r) => r.status === "Rejected").length}
-                  </span>
-                )}
+              <div className="text-sm font-semibold mt-1">
+                {formatToRoundedIndianRupee(estimatedValue)}
               </div>
             </div>
           </div>
           <hr className="border-border" />
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Created On: </span>
               <span className="font-medium">
@@ -303,8 +309,31 @@ export default function ITRDetail() {
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Memos Created: </span>
-              <span className="font-medium">{itr.memo_count ?? 0}</span>
+              <span className="text-muted-foreground">Items ({itr.items.length}): </span>
+              <span className="inline-flex items-center gap-2 ml-1">
+                {itr.items.filter((r) => r.status === "Pending").length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-sm text-amber-600 font-semibold">
+                    <Circle className="h-3 w-3 fill-amber-400 stroke-amber-600" />
+                    {itr.items.filter((r) => r.status === "Pending").length}
+                  </span>
+                )}
+                {itr.items.filter((r) => r.status === "Approved").length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-sm text-emerald-600 font-semibold">
+                    <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    {itr.items.filter((r) => r.status === "Approved").length}
+                  </span>
+                )}
+                {itr.items.filter((r) => r.status === "Rejected").length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-sm text-rose-600 font-semibold">
+                    <X className="h-3.5 w-3.5" strokeWidth={3} />
+                    {itr.items.filter((r) => r.status === "Rejected").length}
+                  </span>
+                )}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Total Quantity: </span>
+              <span className="font-medium">{totalQuantity}</span>
             </div>
           </div>
         </CardContent>
@@ -397,9 +426,11 @@ export default function ITRDetail() {
                   <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-36 text-right">
                     Transfer Qty
                   </TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-32 text-center">
-                    Status
-                  </TableHead>
+                  {!itemFilter && (
+                    <TableHead className="text-[11px] uppercase tracking-wide font-semibold w-32 text-center">
+                      Status
+                    </TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -435,19 +466,21 @@ export default function ITRDetail() {
                       <TableCell className="text-right font-semibold tabular-nums">
                         {row.transfer_quantity}
                       </TableCell>
-                      <TableCell className="text-center">
-                        <Badge
-                          variant="outline"
-                          className={`border-0 font-medium ${ITEM_STATUS_STYLES[row.status] ?? ""}`}
-                        >
-                          {row.status}
-                        </Badge>
-                        {row.status === "Approved" && row.linked_itm && (
-                          <div className="text-[10px] text-muted-foreground mt-0.5">
-                            {row.linked_itm}
-                          </div>
-                        )}
-                      </TableCell>
+                      {!itemFilter && (
+                        <TableCell className="text-center">
+                          <Badge
+                            variant="outline"
+                            className={`border-0 font-medium ${ITEM_STATUS_STYLES[row.status] ?? ""}`}
+                          >
+                            {row.status}
+                          </Badge>
+                          {row.status === "Approved" && row.linked_itm && (
+                            <div className="text-[10px] text-muted-foreground mt-0.5">
+                              {row.linked_itm}
+                            </div>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}

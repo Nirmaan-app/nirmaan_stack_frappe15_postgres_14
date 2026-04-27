@@ -576,9 +576,9 @@ const PMODashboardList: React.FC = () => {
               <button
                 key={tab.value}
                 onClick={() => setActiveTaskStatus(tab.value)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 border ${activeTaskStatus === tab.value
-                    ? `${tab.active} shadow-md border-transparent`
-                    : `bg-white ${tab.inactive} shadow-sm`
+                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-150 border ${activeTaskStatus === tab.value
+                    ? `${tab.active} shadow-sm border-transparent`
+                    : `bg-white ${tab.inactive}`
                   }`}
               >
                 {tab.label}

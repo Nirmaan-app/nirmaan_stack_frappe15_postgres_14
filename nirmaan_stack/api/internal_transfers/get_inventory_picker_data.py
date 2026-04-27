@@ -3,9 +3,11 @@ Inventory picker data for the Create Internal Transfer Memo flow.
 
 Aggregates the latest submitted Remaining Items Report (RIR) per project,
 joined with the max Purchase Order quote rate per (project, item_id), and
-subtracts reserved transfer quantities from non-terminal Internal Transfer
-Memos (ITMs) to produce a live ``available_quantity`` per (item, source)
-pair.
+subtracts both pending ITR reservations and approved ITM transfer deductions
+to produce a live ``available_quantity`` per (item, source) pair.
+
+Reservation = Pending/Approved ITR items whose linked ITM is not yet dispatched.
+Deduction   = Dispatched ITMs dispatched after the latest RIR date.
 
 The response is tree-shaped: one node per ``item_id`` with aggregated totals
 and a ``sources`` array listing each contributing source project. Items with
@@ -86,7 +88,24 @@ def get_inventory_picker_data(search: str = "") -> list:
 		FROM "tabInternal Transfer Request Item" itri
 		JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
 		WHERE itri.status IN ('Pending', 'Approved')
+		  AND NOT EXISTS (
+		      SELECT 1 FROM "tabInternal Transfer Memo" itm_chk
+		      WHERE itm_chk.name = itri.linked_itm
+		        AND itm_chk.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
+		  )
 		GROUP BY itr.source_project, itri.item_id
+	),
+	dispatched_itm_deductions AS (
+		SELECT
+			itm.source_project AS project,
+			itmi.item_id,
+			SUM(itmi.transfer_quantity) AS deducted_qty
+		FROM "tabInternal Transfer Memo Item" itmi
+		JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+		JOIN latest_reports lr ON lr.project = itm.source_project
+		WHERE itm.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
+		  AND itm.dispatched_on::date > lr.report_date
+		GROUP BY itm.source_project, itmi.item_id
 	)
 	SELECT
 		ri.project AS source_project,
@@ -98,7 +117,7 @@ def get_inventory_picker_data(search: str = "") -> list:
 		ri.category,
 		ri.remaining_quantity,
 		COALESCE(rq.reserved, 0) AS reserved_quantity,
-		GREATEST(ri.remaining_quantity - COALESCE(rq.reserved, 0), 0) AS available_quantity,
+		GREATEST(ri.remaining_quantity - COALESCE(rq.reserved, 0) - COALESCE(dd.deducted_qty, 0), 0) AS available_quantity,
 		COALESCE(mr.max_quote, 0) AS estimated_rate,
 		COALESCE(pn.po_list, ARRAY[]::text[]) AS po_refs
 	FROM report_items ri
@@ -109,7 +128,9 @@ def get_inventory_picker_data(search: str = "") -> list:
 		ON pn.project = ri.project AND pn.item_id = ri.item_id
 	LEFT JOIN reserved_qty rq
 		ON rq.project = ri.project AND rq.item_id = ri.item_id
-	WHERE GREATEST(ri.remaining_quantity - COALESCE(rq.reserved, 0), 0) > 0
+	LEFT JOIN dispatched_itm_deductions dd
+		ON dd.project = ri.project AND dd.item_id = ri.item_id
+	WHERE GREATEST(ri.remaining_quantity - COALESCE(rq.reserved, 0) - COALESCE(dd.deducted_qty, 0), 0) > 0
 	  {search_clause}
 	ORDER BY ri.item_name ASC, available_quantity DESC
 	"""
