@@ -39,6 +39,10 @@ export function useInventoryItemWise() {
     const map = new Map<string, AggregatedItemRow>();
 
     for (const row of rows) {
+      // Club by item_id — the backend still returns one row per
+      // (project, item, make) and the deduction CTEs are make-aware for
+      // correctness, but the page presents one row per item with a Make
+      // badge on the parent and per-project make on the sub-rows.
       let agg = map.get(row.item_id);
       if (!agg) {
         const bc = billingCategoryMap.get(row.item_id)
@@ -49,6 +53,7 @@ export function useInventoryItemWise() {
           unit: row.unit,
           category: row.category,
           billingCategory: bc || "N/A",
+          distinctMakes: [],
           totalRemainingQty: 0,
           totalEstimatedCost: 0,
           projectCount: 0,
@@ -62,6 +67,7 @@ export function useInventoryItemWise() {
         project: row.project,
         project_name: row.project_name,
         report_date: row.report_date,
+        make: row.make ?? null,
         remaining_quantity: row.remaining_quantity,
         max_rate: row.max_rate,
         tax: row.tax,
@@ -78,10 +84,13 @@ export function useInventoryItemWise() {
     const result = Array.from(map.values());
     for (const agg of result) {
       const poSet = new Set<string>();
+      const makeSet = new Set<string>();
       for (const proj of agg.projects) {
         for (const po of proj.po_numbers) poSet.add(po);
+        if (proj.make) makeSet.add(proj.make);
       }
       agg.allPONumbers = Array.from(poSet);
+      agg.distinctMakes = Array.from(makeSet).sort();
     }
     return result;
   }, [data, billingCategoryMap]);
