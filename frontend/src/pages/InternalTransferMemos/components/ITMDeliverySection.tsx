@@ -29,9 +29,15 @@ interface ITMDeliverySectionProps {
 interface DNItem {
   item_id: string;
   item_name?: string;
+  make?: string | null;
   unit?: string;
   delivered_quantity: number;
 }
+
+// Composite key so two ITM rows with same item_id but different makes don't
+// share a state slot. NULL/empty make collapses to a single bucket.
+const rowKey = (itemId: string, make?: string | null) =>
+  `${itemId}|${make ?? ""}`;
 
 interface DNRecord {
   name: string;
@@ -96,23 +102,25 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
     (itmStatus === "Dispatched" || itmStatus === "Partially Delivered") &&
     !existingDN;
 
-  // Build per-item quantity map from existing DN
+  // Build per-(item, make) quantity map from existing DN
   const dnQtyByItem = useMemo(() => {
     const map: Record<string, number> = {};
     if (!existingDN) return map;
     for (const di of existingDN.items ?? []) {
-      map[di.item_id] = (map[di.item_id] || 0) + (di.delivered_quantity || 0);
+      const k = rowKey(di.item_id, di.make);
+      map[k] = (map[k] || 0) + (di.delivered_quantity || 0);
     }
     return map;
   }, [existingDN]);
 
-  // Total received across all DNs
+  // Total received across all DNs, keyed by (item, make).
   const totalReceivedByItem = useMemo(() => {
     const map: Record<string, number> = {};
     for (const dn of dnList) {
       if (dn.is_return) continue;
       for (const di of dn.items ?? []) {
-        map[di.item_id] = (map[di.item_id] || 0) + (di.delivered_quantity || 0);
+        const k = rowKey(di.item_id, di.make);
+        map[k] = (map[k] || 0) + (di.delivered_quantity || 0);
       }
     }
     return map;
@@ -128,9 +136,9 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
     setIsAdding(false);
   }, []);
 
-  const handleEntryChange = useCallback((itemId: string, value: string) => {
+  const handleEntryChange = useCallback((key: string, value: string) => {
     const num = value === "" ? 0 : Number(value);
-    setNewEntries((prev) => ({ ...prev, [itemId]: Number.isFinite(num) ? num : 0 }));
+    setNewEntries((prev) => ({ ...prev, [key]: Number.isFinite(num) ? num : 0 }));
   }, []);
 
   const hasValidEntries = useMemo(
@@ -141,9 +149,17 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
   const handleUpdate = useCallback(async () => {
     if (!hasValidEntries) return;
 
-    const payload = Object.entries(newEntries)
-      .filter(([, qty]) => qty > 0)
-      .map(([item_id, delivered_quantity]) => ({ item_id, delivered_quantity }));
+    // Walk ITM items in order — for each row whose composite key has a
+    // positive entry, record (item_id, make, qty). The composite-key state
+    // shape can't be parsed back blindly because make may itself contain "|".
+    const payload = items
+      .map((it) => {
+        const qty = newEntries[rowKey(it.item_id, it.make)];
+        return qty && qty > 0
+          ? { item_id: it.item_id, make: it.make ?? null, delivered_quantity: qty }
+          : null;
+      })
+      .filter((x): x is { item_id: string; make: string | null; delivered_quantity: number } => x !== null);
 
     try {
       await createDN({
@@ -166,7 +182,7 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
         variant: "destructive",
       });
     }
-  }, [hasValidEntries, newEntries, createDN, itmName, mutateDNs, onDNCreated]);
+  }, [hasValidEntries, newEntries, items, createDN, itmName, mutateDNs, onDNCreated]);
 
   const handleDownloadDN = useCallback(async () => {
     if (!existingDN) return;
@@ -300,14 +316,15 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
           </TableHeader>
           <TableBody>
             {items.map((item) => {
-              const dnQty = dnQtyByItem[item.item_id] || 0;
-              const totalReceived = totalReceivedByItem[item.item_id] || 0;
+              const k = rowKey(item.item_id, item.make);
+              const dnQty = dnQtyByItem[k] || 0;
+              const totalReceived = totalReceivedByItem[k] || 0;
               const fullyDelivered = totalReceived >= item.transfer_quantity && totalReceived > 0;
               const overDelivered = totalReceived > item.transfer_quantity;
 
               return (
                 <TableRow
-                  key={item.item_id}
+                  key={k}
                   className={cn(
                     fullyDelivered && !overDelivered && "bg-green-50/40",
                     overDelivered && "bg-amber-50/40"
@@ -342,10 +359,10 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
                         type="number"
                         min={0}
                         step="any"
-                        value={newEntries[item.item_id] || ""}
+                        value={newEntries[k] || ""}
                         placeholder="0"
                         onChange={(e) =>
-                          handleEntryChange(item.item_id, e.target.value)
+                          handleEntryChange(k, e.target.value)
                         }
                         disabled={isSubmitting}
                         className="h-8 w-20 text-center text-sm tabular-nums mx-auto"
