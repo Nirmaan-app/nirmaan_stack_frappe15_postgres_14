@@ -45,11 +45,11 @@ interface ProjectFinancialsTabProps {
   totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
   getAllPODeliveredAmount: number;
-  poPaymentAgainstDelivery:number;
-  advanceAgainstPO:number
+  poPaymentAgainstDelivery: number;
+  advanceAgainstPO: number
 
 }
-export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount,poPaymentAgainstDelivery,advanceAgainstPO }) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
 
   const initialTab = useMemo(() => {
     return getUrlStringParam("fTab", "All Payments");
@@ -92,15 +92,15 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const { creditTerms } = useProjectAllCredits(projectData?.name);
 
-  const relatedTotalBalanceCredit = useMemo(() => 
-    creditTerms.reduce((sum, term) => sum + parseNumber(term.amount), 0), 
-  [creditTerms]);
+  const relatedTotalBalanceCredit = useMemo(() =>
+    creditTerms.reduce((sum, term) => sum + parseNumber(term.amount), 0),
+    [creditTerms]);
 
-  const relatedTotalCreditPaid = useMemo(() => 
+  const relatedTotalCreditPaid = useMemo(() =>
     creditTerms
       .filter(cr => cr.term_status === "Paid")
-      .reduce((sum, term) => sum + parseNumber(term.amount), 0), 
-  [creditTerms]);
+      .reduce((sum, term) => sum + parseNumber(term.amount), 0),
+    [creditTerms]);
 
 
   const { inflowsResponse, invoicesResponse } = useProjectFinancialsTabData(projectData?.name);
@@ -123,34 +123,34 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       value: totalInflowAmount,
       style: "text-green-600 underline",
       onClick: () => toggleInflowPaymentsDialog(),
-      info:"Amount received from the client for this project"
+      info: "Amount received from the client for this project"
 
     },
     {
       label: "Total PO Amount (Incl. GST)",
       value: totalPOAmountWithGST,
       style: "",
-      info:"Total value of all purchase orders raised, including GST."
+      info: "Total value of all purchase orders raised, including GST."
 
     },
     {
       label: "Total SR Amount (Incl. GST)",
       value: getAllSRsTotalWithGST,
       style: "",
-      info:"Total value of all service requests raised, including GST."
+      info: "Total value of all service requests raised, including GST."
 
     },
     {
       label: "Total Client Invoiced (Incl. GST)",
       value: totalProjectInvoiceAmount,
       style: "",
-      info:"Amount we have invoiced to the client for this project."
+      info: "Amount we have invoiced to the client for this project."
     },
     {
       label: "Total Purchase Over Credit",
       value: relatedTotalBalanceCredit,
       style: "",
-      info:" Total value of credit POs Purchase for this Project."
+      info: " Total value of credit POs Purchase for this Project."
     },
 
 
@@ -166,28 +166,28 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       label: "Total Credit Amount Paid",
       value: relatedTotalCreditPaid,
       style: "",
-      info:"Total value of credit POs that are paid."
+      info: "Total value of credit POs that are paid."
     },
     {
       label: "Project Value (Excl. GST)",
       value: `${projectData?.project_value}`,
       style: "",
-      info:"Total project value excluding GST."
+      info: "Total project value excluding GST."
     },
     {
       label: "Project Value (Incl. GST)",
       value: `${projectData?.project_value_gst}`,
       style: "",
-      info:"Total project value including GST."
+      info: "Total project value including GST."
     },
     {
       // label: "Total Amount Paid",
       label: "Total OutFlow Amount",
 
       value: getTotalAmountPaid.totalAmount,
-      info:"Total expenses recorded for the project. (Hover for breakdown)",
+      info: "Total expenses recorded for the project. (Hover for breakdown)",
       style: "text-red-600",
-      
+
       // --- (Indicator) NEW: Add breakdown data for hover card ---
       breakdown: {
         poAmount: getTotalAmountPaid.poAmount,
@@ -197,22 +197,22 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
     },
     {
-      label: "PO Payable Amount",
+      label: "Payable Amount Against Delivered Items in PO",
       value: getAllPODeliveredAmount,
       style: "",
-      info:"Total amount for delivered POs that are now payable."
+      info: "Total amount for delivered POs that are now payable."
     },
     {
-      label: "PO Payment Against Delivery",
+      label: "Amount Paid Against Delivered Items in PO",
       value: poPaymentAgainstDelivery,
       style: "",
-      info:"Amount paid against delivered items in this project’s POs."
+      info: "Amount paid against delivered items in this project’s POs."
     },
     {
       label: "Advance Against PO",
       value: advanceAgainstPO,
       style: "",
-      info:"Advance amount paid before delivery for this project’s POs."
+      info: "Advance amount paid before delivery for this project’s POs."
     },
     {
       label: "Current Liabilities",
@@ -274,16 +274,16 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
                   <HoverCardTrigger asChild>
                     {/* The original Link was commented out. If you activate it, ensure its Info icon also gets proper styling. */}
                     <span className="inline-flex items-center gap-1"> {/* Use inline-flex to keep the overall element inline */}
-                       {item.label}
-                  <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
-                 
-                </span>
+                      {item.label}
+                      <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+
+                    </span>
                     {/* <Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link> */}
                   </HoverCardTrigger>
-                  <HoverCardContent className="text-xs w-auto p-1.5">{item.info ||""}</HoverCardContent>
+                  <HoverCardContent className="text-xs w-auto p-1.5">{item.info || ""}</HoverCardContent>
                 </HoverCard>
                 {/* MODIFIED: Use a flex container for the icon and label */}
-                
+
               </p>
 
               {/* --- (Indicator) MODIFIED: Conditionally wrap with hover card --- */}
