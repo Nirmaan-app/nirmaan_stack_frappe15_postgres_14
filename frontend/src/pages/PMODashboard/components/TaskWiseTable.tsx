@@ -275,30 +275,25 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
         "nirmaan_stack.api.pmo_dashboard.assign_pmo_tasks"
     );
 
-    // Fetch distinct project IDs that have PMO tasks
-    const { data: pmoTaskProjects } = useFrappeGetDocList("PMO Project Task", {
-        fields: ["project"],
-        groupBy: "project",
-        limit: 1000,
-    }, "pmo-task-wise-project-ids");
+    // Use the same projects shown as cards in Project-Wise tab:
+    // active (disabled_pmo === 0) and status not "Completed"
+    const { call: fetchPmoProjects } = useFrappePostCall(
+        "nirmaan_stack.api.pmo_dashboard.get_pmo_projects"
+    );
+    const [pmoProjectsList, setPmoProjectsList] = useState<{ name: string; project_name: string; status: string; disabled_pmo: 0 | 1 }[]>([]);
 
-    // Fetch project names for those project IDs
-    const projectFilters = useMemo(() => {
-        if (!pmoTaskProjects?.length) return null;
-        const ids = pmoTaskProjects.map((p) => p.project).filter(Boolean);
-        return ids.length ? [["name", "in", ids]] : null;
-    }, [pmoTaskProjects]);
-
-    const { data: projectsData } = useFrappeGetDocList("Projects", {
-        fields: ["name", "project_name"],
-        filters: projectFilters as any,
-        limit: 1000,
-        orderBy: { field: "project_name", order: "asc" },
-    }, projectFilters ? `pmo-task-wise-projects-${JSON.stringify(projectFilters)}` : null);
+    React.useEffect(() => {
+        fetchPmoProjects({}).then((res: any) => {
+            setPmoProjectsList(res?.message || []);
+        });
+    }, [fetchPmoProjects]);
 
     const projectOptions = useMemo(() => {
-        return projectsData?.map((p) => ({ label: p.project_name, value: p.project_name })) || [];
-    }, [projectsData]);
+        return pmoProjectsList
+            .filter((p) => p.disabled_pmo === 0 && p.status !== "Completed")
+            .sort((a, b) => (a.project_name || "").localeCompare(b.project_name || ""))
+            .map((p) => ({ label: p.project_name, value: p.project_name }));
+    }, [pmoProjectsList]);
 
     // Fetch distinct categories for facet filter
     const { data: categoriesData } = useFrappeGetDocList("PMO Task Category", {
