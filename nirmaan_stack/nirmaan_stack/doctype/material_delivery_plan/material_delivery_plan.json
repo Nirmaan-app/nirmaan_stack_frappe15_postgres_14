@@ -16,7 +16,8 @@
   "mp_items",
   "delivery_date",
   "delivery_status",
-  "po_type"
+  "po_type",
+  "remarks"
  ],
  "fields": [
   {
@@ -61,7 +62,7 @@
    "fieldname": "delivery_status",
    "fieldtype": "Select",
    "label": "Delivery Status",
-   "options": "Not Delivered\nDelivered"
+   "options": "Not Delivered\nDelivered\nPartially Delivered"
   },
   {
    "fieldname": "po_type",
@@ -82,12 +83,17 @@
    "fieldname": "critical_po_sub_category",
    "fieldtype": "Data",
    "label": "Critical PO Sub Category"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-09 19:04:06.820190",
+ "modified": "2026-04-28 18:41:05.807391",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Material Delivery Plan",

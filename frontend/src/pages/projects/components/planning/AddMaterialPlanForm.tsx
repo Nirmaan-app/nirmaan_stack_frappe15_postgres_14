@@ -13,7 +13,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "./CategoryTaskSelector";
 import { AllPOsModal } from "./AllPOsModal";
 import { ReviewPlansPage } from "./ReviewPlansPage";
-import { WorkPlanReferencePanel } from "./WorkPlanReferencePanel";
 
 // Types
 interface Task {
@@ -558,9 +557,6 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     <X className="h-4 w-4" />
                 </Button>
             </div>
-
-            {/* Reference: Existing Work Plan Tasks for this project */}
-            <WorkPlanReferencePanel projectId={projectId} />
 
             {/* Step 1: Category/Task Selection (V2) */}
             <div className="mb-6">

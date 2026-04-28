@@ -59,6 +59,7 @@ export const useMaterialDeliveryPlans = (
             "mp_items",
             "creation",
             "po_type",
+            "remarks",
         ] as any,
         filters: docListFilters,
         orderBy: { field: "creation", order: "desc" },

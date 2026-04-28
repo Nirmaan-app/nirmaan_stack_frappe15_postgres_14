@@ -42,11 +42,20 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
     // Admin can edit everything; Procurement can only change delivery_status.
     const canEditAll = isAdmin;
 
+    type DeliveryStatus = "Delivered" | "Not Delivered" | "Partially Delivered";
+
     // State
     const [deliveryDate, setDeliveryDate] = useState<string>(plan.delivery_date || "");
-    const [deliveryStatus, setDeliveryStatus] = useState<"Delivered" | "Not Delivered">(
-        plan.delivery_status === "Delivered" ? "Delivered" : "Not Delivered"
+    const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>(
+        plan.delivery_status === "Delivered"
+            ? "Delivered"
+            : plan.delivery_status === "Partially Delivered"
+                ? "Partially Delivered"
+                : "Not Delivered"
     );
+    const [remarks, setRemarks] = useState<string>(plan.remarks || "");
+    const remarksRequired = deliveryStatus === "Partially Delivered";
+    const remarksInvalid = remarksRequired && !remarks.trim();
     
     // --- Existing PO State ---
     // Map of item_name -> boolean (for selection)
@@ -117,13 +126,24 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         [manualItemsText]
     );
     const itemsInvalid = canEditAll && (isNewPO ? manualItemsCount === 0 : selectedCount === 0);
-    const isConfirmDisabled = isUpdating || itemsInvalid;
+    const isConfirmDisabled = isUpdating || itemsInvalid || (canEditDeliveryStatus && remarksInvalid);
 
     const handleConfirm = async () => {
         // Procurement-only path: only delivery_status changes; skip all date/items validation.
         if (!canEditAll) {
+            if (remarksInvalid) {
+                toast({
+                    title: "Validation Error",
+                    description: "Remarks are required when status is Partially Delivered.",
+                    variant: "destructive",
+                });
+                return;
+            }
             try {
-                await updateMaterialPlan(plan.name, { delivery_status: deliveryStatus });
+                await updateMaterialPlan(plan.name, {
+                    delivery_status: deliveryStatus,
+                    remarks: deliveryStatus === "Partially Delivered" ? remarks.trim() : "",
+                });
                 toast({
                     title: "Success",
                     description: "Delivery status updated",
@@ -206,7 +226,16 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
             };
             // Only authorized roles can change delivery_status; others' value is ignored server-side anyway
             if (canEditDeliveryStatus) {
+                if (remarksInvalid) {
+                    toast({
+                        title: "Validation Error",
+                        description: "Remarks are required when status is Partially Delivered.",
+                        variant: "destructive",
+                    });
+                    return;
+                }
                 updatePayload.delivery_status = deliveryStatus;
+                updatePayload.remarks = deliveryStatus === "Partially Delivered" ? remarks.trim() : "";
             }
             await updateMaterialPlan(plan.name, updatePayload);
             toast({
@@ -310,7 +339,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                         </Label>
                         <Select
                             value={deliveryStatus}
-                            onValueChange={(v) => setDeliveryStatus(v as "Delivered" | "Not Delivered")}
+                            onValueChange={(v) => setDeliveryStatus(v as DeliveryStatus)}
                             disabled={!canEditDeliveryStatus}
                         >
                             <SelectTrigger className="w-full h-10">
@@ -321,6 +350,12 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                                     <span className="inline-flex items-center gap-2">
                                         <span className="w-2 h-2 rounded-full bg-red-500" />
                                         Not Delivered
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="Partially Delivered">
+                                    <span className="inline-flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                        Partially Delivered
                                     </span>
                                 </SelectItem>
                                 <SelectItem value="Delivered">
@@ -337,6 +372,43 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                                 : "Only Admin and Procurement Executives can change delivery status."}
                         </p>
                     </div>
+
+                    {/* Remarks — only when Partially Delivered (required) */}
+                    {remarksRequired && (
+                        <div className="space-y-2">
+                            <Label className="flex items-center gap-2 font-bold text-gray-700">
+                                Remarks
+                                <span className="text-red-600">*</span>
+                                {!canEditDeliveryStatus && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                                        <Lock className="w-3 h-3" /> Read-only
+                                    </span>
+                                )}
+                            </Label>
+                            <textarea
+                                placeholder="Describe what was delivered and what is still pending…"
+                                value={remarks}
+                                onChange={(e) => setRemarks(e.target.value)}
+                                disabled={!canEditDeliveryStatus}
+                                className={`w-full h-24 p-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
+                                    !canEditDeliveryStatus
+                                        ? "bg-gray-50 text-gray-500 cursor-not-allowed border-gray-300"
+                                        : remarksInvalid
+                                            ? "border-red-300 focus:ring-red-500"
+                                            : "border-gray-300"
+                                }`}
+                            />
+                            {canEditDeliveryStatus && remarksInvalid ? (
+                                <p className="text-[11px] text-red-600 font-medium">
+                                    Remarks are required when status is Partially Delivered.
+                                </p>
+                            ) : (
+                                <p className="text-[10px] text-gray-500">
+                                    Mention the items / quantities that were delivered vs. still pending.
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     <div className="h-px bg-gray-100" />
 
