@@ -57,7 +57,10 @@ type UserNameResolver = (userId?: string) => string;
 type GstNameResolver = (gstId?: string) => string;
 
 interface ColumnGeneratorOptions {
-    isAdmin: boolean;
+    /** Show the Edit action button (Admin + Accountant). */
+    canEdit: boolean;
+    /** Show the Delete action button (Admin only). */
+    canDelete: boolean;
     getProjectName: ProjectNameResolver;
     getCustomerName: CustomerNameResolver;
     getUserName: UserNameResolver;
@@ -74,7 +77,8 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { isAdmin, getProjectName, getCustomerName, getUserName, getGstName, onDelete, onEdit, hideCustomerColumn } = options;
+    const { canEdit, canDelete, getProjectName, getCustomerName, getUserName, getGstName, onDelete, onEdit, hideCustomerColumn } = options;
+    const showActionsColumn = canEdit || canDelete;
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
@@ -109,26 +113,26 @@ export const getProjectInvoiceColumns = (
         // Conditionally include customer column
         ...(!hideCustomerColumn
             ? [
-                  {
-                      accessorKey: "customer",
-                      header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />,
-                      cell: ({ row }) => {
-                          const customerName = getCustomerName(row.original.customer);
-                          return (
-                              <Link to={`/customers/${row.original.customer}`} className="text-blue-600 hover:underline">
-                                  {customerName || row.original.customer}
-                              </Link>
-                          );
-                      },
-                      filterFn: facetedFilterFn,
-                      meta: {
-                          exportHeaderName: "Customer",
-                          exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
-                          enableFacet: true,
-                          facetTitle: "Customer",
-                      },
-                  } as ColumnDef<ProjectInvoice>,
-              ]
+                {
+                    accessorKey: "customer",
+                    header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />,
+                    cell: ({ row }) => {
+                        const customerName = getCustomerName(row.original.customer);
+                        return (
+                            <Link to={`/customers/${row.original.customer}`} className="text-blue-600 hover:underline">
+                                {customerName || row.original.customer}
+                            </Link>
+                        );
+                    },
+                    filterFn: facetedFilterFn,
+                    meta: {
+                        exportHeaderName: "Customer",
+                        exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
+                        enableFacet: true,
+                        facetTitle: "Customer",
+                    },
+                } as ColumnDef<ProjectInvoice>,
+            ]
             : []),
         {
             accessorKey: "project_gst",
@@ -171,10 +175,9 @@ export const getProjectInvoiceColumns = (
             }
         },
 
-        // --- CORRECTED INLINE SYNTAX ---
-        // The ternary operator now correctly returns either an array with one object
-        // or an empty array. The spread syntax `...` then safely unpacks it.
-        ...(isAdmin
+        // Actions column appears when the user has at least one allowed action.
+        // Edit shows for Admin + Accountant; Delete shows for Admin only.
+        ...(showActionsColumn
             ? [
                 {
                     id: "actions",
@@ -182,32 +185,36 @@ export const getProjectInvoiceColumns = (
                     cell: ({ row }) => {
                         const invoice = row.original;
                         return (
-                            <div className="flex items-center space-x-1"> {/* Use justify-end */}
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => onEdit(invoice)} // Call onEdit
-                                    aria-label={`Edit invoice ${invoice.invoice_no}`}
-                                >
-                                    <Edit2 className="h-4 w-4 text-blue-600" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => onDelete(invoice)}
-                                    aria-label={`Delete invoice ${invoice.invoice_no}`}
-                                >
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                            <div className="flex items-center space-x-1">
+                                {canEdit && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => onEdit(invoice)}
+                                        aria-label={`Edit invoice ${invoice.invoice_no}`}
+                                    >
+                                        <Edit2 className="h-4 w-4 text-blue-600" />
+                                    </Button>
+                                )}
+                                {canDelete && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => onDelete(invoice)}
+                                        aria-label={`Delete invoice ${invoice.invoice_no}`}
+                                    >
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                )}
                             </div>
                         );
                     },
                     size: 80,
                     enableSorting: false,
                     enableHiding: false,
-                } as ColumnDef<ProjectInvoice>, // Type assertion is on the object inside the array
+                } as ColumnDef<ProjectInvoice>,
             ]
             : [])
     ];

@@ -25,6 +25,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 
 // Shared components
 import { useMilestoneReportData } from './hooks/useMilestoneReportData';
+import { useTargetProgress } from './hooks/useTargetProgress';
 import { DailyReportView } from './components/DailyReportView';
 import OverallMilestonesReport from './components/OverallMilestonesReport';
 import { CopyReportButton } from './components/CopyReportButton';
@@ -65,6 +66,9 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
   // Permission checks for delete
   const canDeleteReport = user_id === "Administrator" ||
     ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
+
+  // Admin gate for Target % column
+  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
 
   const isToday = useMemo(() => isDateToday(displayDate), [displayDate]);
 
@@ -117,6 +121,13 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     selectedZone,
     displayDate,
     reportType,
+  });
+
+  // Per-milestone target progress (admin-only column)
+  const { milestoneTarget } = useTargetProgress({
+    projectId: selectedProject,
+    referenceDate: displayDate,
+    workMilestonesList,
   });
 
   // Effect to initialize selectedZone
@@ -480,6 +491,8 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
               totalManpowerInReport={totalManpowerInReport}
               workMilestonesList={workMilestonesList}
               workHeaderOrderMap={workHeaderOrderMap}
+              milestoneTarget={milestoneTarget}
+              showTargetColumn={isAdmin}
             />
           ) : (
             <Card className="mt-4">
@@ -488,6 +501,7 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
                   selectedProject={selectedProject}
                   projectData={projectData}
                   selectedZone={selectedZone}
+                  isAdmin={isAdmin}
                 />
               </CardContent>
             </Card>

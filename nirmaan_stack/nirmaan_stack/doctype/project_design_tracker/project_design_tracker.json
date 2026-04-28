@@ -45,11 +45,11 @@
    "label": "Status"
   },
   {
+   "default": "0",
+   "description": "When enabled, this tracker is hidden from Design Executives and Project Managers",
    "fieldname": "hide_design_tracker",
    "fieldtype": "Check",
-   "label": "Hide Design Tracker",
-   "description": "When enabled, this tracker is hidden from Design Executives and Project Managers",
-   "default": "0"
+   "label": "Hide Design Tracker"
   },
   {
    "default": "0",
@@ -85,7 +85,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.747429",
+ "modified": "2026-04-28 09:04:02.825003",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Design Tracker",
@@ -188,26 +188,27 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   }
  ],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

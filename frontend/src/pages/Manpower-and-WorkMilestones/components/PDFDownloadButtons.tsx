@@ -55,10 +55,10 @@ const generateFileName = (projectName: string, zone: string, date: Date): string
 const forceDownload = async (url: string, filename: string): Promise<void> => {
   const response = await fetch(url);
   if (!response.ok) throw new Error('Download failed');
-  
+
   const blob = await response.blob();
   const blobUrl = window.URL.createObjectURL(blob);
-  
+
   const link = document.createElement('a');
   link.href = blobUrl;
   link.download = filename;
@@ -80,7 +80,13 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   const [isDownloadingZone, setIsDownloadingZone] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [isDownloadingOverall, setIsDownloadingOverall] = useState(false);
-  
+
+  // Admin flag — passed into the print format URL so the template can render
+  // admin-only sections (Zone Target, header Target, Target column).
+  const { user_id, role } = useUserData();
+  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const adminQuery = isAdmin ? `&is_admin=1` : ``;
+
   // Dialog state
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingAction, setPendingAction] = useState<'all_zones' | 'overall' | null>(null);
@@ -127,9 +133,9 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   //       `report_date=${dateStr}&` +
   //       `zone=${encodeURIComponent(selectedZone)}`
   //     );
-      
+
   //     const result = await response.json();
-      
+
   //     if (!result.message?.report_name) {
   //       toast({
   //         title: 'No Report Found',
@@ -182,14 +188,15 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
     try {
       const dateStr = formatDateForAPI(reportDate);
-      
+
       // Generate filename with "All_Zones"
       const fileName = generateFileName(projectName, 'All_Zones', reportDate);
-      
+
       // Call the merge API endpoint
       const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_merged_zone_reports_pdf?` +
         `project_id=${encodeURIComponent(projectId)}&` +
-        `report_date=${dateStr}`;
+        `report_date=${dateStr}` +
+        adminQuery;
 
       // Force download with proper filename
       await forceDownload(pdfUrl, fileName);
@@ -214,32 +221,33 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
   // Download "All Zones 14 Days" merged PDF
   const handleDownloadOverall = async () => {
-      // Logic for All Zones 14 Days
-      setIsDownloadingOverall(true);
-      try {
-          const fileName = `${(projectName || 'Project').replace(/\s+/g, '_')}_Overall_14Days_AllZones.pdf`;
-          
-          const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_all_zones_overall_report_pdf?` +
-              `project_id=${encodeURIComponent(projectId)}`;
-              
-          await forceDownload(pdfUrl, fileName);
+    // Logic for All Zones 14 Days
+    setIsDownloadingOverall(true);
+    try {
+      const fileName = `${(projectName || 'Project').replace(/\s+/g, '_')}_Overall_14Days_AllZones.pdf`;
 
-          toast({
-              title: "Download Complete",
-              description: "Downloaded 14-Days Overall Report for All Zones",
-              variant: "default",
-          });
+      const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_all_zones_overall_report_pdf?` +
+        `project_id=${encodeURIComponent(projectId)}` +
+        adminQuery;
 
-      } catch (e) {
-          console.error("Download failed:", e);
-          toast({
-              title: "Download Failed",
-              description: "Failed to download the report. Please try again.",
-              variant: "destructive",
-          });
-      } finally {
-          setIsDownloadingOverall(false);
-      }
+      await forceDownload(pdfUrl, fileName);
+
+      toast({
+        title: "Download Complete",
+        description: "Downloaded 14-Days Overall Report for All Zones",
+        variant: "default",
+      });
+
+    } catch (e) {
+      console.error("Download failed:", e);
+      toast({
+        title: "Download Failed",
+        description: "Failed to download the report. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingOverall(false);
+    }
   };
 
   // Check for missing reports and trigger download or dialog
@@ -268,9 +276,9 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   const handleConfirmDownload = () => {
     setShowConfirmDialog(false);
     if (pendingAction === 'all_zones') {
-        handleDownloadAllZones();
+      handleDownloadAllZones();
     } else if (pendingAction === 'overall') {
-        handleDownloadOverall();
+      handleDownloadOverall();
     }
     setPendingAction(null);
   };
@@ -282,7 +290,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
   // Disable zone button if no zone selected OR zone not completed
   const isZoneButtonDisabled = disabled || isDownloadingZone || !selectedZone || !isSelectedZoneCompleted;
-  
+
   // Disable all zones button checks
   // 1. Must have multiple zones
   // 2. Must have at least 2 completed zones
@@ -296,7 +304,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   //   ? (selectedZone.length > 12 ? `${selectedZone.slice(0, 10)}..` : selectedZone) + ' DPR'
   //   : 'Zone DPR';
 
-  const { role } = useUserData();
+  // const { role } = useUserData();
   const isProjectManager = role === "Nirmaan Project Manager Profile";
 
   return (
@@ -333,61 +341,61 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
       {/* All Zones DPR Button */}
       {!isProjectManager && (
-      <TooltipProvider>
-        <Tooltip delayDuration={200}>
-          <TooltipTrigger asChild>
-            <Button
-              variant="default"
-              size="sm"
-              className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
-              onClick={() => handleCheckAndDownload('all_zones')}
-              disabled={isAllZonesButtonDisabled}
-            >
-              {isDownloadingAll ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Download className="h-3 w-3" />
-              )}
-              All Zones DPR
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            {isSingleZone 
-              ? 'All Zones report is available only when multiple zones exist.'
-              : !isEnoughCompleted
-                ? 'At least 2 zones must have completed reports.'
-                : `Download merged DPR for ${completedZonesCount} completed zone(s)`
-            }
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+        <TooltipProvider>
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+                onClick={() => handleCheckAndDownload('all_zones')}
+                disabled={isAllZonesButtonDisabled}
+              >
+                {isDownloadingAll ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Download className="h-3 w-3" />
+                )}
+                All Zones DPR
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {isSingleZone
+                ? 'All Zones report is available only when multiple zones exist.'
+                : !isEnoughCompleted
+                  ? 'At least 2 zones must have completed reports.'
+                  : `Download merged DPR for ${completedZonesCount} completed zone(s)`
+              }
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
 
       {/* All Zones 14 Days Report Button */}
       {!isProjectManager && (
-      <TooltipProvider>
-        <Tooltip delayDuration={200}>
-          <TooltipTrigger asChild>
-            <Button
-              variant="default"
-              size="sm"
-              className="h-8 text-xs gap-1 bg-blue-600 hover:bg-blue-700"
-              onClick={() => handleCheckAndDownload('overall')}
-              disabled={isOverallButtonDisabled}
-            >
-              {isDownloadingOverall ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Download className="h-3 w-3" />
-              )}
-              All Zones 14 Days
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            Download merged 14-days overall report for all zones
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+        <TooltipProvider>
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 text-xs gap-1 bg-blue-600 hover:bg-blue-700"
+                onClick={() => handleCheckAndDownload('overall')}
+                disabled={isOverallButtonDisabled}
+              >
+                {isDownloadingOverall ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Download className="h-3 w-3" />
+                )}
+                All Zones 14 Days
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              Download merged 14-days overall report for all zones
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
 
 

@@ -124,6 +124,10 @@ const CreateITMPage = lazy(() => import("@/pages/InternalTransferMemos/Create/Cr
 const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
 const ITRDetail = lazy(() => import("@/pages/InternalTransferMemos/ITRDetail"));
 
+// Warehouse
+const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
+const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
+
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
   { path: "/login", element: <Login /> },
@@ -731,6 +735,20 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: INTERNAL TRANSFER MEMOS SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: WAREHOUSE SECTION ---
+          // ======================================================
+          {
+            path: "warehouse",
+            children: [
+              { index: true, element: <Suspense fallback={null}><WarehouseStockPage /></Suspense> },
+              { path: "request", element: <Suspense fallback={null}><RequestFromWarehouse /></Suspense> },
+            ],
+          },
+          // ======================================================
+          // --- END: WAREHOUSE SECTION ---
           // ======================================================
 
         ],

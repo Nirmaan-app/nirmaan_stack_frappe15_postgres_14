@@ -5,6 +5,7 @@ import { ArrowUpRight, CircleDollarSign, Briefcase, TrendingUp, MoreHorizontal, 
 import { ProjectWithCashflowPlanStats, CashflowCounts } from "../types";
 import { getProgressColor } from "../utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 interface CashflowPlanProjectCardProps {
   project: ProjectWithCashflowPlanStats;
@@ -54,7 +55,15 @@ export const CashflowPlanProjectCard: React.FC<CashflowPlanProjectCardProps> = (
   project,
   onClick,
 }) => {
-  const { po_cashflow, wo_cashflow, inflow_cashflow, misc_cashflow, overall_progress, project_name } = project;
+  const {
+    po_cashflow,
+    wo_cashflow,
+    inflow_cashflow,
+    misc_cashflow,
+    overall_progress,
+    project_name,
+    status_of_project,
+  } = project;
   const progressColor = getProgressColor(overall_progress);
 
   // Check if all plans are done
@@ -74,12 +83,15 @@ export const CashflowPlanProjectCard: React.FC<CashflowPlanProjectCardProps> = (
     >
       <CardHeader className="pb-3 space-y-0">
         <div className="flex items-start justify-between gap-3">
-          <CardTitle
-            className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug flex-1"
-            title={project_name}
-          >
-            {project_name}
-          </CardTitle>
+          <div className="flex-1 min-w-0 flex items-start gap-2 flex-wrap">
+            <CardTitle
+              className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug min-w-0"
+              title={project_name}
+            >
+              {project_name}
+            </CardTitle>
+            <ProjectStatusBadge status={status_of_project} />
+          </div>
 
           {/* Progress Circle */}
           <ProgressCircle

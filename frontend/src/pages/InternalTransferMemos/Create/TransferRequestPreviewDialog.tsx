@@ -99,10 +99,18 @@ export function TransferRequestPreviewDialog({
                 <ul className="space-y-1 pt-1">
                   {grp.items.map((it) => (
                     <li
-                      key={it.item_id}
+                      key={`${it.item_id}|${it.make ?? ""}`}
                       className="flex items-center justify-between text-sm border-b last:border-b-0 py-1"
                     >
-                      <span className="truncate pr-2">{it.item_name}:</span>
+                      <span className="truncate pr-2">
+                        {it.item_name}
+                        {it.make && (
+                          <span className="text-muted-foreground text-xs ml-1">
+                            ({it.make})
+                          </span>
+                        )}
+                        :
+                      </span>
                       <span className="tabular-nums font-medium whitespace-nowrap">
                         {it.qty.toLocaleString("en-IN")} {it.unit || "Units"}
                       </span>

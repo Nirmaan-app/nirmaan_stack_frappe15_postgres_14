@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,16 @@ import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FileText } from "lucide-react";
+import ReactSelect from "react-select";
+import { getSelectStyles } from "@/config/selectTheme";
+import { useUserData } from "@/hooks/useUserData";
+import { parseAssignedFromField } from "../utils";
+
+interface PMOUserOption {
+  value: string;
+  label: string;
+  email: string;
+}
 
 interface TaskData {
   name: string;
@@ -29,6 +39,7 @@ interface TaskData {
   expected_completion_date: string | null;
   completion_date: string | null;
   attachment: string | null;
+  assigned_to?: string | null;
 }
 
 interface EditTaskModalProps {
@@ -44,14 +55,39 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   task,
   onSuccess,
 }) => {
+  const { user_id, role } = useUserData();
+  const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+
   const [status, setStatus] = useState<string>("");
   const [completionDate, setCompletionDate] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [selectedAssignees, setSelectedAssignees] = useState<PMOUserOption[]>([]);
+  const [pmoUsers, setPmoUsers] = useState<PMOUserOption[]>([]);
 
   const { call, loading } = useFrappePostCall(
     "nirmaan_stack.api.pmo_dashboard.update_task_status"
   );
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
+  const { call: fetchPMOUsers } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.get_pmo_users"
+  );
+  const { call: assignCall } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.assign_pmo_tasks"
+  );
+
+  const loadPMOUsers = useCallback(async () => {
+    try {
+      const res = await fetchPMOUsers({});
+      const users = (res?.message || []).map((u: any) => ({
+        value: u.user_id,
+        label: u.full_name || u.user_id,
+        email: u.email || "",
+      }));
+      setPmoUsers(users);
+    } catch {
+      // silent
+    }
+  }, [fetchPMOUsers]);
 
   useEffect(() => {
     if (task && open) {
@@ -60,8 +96,23 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
         task.completion_date || new Date().toISOString().split("T")[0]
       );
       setAttachment(null);
+
+      // Parse existing assignments
+      const existing = parseAssignedFromField(task.assigned_to);
+      setSelectedAssignees(
+        existing.map((d) => ({
+          value: d.userId,
+          label: d.userName || d.userId,
+          email: d.userEmail || "",
+        }))
+      );
+
+      // Load PMO users list for admin
+      if (isAdmin) {
+        loadPMOUsers();
+      }
     }
-  }, [task, open]);
+  }, [task, open, isAdmin, loadPMOUsers]);
 
   const handleSave = async () => {
     if (!status) {
@@ -101,9 +152,23 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
           status === "Sent/Submision" ? completionDate || null : null,
         attachment: fileUrl || undefined,
       });
+
+      // Save assignment if admin changed it
+      if (isAdmin && task) {
+        const assignedTo = selectedAssignees.map((u) => ({
+          userId: u.value,
+          userName: u.label,
+          userEmail: u.email,
+        }));
+        await assignCall({
+          task_names: JSON.stringify([task.name]),
+          assigned_to: JSON.stringify(assignedTo),
+        });
+      }
+
       toast({
         title: "Success",
-        description: "Task status updated successfully.",
+        description: "Task updated successfully.",
         variant: "success",
       });
       onSuccess();
@@ -121,7 +186,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md overflow-visible">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold text-gray-900">
             Edit {task.task_name}
@@ -163,7 +228,6 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
               />
             </div>
           )}
-          
           {/* Info shown for "Approve by client" */}
           {status === "Approve by client" && (
             <div className="bg-green-50 border border-green-200 rounded-md p-3">
@@ -192,6 +256,26 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
                   Current attachment: {task.attachment.split("/").pop()}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Assign To — admin only */}
+          {isAdmin && (
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Assign To
+              </label>
+              <ReactSelect<PMOUserOption, true>
+                isMulti
+                value={selectedAssignees}
+                options={pmoUsers}
+                onChange={(newValue) => setSelectedAssignees(newValue as PMOUserOption[])}
+                placeholder="Select PMO executives..."
+                classNamePrefix="react-select"
+                styles={getSelectStyles<PMOUserOption, true>()}
+                menuPortalTarget={document.body}
+                menuPosition="fixed"
+              />
             </div>
           )}
         </div>

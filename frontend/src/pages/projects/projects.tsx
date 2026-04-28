@@ -8,6 +8,7 @@ import {
   HardHat,
   OctagonMinus,
   ChevronDown,
+  Info,
 } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
@@ -20,6 +21,11 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -220,6 +226,32 @@ const SUMMARY_CARD_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
 ];
+
+// Wraps a column header with a small info icon that reveals a definition tooltip on hover.
+// The icon is a sibling of the sort trigger so clicks don't toggle sort.
+const HeaderWithInfo: React.FC<{
+  tooltip: string;
+  children: React.ReactNode;
+}> = ({ tooltip, children }) => (
+  <div className="flex items-center gap-1">
+    {children}
+    <Tooltip delayDuration={150}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="Column definition"
+          className="text-muted-foreground hover:text-foreground focus:outline-none"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Info className="h-3 w-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs leading-snug">
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
+  </div>
+);
 
 export const Projects: React.FC<ProjectsProps> = ({
   customersView = false,
@@ -641,7 +673,9 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "inflow",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Inflow" />
+          <HeaderWithInfo tooltip="Total client payments received for this project.">
+            <DataTableColumnHeader column={column} title="Inflow" />
+          </HeaderWithInfo>
         ),
         cell: ({ row }) => {
           const financials = getProjectFinancials(row.original.name);
@@ -664,7 +698,9 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "outflow",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Outflow" />
+          <HeaderWithInfo tooltip="Total cash paid out: vendor payments + project expenses (settled only — excludes scheduled credit terms).">
+            <DataTableColumnHeader column={column} title="Outflow" />
+          </HeaderWithInfo>
         ),
         cell: ({ row }) => {
           const financials = getProjectFinancials(row.original.name);
@@ -687,7 +723,9 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "total_liabilities",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Current Liabilities" />
+          <HeaderWithInfo tooltip="Unpaid value of goods already delivered. Per PO: delivered amount − payments made (capped to delivered value, so prepayments don't reduce it below zero).">
+            <DataTableColumnHeader column={column} title="Current Liabilities" />
+          </HeaderWithInfo>
         ),
         cell: ({ row }) => {
           const financials = getProjectFinancials(row.original.name);
@@ -710,7 +748,9 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "cashflow_gap",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Cashflow Gap" />
+          <HeaderWithInfo tooltip="Outflow + Current Liabilities − Inflow. Positive (red) means committed spend exceeds funds received; negative (green) means inflows are ahead.">
+            <DataTableColumnHeader column={column} title="Cashflow Gap" />
+          </HeaderWithInfo>
         ),
         cell: ({ row }) => {
           const financials = getProjectFinancials(row.original.name);

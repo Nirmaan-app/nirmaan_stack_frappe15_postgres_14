@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowLeft, Pencil, Check, FileText, ExternalLink, Activity, LayoutDashboard, PenTool, BarChart2, PencilRuler, Download, Loader2 } from "lucide-react";
+import { useUserData } from "@/hooks/useUserData";
+import { ArrowLeft, Pencil, Check, FileText, ExternalLink, Activity, LayoutDashboard, PenTool, BarChart2, PencilRuler, Download, Loader2, UserCheck, Users } from "lucide-react";
 import { ProjectDetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -13,7 +14,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import EditTaskModal from "./components/EditTaskModal";
+import { AssignPMODialog } from "./components/AssignPMODialog";
+import { parseAssignedFromField, type AssignedPMODetail } from "./utils";
 
 interface TaskItem {
   name: string;
@@ -23,6 +29,7 @@ interface TaskItem {
   expected_completion_date: string | null;
   completion_date: string | null;
   attachment: string | null;
+  assigned_to?: string | null;
 }
 
 interface StatusOverview {
@@ -66,6 +73,9 @@ const ensureProjectTasksInitialized = async (
 const PMOProjectDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const { user_id, role } = useUserData();
+  const isPMO = role === "Nirmaan PMO Executive Profile";
+  const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
 
   // Fetch project info
   const { data: project, isLoading: projectLoading } = useFrappeGetDoc(
@@ -85,6 +95,12 @@ const PMOProjectDetail: React.FC = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [editTask, setEditTask] = useState<TaskItem | null>(null);
 
+  // Bulk assign state (admin)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [pmoUsers, setPmoUsers] = useState<{ user_id: string; full_name: string; email: string }[]>([]);
+
+
   const { call: fetchTasks } = useFrappePostCall(
     "nirmaan_stack.api.pmo_dashboard.get_project_tasks"
   );
@@ -97,6 +113,24 @@ const PMOProjectDetail: React.FC = () => {
   const { call: fetchOverview } = useFrappePostCall(
     "nirmaan_stack.api.pmo_dashboard.get_project_status_overview"
   );
+  const { call: fetchPMOUsers } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.get_pmo_users"
+  );
+  const { call: assignCall } = useFrappePostCall(
+    "nirmaan_stack.api.pmo_dashboard.assign_pmo_tasks"
+  );
+
+  const loadPMOUsers = useCallback(async () => {
+    try {
+      const res = await fetchPMOUsers({});
+      setPmoUsers(res?.message || []);
+    } catch { /* silent */ }
+  }, [fetchPMOUsers]);
+
+  // Load PMO users on mount for the assigned filter + assign dialog
+  useEffect(() => {
+    loadPMOUsers();
+  }, [loadPMOUsers]);
 
   const loadTasks = async () => {
     if (!projectId) return;
@@ -210,8 +244,96 @@ const PMOProjectDetail: React.FC = () => {
     loadOverview();
   }, [projectId]);
 
+  const [showMyTasksOnly, setShowMyTasksOnly] = useState(false);
+
+  // Check if a task is assigned to the current user
+  const isAssignedToMe = useMemo(() => {
+    return (task: TaskItem) => {
+      const assigned = parseAssignedFromField(task.assigned_to);
+      return assigned.some((d) => d.userId === user_id);
+    };
+  }, [user_id]);
+
+  // PMO can edit a task if it's assigned to them, or if it has no assignees yet
+  const canPMOEdit = useCallback(
+    (task: TaskItem) => {
+      const assigned = parseAssignedFromField(task.assigned_to);
+      if (assigned.length === 0) return true;
+      return assigned.some((d) => d.userId === user_id);
+    },
+    [user_id]
+  );
+
+  // My Tasks filter for the task overview table
+  const visibleTasks = useMemo(() => {
+    if (!showMyTasksOnly) return tasks;
+    const filtered: Record<string, TaskItem[]> = {};
+    for (const [cat, catTasks] of Object.entries(tasks)) {
+      const myTasks = catTasks.filter(isAssignedToMe);
+      if (myTasks.length > 0) {
+        filtered[cat] = myTasks;
+      }
+    }
+    return filtered;
+  }, [tasks, showMyTasksOnly, isAssignedToMe]);
+
+  const visibleCategoryOrder = useMemo(() => {
+    return categoryOrder.filter((cat) => visibleTasks[cat]?.length > 0);
+  }, [categoryOrder, visibleTasks]);
+
+  // Count of tasks assigned to me (for badge)
+  const myTasksCount = useMemo(() => {
+    return Object.values(tasks).flat().filter(isAssignedToMe).length;
+  }, [tasks, isAssignedToMe]);
+
+  // Flat list of visible tasks for checkbox logic
+  const flatVisibleTasks = useMemo(() => Object.values(visibleTasks).flat(), [visibleTasks]);
+
+  const toggleTaskSelection = (taskId: string) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedTaskIds.size === flatVisibleTasks.length) {
+      setSelectedTaskIds(new Set());
+    } else {
+      setSelectedTaskIds(new Set(flatVisibleTasks.map((t) => t.name)));
+    }
+  };
+
+  const selectedTasksForDialog = useMemo(() => {
+    return flatVisibleTasks.filter((t) => selectedTaskIds.has(t.name));
+  }, [flatVisibleTasks, selectedTaskIds]);
+
+  const handleBulkAssign = async (taskNames: string[], assignedTo: AssignedPMODetail[]) => {
+    try {
+      await assignCall({
+        task_names: JSON.stringify(taskNames),
+        assigned_to: JSON.stringify(assignedTo),
+      });
+      toast({
+        title: "Success",
+        description: `Assigned ${taskNames.length} task(s) successfully.`,
+        variant: "success",
+      });
+      setSelectedTaskIds(new Set());
+      loadTasks();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to assign tasks.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Compute progress
-  const allTasks = Object.values(tasks).flat();
+  const allTasks = Object.values(visibleTasks).flat();
   const totalTasks = allTasks.length;
   const completedTasks = allTasks.filter((t) => t.status === "Approve by client").length;
   const pendingTasks = totalTasks - completedTasks;
@@ -351,12 +473,65 @@ const PMOProjectDetail: React.FC = () => {
 
       {/* Task Overview Table */}
       <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6">
-        <h2 className="mb-4 text-lg font-bold text-gray-900">TASK OVERVIEW</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">TASK OVERVIEW</h2>
+          <div className="flex items-center gap-2">
+            {/* Bulk Assign button (admin) */}
+            {isAdmin && selectedTaskIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-300 text-red-700 hover:bg-red-50"
+                onClick={() => setAssignDialogOpen(true)}
+              >
+                <Users className="h-3.5 w-3.5 mr-1.5" />
+                Assign ({selectedTaskIds.size})
+              </Button>
+            )}
+            {/* My Tasks toggle (PMO) */}
+            {isPMO && (
+              <button
+                onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${
+                  showMyTasksOnly
+                    ? "bg-blue-600 text-white border-transparent shadow-sm"
+                    : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                <UserCheck className="h-3.5 w-3.5" />
+                <span>My Tasks</span>
+                {myTasksCount > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className={`h-5 min-w-[20px] px-1.5 text-xs ${
+                      showMyTasksOnly
+                        ? "bg-blue-500 text-white"
+                        : "bg-blue-100 text-blue-700"
+                    }`}
+                  >
+                    {myTasksCount}
+                  </Badge>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+
 
         <div className="overflow-hidden rounded-lg border border-gray-200">
           <Table>
             <TableHeader>
               <TableRow className="bg-gray-50 hover:bg-gray-50">
+                {isAdmin && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={flatVisibleTasks.length > 0 && selectedTaskIds.size === flatVisibleTasks.length}
+                      onCheckedChange={toggleAllSelection}
+                      aria-label="Select all"
+                      className="translate-y-[2px]"
+                    />
+                  </TableHead>
+                )}
                 <TableHead className="text-xs font-semibold uppercase text-gray-500">
                   Task Name
                 </TableHead>
@@ -370,6 +545,9 @@ const PMOProjectDetail: React.FC = () => {
                   Completion Date
                 </TableHead>
                 <TableHead className="text-xs font-semibold uppercase text-gray-500">
+                  Assigned To
+                </TableHead>
+                <TableHead className="text-xs font-semibold uppercase text-gray-500">
                   Attachment
                 </TableHead>
                 <TableHead className="text-xs font-semibold uppercase text-gray-500 text-right">
@@ -378,19 +556,19 @@ const PMOProjectDetail: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {categoryOrder.map((cat) => (
+              {visibleCategoryOrder.map((cat) => (
                 <React.Fragment key={cat}>
                   {/* Category Header Row */}
                   <TableRow className="bg-[#fffcfc] hover:bg-[#fffcfc]">
                     <TableCell
-                      colSpan={6}
+                      colSpan={isAdmin ? 8 : 7}
                       className="pb-2 pt-4 text-xs font-bold uppercase tracking-wider text-red-500"
                     >
                       {cat}
                     </TableCell>
                   </TableRow>
                   {/* Task Rows */}
-                  {(tasks[cat] || []).map((task) => {
+                  {(visibleTasks[cat] || []).map((task) => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     const expectedDate = task.expected_completion_date ? new Date(task.expected_completion_date) : null;
@@ -408,6 +586,16 @@ const PMOProjectDetail: React.FC = () => {
                           transition-colors
                         `}
                       >
+                      {isAdmin && (
+                        <TableCell className="w-10">
+                          <Checkbox
+                            checked={selectedTaskIds.has(task.name)}
+                            onCheckedChange={() => toggleTaskSelection(task.name)}
+                            aria-label={`Select ${task.task_name}`}
+                            className="translate-y-[2px]"
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="text-sm text-gray-900">
                         <div className="flex items-center gap-2">
                           <span
@@ -431,6 +619,25 @@ const PMOProjectDetail: React.FC = () => {
                         {formatDate(task.completion_date)}
                       </TableCell>
                       <TableCell className="text-sm text-gray-600">
+                        {(() => {
+                          const assigned = parseAssignedFromField(task.assigned_to);
+                          if (assigned.length === 0) return <span className="text-gray-400">---</span>;
+                          return (
+                            <div className="flex flex-wrap gap-0.5">
+                              {assigned.map((d, idx) => (
+                                <Badge
+                                  key={idx}
+                                  variant="secondary"
+                                  className="px-1.5 py-0 text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
+                                >
+                                  {d.userName || d.userId}
+                                </Badge>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
                         {task.attachment ? (
                           <a
                             href={task.attachment}
@@ -447,11 +654,17 @@ const PMOProjectDetail: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-right">
                         <button
+                          disabled={isPMO && !canPMOEdit(task)}
                           onClick={() => {
+                            if (isPMO && !canPMOEdit(task)) return;
                             setEditTask(task);
                             setEditOpen(true);
                           }}
-                          className="p-1 text-gray-400 hover:text-gray-600"
+                          className={`p-1 ${
+                            isPMO && !canPMOEdit(task)
+                              ? "text-gray-300 cursor-not-allowed"
+                              : "text-gray-400 hover:text-gray-600"
+                          }`}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
@@ -461,10 +674,10 @@ const PMOProjectDetail: React.FC = () => {
                 })}
                 </React.Fragment>
               ))}
-              {categoryOrder.length === 0 && (
+              {visibleCategoryOrder.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={isAdmin ? 8 : 7}
                     className="py-8 text-center text-sm text-gray-500"
                   >
                     No tasks configured. Please set up PMO Packages first.
@@ -662,6 +875,17 @@ const PMOProjectDetail: React.FC = () => {
         task={editTask}
         onSuccess={loadTasks}
       />
+
+      {/* Bulk Assign Dialog (admin) */}
+      {isAdmin && (
+        <AssignPMODialog
+          isOpen={assignDialogOpen}
+          onOpenChange={setAssignDialogOpen}
+          selectedTasks={selectedTasksForDialog}
+          pmoUsers={pmoUsers}
+          onAssign={handleBulkAssign}
+        />
+      )}
     </div>
   );
 };

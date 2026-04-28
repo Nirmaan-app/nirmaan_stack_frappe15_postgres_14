@@ -31,6 +31,10 @@ def get_itrs_list(
     conditions = ["1=1"]
     values: dict[str, Any] = {}
 
+    # Track which item status the tab is filtering on, so total_quantity
+    # and estimated_value aggregate only the relevant child items.
+    item_status_filter = ""
+
     # Parse filters
     parsed = frappe.parse_json(filters) if isinstance(filters, str) else (filters or [])
     for idx, f in enumerate(parsed):
@@ -43,6 +47,7 @@ def get_itrs_list(
                     """EXISTS (SELECT 1 FROM "tabInternal Transfer Request Item" ri
                        WHERE ri.parent = itr.name AND ri.status = 'Pending')"""
                 )
+                item_status_filter = "AND status = 'Pending'"
                 continue
 
             # Special filter: show ITRs that have ANY rejected child items
@@ -51,6 +56,7 @@ def get_itrs_list(
                     """EXISTS (SELECT 1 FROM "tabInternal Transfer Request Item" ri
                        WHERE ri.parent = itr.name AND ri.status = 'Rejected')"""
                 )
+                item_status_filter = "AND status = 'Rejected'"
                 continue
 
             allowed = {"name", "status", "target_project", "requested_by", "creation", "modified"}
@@ -98,20 +104,22 @@ def get_itrs_list(
             itr.creation,
             itr.modified,
             itr.status,
+            itr.target_type,
             itr.target_project,
-            tgt.project_name AS target_project_name,
+            CASE WHEN itr.target_type = 'Warehouse' THEN 'Warehouse' ELSE tgt.project_name END AS target_project_name,
             itr.requested_by,
             usr.full_name AS requested_by_full_name,
             itr.memo_count,
             itr.owner,
+            itr.source_type,
             itr.source_project,
-            src.project_name AS source_project_name,
-            (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name) AS total_items,
+            CASE WHEN itr.source_type = 'Warehouse' THEN 'Warehouse' ELSE src.project_name END AS source_project_name,
+            (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name {item_status_filter}) AS total_items,
             (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name AND status = 'Pending') AS pending_count,
             (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name AND status = 'Approved') AS approved_count,
             (SELECT COUNT(*) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name AND status = 'Rejected') AS rejected_count,
-            (SELECT COALESCE(SUM(transfer_quantity), 0) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name) AS total_quantity,
-            (SELECT COALESCE(SUM(transfer_quantity * estimated_rate), 0) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name) AS estimated_value
+            (SELECT COALESCE(SUM(transfer_quantity), 0) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name {item_status_filter}) AS total_quantity,
+            (SELECT COALESCE(SUM(transfer_quantity * estimated_rate), 0) FROM "tabInternal Transfer Request Item" WHERE parent = itr.name {item_status_filter}) AS estimated_value
         FROM "tabInternal Transfer Request" itr
         LEFT JOIN "tabProjects" src ON src.name = itr.source_project
         LEFT JOIN "tabProjects" tgt ON tgt.name = itr.target_project

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download, FileText, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download, FileText, MapPin, UserCheck, UserX } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatDate } from '@/utils/FormatDate';
 import { toast } from "@/components/ui/use-toast";
@@ -7,6 +7,16 @@ import { toast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -35,6 +45,10 @@ interface DailyReportViewProps {
   totalManpowerInReport: number;
   workMilestonesList: any[];
   workHeaderOrderMap: Record<string, number>;
+
+  // Target progress (admin-only column)
+  milestoneTarget?: Map<string, number>;
+  showTargetColumn?: boolean;
 }
 
 export const DailyReportView: React.FC<DailyReportViewProps> = ({
@@ -48,6 +62,8 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
   completedWorksOnReport,
   totalManpowerInReport,
   workMilestonesList,
+  milestoneTarget,
+  showTargetColumn = false,
 }) => {
   // Expand/Collapse state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -119,15 +135,100 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     return Math.round(overallProgress);
   }, [workMilestonesList]);
 
+  // Overall Report Completion %
+  // Report %  =  Σ (headerWeight × headerPct) / Σ headerWeight
+  // headerWeight = Σ effectiveWeightage of milestones in that header (N/A excluded)
+  const reportCompletionPct = useMemo(() => {
+    if (!milestoneGroups || milestoneGroups.length === 0) return 0;
+
+    let weightedSum = 0;
+    let totalHeaderWeight = 0;
+
+    for (const [header, milestones] of milestoneGroups) {
+      const headerWeight = (milestones as any[]).reduce((sum, m) => {
+        const wm = workMilestonesList?.find(
+          x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
+        );
+        const w = wm?.weightage || 1.0;
+        return sum + (m.status !== "Not Applicable" ? w : 0);
+      }, 0);
+
+      if (headerWeight === 0) continue;
+
+      const headerPct = calculateWeightedProgress(header, milestones as any[]);
+      weightedSum += headerWeight * headerPct;
+      totalHeaderWeight += headerWeight;
+    }
+
+    if (totalHeaderWeight === 0) return 0;
+    return Math.round(weightedSum / totalHeaderWeight);
+  }, [milestoneGroups, workMilestonesList, calculateWeightedProgress]);
+
+  // Header-level Target %: mirrors calculateWeightedProgress but substitutes
+  // milestoneTarget for actual progress, using the report's milestones
+  // (N/A excluded) — matches the print PDF and Zone Target logic.
+  const calculateHeaderTarget = useCallback((header: string, milestones: any[]) => {
+    if (!milestoneTarget || milestoneTarget.size === 0) return null;
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const m of milestones) {
+      if (m.status === "Not Applicable") continue;
+      const wm = workMilestonesList?.find(
+        x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
+      );
+      const weight = wm?.weightage || 1.0;
+      const target = milestoneTarget.get(m.work_milestone_name);
+      if (typeof target !== 'number') continue;
+      weightedSum += weight * target;
+      totalWeight += weight;
+    }
+    if (totalWeight === 0) return null;
+    return weightedSum / totalWeight;
+  }, [milestoneTarget, workMilestonesList]);
+
+  // Zone-level Target %: weighted average of per-milestone targets across all
+  // rendered milestones, weighted by weightage (N/A excluded). Mirrors the
+  // reportCompletionPct formula but substitutes target for actual progress.
+  const zoneTargetPct = useMemo(() => {
+    if (!showTargetColumn || !milestoneTarget || milestoneTarget.size === 0) {
+      return null;
+    }
+    if (!milestoneGroups || milestoneGroups.length === 0) return null;
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+
+    for (const [header, milestones] of milestoneGroups) {
+      for (const m of milestones as any[]) {
+        if (m.status === "Not Applicable") continue;
+        const wm = workMilestonesList?.find(
+          x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
+        );
+        const weight = wm?.weightage || 1.0;
+        const target = milestoneTarget.get(m.work_milestone_name);
+        if (typeof target !== 'number') continue;
+        weightedSum += weight * target;
+        totalWeight += weight;
+      }
+    }
+
+    if (totalWeight === 0) return null;
+    return Math.round(weightedSum / totalWeight);
+  }, [showTargetColumn, milestoneTarget, milestoneGroups, workMilestonesList]);
+
+  // Admin asks via dialog whether to include Target Progress in the PDF.
+  const [showAdminDownloadDialog, setShowAdminDownloadDialog] = useState(false);
+
   // PDF Download handler
-  const handleDownloadReport = async () => {
+  const handleDownloadReport = async (includeTarget: boolean = false) => {
     if (!dailyReportDetails?.name) return;
 
     try {
       toast({ title: "Generating PDF...", description: "Please wait while we prepare your report." });
 
       const headerParam = showPrintHeader ? '1' : '0';
-      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0&show_header=${headerParam}`;
+      const adminParam = includeTarget ? '&is_admin=1' : '';
+      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0&show_header=${headerParam}${adminParam}`;
 
       const response = await fetch(printUrl);
       if (!response.ok) throw new Error("Failed to generate PDF");
@@ -171,10 +272,53 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     <div className="bg-white p-3 md:p-4 rounded-lg shadow-sm border border-gray-300">
       {/* Report Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b pb-2 gap-2">
-        <h2 className="text-lg md:text-xl font-bold">Daily Work Report</h2>
-        <span className="text-gray-600 text-sm md:text-base">
-          {dailyReportDetails.report_date ? formatDate(dailyReportDetails.report_date) : formatDate(displayDate)}
-        </span>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg md:text-xl font-bold">Daily Work Report</h2>
+          <Badge
+            className={`gap-1.5 font-medium ${
+              dailyReportDetails.declaration_user_not_at_site
+                ? "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-50"
+                : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+            }`}
+          >
+            {dailyReportDetails.declaration_user_not_at_site ? (
+              <>
+                <UserX className="h-3.5 w-3.5" />
+                PM Off Site
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-3.5 w-3.5" />
+                PM On Site
+              </>
+            )}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-gray-600 text-sm md:text-base">
+            {dailyReportDetails.report_date ? formatDate(dailyReportDetails.report_date) : formatDate(displayDate)}
+          </span>
+          {showTargetColumn && typeof zoneTargetPct === 'number' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 font-medium hidden sm:inline">Zone Target :</span>
+              <MilestoneProgress
+                milestoneStatus="In Progress"
+                value={zoneTargetPct}
+                sizeClassName="size-[44px]"
+                textSizeClassName="text-[11px]"
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 font-medium hidden sm:inline">Zone Overall :</span>
+            <MilestoneProgress
+              milestoneStatus="Completed"
+              value={reportCompletionPct}
+              sizeClassName="size-[44px]"
+              textSizeClassName="text-[11px]"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Summary Metrics */}
@@ -221,91 +365,91 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
         <h3 className="text-base md:text-lg font-bold mb-3">Clearance Issues</h3>
 
         {/* Drawing Remarks */}
-       
-          <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full mb-4">
-                      <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
-                        <div className="p-1.5 bg-orange-500 rounded-lg">
-                          <FileText className="h-4 w-4 text-white" />
-                        </div>
-                        <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
-                      </div>
-                      
-                      <div className="p-4 flex-1 flex flex-col gap-4">
-                        {/* Remarks */}
-                        <div className="flex-1">
-                          {dailyReportDetails.drawing_remarks && dailyReportDetails.drawing_remarks.trim() !== "" ? (
-                            <ul className="space-y-2">
-                              {dailyReportDetails.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                                <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
-                                  <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                                    {idx + 1}
-                                  </span>
-                                  <span className="break-words">{remark.trim()}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                              <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
-                            </div>
-                          )}
-                        </div>
-          
-                        {/* Photos */}
-                        {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
-                          <div className="mt-auto pt-4 border-t border-orange-100">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
-                            <ImageBentoGrid
-                              images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
-                              forPdf={false}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      </div>
 
-                      {/* //Site CLearance Isseuse  */}
-          <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
-            <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
-              <div className="p-1.5 bg-red-500 rounded-lg">
-                <MapPin className="h-4 w-4 text-white" />
-              </div>
-              <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
+        <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full mb-4">
+          <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
+            <div className="p-1.5 bg-orange-500 rounded-lg">
+              <FileText className="h-4 w-4 text-white" />
             </div>
-            
-            <div className="p-4 flex-1 flex flex-col gap-4">
-              {/* Remarks */}
-              <div className="flex-1">
-                {dailyReportDetails.site_remarks && dailyReportDetails.site_remarks.trim() !== "" ? (
-                  <ul className="space-y-2">
-                    {dailyReportDetails.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                      <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
-                        <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span className="break-words">{remark.trim()}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-400 italic">No site issues reported</p>
-                  </div>
-                )}
-              </div>
+            <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
+          </div>
 
-              {/* Photos */}
-              {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
-                <div className="mt-auto pt-4 border-t border-red-100">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
-                  <ImageBentoGrid
-                    images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Site')}
-                    forPdf={false}
-                  />
+          <div className="p-4 flex-1 flex flex-col gap-4">
+            {/* Remarks */}
+            <div className="flex-1">
+              {dailyReportDetails.drawing_remarks && dailyReportDetails.drawing_remarks.trim() !== "" ? (
+                <ul className="space-y-2">
+                  {dailyReportDetails.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                    <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
+                      <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span className="break-words">{remark.trim()}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                  <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
                 </div>
               )}
             </div>
+
+            {/* Photos */}
+            {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
+              <div className="mt-auto pt-4 border-t border-orange-100">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                <ImageBentoGrid
+                  images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
+                  forPdf={false}
+                />
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* //Site CLearance Isseuse  */}
+        <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
+          <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
+            <div className="p-1.5 bg-red-500 rounded-lg">
+              <MapPin className="h-4 w-4 text-white" />
+            </div>
+            <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
+          </div>
+
+          <div className="p-4 flex-1 flex flex-col gap-4">
+            {/* Remarks */}
+            <div className="flex-1">
+              {dailyReportDetails.site_remarks && dailyReportDetails.site_remarks.trim() !== "" ? (
+                <ul className="space-y-2">
+                  {dailyReportDetails.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                    <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
+                      <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span className="break-words">{remark.trim()}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                  <p className="text-sm text-gray-400 italic">No site issues reported</p>
+                </div>
+              )}
+            </div>
+
+            {/* Photos */}
+            {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
+              <div className="mt-auto pt-4 border-t border-red-100">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                <ImageBentoGrid
+                  images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Site')}
+                  forPdf={false}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Work Plan Summary */}
@@ -395,6 +539,9 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
 
           {milestoneGroups.map(([header, milestones], groupIdx) => {
             const averageProgress = calculateWeightedProgress(header, milestones as any[]);
+            const headerTargetPct = showTargetColumn
+              ? calculateHeaderTarget(header, milestones as any[])
+              : null;
 
             return (
               <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
@@ -409,14 +556,25 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                     </h3>
                   </div>
                   <div className="flex items-center">
+                    {showTargetColumn && headerTargetPct !== null && (
+                      <div className="flex items-center text-end gap-2 mr-3">
+                        <span className="text-xs text-gray-500 font-medium hidden sm:inline">Target:</span>
+                        <MilestoneProgress
+                          milestoneStatus="In Progress"
+                          value={Number(headerTargetPct.toFixed(1))}
+                          sizeClassName="size-[44px]"
+                          textSizeClassName="text-[11px]"
+                        />
+                      </div>
+                    )}
                     {(milestones as any[]).length > 0 && (
-                      <div className="flex items-center text-end gap-2">
+                      <div className="flex items-center text-end gap-2 mr-3">
                         <span className="text-xs text-gray-500 font-medium hidden sm:inline">Overall:</span>
                         <MilestoneProgress
                           milestoneStatus="Completed"
                           value={averageProgress}
-                          sizeClassName="size-[40px]"
-                          textSizeClassName="text-[10px]"
+                          sizeClassName="size-[44px]"
+                          textSizeClassName="text-[11px]"
                         />
                       </div>
                     )}
@@ -439,10 +597,13 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                       <Table className="w-full">
                         <TableHeader>
                           <TableRow className="bg-gray-100">
-                            <TableHead className="w-[40%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
-                            <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                            <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Progress</TableHead>
-                            <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Expected Starting/completion Date</TableHead>
+                            <TableHead className={`${showTargetColumn ? 'w-[32%]' : 'w-[40%]'} font-semibold text-gray-700 text-sm py-2`}>Work</TableHead>
+                            <TableHead className={`${showTargetColumn ? 'w-[16%]' : 'w-[20%]'} text-center font-semibold text-gray-700 text-sm py-2`}>Status</TableHead>
+                            {showTargetColumn && (
+                              <TableHead className="w-[16%] text-center font-semibold text-gray-700 text-sm py-2">Target %</TableHead>
+                            )}
+                            <TableHead className={`${showTargetColumn ? 'w-[16%]' : 'w-[20%]'} text-center font-semibold text-gray-700 text-sm py-2`}>Progress %</TableHead>
+                            <TableHead className={`${showTargetColumn ? 'w-[20%]' : 'w-[20%]'} text-center font-semibold text-gray-700 text-sm py-2`}>Expected Starting/completion Date</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -467,12 +628,39 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                                   {milestone.status}
                                 </Badge>
                               </TableCell>
+                              {showTargetColumn && (
+                                <TableCell className="text-center py-3 px-4 font-medium">
+                                  {(() => {
+                                    if (milestone.status === "Not Applicable") {
+                                      return (
+                                        <MilestoneProgress
+                                          milestoneStatus="Not Applicable"
+                                          value={0}
+                                          sizeClassName="size-[40px]"
+                                          textSizeClassName="text-[10px]"
+                                        />
+                                      );
+                                    }
+                                    const t = milestoneTarget?.get(milestone.work_milestone_name);
+                                    return typeof t === 'number' ? (
+                                      <MilestoneProgress
+                                        milestoneStatus="In Progress"
+                                        value={Number(t.toFixed(1))}
+                                        sizeClassName="size-[40px]"
+                                        textSizeClassName="text-[10px]"
+                                      />
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    );
+                                  })()}
+                                </TableCell>
+                              )}
                               <TableCell className="text-center py-3 px-4 font-medium">
                                 <MilestoneProgress
                                   milestoneStatus={milestone.status}
                                   value={milestone.progress}
-                                  sizeClassName="size-[60px]"
-                                  textSizeClassName="text-md"
+                                  sizeClassName="size-[40px]"
+                                  textSizeClassName="text-[10px]"
                                 />
                               </TableCell>
                               <TableCell className="text-center py-3 px-4 text-sm">
@@ -527,6 +715,34 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                               )}
                             </div>
                           </div>
+                          {showTargetColumn && (
+                            <div className="mt-3 flex justify-between items-center">
+                              <p className="text-xs text-gray-500">Target</p>
+                              {(() => {
+                                if (milestone.status === "Not Applicable") {
+                                  return (
+                                    <MilestoneProgress
+                                      milestoneStatus="Not Applicable"
+                                      value={0}
+                                      sizeClassName="size-[48px]"
+                                      textSizeClassName="text-xs"
+                                    />
+                                  );
+                                }
+                                const t = milestoneTarget?.get(milestone.work_milestone_name);
+                                return typeof t === 'number' ? (
+                                  <MilestoneProgress
+                                    milestoneStatus="In Progress"
+                                    value={Number(t.toFixed(1))}
+                                    sizeClassName="size-[48px]"
+                                    textSizeClassName="text-xs"
+                                  />
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                );
+                              })()}
+                            </div>
+                          )}
                           <div className="mt-3">
                             <div className="flex justify-between items-center mb-1">
                               <p className="text-xs text-gray-500">Progress</p>
@@ -583,7 +799,13 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
               </Button>
             </div>
             <Button
-              onClick={handleDownloadReport}
+              onClick={() => {
+                if (showTargetColumn) {
+                  setShowAdminDownloadDialog(true);
+                } else {
+                  handleDownloadReport(false);
+                }
+              }}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
             >
               <Download className="w-4 h-4" />
@@ -592,6 +814,52 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
           </>
         )}
       </div>
+
+      {/* Admin: choose whether the PDF should include Target Progress */}
+      <AlertDialog open={showAdminDownloadDialog} onOpenChange={setShowAdminDownloadDialog}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <Download className="h-4 w-4" />
+              </div>
+              <AlertDialogTitle className="text-lg">Download Report</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-sm text-slate-600 leading-relaxed">
+              Choose a version of the PDF. The admin version adds{" "}
+              <span className="font-semibold text-slate-800">Zone Target</span>,{" "}
+              <span className="font-semibold text-slate-800">Header Target</span> and a{" "}
+              <span className="font-semibold text-slate-800">per-milestone Target column</span>{" "}
+              alongside actual progress.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
+            <AlertDialogCancel className="mt-0 sm:mt-0">Cancel</AlertDialogCancel>
+            <div className="flex flex-col-reverse sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                className="border-slate-300"
+                onClick={() => {
+                  setShowAdminDownloadDialog(false);
+                  handleDownloadReport(false);
+                }}
+              >
+                Without Target Progress
+              </Button>
+              <AlertDialogAction
+                onClick={() => {
+                  setShowAdminDownloadDialog(false);
+                  handleDownloadReport(true);
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                With Target Progress
+              </AlertDialogAction>
+            </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

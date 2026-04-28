@@ -13,12 +13,16 @@ from frappe.utils import flt
 
 
 @frappe.whitelist()
-def create_transfer_request(target_project: str, selections: Any) -> dict:
-    """Create N ITRs grouped by source_project.
+def create_transfer_request(target_project: str = None, selections: Any = None, target_type: str = "Project") -> dict:
+    """Create N ITRs grouped by source_project (or one ITR for warehouse source).
 
     Args:
-        target_project: Destination project name.
-        selections: List of ``{item_id, source_project, transfer_quantity}`` dicts.
+        target_project: Destination project name (required when target_type="Project").
+        selections: List of ``{item_id, source_project, transfer_quantity, source_type?}`` dicts.
+                    source_type defaults to "Project". Use "Warehouse" for warehouse source
+                    (source_project can be empty in that case).
+        target_type: "Project" (default) or "Warehouse". When "Warehouse", target_project
+                     is ignored and material goes to the warehouse.
 
     Returns:
         ``{"requests": ["ITR-2026-00001", ...], "count": N}``
@@ -31,11 +35,15 @@ def create_transfer_request(target_project: str, selections: Any) -> dict:
     if not isinstance(selections, list) or len(selections) == 0:
         frappe.throw("At least one item selection is required.")
 
-    if not target_project:
-        frappe.throw("Target project is required.")
+    target_type = (target_type or "Project").strip() or "Project"
 
-    if not frappe.db.exists("Projects", target_project):
-        frappe.throw(f"Target project {target_project} does not exist.")
+    if target_type == "Project":
+        if not target_project:
+            frappe.throw("Target project is required.")
+        if not frappe.db.exists("Projects", target_project):
+            frappe.throw(f"Target project {target_project} does not exist.")
+    else:
+        target_project = None
 
     # --- Pre-flight validation ---
     normalized = []
@@ -44,55 +52,94 @@ def create_transfer_request(target_project: str, selections: Any) -> dict:
             frappe.throw(f"Selection #{idx} is malformed.")
 
         item_id = (sel.get("item_id") or "").strip()
+        source_type = (sel.get("source_type") or "Project").strip()
         source_project = (sel.get("source_project") or "").strip()
         transfer_quantity = flt(sel.get("transfer_quantity") or 0)
+        # make is required to identify the specific (item, make) bucket in the
+        # warehouse; for project-source selections it is snapshotted from the
+        # RIR later, so we don't trust the caller's value.
+        raw_make = sel.get("make")
+        make = (raw_make.strip() or None) if isinstance(raw_make, str) else raw_make
 
         if not item_id:
             frappe.throw(f"Selection #{idx} is missing item_id.")
-        if not source_project:
+        if source_type == "Project" and not source_project:
             frappe.throw(f"Selection #{idx} is missing source_project.")
         if transfer_quantity <= 0:
             frappe.throw(
-                f"Selection #{idx} ({item_id} from {source_project}) has non-positive quantity."
+                f"Selection #{idx} ({item_id}): non-positive quantity."
             )
-        if source_project == target_project:
+        if target_type == "Warehouse" and source_type == "Warehouse":
+            frappe.throw(
+                f"Selection #{idx} ({item_id}): source and target cannot both be Warehouse."
+            )
+        if (
+            source_type == "Project" and target_type == "Project"
+            and source_project == target_project
+        ):
             frappe.throw(
                 f"Selection #{idx} ({item_id}): source project cannot equal target project."
             )
 
         normalized.append({
             "item_id": item_id,
-            "source_project": source_project,
+            "source_type": source_type,
+            "source_project": source_project if source_type == "Project" else "",
             "transfer_quantity": transfer_quantity,
+            # Both warehouse- and project-source selections carry make so the
+            # availability guard and the resulting ITR row can be precise about
+            # which (item, make) bucket is being moved. For project sources,
+            # the make value originates from the RIR row exposed by the picker.
+            "make": make,
         })
 
     # --- Availability guard ---
     from nirmaan_stack.integrations.controllers.internal_transfer_request import (
         available_quantity,
+        warehouse_available_quantity,
     )
 
-    aggregated: dict[tuple[str, str], float] = defaultdict(float)
+    # Check project-sourced items — keyed by (item, source_project, make) so
+    # different makes of the same item in the same project don't share a budget.
+    proj_aggregated: dict[tuple[str, str, str | None], float] = defaultdict(float)
+    # Warehouse source availability is per (item, make) bucket.
+    wh_aggregated: dict[tuple[str, str | None], float] = defaultdict(float)
     for sel in normalized:
-        aggregated[(sel["item_id"], sel["source_project"])] += sel["transfer_quantity"]
+        if sel["source_type"] == "Warehouse":
+            wh_aggregated[(sel["item_id"], sel.get("make"))] += sel["transfer_quantity"]
+        else:
+            proj_aggregated[(sel["item_id"], sel["source_project"], sel.get("make"))] += sel["transfer_quantity"]
 
     errors = []
-    for (item_id, source_project), requested in aggregated.items():
-        available = available_quantity(item_id, source_project)
+    for (item_id, source_project, make), requested in proj_aggregated.items():
+        available = available_quantity(item_id, source_project, make=make)
         if requested > flt(available):
+            make_label = f" ({make})" if make else ""
             errors.append(
-                f"Item {item_id} in {source_project}: requested {requested}, available {available}"
+                f"Item {item_id}{make_label} in {source_project}: requested {requested}, available {available}"
+            )
+    for (item_id, make), requested in wh_aggregated.items():
+        available = warehouse_available_quantity(item_id, make)
+        if requested > flt(available):
+            make_label = f" ({make})" if make else ""
+            errors.append(
+                f"Item {item_id}{make_label} in Warehouse: requested {requested}, available {available}"
             )
     if errors:
         frappe.throw(
             "Requested quantities exceed available inventory:\n- " + "\n- ".join(errors)
         )
 
-    # --- Group by source_project ---
+    # --- Split into project-sourced and warehouse-sourced ---
+    project_sels = [s for s in normalized if s["source_type"] == "Project"]
+    warehouse_sels = [s for s in normalized if s["source_type"] == "Warehouse"]
+
+    # --- Group project selections by source_project ---
     groups: dict[str, list[dict]] = defaultdict(list)
-    for sel in normalized:
+    for sel in project_sels:
         groups[sel["source_project"]].append(sel)
 
-    # --- Fetch latest RIR per source ---
+    # --- Fetch latest RIR per source project ---
     latest_rir_by_source = {}
     for src in groups.keys():
         rir = frappe.db.sql(
@@ -108,14 +155,19 @@ def create_transfer_request(target_project: str, selections: Any) -> dict:
             frappe.throw(f"No submitted Remaining Items Report found for {src}.")
         latest_rir_by_source[src] = rir[0]["name"]
 
-    # --- Build metadata snapshot ---
-    snapshot = _build_metadata_snapshot(latest_rir_by_source, normalized)
+    # --- Build metadata snapshot for project items ---
+    snapshot = _build_metadata_snapshot(latest_rir_by_source, project_sels) if project_sels else {}
 
-    # --- Create N ITRs (one per source) ---
+    # --- Build metadata snapshot for warehouse items ---
+    wh_snapshot = _build_warehouse_metadata_snapshot(warehouse_sels) if warehouse_sels else {}
+
+    # --- Create ITRs for project sources ---
     created = []
     for source_project, group_sels in groups.items():
         itr = frappe.new_doc("Internal Transfer Request")
+        itr.source_type = "Project"
         itr.source_project = source_project
+        itr.target_type = target_type
         itr.target_project = target_project
         itr.source_rir = latest_rir_by_source[source_project]
         itr.requested_by = frappe.session.user
@@ -124,12 +176,46 @@ def create_transfer_request(target_project: str, selections: Any) -> dict:
 
         for sel in group_sels:
             snap = snapshot.get((sel["source_project"], sel["item_id"]), {})
+            # Selection's make is authoritative — the picker showed the user
+            # exactly which (item, make) bucket they were picking from. Fall
+            # back to the RIR snapshot's make only when the selection lacks one
+            # (legacy callers that haven't been upgraded yet).
             itr.append("items", {
                 "item_id": sel["item_id"],
                 "item_name": snap.get("item_name"),
                 "unit": snap.get("unit"),
                 "category": snap.get("category"),
-                "make": snap.get("make"),
+                "make": sel.get("make") if sel.get("make") is not None else snap.get("make"),
+                "transfer_quantity": sel["transfer_quantity"],
+                "estimated_rate": snap.get("estimated_rate") or 0,
+                "status": "Pending",
+            })
+
+        itr.insert()
+        created.append(itr.name)
+
+    # --- Create one ITR for warehouse source (if any) ---
+    if warehouse_sels:
+        itr = frappe.new_doc("Internal Transfer Request")
+        itr.source_type = "Warehouse"
+        itr.source_project = None
+        itr.target_type = target_type
+        itr.target_project = target_project
+        itr.source_rir = None
+        itr.requested_by = frappe.session.user
+        itr.status = "Pending"
+        itr.memo_count = 0
+
+        for sel in warehouse_sels:
+            snap = wh_snapshot.get((sel["item_id"], sel.get("make")), {})
+            itr.append("items", {
+                "item_id": sel["item_id"],
+                "item_name": snap.get("item_name"),
+                "unit": snap.get("unit"),
+                "category": snap.get("category"),
+                # Use the make from the selection (identifies the WSI bucket);
+                # snapshot may have the same value, but selection is source of truth.
+                "make": sel.get("make"),
                 "transfer_quantity": sel["transfer_quantity"],
                 "estimated_rate": snap.get("estimated_rate") or 0,
                 "status": "Pending",
@@ -144,7 +230,14 @@ def create_transfer_request(target_project: str, selections: Any) -> dict:
 
 
 def _build_metadata_snapshot(latest_rir_by_source, selections):
-    """Fetch item_name/unit/category from RIR and make/estimated_rate from PO."""
+    """Fetch item_name/unit/category/make from RIR and estimated_rate from PO.
+
+    `make` is sourced from the RIR child row (stamped by
+    RemainingItemsReport.validate at submit time from the latest PO Item).
+    RIR is the authoritative snapshot of what make is physically on the project
+    as of that report, so we read it straight through instead of re-querying
+    the latest PO here. See docs under `RemainingItemsReport._stamp_latest_po_make`.
+    """
 
     if not selections:
         return {}
@@ -153,10 +246,10 @@ def _build_metadata_snapshot(latest_rir_by_source, selections):
     item_ids = tuple({sel["item_id"] for sel in selections})
     source_projects = tuple({sel["source_project"] for sel in selections})
 
-    # RIR fields
+    # RIR fields (make comes from here too)
     rir_rows = frappe.db.sql(
         """
-        SELECT parent AS rir_name, item_id, item_name, unit, category
+        SELECT parent AS rir_name, item_id, item_name, unit, category, make
         FROM "tabRemaining Item Entry"
         WHERE parent IN %(rir_names)s AND item_id IN %(item_ids)s
         """,
@@ -166,29 +259,16 @@ def _build_metadata_snapshot(latest_rir_by_source, selections):
 
     rir_index = {(row["rir_name"], row["item_id"]): row for row in rir_rows}
 
-    # PO rates + make
+    # PO-derived estimated_rate only — make now comes from the RIR row.
     po_rows = frappe.db.sql(
         """
-        WITH ranked AS (
-            SELECT po.project, poi.item_id, poi.quote, poi.make,
-                ROW_NUMBER() OVER (
-                    PARTITION BY po.project, poi.item_id ORDER BY poi.quote DESC
-                ) AS rn_rate,
-                ROW_NUMBER() OVER (
-                    PARTITION BY po.project, poi.item_id ORDER BY poi.creation DESC
-                ) AS rn_recent
-            FROM "tabPurchase Order Item" poi
-            JOIN "tabProcurement Orders" po ON poi.parent = po.name
-            WHERE po.status NOT IN ('Merged', 'Inactive', 'PO Amendment')
-              AND po.project IN %(source_projects)s AND poi.item_id IN %(item_ids)s
-        ),
-        rate_row AS (SELECT project, item_id, quote FROM ranked WHERE rn_rate = 1),
-        make_row AS (SELECT project, item_id, make FROM ranked WHERE rn_recent = 1)
-        SELECT COALESCE(r.project, m.project) AS project,
-               COALESCE(r.item_id, m.item_id) AS item_id,
-               r.quote AS max_quote, m.make AS latest_make
-        FROM rate_row r
-        FULL OUTER JOIN make_row m ON r.project = m.project AND r.item_id = m.item_id
+        SELECT po.project, poi.item_id, MAX(poi.quote) AS max_quote
+        FROM "tabPurchase Order Item" poi
+        JOIN "tabProcurement Orders" po ON poi.parent = po.name
+        WHERE po.status NOT IN ('Merged', 'Inactive', 'PO Amendment')
+          AND po.project IN %(source_projects)s
+          AND poi.item_id IN %(item_ids)s
+        GROUP BY po.project, poi.item_id
         """,
         {"source_projects": source_projects, "item_ids": item_ids},
         as_dict=True,
@@ -219,8 +299,55 @@ def _build_metadata_snapshot(latest_rir_by_source, selections):
             "item_name": (rir_hit or {}).get("item_name") or items_hit.get("item_name") or iid,
             "unit": (rir_hit or {}).get("unit") or items_hit.get("unit"),
             "category": (rir_hit or {}).get("category") or items_hit.get("category"),
-            "make": po_hit.get("latest_make"),
+            "make": (rir_hit or {}).get("make"),
             "estimated_rate": flt(po_hit.get("max_quote") or 0),
+        }
+
+    return snapshot
+
+
+def _build_warehouse_metadata_snapshot(selections):
+    """Fetch item metadata from Warehouse Stock Item (falls back to Items master).
+
+    Keyed by (item_id, make) — each distinct bucket in the warehouse has its
+    own row. `make` may be None for items with no known make.
+    """
+    if not selections:
+        return {}
+
+    item_ids = tuple({sel["item_id"] for sel in selections})
+
+    # Items master
+    items_rows = frappe.db.sql(
+        """SELECT name AS item_id, item_name, unit_name AS unit, category
+        FROM "tabItems" WHERE name IN %(item_ids)s""",
+        {"item_ids": item_ids},
+        as_dict=True,
+    ) if item_ids else []
+    items_index = {row["item_id"]: row for row in items_rows}
+
+    # Warehouse Stock Item — one row per (item_id, make) pair.
+    wsi_rows = frappe.db.sql(
+        """SELECT item_id, item_name, unit, category, make, estimated_rate
+        FROM "tabWarehouse Stock Item" WHERE item_id IN %(item_ids)s""",
+        {"item_ids": item_ids},
+        as_dict=True,
+    ) if item_ids else []
+    wsi_index = {(row["item_id"], row["make"]): row for row in wsi_rows}
+
+    snapshot = {}
+    for sel in selections:
+        iid = sel["item_id"]
+        make = sel.get("make")
+        items_hit = items_index.get(iid) or {}
+        wsi_hit = wsi_index.get((iid, make)) or {}
+
+        snapshot[(iid, make)] = {
+            "item_name": wsi_hit.get("item_name") or items_hit.get("item_name") or iid,
+            "unit": wsi_hit.get("unit") or items_hit.get("unit"),
+            "category": wsi_hit.get("category") or items_hit.get("category"),
+            "make": wsi_hit.get("make") or make,
+            "estimated_rate": flt(wsi_hit.get("estimated_rate") or 0),
         }
 
     return snapshot

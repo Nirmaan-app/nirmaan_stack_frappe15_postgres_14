@@ -13,7 +13,7 @@ export const INVOICE_TASK_TAB_OPTIONS = [
 
 /** Tab options for invoice type tabs */
 export const INVOICE_TYPE_TAB_OPTIONS = [
-  { label: "SR Invoices", value: INVOICE_TASK_TABS.SR_INVOICES },
+  { label: "WO Invoices", value: INVOICE_TASK_TABS.SR_INVOICES },
   { label: "PO Invoices", value: INVOICE_TASK_TABS.PO_INVOICES },
 ] as const;
 

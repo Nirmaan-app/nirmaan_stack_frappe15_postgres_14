@@ -121,7 +121,7 @@ def get_delivery_notes_for_itm(itm_name):
         "Delivery Note Item",
         filters={"parent": ["in", note_names]},
         fields=[
-            "name", "parent", "item_id", "item_name", "unit",
+            "name", "parent", "item_id", "item_name", "make", "unit",
             "category", "delivered_quantity"
         ],
         order_by="idx asc",

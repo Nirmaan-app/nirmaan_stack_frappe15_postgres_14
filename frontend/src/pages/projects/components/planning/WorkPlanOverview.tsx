@@ -1,164 +1,204 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { WorkPlanItem, WorkPlanDoc, getColorForProgress } from "./SevendaysWorkPlan";
-import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react";
-import { format } from "date-fns";
+import { ChevronDown, ChevronRight, Flag, CheckCircle2, Circle, Pencil } from "lucide-react";
 import { safeFormatDate } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 interface WorkPlanOverviewProps {
     header: string;
     items: WorkPlanItem[];
     getHeaderStats: (items: WorkPlanItem[]) => { avgProgress: number; plannedActivitiesCount: number };
     isProjectManager?: boolean;
+    onEditTask?: (plan: WorkPlanDoc, milestone: WorkPlanItem) => void;
 }
 
-const OverviewMilestoneItem = ({ item, isProjectManager }: { item: WorkPlanItem; isProjectManager?: boolean }) => {
-    // Default to expanded for Project Managers
-    const [isExpanded, setIsExpanded] = useState(isProjectManager || false);
-    const workPlans = item.work_plan_doc || [];
-    const hasWorkPlans = workPlans.length > 0;
+interface FlatActivity {
+    plan: WorkPlanDoc;
+    milestone: WorkPlanItem;
+}
+
+interface StatusStyle {
+    accent: string;       // hex for left edge bar
+    progressText: string; // percentage text color
+    progressBar: string;  // progress bar fill color
+    dot: string;          // pill dot
+    pillText: string;     // pill text
+    pillBg: string;       // pill bg
+    pillBorder: string;   // pill border
+}
+
+const statusStyles: Record<string, StatusStyle> = {
+    "Not Started": {
+        accent: "#DC2626", progressText: "text-red-600", progressBar: "bg-red-500",
+        dot: "bg-red-500", pillText: "text-red-700", pillBg: "bg-red-50/50", pillBorder: "border-red-200",
+    },
+    "Pending": {
+        accent: "#DC2626", progressText: "text-red-600", progressBar: "bg-red-500",
+        dot: "bg-red-500", pillText: "text-red-700", pillBg: "bg-red-50/50", pillBorder: "border-red-200",
+    },
+    "In Progress": {
+        accent: "#F59E0B", progressText: "text-amber-600", progressBar: "bg-amber-500",
+        dot: "bg-amber-500", pillText: "text-amber-700", pillBg: "bg-amber-50/50", pillBorder: "border-amber-200",
+    },
+    "WIP": {
+        accent: "#F59E0B", progressText: "text-amber-600", progressBar: "bg-amber-500",
+        dot: "bg-amber-500", pillText: "text-amber-700", pillBg: "bg-amber-50/50", pillBorder: "border-amber-200",
+    },
+    "Completed": {
+        accent: "#10B981", progressText: "text-emerald-600", progressBar: "bg-emerald-500",
+        dot: "bg-emerald-500", pillText: "text-emerald-700", pillBg: "bg-emerald-50/50", pillBorder: "border-emerald-200",
+    },
+    "On Hold": {
+        accent: "#9CA3AF", progressText: "text-gray-500", progressBar: "bg-gray-400",
+        dot: "bg-gray-400", pillText: "text-gray-600", pillBg: "bg-gray-100/50", pillBorder: "border-gray-200",
+    },
+};
+
+interface ActivityCardProps extends FlatActivity {
+    onEditTask?: (plan: WorkPlanDoc, milestone: WorkPlanItem) => void;
+}
+
+const ActivityCard = ({ plan, milestone, onEditTask }: ActivityCardProps) => {
+    const status = plan.wp_status || "Not Started";
+    const styles = statusStyles[status] || statusStyles["Not Started"];
+    const progress = Math.round(parseFloat(String(plan.wp_progress ?? "0")));
+    const milestoneProgress = Math.round(milestone.progress || 0);
+    const milestoneComplete = milestoneProgress >= 100;
 
     return (
-        <div className="border rounded-lg bg-white overflow-hidden mb-2">
-            <div 
-                className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors"
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
-                {/* Left: Title */}
-                <div className="flex items-center gap-3 overflow-hidden flex-1">
-                    <div className="text-gray-400 shrink-0">
-                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </div>
-                    <span className="font-medium text-gray-900 truncate" title={item.work_milestone_name}>
-                        {item.work_milestone_name}
-                    </span>
-                 </div>
-                 
-                 {/* Center: Zone and Status */}
-                 <div className="flex items-center justify-center gap-4 shrink-0 px-4">
-                        {/* Zone Badge */}
-                        {/* <span className="inline-flex items-center justify-center h-6 min-w-[70px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-[10px] text-gray-600 whitespace-nowrap">
-                            {item.zone || "Zone 1"}
-                        </span> */}
+        <div className="relative rounded-lg bg-white shadow-md overflow-hidden">
+            {/* Accent bar — always blue, full height, flush left, curves with card corners */}
+            <div
+                className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg"
+                style={{ backgroundColor: "#2079DF" }}
+            />
 
-                        {/* Status Badge */}
-                         <span className={`inline-flex items-center justify-center h-6 min-w-[70px] w-fit rounded-full px-3 text-[10px] font-medium whitespace-nowrap ${
-                            item.status === "Completed"
-                                ? "bg-green-100 text-green-800 border border-green-200"
-                                : item.status === "WIP" || item.status === "In Progress"
-                                ? "bg-orange-100 text-orange-800 border border-orange-200"
-                                : item.status === "Not Started"
-                                ? "bg-red-100 text-red-800 border border-red-200"
-                                : "bg-gray-100 text-gray-800 border border-gray-200"
-                        }`}>
-                            {item.status}
-                        </span>
-                 </div>
-
-                 {/* Right: Progress and Button */}
-                 <div className="flex items-center gap-4 shrink-0 flex-1 justify-end">
-                        {/* Progress */}
-                        <div className="w-[40px] text-right font-semibold text-sm">
-                             <span className={getColorForProgress(item.progress)}>{item.progress}%</span>
-                        </div>
-
-                         {/* Activities Button */}
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-7 border-blue-200 text-blue-700 font-normal hover:bg-blue-50 rounded-full text-xs min-w-[90px]"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setIsExpanded(!isExpanded);
-                            }}
-                        >
-                            {workPlans.length} Activities
-                        </Button>
-                 </div>
+            {/* Top row: TASK label + title + Update button (right) — all vertically centered */}
+            <div className="flex items-center gap-3 pl-5 pr-4 pt-3 pb-2">
+                <span className="inline-flex items-center h-5 px-2 rounded text-[10px] font-semibold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                    Task
+                </span>
+                <h5 className="text-sm font-semibold text-gray-900 leading-snug break-words flex-1" title={plan.wp_title}>
+                    {plan.wp_title}
+                </h5>
+                {onEditTask && (
+                    <button
+                        type="button"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shrink-0"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onEditTask(plan, milestone);
+                        }}
+                        title="Update Task"
+                    >
+                        <Pencil className="h-3 w-3" />
+                        Update
+                    </button>
+                )}
             </div>
 
-            {/* Expanded Content */}
-             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"}`}>
-                <div className="bg-gray-50/100 border-t border-gray-100">
-                    {hasWorkPlans ? (
-                        workPlans.map((plan) => (
-                            <div key={plan.name} className="px-10 py-2 border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                                <div className="flex items-center gap-4">
-                                    <div className="flex flex-col w-[35%] gap-0.5 shrink-0">
-                                        <div className="font-medium text-sm text-gray-700 truncate" title={plan.wp_title}>
-                                            {plan.wp_title}
-                                        </div>
-                                        {plan.wp_description && (
-                                            <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" title={plan.wp_description}>
-                                                <span className="font-semibold text-yellow-600">Note: </span>
-                                                {plan.wp_description}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex flex-col items-center w-[25%] shrink-0">
-                                         <span className="text-[8px] text-gray-400 uppercase">Planned Start - Planned End</span>
-                                        <div className="text-xs text-gray-500 font-medium text-center">
-                                            {safeFormatDate(plan.wp_start_date, "do MMM, yyyy")} 
-                                            {" - "}
-                                            {safeFormatDate(plan.wp_end_date, "do MMM, yyyy")}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center justify-end gap-3 flex-1 min-w-0">
-                                         <div className="flex flex-col items-center">
-                                              <span className="text-[8px] text-gray-400 uppercase">Status</span>
-                                             <Badge variant="outline" className={`px-2 py-0 h-5 text-[10px] whitespace-nowrap ${
-                                                plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                                                plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
-                                                plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                'bg-gray-50 text-gray-700 border-gray-200'
-                                            }`}>
-                                                {plan.wp_status || 'Pending'}
-                                            </Badge>
-                                         </div>
+            {/* Description (optional) */}
+            {plan.wp_description && (
+                <div className="pl-5 pr-4 pb-2 text-xs text-gray-500 leading-relaxed">
+                    <span className="font-semibold text-amber-600">Note: </span>
+                    {plan.wp_description}
+                </div>
+            )}
 
-                                        {/* Progress */}
-                                        <div className="flex flex-col items-center w-[40px]">
-                                             <span className="text-[8px] text-gray-400 uppercase">Prog</span>
-                                             <span className={`text-xs font-semibold ${getColorForProgress(parseFloat(plan.wp_progress || '0'))}`}>
-                                                {Math.round(parseFloat(plan.wp_progress || '0'))}%
-                                             </span>
-                                        </div>
+            {/* 4-column data grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-y-3 pl-5 pr-4 pb-3 pt-1">
+                {/* Planned (left-aligned) */}
+                <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Planned</span>
+                    <span className="text-xs font-medium text-gray-700 truncate">
+                        {safeFormatDate(plan.wp_start_date, "d MMM, yyyy")}
+                        {" - "}
+                        {safeFormatDate(plan.wp_end_date, "d MMM, yyyy")}
+                    </span>
+                </div>
 
-                                        {/* Estimate Date */}
-                                        <div className="flex flex-col items-end min-w-[100px]">
-                                             <span className="text-[8px] text-gray-400 uppercase">Est. Date</span>
-                                             <span className="text-xs font-medium text-gray-700 whitespace-nowrap">
-                                                {plan.wp_estimate_completion_date ? safeFormatDate(plan.wp_estimate_completion_date, "do MMM, yyyy") : "-"}
-                                             </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))
+                {/* Status (centered) */}
+                <div className="flex flex-col gap-1 min-w-0 items-center">
+                    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Status</span>
+                    <span className={`inline-flex items-center gap-1.5 h-6 w-fit rounded-md border px-2.5 text-[11px] font-medium ${styles.pillBg} ${styles.pillBorder} ${styles.pillText}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
+                        {status}
+                    </span>
+                </div>
+
+                {/* Progress (stacked: %, then bar below) — color tied to STATUS */}
+                <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Progress</span>
+                    <span className="text-base font-semibold tabular-nums leading-tight text-gray-900">
+                        {progress}%
+                    </span>
+                    <div className="h-1 bg-gray-200 rounded-full overflow-hidden w-full">
+                        <div
+                            className={`h-full rounded-full ${styles.progressBar}`}
+                            style={{ width: `${Math.min(progress, 100)}%` }}
+                        />
+                    </div>
+                </div>
+
+                {/* Est. Date (right-aligned) */}
+                <div className="flex flex-col gap-1 min-w-0 items-end">
+                    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Est. Date</span>
+                    <span className="text-xs font-medium text-gray-700 truncate">
+                        {plan.wp_estimate_completion_date
+                            ? safeFormatDate(plan.wp_estimate_completion_date, "d MMM, yyyy")
+                            : "---"}
+                    </span>
+                </div>
+            </div>
+
+            {/* Footer: Milestone reference */}
+            <div className="flex items-center justify-between gap-3 border-t border-gray-100 pl-5 pr-4 py-2 bg-gray-50/50 rounded-b-lg">
+                <div className="flex items-center gap-2 min-w-0">
+                    <Flag className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider shrink-0">
+                        Milestone
+                    </span>
+                    <span className="text-gray-300 shrink-0">|</span>
+                    <span className="text-xs font-medium text-gray-700 truncate" title={milestone.work_milestone_name}>
+                        {milestone.work_milestone_name}
+                    </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                    {milestoneComplete ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                     ) : (
-                        <div className="p-4 text-center text-xs text-gray-500 italic">No planned activities found.</div>
+                        <Circle className={`h-3.5 w-3.5 ${getColorForProgress(milestoneProgress)}`} />
                     )}
+                    <span className={`text-xs font-semibold ${milestoneComplete ? "text-emerald-600" : getColorForProgress(milestoneProgress)}`}>
+                        {milestoneProgress}% complete
+                    </span>
                 </div>
             </div>
         </div>
     );
 };
 
-
-export const WorkPlanOverview = ({ header, items, getHeaderStats, isProjectManager }: WorkPlanOverviewProps) => {
-    // We assume items are already filtered by SevendaysWorkPlan for overview (only with items)
+export const WorkPlanOverview = ({ header, items, getHeaderStats, onEditTask }: WorkPlanOverviewProps) => {
     const { plannedActivitiesCount } = getHeaderStats(items);
     const [isExpanded, setIsExpanded] = useState(true);
 
+    const flatActivities = useMemo<FlatActivity[]>(() => {
+        const out: FlatActivity[] = [];
+        items.forEach((milestone) => {
+            (milestone.work_plan_doc || []).forEach((plan) => {
+                out.push({ plan, milestone });
+            });
+        });
+        return out;
+    }, [items]);
+
     return (
-        <div className={`overflow-hidden mb-4 transition-colors ${isExpanded ? "bg-gray-50 rounded-md pb-2" : "bg-white"}`}>
+        <div className={`overflow-hidden mb-4 transition-colors ${isExpanded ? "bg-gray-50 rounded-md pb-3" : "bg-white"}`}>
             {/* Header */}
-            <div 
+            <div
                 className={`flex items-center justify-between cursor-pointer transition-colors ${
-                    !isExpanded 
-                    ? "border bg-gray-100/50 px-3 py-3 rounded-md border-[#D7D7EC]"
-                    : "py-3 px-3"
+                    !isExpanded
+                        ? "border bg-gray-100/50 px-3 py-3 rounded-md border-[#D7D7EC]"
+                        : "py-3 px-3"
                 }`}
                 onClick={() => setIsExpanded(!isExpanded)}
             >
@@ -169,16 +209,22 @@ export const WorkPlanOverview = ({ header, items, getHeaderStats, isProjectManag
                     </span>
                 </div>
                 <div className="text-gray-400">
-                        {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                    {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                 </div>
             </div>
 
-            {/* List */}
+            {/* Activity Cards */}
             {isExpanded && (
-                <div className="mt-2 mx-8">
-                    {items.map((item, idx) => (
-                        <OverviewMilestoneItem key={idx} item={item} isProjectManager={isProjectManager} />
-                    ))}
+                <div className="mt-2 px-3 space-y-2">
+                    {flatActivities.length > 0 ? (
+                        flatActivities.map(({ plan, milestone }) => (
+                            <ActivityCard key={plan.name} plan={plan} milestone={milestone} onEditTask={onEditTask} />
+                        ))
+                    ) : (
+                        <div className="rounded-md border border-dashed border-gray-200 bg-white p-4 text-center text-xs text-gray-500 italic">
+                            No planned activities found.
+                        </div>
+                    )}
                 </div>
             )}
         </div>

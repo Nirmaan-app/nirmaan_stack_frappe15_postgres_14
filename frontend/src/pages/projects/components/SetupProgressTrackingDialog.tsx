@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { useProjectTrackingSetupApi } from "@/pages/projects/data/tab/work-report/useProjectTrackingSetupApi";
+import { useFrappePostCall } from "frappe-react-sdk";
 
 const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s,]/g;
 const VALID_KEY_REGEX = /^[a-zA-Z0-9\s,]$/;
@@ -87,6 +88,10 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
     getLinkedWorkHeaderName,
 }) => {
     const { saveProgressTrackingSetup, updateDocLoading } = useProjectTrackingSetupApi();
+
+    const { call: ensureZoneReports } = useFrappePostCall(
+        "nirmaan_stack.api.milestone.get_header_milestones_preview.ensure_zone_reports"
+    );
 
     const [currentStep, setCurrentStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
@@ -276,6 +281,24 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
             };
 
             await saveProgressTrackingSetup(projectData.name, payload);
+
+            const zoneNamesToSeed = zonesToSave.map((z) => z.zone_name).filter(Boolean);
+            if (zoneNamesToSeed.length > 0) {
+                try {
+                    await ensureZoneReports({
+                        project: projectData.name,
+                        zones: zoneNamesToSeed,
+                    });
+                } catch (seedErr) {
+                    console.error("ensure_zone_reports failed on setup:", seedErr);
+                    toast({
+                        title: "Warning",
+                        description: "Setup saved but auto-report seeding failed.",
+                        variant: "destructive",
+                    });
+                }
+            }
+
             await onSuccess();
             toast({
                 title: "Success",

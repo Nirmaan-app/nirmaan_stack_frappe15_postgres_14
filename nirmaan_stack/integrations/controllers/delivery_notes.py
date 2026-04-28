@@ -115,10 +115,31 @@ def recalculate_po_delivery_fields(po_name):
 def recalculate_itm_delivery_fields(itm_name):
     """Recalculate received quantities and status for an ITM based on its delivery notes.
 
+    Aggregation is keyed by `(item_id, make_or_None)` so that an ITM holding
+    the same item in two makes (e.g., Tata + Jindal pulled from the warehouse)
+    has each row's `received_quantity` computed and updated independently.
+
+    When target_type=Warehouse, also adjusts Warehouse Stock Item by the delta
+    between previous and new received_quantity per (item, make) row — which is
+    what `apply_warehouse_delta` expects.
+
     Returns:
         str: The updated ITM status.
     """
     itm = frappe.get_doc("Internal Transfer Memo", itm_name)
+    target_type = getattr(itm, "target_type", None) or "Project"
+
+    def _norm_make(value):
+        # Treat empty-string and None as the same bucket so dict keys are stable.
+        if isinstance(value, str):
+            return value.strip() or None
+        return value or None
+
+    # Capture previous received_quantity per (item, make) for delta calculation
+    prev_received = {
+        (item.item_id, _norm_make(item.make)): safe_float(item.received_quantity)
+        for item in itm.items
+    }
 
     # Fetch all DNs for this ITM
     dns = frappe.get_all(
@@ -127,18 +148,19 @@ def recalculate_itm_delivery_fields(itm_name):
         fields=["name"],
     )
 
-    # Aggregate received quantities per item_id
+    # Aggregate received quantities per (item_id, make_or_None)
     received_map = {}
     if dns:
         dn_names = [d.name for d in dns]
         all_dn_items = frappe.get_all(
             "Delivery Note Item",
             filters={"parent": ["in", dn_names]},
-            fields=["item_id", "delivered_quantity"],
+            fields=["item_id", "make", "delivered_quantity"],
             limit_page_length=0,
         )
         for di in all_dn_items:
-            received_map[di.item_id] = received_map.get(di.item_id, 0) + (
+            key = (di.item_id, _norm_make(di.make))
+            received_map[key] = received_map.get(key, 0) + (
                 float(di.delivered_quantity) if di.delivered_quantity else 0
             )
 
@@ -149,7 +171,7 @@ def recalculate_itm_delivery_fields(itm_name):
 
     for item in itm.items:
         item_count += 1
-        new_received = received_map.get(item.item_id, 0)
+        new_received = received_map.get((item.item_id, _norm_make(item.make)), 0)
         item.received_quantity = new_received
         if new_received > 0:
             any_received = True
@@ -164,4 +186,17 @@ def recalculate_itm_delivery_fields(itm_name):
     # else: stay at current status (Dispatched)
 
     itm.save(ignore_permissions=True)
+
+    # For warehouse-target ITMs, adjust Warehouse Stock Item by delivery delta
+    # per (item, make) — apply_warehouse_delta keys WSI on (item_id, make).
+    if target_type == "Warehouse":
+        from nirmaan_stack.integrations.controllers.warehouse_stock import (
+            apply_warehouse_delta,
+        )
+        for item in itm.items:
+            prev = prev_received.get((item.item_id, _norm_make(item.make)), 0)
+            delta = safe_float(item.received_quantity) - prev
+            if delta != 0:
+                apply_warehouse_delta(itm, item, delta)
+
     return itm.status

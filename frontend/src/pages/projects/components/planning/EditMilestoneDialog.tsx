@@ -48,20 +48,20 @@ export const EditMilestoneDialog = ({
     const handleChange = (field: string, value: any) => {
         setFormData((prev) => {
             const newData = { ...prev, [field]: value };
-            
+
             // Logic: If status is Completed, set progress to 100
             if (field === "status" && value === "Completed") {
                 newData.progress = 100;
             }
-            
+
             // Logic: If status is Not Started, set progress to 0
             if (field === "status" && value === "Not Started") {
                 newData.progress = 0;
             }
-             if (field === "status" && value === "Not Applicable") {
+            if (field === "status" && value === "Not Applicable") {
                 newData.progress = 0;
             }
-            
+
             return newData;
         });
     };
@@ -111,7 +111,7 @@ export const EditMilestoneDialog = ({
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[500px] p-0 gap-0 overflow-hidden">
                 <div className="flex items-center gap-4 border-b p-6">
-                    <div 
+                    <div
                         className="flex h-12 w-12 items-center justify-center rounded-lg text-white"
                         style={{ backgroundColor: "#2b66ec" }}
                     >
@@ -137,11 +137,11 @@ export const EditMilestoneDialog = ({
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="Not Started">Not Started</SelectItem>
-                                <SelectItem value="In Progress">In Progress</SelectItem>
+                                {/* <SelectItem value="In Progress">In Progress</SelectItem> */}
                                 <SelectItem value="Completed">Completed</SelectItem>
                                 <SelectItem value="WIP">WIP</SelectItem>
                                 <SelectItem value="Not Applicable">Not Applicable</SelectItem>
-                                
+
                             </SelectContent>
                         </Select>
                     </div>
@@ -184,7 +184,7 @@ export const EditMilestoneDialog = ({
                             onChange={(e) => handleChange("progress", e.target.value === "" ? "" : Number(e.target.value))}
                             placeholder="0"
                             disabled={formData.status === "Not Started" || formData.status === "Completed" || formData.status === "Not Applicable"}
-                            className={formData.status === "Not Started"|| formData.status === "Not Applicable" || formData.status === "Completed" ? "bg-gray-50 cursor-not-allowed" : ""}
+                            className={formData.status === "Not Started" || formData.status === "Not Applicable" || formData.status === "Completed" ? "bg-gray-50 cursor-not-allowed" : ""}
                         />
                     </div>
                 </div>
@@ -193,9 +193,9 @@ export const EditMilestoneDialog = ({
                     <Button variant="outline" onClick={onClose} className="bg-white hover:bg-gray-100">
                         Cancel
                     </Button>
-                    <Button 
-                        onClick={handleSubmit} 
-                        disabled={updating} 
+                    <Button
+                        onClick={handleSubmit}
+                        disabled={updating}
                         className="bg-red-600 hover:bg-red-700 text-white"
                     >
                         {updating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

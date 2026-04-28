@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { X, Package, ExternalLink, RefreshCw } from "lucide-react";
+import { X, Package, ExternalLink, RefreshCw, Pencil } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup"; 
@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "./CategoryTaskSelector";
 import { AllPOsModal } from "./AllPOsModal";
 import { ReviewPlansPage } from "./ReviewPlansPage";
+import { WorkPlanReferencePanel } from "./WorkPlanReferencePanel";
 
 // Types
 interface Task {
@@ -518,9 +519,12 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     // Review Page
     if (formStep === "review") {
         return (
-            <div className="border rounded-lg p-4 bg-white shadow-sm">
+            <div className="border border-red-200 border-l-4 border-l-red-500 rounded-lg p-4 bg-red-50/40 shadow-md">
                 <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-semibold text-gray-800">Material Plan #{planNumber}</h4>
+                    <div className="flex items-center gap-2">
+                        <Pencil className="h-4 w-4 text-red-600" />
+                        <h4 className="font-semibold text-gray-900">Material Plan #{planNumber}</h4>
+                    </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>
                         <X className="h-4 w-4" />
                     </Button>
@@ -543,14 +547,20 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     }
 
     return (
-        <div className="border rounded-lg p-4 bg-white shadow-sm">
+        <div className="border border-red-200 border-l-4 border-l-red-500 rounded-lg p-4 bg-red-50/40 shadow-md">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
-                <h4 className="font-semibold text-gray-800">Material Plan #{planNumber}</h4>
+                <div className="flex items-center gap-2">
+                    <Pencil className="h-4 w-4 text-red-600" />
+                    <h4 className="font-semibold text-gray-900">Material Plan #{planNumber}</h4>
+                </div>
                 <Button variant="ghost" size="icon" onClick={onClose}>
                     <X className="h-4 w-4" />
                 </Button>
             </div>
+
+            {/* Reference: Existing Work Plan Tasks for this project */}
+            <WorkPlanReferencePanel projectId={projectId} />
 
             {/* Step 1: Category/Task Selection (V2) */}
             <div className="mb-6">

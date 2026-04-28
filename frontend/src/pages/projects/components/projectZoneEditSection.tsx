@@ -9,7 +9,7 @@ import type { KeyedMutator } from "swr";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useProjectTrackingSetupApi } from "@/pages/projects/data/tab/work-report/useProjectTrackingSetupApi";
-import type { FrappeDoc } from "frappe-react-sdk";
+import { useFrappePostCall, type FrappeDoc } from "frappe-react-sdk";
 
 // Validation constants
 const ZONE_NAME_REGEX = /^[a-zA-Z0-9\s,]+$/;
@@ -196,6 +196,10 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
         renameLoading,
     } = useProjectTrackingSetupApi();
 
+    const { call: ensureZoneReports } = useFrappePostCall(
+        "nirmaan_stack.api.milestone.get_header_milestones_preview.ensure_zone_reports"
+    );
+
     // Sync local state with project data when not editing
     useEffect(() => {
         if (!isEditing) {
@@ -243,7 +247,33 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
         if (isZoneSaveDisabled) return;
 
         try {
+            const existingZoneNames = new Set(
+                (projectData.project_zones || [])
+                    .map((z) => z.zone_name?.trim())
+                    .filter(Boolean) as string[]
+            );
+            const newZoneNames = zonesToSave
+                .map((z) => z.zone_name)
+                .filter((n) => !existingZoneNames.has(n));
+
             await updateProjectZones(projectData.name, zonesToSave);
+
+            if (newZoneNames.length > 0) {
+                try {
+                    await ensureZoneReports({
+                        project: projectData.name,
+                        zones: newZoneNames,
+                    });
+                } catch (seedErr) {
+                    console.error("ensure_zone_reports failed:", seedErr);
+                    toast({
+                        title: "Warning",
+                        description: "Zones saved but auto-report seeding failed for new zones.",
+                        variant: "destructive",
+                    });
+                }
+            }
+
             await project_mutate();
             toast({
                 title: "Success",

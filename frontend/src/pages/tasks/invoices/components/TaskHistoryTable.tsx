@@ -26,6 +26,7 @@ import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
+import { useFacetValues } from "@/hooks/useFacetValues";
 
 const URL_SYNC_KEY = "inv_history";
 
@@ -162,6 +163,7 @@ export const TaskHistoryTable: React.FC = () => {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        columnFilters,
         exportAllRows,
         isExporting,
     } = useServerDataTable<VendorInvoice>({
@@ -174,6 +176,40 @@ export const TaskHistoryTable: React.FC = () => {
         additionalFilters: staticFilters,
         enableRowSelection: false,
     });
+
+    // --- Facet Filters ---
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: VENDOR_INVOICES_DOCTYPE,
+        field: "vendor",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
+
+    const { facetOptions: typeFacetOptions, isLoading: isTypeFacetLoading } = useFacetValues({
+        doctype: VENDOR_INVOICES_DOCTYPE,
+        field: "document_type",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
+
+    const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useFacetValues({
+        doctype: VENDOR_INVOICES_DOCTYPE,
+        field: "status",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
+
+    const facetFilterOptions = useMemo(() => ({
+        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+        document_type: { title: "Type", options: typeFacetOptions, isLoading: isTypeFacetLoading },
+        status: { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading },
+    }), [vendorFacetOptions, isVendorFacetLoading, typeFacetOptions, isTypeFacetLoading, statusFacetOptions, isStatusFacetLoading]);
 
     // Effect to extract attachment IDs from fetched invoices
     useEffect(() => {
@@ -233,6 +269,7 @@ export const TaskHistoryTable: React.FC = () => {
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
+                    facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={VENDOR_INVOICE_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={"default"}

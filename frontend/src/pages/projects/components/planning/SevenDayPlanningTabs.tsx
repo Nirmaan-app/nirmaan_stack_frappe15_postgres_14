@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
+import { Blocks, TrendingUp, Workflow, LucideIcon } from "lucide-react";
 
 // Make sure these match the parent's usage or export them from a shared types file
 export const PLANNING_TABS = {
@@ -8,6 +9,12 @@ export const PLANNING_TABS = {
   MATERIAL_PLAN: "Material Plan",
   Cashflow_Plan: "Cashflow Plan",
 } as const;
+
+const TAB_ICONS: Partial<Record<string, LucideIcon>> = {
+  [PLANNING_TABS.WORK_PLAN]: Workflow,
+  [PLANNING_TABS.MATERIAL_PLAN]: Blocks,
+  [PLANNING_TABS.Cashflow_Plan]: TrendingUp,
+};
 
 export type PlanningTabValue = typeof PLANNING_TABS[keyof typeof PLANNING_TABS];
 
@@ -46,21 +53,24 @@ export const SevenDayPlanningTabs = ({
 
   return (
     <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC]">
-      {tabs.map((tab) => (
-
-        <button
-          key={tab}
-          onClick={() => setActiveTab(tab)}
-          className={cn(
-            "px-6 py-2 text-sm font-medium transition-colors border-r border-[#D7D7EC] last:border-r-0",
-            activeTab === tab
-              ? "bg-red-600 text-white"
-              : "bg-white text-gray-800 hover:bg-gray-50"
-          )}
-        >
-          {tab}
-        </button>
-      ))}
+      {tabs.map((tab) => {
+        const Icon = TAB_ICONS[tab];
+        return (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "inline-flex items-center gap-2 px-6 py-2 text-sm font-medium transition-colors border-r border-[#D7D7EC] last:border-r-0",
+              activeTab === tab
+                ? "bg-red-600 text-white"
+                : "bg-white text-gray-800 hover:bg-gray-50"
+            )}
+          >
+            {Icon && <Icon className="h-4 w-4" />}
+            {tab}
+          </button>
+        );
+      })}
     </div>
   );
 };

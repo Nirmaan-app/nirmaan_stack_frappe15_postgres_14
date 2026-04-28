@@ -12,7 +12,8 @@
   "unit",
   "category",
   "dn_quantity",
-  "remaining_quantity"
+  "remaining_quantity",
+  "make"
  ],
  "fields": [
   {
@@ -56,6 +57,11 @@
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Remaining Quantity"
+  },
+  {
+   "fieldname": "make",
+   "fieldtype": "Data",
+   "label": "Make"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -58,19 +58,43 @@ def approve_itr_items(itr_name: str, item_names: Any) -> dict:
     # --- Re-run availability guard for selected items ---
     from nirmaan_stack.integrations.controllers.internal_transfer_request import (
         available_quantity,
+
+        warehouse_available_quantity,
     )
 
-    aggregated: dict[str, float] = {}
-    for row in selected_items:
-        aggregated[row.item_id] = aggregated.get(row.item_id, 0) + flt(row.transfer_quantity)
+    itr_source_type = getattr(itr, "source_type", None) or "Project"
+    # Both source types now aggregate by (item, make) so distinct makes don't
+    # share a budget. Empty/whitespace make is normalised to None.
+    if itr_source_type == "Warehouse":
+        wh_aggregated: dict[tuple[str, str | None], float] = {}
+        for row in selected_items:
+            key = (row.item_id, row.make or None)
+            wh_aggregated[key] = wh_aggregated.get(key, 0) + flt(row.transfer_quantity)
+    else:
+        proj_aggregated: dict[tuple[str, str | None], float] = {}
+        for row in selected_items:
+            key = (row.item_id, row.make or None)
+            proj_aggregated[key] = proj_aggregated.get(key, 0) + flt(row.transfer_quantity)
 
     errors = []
-    for item_id, requested in aggregated.items():
-        available = available_quantity(item_id, itr.source_project, exclude_itr=itr_name)
-        if requested > flt(available):
-            errors.append(
-                f"Item {item_id}: requested {requested}, available {available}"
+    if itr_source_type == "Warehouse":
+        for (item_id, make), requested in wh_aggregated.items():
+            available = warehouse_available_quantity(item_id, make, exclude_itr=itr_name)
+            if requested > flt(available):
+                make_label = f" ({make})" if make else ""
+                errors.append(
+                    f"Item {item_id}{make_label}: requested {requested}, available {available}"
+                )
+    else:
+        for (item_id, make), requested in proj_aggregated.items():
+            available = available_quantity(
+                item_id, itr.source_project, exclude_itr=itr_name, make=make
             )
+            if requested > flt(available):
+                make_label = f" ({make})" if make else ""
+                errors.append(
+                    f"Item {item_id}{make_label}: requested {requested}, available {available}"
+                )
     if errors:
         frappe.throw(
             _("Insufficient available quantity:\n- {0}").format("\n- ".join(errors))
@@ -79,11 +103,15 @@ def approve_itr_items(itr_name: str, item_names: Any) -> dict:
     # --- Create single ITM (all items from same source) ---
     created_itms = []
 
+    itr_target_type = getattr(itr, "target_type", None) or "Project"
+
     itm = frappe.new_doc("Internal Transfer Memo")
-    itm.source_project = itr.source_project
-    itm.target_project = itr.target_project
+    itm.source_type = itr_source_type
+    itm.source_project = itr.source_project if itr_source_type == "Project" else None
+    itm.target_type = itr_target_type
+    itm.target_project = itr.target_project if itr_target_type == "Project" else None
     itm.transfer_request = itr.name
-    itm.source_rir = itr.source_rir
+    itm.source_rir = itr.source_rir if itr_source_type == "Project" else None
     itm.status = "Approved"
     itm.requested_by = itr.requested_by
     itm.approved_by = frappe.session.user

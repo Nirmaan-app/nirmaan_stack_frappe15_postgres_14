@@ -52,7 +52,6 @@ export const projectRootKeys = {
   designTrackerList: (projectId: string) => ["project-root", "designTrackerList", projectId] as const,
   commissionReportList: (projectId: string) => ["project-root", "commissionReportList", projectId] as const,
   commissionMasterData: () => ["project-root", "commissionMasterData"] as const,
-  boqList: (projectId: string) => ["project-root", "boqList", projectId] as const,
   projectPayments: (projectId: string) => ["project-root", "projectPayments", projectId] as const,
   projectExpenses: (projectId: string) => ["project-root", "projectExpenses", projectId] as const,
   procurementRequests: (projectId: string) => ["project-root", "procurementRequests", projectId] as const,
@@ -318,16 +317,6 @@ export const useProjectViewMeta = (projectId: string) => {
     projectRootKeys.commissionMasterData()
   );
 
-  const boqListResponse = useFrappeGetDocList(
-    "BOQ",
-    {
-      fields: ["name"],
-      filters: [["project", "=", projectId]],
-      limit: 100,
-    },
-    projectId ? projectRootKeys.boqList(projectId) : null
-  );
-
   useApiErrorLogger(designTrackerResponse.error, {
     hook: "useProjectViewMeta",
     api: "Project Design Tracker List",
@@ -348,18 +337,10 @@ export const useProjectViewMeta = (projectId: string) => {
     feature: "project-root",
   });
 
-  useApiErrorLogger(boqListResponse.error, {
-    hook: "useProjectViewMeta",
-    api: "BOQ List",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
   return {
     designTrackerResponse,
     commissionReportResponse,
     commissionMasterDataResponse,
-    boqListResponse,
   };
 };
 
