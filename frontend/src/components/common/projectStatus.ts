@@ -15,7 +15,7 @@ export const PROJECT_STATUS_OPTIONS: ProjectStatus[] = [
   "CEO Hold",
 ];
 
-export const DEFAULT_PROJECT_STATUS_FILTER: ProjectStatus[] = ["WIP"];
+export const DEFAULT_PROJECT_STATUS_FILTER: ProjectStatus[] = ["WIP", "Handover"];
 
 // Tailwind classes per project status — used for the badge inside tracker cards
 export const PROJECT_STATUS_BADGE_CLASSES: Record<string, string> = {

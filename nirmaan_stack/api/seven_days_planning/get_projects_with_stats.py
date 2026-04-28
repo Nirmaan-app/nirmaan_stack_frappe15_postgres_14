@@ -169,8 +169,10 @@ def get_projects_with_work_plan_stats():
         if progress_values:
             overall_progress = round(sum(progress_values) / len(progress_values))
 
-        # Include every milestone-tracked project — even those with 0 activities
-        # so users can see "0/0 Activities" cards for newly enabled projects.
+        # Skip projects with no work plan activities to reduce list noise.
+        if total_activities == 0:
+            continue
+
         result.append({
             "project": project_id,
             "project_name": project_name,
