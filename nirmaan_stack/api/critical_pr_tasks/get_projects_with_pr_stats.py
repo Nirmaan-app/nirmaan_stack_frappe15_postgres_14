@@ -183,6 +183,19 @@ def get_projects_with_critical_pr_stats():
         else:
             p_data["not_released_count"] += 1
 
+    # Fetch project lifecycle status for the projects with at least one tag
+    project_ids_with_tags = [
+        pid for pid, data in project_data.items() if data["total_tags"] > 0
+    ]
+    project_status_map = {}
+    if project_ids_with_tags:
+        project_docs = frappe.get_all(
+            "Projects",
+            filters={"name": ["in", project_ids_with_tags]},
+            fields=["name", "status"],
+        )
+        project_status_map = {p.name: p.status or "" for p in project_docs}
+
     result = []
     for p_id in sorted(project_data.keys()):
         data = project_data[p_id]
@@ -190,6 +203,7 @@ def get_projects_with_critical_pr_stats():
             result.append({
                 "project": data["project"],
                 "project_name": data["project_name"],
+                "status_of_project": project_status_map.get(p_id, ""),
                 "total_tags": data["total_tags"],
                 "released_tags": data["released_tags"],
                 "status_counts": {

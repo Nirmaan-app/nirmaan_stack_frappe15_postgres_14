@@ -142,6 +142,19 @@ def get_projects_with_critical_po_stats():
         if status == "Released":
             stats["released_tasks"] += 1
 
+    # Fetch project lifecycle status for the projects that have tasks
+    project_ids = [
+        pid for pid, stats in project_stats.items() if stats["total_tasks"] > 0
+    ]
+    project_status_map = {}
+    if project_ids:
+        project_docs = frappe.get_all(
+            "Projects",
+            filters={"name": ["in", project_ids]},
+            fields=["name", "status"],
+        )
+        project_status_map = {p.name: p.status or "" for p in project_docs}
+
     # Convert to list and clean up status_counts
     result = []
     for project_id, stats in project_stats.items():
@@ -150,6 +163,7 @@ def get_projects_with_critical_po_stats():
             result.append({
                 "project": stats["project"],
                 "project_name": stats["project_name"],
+                "status_of_project": project_status_map.get(project_id, ""),
                 "total_tasks": stats["total_tasks"],
                 "released_tasks": stats["released_tasks"],
                 "status_counts": dict(stats["status_counts"])
