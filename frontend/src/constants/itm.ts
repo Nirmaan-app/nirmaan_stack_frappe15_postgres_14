@@ -27,6 +27,7 @@ export const ITM_DELETE_ROLES: readonly string[] = [
  */
 export const ITM_DISPATCH_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
+  "Nirmaan Procurement Executive Profile",
 ] as const;
 
 /**
