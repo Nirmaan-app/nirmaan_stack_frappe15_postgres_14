@@ -171,8 +171,10 @@ export const useCashflowPO = (poId?: string, isEnabled: boolean = true) => {
 // 6. Material Delivery Plan
 export const useCashflowMaterialDeliveryPlans = (projectId: string) => {
     const { data, isLoading, error, mutate } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "critical_po_sub_category", "delivery_date", "mp_items", "po_type"],
-        filters: projectId ? [["project", "=", projectId]] : [],
+        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "critical_po_sub_category", "delivery_date", "mp_items", "po_type", "delivery_status"],
+        filters: projectId
+            ? [["project", "=", projectId], ["delivery_status", "in", ["Not Delivered", "Partially Delivered"]]]
+            : [],
         orderBy: { field: "creation", order: "desc" },
         limit: 0
     }, projectId ? cashflowPlanKeys.materialPlansSummary(projectId) : null);

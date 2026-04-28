@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useCashflowVendors, useCashflowMaterialDeliveryPlans, useCashflowPO } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCashflowVendors, useCashflowMaterialDeliveryPlans, useCashflowPO, useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
 import { useCreateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import {
     Dialog,
@@ -70,6 +70,9 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
     // Fetch Material Delivery Plans
     const { data: materialPlans, isLoading: isLoadingPlans } = useCashflowMaterialDeliveryPlans(projectId);
 
+    // Fetch existing PO Cashflow Plans to exclude already-added material plans
+    const { data: existingCashflowPlans } = useCashflowPlans(projectId, ["Existing PO", "New PO"]);
+
     // Fetch Vendors for New PO selection
     const { data: vendors } = useCashflowVendors();
 
@@ -77,6 +80,31 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
         const ops = vendors?.map((v: any) => ({ value: v.name, label: v.vendor_name })) || [];
         return [...ops, { label: "Others", value: "__others__" }];
     }, [vendors]);
+
+    // Build lookup sets for plans already added to cashflow
+    const { existingPoLinks, existingNewPoKeys } = useMemo(() => {
+        const poLinks = new Set<string>();
+        const newPoKeys = new Set<string>();
+        (existingCashflowPlans || []).forEach((cp: any) => {
+            if (cp.type === "Existing PO" && cp.id_link) {
+                poLinks.add(cp.id_link);
+            } else if (cp.type === "New PO") {
+                newPoKeys.add(`${cp.critical_po_category || ""}|${cp.critical_po_task || ""}|${cp.critical_po_sub_category || ""}`);
+            }
+        });
+        return { existingPoLinks: poLinks, existingNewPoKeys: newPoKeys };
+    }, [existingCashflowPlans]);
+
+    const isPlanAlreadyAdded = (plan: any) => {
+        if (plan.po_type === "Existing PO" && plan.po_link && existingPoLinks.has(plan.po_link)) {
+            return true;
+        }
+        if (plan.po_type === "New PO") {
+            const key = `${plan.critical_po_category || ""}|${plan.critical_po_task || ""}|${plan.critical_po_sub_category || ""}`;
+            if (existingNewPoKeys.has(key)) return true;
+        }
+        return false;
+    };
 
     // Filtered plans based on search
     const filteredPlans = useMemo(() => {
@@ -262,16 +290,20 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                 <div className="flex justify-center py-10"><Loader2 className="animate-spin h-8 w-8 text-gray-400" /></div>
                              ) : filteredPlans.length === 0 ? (
                                 <div className="text-center py-10 text-gray-500">No material plans found with current filter.</div>
-                             ) : filteredPlans.map((plan, idx) => (
-                                <div 
-                                    key={plan.name} 
-                                    className="bg-white border rounded-lg p-3 flex flex-col md:flex-row md:items-center gap-3 md:gap-4 hover:shadow-sm transition-shadow cursor-pointer relative"
-                                    onClick={() => togglePlanSelection(plan.name)}
+                             ) : filteredPlans.map((plan, idx) => {
+                                const alreadyAdded = isPlanAlreadyAdded(plan);
+                                return (
+                                <div
+                                    key={plan.name}
+                                    className={`border rounded-lg p-3 flex flex-col md:flex-row md:items-center gap-3 md:gap-4 transition-shadow relative ${alreadyAdded ? 'bg-gray-50 border-gray-200 opacity-70 cursor-not-allowed' : 'bg-white hover:shadow-sm cursor-pointer'}`}
+                                    onClick={() => { if (!alreadyAdded) togglePlanSelection(plan.name); }}
+                                    title={alreadyAdded ? 'Already added to PO Cashflow' : undefined}
                                 >
                                     <div className="flex items-center gap-3">
-                                        <Checkbox 
-                                            checked={selectedPlanNames.has(plan.name)} 
-                                            onCheckedChange={() => togglePlanSelection(plan.name)}
+                                        <Checkbox
+                                            checked={selectedPlanNames.has(plan.name)}
+                                            disabled={alreadyAdded}
+                                            onCheckedChange={() => { if (!alreadyAdded) togglePlanSelection(plan.name); }}
                                             onClick={(e) => e.stopPropagation()}
                                         />
                                         <div className="w-16 shrink-0">
@@ -282,10 +314,17 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                     </div>
                                     
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-semibold text-sm text-gray-900 truncate">
-                                            {plan.critical_po_task}
-                                            {plan.critical_po_sub_category && (
-                                                <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
+                                        <div className="font-semibold text-sm text-gray-900 truncate flex items-center gap-2">
+                                            <span className="truncate">
+                                                {plan.critical_po_task}
+                                                {plan.critical_po_sub_category && (
+                                                    <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
+                                                )}
+                                            </span>
+                                            {alreadyAdded && (
+                                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-[10px] font-medium shrink-0">
+                                                    Already Added
+                                                </Badge>
                                             )}
                                         </div>
                                         <div className="text-xs text-gray-500 truncate">{plan.critical_po_category}</div>
@@ -298,6 +337,11 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                         <div className="shrink-0">
                                             <Badge variant="outline" className={`${plan.po_type === 'New PO' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
                                                 {plan.po_type}
+                                            </Badge>
+                                        </div>
+                                        <div className="shrink-0">
+                                            <Badge variant="outline" className={`${plan.delivery_status === 'Partially Delivered' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                                                {plan.delivery_status || 'Not Delivered'}
                                             </Badge>
                                         </div>
                                         <div className="shrink-0 text-xs font-semibold text-gray-700 text-center bg-gray-100 rounded-full py-0.5 px-2">
@@ -313,13 +357,20 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                         </div>
                                     </div>
                                 </div>
-                             ))}
+                                );
+                             })}
                         </div>
                     ) : (
                         <div className="space-y-6">
-                            <button onClick={() => setStep("selection")} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900">
-                                <ChevronLeft className="h-4 w-4" /> Back to selection
-                            </button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setStep("selection")}
+                                className="group gap-1.5 bg-red-50 border-red-200 text-red-700 shadow-sm hover:bg-red-100 hover:text-red-800 hover:border-red-300"
+                            >
+                                <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                                Back to selection
+                            </Button>
                             {reviewPlans.map((plan, idx) => (
                                 <ReviewPlanCard 
                                     key={plan.name} 
