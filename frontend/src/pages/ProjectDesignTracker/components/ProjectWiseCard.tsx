@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowUpRight, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, User } from "lucide-react";
 import { getUnifiedStatusStyle, parseDesignersFromField } from "../utils";
+import { PROJECT_STATUS_BADGE_CLASSES } from "@/components/common/projectStatus";
 
 // --- Phase Status Section (compact, left-border accent) ---
 const PhaseStatusSection: React.FC<{
@@ -158,14 +159,23 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                 Hidden
                             </Badge>
                         )}
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                             <CardTitle
                                 className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug"
                                 title={tracker.project_name}
                             >
                                 {tracker.project_name}
                             </CardTitle>
-                            {hasHandover && (
+                            {tracker.status_of_project && (
+                                <Badge
+                                    variant="outline"
+                                    className={`text-[10px] px-1.5 py-0 shrink-0 font-medium ${PROJECT_STATUS_BADGE_CLASSES[tracker.status_of_project] || 'bg-gray-100 text-gray-700 border-gray-300'}`}
+                                    title="Project status"
+                                >
+                                    {tracker.status_of_project}
+                                </Badge>
+                            )}
+                            {hasHandover && tracker.status_of_project !== 'Handover' && (
                                 <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] shrink-0">
                                     Handover
                                 </Badge>

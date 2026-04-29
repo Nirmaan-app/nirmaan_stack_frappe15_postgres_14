@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { CardListSkeleton } from "@/components/ui/skeleton";
 import { TaskWiseTable } from "./components/TaskWiseTable";
+import { DEFAULT_PROJECT_STATUS_FILTER } from "@/components/common/projectStatus";
 
 const PMO_TABS = {
   PROJECT_WISE: "project",
@@ -159,10 +160,13 @@ const PMODashboardList: React.FC = () => {
     return Array.from(new Set(statuses)).sort();
   }, [projects]);
 
-  // Auto-select all statuses except "Completed" on first load
+  // Default to WIP + Handover (matches the shared DEFAULT_PROJECT_STATUS_FILTER
+  // used by every other tracker), intersected with statuses actually present.
   React.useEffect(() => {
     if (loaded && projects.length > 0 && !filtersInitialized) {
-      const initialFilters = projectStatusOptions.filter((status) => status !== "Completed");
+      const initialFilters = projectStatusOptions.filter((status) =>
+        DEFAULT_PROJECT_STATUS_FILTER.includes(status as typeof DEFAULT_PROJECT_STATUS_FILTER[number])
+      );
       setSelectedProjectFilters(initialFilters);
       setFiltersInitialized(true);
     }
