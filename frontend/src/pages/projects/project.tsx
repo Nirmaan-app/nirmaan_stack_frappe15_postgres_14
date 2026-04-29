@@ -1606,24 +1606,25 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {data?.status === "CEO Hold" && <CEOHoldBanner className="mb-4" heldBy={data?.ceo_hold_by} />}
 
       <div className="w-full">
-        <ConfigProvider
-          theme={{
-            components: {
-              Menu: {
-                horizontalItemSelectedColor: "#D03B45",
-                itemSelectedBg: "#FFD3CC",
-                itemSelectedColor: "#D03B45",
-              },
-            },
-          }}
-        >
-          <Menu
-            selectedKeys={[activePage]}
-            onClick={handlePageChange}
-            mode="horizontal"
-            items={items}
-          />
-        </ConfigProvider>
+        <div className="flex flex-wrap gap-2">
+          {items.map((item) => {
+            const isActive = activePage === item?.key;
+            return (
+              <button
+                key={item?.key as string}
+                onClick={() => handlePageChange({ key: item?.key as string } as any)}
+                className={
+                  "px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap " +
+                  (isActive
+                    ? "bg-[#D03B45] text-white shadow-sm"
+                    : "bg-white text-gray-700 border border-gray-200 hover:bg-[#FFD3CC] hover:text-[#D03B45] hover:border-[#FFD3CC]")
+                }
+              >
+                {(item as any)?.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Content Area for the Active Tab */}
