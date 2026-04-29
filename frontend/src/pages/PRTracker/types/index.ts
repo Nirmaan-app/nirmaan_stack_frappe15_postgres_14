@@ -5,6 +5,7 @@
 export interface ProjectWithCriticalPRStats {
   project: string;               // Project ID (e.g., "PROJ-0001")
   project_name: string;          // Project display name
+  status_of_project?: string;    // Project lifecycle status (WIP / Completed / Halted / CEO Hold / Handover)
   total_tags: number;           // Total tags
   released_tags: number;        // Count of "Released" tags (those with associated PRs)
   status_counts: PRStatusCounts; // Breakdown by status

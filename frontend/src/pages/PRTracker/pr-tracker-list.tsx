@@ -6,14 +6,26 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
+import { useUserData } from "@/hooks/useUserData";
 import { PRProjectCard } from "./components/PRProjectCard";
 import { ProjectWithCriticalPRStats } from "./types";
+import {
+  ProjectStatus,
+  DEFAULT_PROJECT_STATUS_FILTER,
+} from "@/components/common/projectStatus";
+import { ProjectStatusFilter } from "@/components/common/ProjectStatusFilter";
 
 const API_PATH = "nirmaan_stack.api.critical_pr_tasks.get_projects_with_pr_stats.get_projects_with_critical_pr_stats";
+const ADMIN_ROLE = "Nirmaan Admin Profile";
 
 const PRTrackerList: React.FC = () => {
   const navigate = useNavigate();
+  const { role } = useUserData();
+  const isAdmin = role === ADMIN_ROLE;
+
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] =
+    useState<ProjectStatus[]>(DEFAULT_PROJECT_STATUS_FILTER);
 
   // Fetch projects with Critical PR stats
   const {
@@ -35,17 +47,26 @@ const PRTrackerList: React.FC = () => {
     return [];
   }, [apiResponse]);
 
-  // Filter projects by search term
-  const filteredProjects = useMemo(() => {
-    if (!searchTerm.trim()) return projects;
+  // Effective status filter: non-admins are locked to the default (WIP + Handover).
+  const effectiveStatusFilter = isAdmin ? statusFilter : DEFAULT_PROJECT_STATUS_FILTER;
 
-    const lowerSearch = searchTerm.toLowerCase();
-    return projects.filter(
-      (project) =>
+  // Filter projects by status, then by search term
+  const filteredProjects = useMemo(() => {
+    const lowerSearch = searchTerm.trim().toLowerCase();
+    return projects.filter((project) => {
+      if (
+        effectiveStatusFilter.length > 0 &&
+        !effectiveStatusFilter.includes(project.status_of_project as ProjectStatus)
+      ) {
+        return false;
+      }
+      if (!lowerSearch) return true;
+      return (
         project.project_name.toLowerCase().includes(lowerSearch) ||
         project.project.toLowerCase().includes(lowerSearch)
-    );
-  }, [projects, searchTerm]);
+      );
+    });
+  }, [projects, searchTerm, effectiveStatusFilter]);
 
   // Handle card click
   const handleProjectClick = (projectId: string) => {
@@ -104,20 +125,30 @@ const PRTrackerList: React.FC = () => {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+      {/* Search + Status Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
           <Input
             placeholder="Search by project name..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-10 h-11 text-sm border-gray-300 focus:ring-2 focus:ring-primary/20"
           />
         </div>
-        <span className="text-sm text-gray-500">
-          {filteredProjects.length} of {projects.length} projects
-        </span>
+
+        {isAdmin && (
+          <span className="text-sm text-gray-500">
+            {filteredProjects.length} of {projects.length} projects
+          </span>
+        )}
+
+        <ProjectStatusFilter
+          editable={isAdmin}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          className="sm:ml-auto"
+        />
       </div>
 
       {/* Project Cards Grid */}
@@ -138,7 +169,7 @@ const PRTrackerList: React.FC = () => {
             No matching projects
           </h3>
           <p className="text-sm text-gray-500">
-            Try adjusting your search term
+            Try adjusting your search term or status filter
           </p>
         </div>
       ) : (

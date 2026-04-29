@@ -88,6 +88,7 @@ export const MilestoneDailySummary: React.FC = () => {
     mutateProgressReports,
     mutateAllReportsForDate,
     workHeaderOrderMap,
+    headerWeightageMap,
     workMilestonesList,
   } = useMilestoneReportData({
     projectId: initialProjectId,
@@ -198,6 +199,7 @@ export const MilestoneDailySummary: React.FC = () => {
               totalManpowerInReport={totalManpowerInReport}
               workMilestonesList={workMilestonesList}
               workHeaderOrderMap={workHeaderOrderMap}
+              headerWeightageMap={headerWeightageMap}
               milestoneTarget={milestoneTarget}
               showTargetColumn={isAdmin}
             />

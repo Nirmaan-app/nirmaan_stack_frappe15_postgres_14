@@ -29,6 +29,7 @@ import {
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
 import { MilestoneProgress } from './MilestoneProgress';
 import { parseWorkPlan, getStatusBadgeClasses } from '../utils/milestoneHelpers';
+import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder';
 
 interface DailyReportViewProps {
   // Report data
@@ -45,6 +46,7 @@ interface DailyReportViewProps {
   totalManpowerInReport: number;
   workMilestonesList: any[];
   workHeaderOrderMap: Record<string, number>;
+  headerWeightageMap?: Record<string, number>;
 
   // Target progress (admin-only column)
   milestoneTarget?: Map<string, number>;
@@ -62,9 +64,18 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
   completedWorksOnReport,
   totalManpowerInReport,
   workMilestonesList,
+  headerWeightageMap: headerWeightageMapProp,
   milestoneTarget,
   showTargetColumn = false,
 }) => {
+  // Pull headerWeightageMap directly from the hook so the rollup never sees
+  // a stale/empty prop. Same source as OverallMilestonesReport, so both
+  // views are guaranteed to use identical header weights.
+  const { headerWeightageMap: headerWeightageMapHook } = useWorkHeaderOrder();
+  const headerWeightageMap = headerWeightageMapHook && Object.keys(headerWeightageMapHook).length > 0
+    ? headerWeightageMapHook
+    : headerWeightageMapProp;
+
   // Expand/Collapse state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
@@ -132,37 +143,49 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
       return sum + effectiveProgress;
     }, 0);
 
-    return Math.round(overallProgress);
+    // Return raw — round only at display sites and at the zone-level rollup,
+    // so Daily matches Overall and the print PDFs to the nearest integer.
+    return overallProgress;
   }, [workMilestonesList]);
 
   // Overall Report Completion %
-  // Report %  =  Σ (headerWeight × headerPct) / Σ headerWeight
-  // headerWeight = Σ effectiveWeightage of milestones in that header (N/A excluded)
+  // Report %  =  Σ (header_weightage × headerPct) / Σ header_weightage
+  // headerPct  =  milestone-weightage-weighted average of milestone progress
+  //              within the header (N/A excluded — see calculateWeightedProgress)
+  // Headers whose milestones are all N/A are skipped so they don't drag the
+  // zone average toward 0.
   const reportCompletionPct = useMemo(() => {
     if (!milestoneGroups || milestoneGroups.length === 0) return 0;
 
     let weightedSum = 0;
     let totalHeaderWeight = 0;
+    const breakdown: any[] = [];
 
     for (const [header, milestones] of milestoneGroups) {
-      const headerWeight = (milestones as any[]).reduce((sum, m) => {
-        const wm = workMilestonesList?.find(
-          x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
-        );
-        const w = wm?.weightage || 1.0;
-        return sum + (m.status !== "Not Applicable" ? w : 0);
-      }, 0);
+      const hasActiveMilestones = (milestones as any[]).some(
+        m => m.status !== "Not Applicable"
+      );
+      if (!hasActiveMilestones) continue;
 
+      const rawLookup = headerWeightageMap?.[header];
+      const headerWeight = rawLookup ?? 1;
       if (headerWeight === 0) continue;
 
       const headerPct = calculateWeightedProgress(header, milestones as any[]);
       weightedSum += headerWeight * headerPct;
       totalHeaderWeight += headerWeight;
+
+      breakdown.push({ header, headerPct, lookupResult: rawLookup, headerWeight, contribution: headerWeight * headerPct });
     }
+
+    // TEMP DIAGNOSTIC — remove once verified
+    console.log('[Daily reportCompletionPct] headerWeightageMap prop =', headerWeightageMap);
+    console.table(breakdown);
+    console.log('[Daily reportCompletionPct] zone =', weightedSum, '/', totalHeaderWeight, '=', totalHeaderWeight > 0 ? Math.round(weightedSum / totalHeaderWeight) : 0);
 
     if (totalHeaderWeight === 0) return 0;
     return Math.round(weightedSum / totalHeaderWeight);
-  }, [milestoneGroups, workMilestonesList, calculateWeightedProgress]);
+  }, [milestoneGroups, headerWeightageMap, calculateWeightedProgress]);
 
   // Header-level Target %: mirrors calculateWeightedProgress but substitutes
   // milestoneTarget for actual progress, using the report's milestones
@@ -186,9 +209,11 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     return weightedSum / totalWeight;
   }, [milestoneTarget, workMilestonesList]);
 
-  // Zone-level Target %: weighted average of per-milestone targets across all
-  // rendered milestones, weighted by weightage (N/A excluded). Mirrors the
-  // reportCompletionPct formula but substitutes target for actual progress.
+  // Zone-level Target %: header-weightage-weighted average of per-header target %.
+  //   headerTarget = milestone-weightage-weighted average of milestone targets
+  //                  within the header (N/A excluded — see calculateHeaderTarget)
+  //   Zone Target  =  Σ (header_weightage × headerTarget) / Σ header_weightage
+  // Mirrors reportCompletionPct but substitutes target for actual progress.
   const zoneTargetPct = useMemo(() => {
     if (!showTargetColumn || !milestoneTarget || milestoneTarget.size === 0) {
       return null;
@@ -196,25 +221,45 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     if (!milestoneGroups || milestoneGroups.length === 0) return null;
 
     let weightedSum = 0;
-    let totalWeight = 0;
+    let totalHeaderWeight = 0;
+    const breakdown: any[] = [];
 
     for (const [header, milestones] of milestoneGroups) {
-      for (const m of milestones as any[]) {
-        if (m.status === "Not Applicable") continue;
-        const wm = workMilestonesList?.find(
-          x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
-        );
-        const weight = wm?.weightage || 1.0;
-        const target = milestoneTarget.get(m.work_milestone_name);
-        if (typeof target !== 'number') continue;
-        weightedSum += weight * target;
-        totalWeight += weight;
-      }
+      const headerTarget = calculateHeaderTarget(header, milestones as any[]);
+      if (typeof headerTarget !== 'number') continue;
+
+      const rawLookup = headerWeightageMap?.[header];
+      const headerWeight = rawLookup ?? 1;
+      if (headerWeight === 0) continue;
+
+      weightedSum += headerWeight * headerTarget;
+      totalHeaderWeight += headerWeight;
+
+      // TEMP — char-code diagnostic to detect invisible whitespace / unicode differences
+      const mapKeys = headerWeightageMap ? Object.keys(headerWeightageMap) : [];
+      const matchKey = mapKeys.find(k => k === header);
+      breakdown.push({
+        header,
+        headerLen: header.length,
+        headerCharCodes: [...header].map(c => c.charCodeAt(0)).join(','),
+        matchKeyFound: matchKey,
+        matchKeyLen: matchKey?.length,
+        headerTarget,
+        lookupResult: rawLookup,
+        headerWeight,
+        contribution: headerWeight * headerTarget,
+      });
     }
 
-    if (totalWeight === 0) return null;
-    return Math.round(weightedSum / totalWeight);
-  }, [showTargetColumn, milestoneTarget, milestoneGroups, workMilestonesList]);
+    // TEMP DIAGNOSTIC — remove once verified
+    console.log('[Daily zoneTargetPct] headerWeightageMap prop =', headerWeightageMap);
+    console.log('[Daily zoneTargetPct] map keys =', headerWeightageMap ? Object.keys(headerWeightageMap) : null);
+    console.table(breakdown);
+    console.log('[Daily zoneTargetPct] zone =', weightedSum, '/', totalHeaderWeight, '=', totalHeaderWeight > 0 ? Math.round(weightedSum / totalHeaderWeight) : null);
+
+    if (totalHeaderWeight === 0) return null;
+    return Math.round(weightedSum / totalHeaderWeight);
+  }, [showTargetColumn, milestoneTarget, milestoneGroups, headerWeightageMap, calculateHeaderTarget]);
 
   // Admin asks via dialog whether to include Target Progress in the PDF.
   const [showAdminDownloadDialog, setShowAdminDownloadDialog] = useState(false);
@@ -275,11 +320,10 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
         <div className="flex items-center gap-3">
           <h2 className="text-lg md:text-xl font-bold">Daily Work Report</h2>
           <Badge
-            className={`gap-1.5 font-medium ${
-              dailyReportDetails.declaration_user_not_at_site
+            className={`gap-1.5 font-medium ${dailyReportDetails.declaration_user_not_at_site
                 ? "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-50"
                 : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-            }`}
+              }`}
           >
             {dailyReportDetails.declaration_user_not_at_site ? (
               <>
@@ -572,7 +616,7 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                         <span className="text-xs text-gray-500 font-medium hidden sm:inline">Overall:</span>
                         <MilestoneProgress
                           milestoneStatus="Completed"
-                          value={averageProgress}
+                          value={Math.round(averageProgress)}
                           sizeClassName="size-[44px]"
                           textSizeClassName="text-[11px]"
                         />
@@ -838,8 +882,7 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
             <AlertDialogCancel className="mt-0 sm:mt-0">Cancel</AlertDialogCancel>
             <div className="flex flex-col-reverse sm:flex-row gap-2">
               <Button
-                variant="outline"
-                className="border-slate-300"
+                className="bg-red-600 hover:bg-red-700 text-white"
                 onClick={() => {
                   setShowAdminDownloadDialog(false);
                   handleDownloadReport(false);
@@ -852,7 +895,9 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
                   setShowAdminDownloadDialog(false);
                   handleDownloadReport(true);
                 }}
-                className="bg-red-600 hover:bg-red-700 text-white"
+
+                className="bg-green-600 hover:bg-green-700 text-white"
+
               >
                 With Target Progress
               </AlertDialogAction>

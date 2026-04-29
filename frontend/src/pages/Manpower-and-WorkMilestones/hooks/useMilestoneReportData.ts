@@ -46,6 +46,7 @@ interface UseMilestoneReportDataReturn {
 
   // Helpers
   workHeaderOrderMap: Record<string, number>;
+  headerWeightageMap: Record<string, number>;
   workMilestonesList: any[];
 }
 
@@ -67,8 +68,8 @@ export const useMilestoneReportData = ({
     error: projectError,
   } = useFrappeGetDoc('Projects', projectId || '', projectId ? undefined : null);
 
-  // Fetch Work Headers ordering
-  const { workHeaderOrderMap } = useWorkHeaderOrder();
+  // Fetch Work Headers ordering and header-level weightage
+  const { workHeaderOrderMap, headerWeightageMap } = useWorkHeaderOrder();
 
   // Fetch Work Milestones for ordering, weightage, and weekly target plan
   const { data: workMilestonesList } = useFrappeGetDocList('Work Milestones', {
@@ -287,6 +288,7 @@ export const useMilestoneReportData = ({
 
     // Helpers
     workHeaderOrderMap,
+    headerWeightageMap,
     workMilestonesList: workMilestonesList || [],
   };
 };

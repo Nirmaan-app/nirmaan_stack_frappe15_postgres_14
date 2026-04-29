@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AddMaterialPlanForm } from "./AddMaterialPlanForm";
 import { EditMaterialPlanForm } from "./EditMaterialPlanForm";
+import { WorkPlanReferencePanel } from "./WorkPlanReferencePanel";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { downloadProjectPrintFormatPdf } from "@/pages/projects/data/tab/planning/useProjectPlanningDownloadApi";
@@ -59,13 +60,13 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");
-    
+
     const activeDuration = useMemo(() => {
         if (activeDurationParam === "All") return "All";
         const num = Number(activeDurationParam);
         if (!isNaN(num) && [3, 7, 14].includes(num)) return num;
         if (activeDurationParam === "custom") return "custom";
-        return "All"; 
+        return "All";
     }, [activeDurationParam]);
 
     const startDateParam = useUrlParam("startDate");
@@ -75,16 +76,16 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
         const today = startOfDay(new Date());
 
         if (activeDuration === "All") return undefined;
-        
+
         if (typeof activeDuration === 'number') {
-             return { from: today, to: addDays(today, activeDuration) };
+            return { from: today, to: addDays(today, activeDuration) };
         }
 
         if (activeDuration === 'custom') {
             if (startDateParam && endDateParam) {
                 return { from: parseISO(startDateParam), to: parseISO(endDateParam) };
             }
-             return undefined;
+            return undefined;
         }
         return undefined;
     }, [activeDuration, startDateParam, endDateParam]);
@@ -102,7 +103,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
     const startDate = dateRange?.from;
     const endDate = dateRange?.to;
-    
+
     // console.log("Material Plan Project Name ",projectName)
     // State for Material Plans Form
     const [materialPlanForms, setMaterialPlanForms] = useState<number[]>([]);
@@ -151,9 +152,9 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     };
 
     const togglePlan = (planName: string) => {
-        setExpandedPlans(prev => 
-            prev.includes(planName) 
-                ? prev.filter(p => p !== planName) 
+        setExpandedPlans(prev =>
+            prev.includes(planName)
+                ? prev.filter(p => p !== planName)
                 : [...prev, planName]
         );
     };
@@ -189,15 +190,15 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
     const docListFilters = useMemo(() => {
         const filters: any[] = [["project", "=", projectId]];
-        
+
         if (startDate && endDate) {
             filters.push([
-                "delivery_date", 
-                "Between", 
+                "delivery_date",
+                "Between",
                 [format(startDate, "yyyy-MM-dd"), format(endDate, "yyyy-MM-dd")]
             ]);
         }
-        
+
         return filters;
     }, [projectId, startDate, endDate]);
 
@@ -218,12 +219,12 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
     return (
         <div className="space-y-6">
-             {/* Material Plan Intro / Actions Header */}
+            {/* Material Plan Intro / Actions Header */}
 
             {!isOverview ? (
                 <div className="bg-white shadow-sm">
-                     {/* Header Section */}
-                     {setDaysRange && activeDuration && (
+                    {/* Header Section */}
+                    {setDaysRange && activeDuration && (
                         <div className="mb-6">
                             <SevenDayPlanningHeader
                                 isOverview={isOverview}
@@ -271,10 +272,13 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     <p className="text-sm text-gray-600 mb-4">
                         Materials must already exist inside an existing PO. New POs should only be created if materials are not available in existing POs.
                     </p>
+
+                    {/* Reference: Existing Work Plan Tasks for this project */}
+                    <WorkPlanReferencePanel projectId={projectId} />
                 </div>
             ) : (
                 <>
-                     {setDaysRange && activeDuration && (
+                    {setDaysRange && activeDuration && (
                         <div className="mb-6">
                             <SevenDayPlanningHeader
                                 isOverview={isOverview}
@@ -289,13 +293,13 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                             <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
                             {existingPlans && existingPlans.length > 0 && (
                                 <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                                    {existingPlans.length }
+                                    {existingPlans.length}
                                 </Badge>
                             )}
                         </div>
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
+                        <Button
+                            variant="outline"
+                            size="sm"
                             className="gap-2 h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white"
                             onClick={handleDownload}
                             disabled={isDownloading}
@@ -310,20 +314,20 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     </div>
                 </>
             )}
-            
+
             {/* Render Active Forms */}
             {materialPlanForms.length > 0 && (
                 <div className="space-y-4">
-                     {materialPlanForms.map((id, index) => (
-                        <AddMaterialPlanForm 
-                            key={id} 
-                            planNumber={index + 1} 
+                    {materialPlanForms.map((id, index) => (
+                        <AddMaterialPlanForm
+                            key={id}
+                            planNumber={index + 1}
                             projectId={projectId}
                             projectPackages={projectPackages}
                             onClose={() => {
                                 removePlanForm(id);
                                 refreshPlans(); // Refresh list after closing/submitting
-                            }} 
+                            }}
                         />
                     ))}
                 </div>
@@ -331,7 +335,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
             {/* Render Edit Form Modal */}
             {editingPlan && (
-                <EditMaterialPlanForm 
+                <EditMaterialPlanForm
                     plan={editingPlan}
                     onClose={() => setEditingPlan(null)}
                     onSuccess={() => {
@@ -363,7 +367,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                 {isLoadingPlans && (
                     <div className="text-gray-500 text-sm">Loading plans...</div>
                 )}
-                
+
                 {!isLoadingPlans && (!existingPlans || existingPlans.length === 0) && (
                     <div className="text-gray-500 text-sm italic">No material delivery plans found.</div>
                 )}
@@ -375,24 +379,34 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     const isExpanded = isOverview || expandedPlans.includes(plan.name);
                     const isMissingCriticalInfo = (plan.po_type === "Existing PO" || plan.po_type === "New PO") && (!plan.critical_po_category || !plan.critical_po_task);
                     const isDelivered = plan.delivery_status === "Delivered";
+                    const isPartiallyDelivered = plan.delivery_status === "Partially Delivered";
 
                     return (
                         <div
                             key={plan.name}
-                            className={`border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:shadow-md ${
-                                isMissingCriticalInfo ? "border-red-200" : "border-gray-200"
-                            }`}
+                            className={`border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:shadow-md ${isMissingCriticalInfo ? "border-red-200" : "border-gray-200"
+                                }`}
                         >
                             {/* Top Row: Plan Badge + View Material List Toggle */}
                             <div className="flex items-center justify-between px-3 md:px-4 pt-3 pb-2 border-b border-gray-100 bg-gray-50/40">
-                                <div className="flex items-center gap-2">
-                                    <span className="block w-2 h-2 bg-red-500 rounded-full" />
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className="block w-2 h-2 bg-red-500 rounded-full shrink-0" />
                                     <Badge
                                         variant="secondary"
-                                        className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded px-2 py-0.5 text-[11px] font-medium"
+                                        className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded px-2 py-0.5 text-[11px] font-medium shrink-0"
                                     >
                                         Plan {planNum}
                                     </Badge>
+                                    {isPartiallyDelivered && plan.remarks && (<span className="text-gray-300 shrink-0">|</span>)}
+                                    {isPartiallyDelivered && plan.remarks && (
+                                        <span
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium truncate min-w-0"
+                                            title={plan.remarks}
+                                        >
+                                            <span className="font-semibold text-amber-700 shrink-0">Remarks:</span>
+                                            <span className="truncate text-gray-900">{plan.remarks}</span>
+                                        </span>
+                                    )}
                                 </div>
                                 {!isOverview && (
                                     <button
@@ -434,11 +448,10 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                         <Badge
                                             variant="outline"
-                                            className={`px-1.5 py-0 text-[10px] font-normal ${
-                                                plan.po_type === "Existing PO"
-                                                    ? "bg-blue-50 text-blue-700 border-blue-100"
-                                                    : "bg-yellow-50 text-yellow-700 border-yellow-100"
-                                            }`}
+                                            className={`px-1.5 py-0 text-[10px] font-normal ${plan.po_type === "Existing PO"
+                                                ? "bg-blue-50 text-blue-700 border-blue-100"
+                                                : "bg-yellow-50 text-yellow-700 border-yellow-100"
+                                                }`}
                                         >
                                             {plan.po_type || "--"}
                                         </Badge>
@@ -460,11 +473,13 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                 <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-1 min-w-0">
                                     <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Status</span>
                                     <span
-                                        className={`inline-flex items-center w-fit px-2 py-0.5 rounded text-[11px] font-medium border ${
-                                            isDelivered
-                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                        className={`inline-flex items-center w-fit px-2 py-0.5 rounded text-[11px] font-medium border ${isDelivered
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : isPartiallyDelivered
+                                                ? "bg-amber-50 text-amber-700 border-amber-200"
                                                 : "bg-red-50 text-red-700 border-red-200"
-                                        }`}
+                                            }`}
+                                        title={isPartiallyDelivered && plan.remarks ? plan.remarks : undefined}
                                     >
                                         {plan.delivery_status || "Not Delivered"}
                                     </span>
@@ -514,8 +529,8 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                         </div>
                     );
                 })}
-                </div>
-            
+            </div>
+
             <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
                 <AlertDialogContent>
                     <AlertDialogHeader>

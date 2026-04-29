@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { WorkPlanItem, WorkPlanDoc, getColorForProgress } from "./SevendaysWorkPlan";
+import { WorkPlanItem, WorkPlanDoc } from "./SevendaysWorkPlan";
 import { ChevronDown, ChevronRight, Flag, CheckCircle2, Circle, Pencil } from "lucide-react";
 import { safeFormatDate } from "@/lib/utils";
 
@@ -48,6 +48,10 @@ const statusStyles: Record<string, StatusStyle> = {
         dot: "bg-emerald-500", pillText: "text-emerald-700", pillBg: "bg-emerald-50/50", pillBorder: "border-emerald-200",
     },
     "On Hold": {
+        accent: "#9CA3AF", progressText: "text-gray-500", progressBar: "bg-gray-400",
+        dot: "bg-gray-400", pillText: "text-gray-600", pillBg: "bg-gray-100/50", pillBorder: "border-gray-200",
+    },
+    "Not Applicable": {
         accent: "#9CA3AF", progressText: "text-gray-500", progressBar: "bg-gray-400",
         dot: "bg-gray-400", pillText: "text-gray-600", pillBg: "bg-gray-100/50", pillBorder: "border-gray-200",
     },
@@ -161,17 +165,24 @@ const ActivityCard = ({ plan, milestone, onEditTask }: ActivityCardProps) => {
                     <span className="text-xs font-medium text-gray-700 truncate" title={milestone.work_milestone_name}>
                         {milestone.work_milestone_name}
                     </span>
+                    <span className="text-gray-300 shrink-0">|</span>
+                    {(() => {
+                        const milestoneStatus = milestone.status || (milestoneComplete ? "Completed" : milestoneProgress === 0 ? "Not Started" : "WIP");
+                        const styles = statusStyles[milestoneStatus] || statusStyles["Not Started"];
+                        return (
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0 border ${styles.pillBg} ${styles.pillText} ${styles.pillBorder}`}>
+                                {milestoneStatus === "Completed" ? (
+                                    <CheckCircle2 className="h-3 w-3" />
+                                ) : (
+                                    <Circle className="h-3 w-3" />
+                                )}
+                                {milestoneStatus}
+                                {!["Completed", "Not Started", "Not Applicable", "On Hold"].includes(milestoneStatus) && ` · ${milestoneProgress}%`}
+                            </span>
+                        );
+                    })()}
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                    {milestoneComplete ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                    ) : (
-                        <Circle className={`h-3.5 w-3.5 ${getColorForProgress(milestoneProgress)}`} />
-                    )}
-                    <span className={`text-xs font-semibold ${milestoneComplete ? "text-emerald-600" : getColorForProgress(milestoneProgress)}`}>
-                        {milestoneProgress}% complete
-                    </span>
-                </div>
+
             </div>
         </div>
     );
@@ -195,11 +206,10 @@ export const WorkPlanOverview = ({ header, items, getHeaderStats, onEditTask }: 
         <div className={`overflow-hidden mb-4 transition-colors ${isExpanded ? "bg-gray-50 rounded-md pb-3" : "bg-white"}`}>
             {/* Header */}
             <div
-                className={`flex items-center justify-between cursor-pointer transition-colors ${
-                    !isExpanded
-                        ? "border bg-gray-100/50 px-3 py-3 rounded-md border-[#D7D7EC]"
-                        : "py-3 px-3"
-                }`}
+                className={`flex items-center justify-between cursor-pointer transition-colors ${!isExpanded
+                    ? "border bg-gray-100/50 px-3 py-3 rounded-md border-[#D7D7EC]"
+                    : "py-3 px-3"
+                    }`}
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex items-center gap-3">

@@ -9,7 +9,7 @@ import { useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog } from './components';
+import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog } from './components';
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -31,6 +31,10 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [exportProgress, setExportProgress] = useState(0);
     const [exportProgressMessage, setExportProgressMessage] = useState("");
     const [isConvertingToA4, setIsConvertingToA4] = useState(false);
+    const [pdfReadyBlobUrl, setPdfReadyBlobUrl] = useState<string | null>(null);
+    const [pdfReadyFilename, setPdfReadyFilename] = useState<string>("");
+    const [pdfReadySizeBytes, setPdfReadySizeBytes] = useState<number>(0);
+    const [isPdfReadyOpen, setIsPdfReadyOpen] = useState(false);
     const { socket } = React.useContext(FrappeContext) as FrappeConfig;
 
     // Remove the useEffect listener as we'll manage it in the handler like Bulk Download
@@ -142,7 +146,33 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     // Export handler — enqueues a backend worker, then awaits Socket.IO events
     // (tds_export_progress / tds_export_ready / tds_export_failed) to drive the
     // progress UI and trigger the final download.
-    const handleExportWithItems = async (selectedItems: any[]) => {
+    const triggerBrowserDownload = (url: string, filename: string) => {
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    };
+
+    const handlePdfReadyClose = () => {
+        setIsPdfReadyOpen(false);
+        if (pdfReadyBlobUrl) {
+            window.URL.revokeObjectURL(pdfReadyBlobUrl);
+            setPdfReadyBlobUrl(null);
+        }
+        setPdfReadyFilename("");
+        setPdfReadySizeBytes(0);
+    };
+
+    const handlePdfReadyDownload = () => {
+        if (!pdfReadyBlobUrl) return;
+        triggerBrowserDownload(pdfReadyBlobUrl, pdfReadyFilename);
+        toast({ title: "Success", description: "Report downloaded successfully." });
+        handlePdfReadyClose();
+    };
+
+    const handleExportWithItems = async (selectedItems: any[], selectedStatus: string) => {
         if (!selectedItems || selectedItems.length === 0) {
             toast({
                 title: "No Items Selected",
@@ -199,22 +229,32 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 const blob = await resp.blob();
 
                 const objectUrl = window.URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = objectUrl;
-                link.setAttribute("download", finalName);
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(objectUrl);
-
                 setIsExportDialogOpen(false);
-                if (failed_items && failed_items.length) {
-                    toast({
-                        title: "Exported with warnings",
-                        description: `Some attachments failed: ${failed_items.join(", ")}`,
-                    });
+
+                if (selectedStatus === "Pending") {
+                    setPdfReadyBlobUrl(objectUrl);
+                    setPdfReadyFilename(finalName);
+                    setPdfReadySizeBytes(blob.size);
+                    setIsPdfReadyOpen(true);
+                    if (failed_items && failed_items.length) {
+                        toast({
+                            title: "Ready with warnings",
+                            description: `Some attachments failed: ${failed_items.join(", ")}`,
+                        });
+                    } else {
+                        toast({ title: "PDF ready", description: "Preview or download your TDS report." });
+                    }
                 } else {
-                    toast({ title: "Success", description: "Report downloaded successfully." });
+                    triggerBrowserDownload(objectUrl, finalName);
+                    window.URL.revokeObjectURL(objectUrl);
+                    if (failed_items && failed_items.length) {
+                        toast({
+                            title: "Exported with warnings",
+                            description: `Some attachments failed: ${failed_items.join(", ")}`,
+                        });
+                    } else {
+                        toast({ title: "Success", description: "Report downloaded successfully." });
+                    }
                 }
             } catch (error: any) {
                 console.error("Download failed", error);
@@ -403,6 +443,16 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 settings={data}
                 historyData={historyData || []}
                 isExporting={isExporting}
+            />
+
+            {/* PDF Ready Dialog (Pending exports) */}
+            <TdsPdfReadyDialog
+                isOpen={isPdfReadyOpen}
+                onClose={handlePdfReadyClose}
+                onDownload={handlePdfReadyDownload}
+                blobUrl={pdfReadyBlobUrl}
+                filename={pdfReadyFilename}
+                sizeBytes={pdfReadySizeBytes}
             />
 
             {/* Progress Dialog */}

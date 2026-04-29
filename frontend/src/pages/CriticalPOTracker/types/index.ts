@@ -5,6 +5,7 @@
 export interface ProjectWithCriticalPOStats {
   project: string;               // Project ID (e.g., "PROJ-0001")
   project_name: string;          // Project display name
+  status_of_project?: string;    // Project lifecycle status (WIP / Completed / Halted / CEO Hold / Handover)
   total_tasks: number;           // Total tasks excluding "Not Applicable"
   released_tasks: number;        // Count of "Released" status
   status_counts: StatusCounts;   // Breakdown by status
