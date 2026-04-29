@@ -18,6 +18,13 @@ from frappe.utils import flt, now
 
 ADMIN_ROLE = "Nirmaan Admin Profile"
 
+# Roles allowed to dispatch an Approved ITM. Mirrors `ITM_DISPATCH_ROLES`
+# on the frontend so UI gating and backend enforcement stay in sync.
+DISPATCH_ROLES = (
+    "Nirmaan Admin Profile",
+    "Nirmaan Procurement Executive Profile",
+)
+
 # Statuses where deletion is blocked (dispatch/delivery has begun).
 DELETE_BLOCKED_STATUSES = ("Dispatched", "Partially Delivered", "Delivered")
 
@@ -128,7 +135,10 @@ def _validate_state_transition(doc, old_status, new_status):
         )
 
     if old_status == "Approved" and new_status == "Dispatched":
-        _require_admin("Only administrators may dispatch Internal Transfer Memos.")
+        _require_dispatcher(
+            "Only administrators or procurement executives may dispatch "
+            "Internal Transfer Memos."
+        )
 
 
 def _require_admin(message):
@@ -136,6 +146,26 @@ def _require_admin(message):
     if user == "Administrator":
         return
     if ADMIN_ROLE in frappe.get_roles(user):
+        return
+    frappe.throw(message, frappe.PermissionError)
+
+
+def _require_dispatcher(message):
+    """Permit users whose ``role_profile_name`` is in ``DISPATCH_ROLES``
+    (or the special ``Administrator`` user).
+
+    We compare against the user's *role profile* (the same string the frontend
+    uses via ``useUserData`` / ``data.role_profile``) — NOT ``frappe.get_roles``.
+    Frappe role profiles assign multiple underlying roles to a user, and
+    ``get_roles`` returns those underlying roles which don't include the
+    profile name itself. Comparing against ``role_profile_name`` directly
+    keeps frontend gating and backend enforcement reading from the same value.
+    """
+    user = frappe.session.user
+    if user == "Administrator":
+        return
+    role_profile = frappe.db.get_value("User", user, "role_profile_name")
+    if role_profile in DISPATCH_ROLES:
         return
     frappe.throw(message, frappe.PermissionError)
 
