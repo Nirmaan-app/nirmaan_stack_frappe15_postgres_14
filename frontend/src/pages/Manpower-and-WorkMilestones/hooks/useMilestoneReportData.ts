@@ -167,6 +167,8 @@ export const useMilestoneReportData = ({
     if (!dailyReportDetails?.milestones || reportType !== 'Daily') return [];
 
     const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+      // Disabled rows are never shown nor counted in the summary.
+      if (milestone.status === 'Disabled') return acc;
       const isWIPOrNotStarted = milestone.status === 'WIP' || milestone.status === 'Not Started';
       const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
 
@@ -206,6 +208,9 @@ export const useMilestoneReportData = ({
     if (!dailyReportDetails?.milestones) return [];
 
     const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+      // Disabled rows are hidden from the summary entirely (not shown,
+      // not counted, not included in any percentage rollup).
+      if (milestone.status === 'Disabled') return acc;
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {});
@@ -248,7 +253,9 @@ export const useMilestoneReportData = ({
   }, [projectData?.project_zones, allReportsForDate]);
 
   // --- Metrics ---
-  const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
+  // Disabled rows are excluded from every summary count.
+  const totalWorkHeaders =
+    dailyReportDetails?.milestones?.filter((m: any) => m.status !== 'Disabled').length || 0;
   const completedWorksOnReport =
     dailyReportDetails?.milestones?.filter((m: any) => m.status === 'Completed').length || 0;
   const totalManpowerInReport =

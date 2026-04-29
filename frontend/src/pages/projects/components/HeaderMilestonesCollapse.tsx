@@ -73,7 +73,7 @@ export const HeaderMilestonesCollapse = forwardRef<
         () =>
             new Set(
                 milestones
-                    .filter((m) => m.status !== "Not Applicable")
+                    .filter((m) => m.status !== "Disabled")
                     .map((m) => m.work_milestone_name)
             ),
         [milestones]

@@ -144,7 +144,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     let weightedSum = 0;
     let weightTotal = 0;
     for (const m of activeMilestones) {
-      if (m.status === 'Not Applicable') continue;
+      if (m.status === 'Not Applicable' || m.status === 'Disabled') continue;
       const wm = workMilestonesList?.find(
         x => x.work_milestone_name === m.work_milestone_name && x.work_header === header,
       );
@@ -252,6 +252,9 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     if (!latestReport?.milestones) return {};
 
     const grouped = latestReport.milestones.reduce((acc, milestone) => {
+      // Disabled rows are hidden from the summary entirely (not shown,
+      // not counted, not included in any percentage rollup).
+      if (milestone.status === 'Disabled') return acc;
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);
@@ -319,7 +322,10 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
 
     // Group key matches Daily's grouping exactly — uses work_header verbatim so
     // headerWeightageMap lookups don't silently miss on whitespace or fallbacks.
+    // Disabled rows are excluded outright; Not Applicable rows are excluded
+    // from rollups (but kept visible elsewhere).
     const groups = report.milestones.reduce((acc, m) => {
+      if (m.status === 'Disabled') return acc;
       if (m.status === 'Not Applicable') return acc;
       const h = m.work_header;
       (acc[h] = acc[h] || []).push(m);
@@ -401,7 +407,9 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
         wm => wm.work_milestone_name === m.work_milestone_name && wm.work_header === header
       );
       const weightage = milestoneData?.weightage || 1.0;
-      const effectiveWeightage = m.status !== "Not Applicable" ? weightage : 0;
+      // Both Disabled and Not Applicable contribute 0 weight to the rollup.
+      const effectiveWeightage =
+        m.status === "Not Applicable" || m.status === "Disabled" ? 0 : weightage;
 
       // Find progress from target report
       const historicalMilestone = targetReport.milestones.find(

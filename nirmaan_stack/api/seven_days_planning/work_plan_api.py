@@ -92,8 +92,11 @@ def get_work_plan(project, start_date=None, end_date=None):
             
             if report_doc.milestones:
                 for m in report_doc.milestones:
-                    # if m.status == "Not Applicable":
-                    #     continue
+                    # Disabled milestones are hidden from work plan / 7-days
+                    # planning entirely (the work header is deselected for
+                    # this project, so they shouldn't be planned against).
+                    if m.status == "Disabled":
+                        continue
 
                     m_dict = m.as_dict()
                     m_dict["zone"] = report_doc.report_zone

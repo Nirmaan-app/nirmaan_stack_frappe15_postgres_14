@@ -55,6 +55,10 @@ const statusStyles: Record<string, StatusStyle> = {
         accent: "#9CA3AF", progressText: "text-gray-500", progressBar: "bg-gray-400",
         dot: "bg-gray-400", pillText: "text-gray-600", pillBg: "bg-gray-100/50", pillBorder: "border-gray-200",
     },
+    "Disabled": {
+        accent: "#9CA3AF", progressText: "text-gray-500", progressBar: "bg-gray-400",
+        dot: "bg-gray-400", pillText: "text-gray-600", pillBg: "bg-gray-100/50", pillBorder: "border-gray-200",
+    },
 };
 
 interface ActivityCardProps extends FlatActivity {
@@ -177,7 +181,7 @@ const ActivityCard = ({ plan, milestone, onEditTask }: ActivityCardProps) => {
                                     <Circle className="h-3 w-3" />
                                 )}
                                 {milestoneStatus}
-                                {!["Completed", "Not Started", "Not Applicable", "On Hold"].includes(milestoneStatus) && ` · ${milestoneProgress}%`}
+                                {!["Completed", "Not Started", "Not Applicable", "Disabled", "On Hold"].includes(milestoneStatus) && ` · ${milestoneProgress}%`}
                             </span>
                         );
                     })()}
