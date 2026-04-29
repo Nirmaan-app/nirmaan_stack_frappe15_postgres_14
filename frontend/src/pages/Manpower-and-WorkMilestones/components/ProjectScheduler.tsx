@@ -805,7 +805,7 @@ const SchedulerGroupRow: React.FC<SchedulerGroupRowProps> = ({
                     {m.endDate ? (
                       formatDate(m.endDate)
                     ) : (
-                      <span className="italic text-gray-400">Not scheduled</span>
+                      <span className="italic text-gray-400">—</span>
                     )}
                   </div>
                   <div className="px-3 py-2 text-xs text-gray-600 hidden md:block">

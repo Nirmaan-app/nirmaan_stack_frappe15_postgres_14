@@ -2,7 +2,8 @@ import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
-import { ArrowLeft, Pencil, Check, FileText, ExternalLink, Activity, LayoutDashboard, PenTool, BarChart2, PencilRuler, Download, Loader2, UserCheck, Users } from "lucide-react";
+import { ArrowLeft, Pencil, Check, FileText, ExternalLink, Activity, LayoutDashboard, PenTool, BarChart2, PencilRuler, Download, Loader2, UserCheck, Users, UserX, MapPin, CalendarRange } from "lucide-react";
+import { useProjectScheduler } from "@/pages/Manpower-and-WorkMilestones/hooks/useProjectScheduler";
 import { ProjectDetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -40,7 +41,7 @@ interface StatusOverview {
     excluded_not_applicable?: number;
     is_disabled?: boolean;
   } | null;
-  dpr: { last_updated: string; zone?: string } | null;
+  dpr: { last_updated: string; zone?: string; pm_off_site?: boolean } | null;
   inventory: { last_updated: string } | null;
 }
 
@@ -90,6 +91,14 @@ const PMOProjectDetail: React.FC = () => {
 
   // Status overview
   const [statusOverview, setStatusOverview] = useState<StatusOverview | null>(null);
+
+  // Project DPR Schedule (groups + project window) for PDF export
+  const {
+    groups: schedulerGroups,
+    projectStartDate: schedulerProjectStart,
+    projectEndDate: schedulerProjectEnd,
+  } = useProjectScheduler(projectId || null);
+  const [downloadingSchedulePdf, setDownloadingSchedulePdf] = useState(false);
 
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
@@ -236,6 +245,79 @@ const PMOProjectDetail: React.FC = () => {
       toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
     } catch (error) {
       toast({ title: "Error", description: "Failed to download PDF.", variant: "destructive" });
+    }
+  };
+
+  const handleDownloadProjectSchedulePdf = async () => {
+    if (!projectId || !schedulerProjectStart || !schedulerProjectEnd) {
+      toast({ title: "Schedule unavailable", description: "Project schedule isn't ready yet.", variant: "destructive" });
+      return;
+    }
+    if (schedulerGroups.length === 0) {
+      toast({ title: "No schedule", description: "No work milestones configured for this project.", variant: "destructive" });
+      return;
+    }
+
+    const toInputDate = (d: Date): string => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const dayMs = 1000 * 60 * 60 * 24;
+
+    const payload = {
+      groups: schedulerGroups.map((g) => ({
+        header: g.header,
+        earliest_start: g.earliestStart ? toInputDate(g.earliestStart) : null,
+        latest_end: g.latestEnd ? toInputDate(g.latestEnd) : null,
+        duration_days:
+          g.earliestStart && g.latestEnd
+            ? Math.round((g.latestEnd.getTime() - g.earliestStart.getTime()) / dayMs) + 1
+            : null,
+        milestones: g.milestones.map((m) => ({
+          name: m.work_milestone_name,
+          start_date: m.startDate ? toInputDate(m.startDate) : null,
+          end_date: m.endDate ? toInputDate(m.endDate) : null,
+          duration_days: m.firstWeekIdx !== -1 ? m.durationDays : null,
+        })),
+      })),
+    };
+
+    setDownloadingSchedulePdf(true);
+    try {
+      toast({ title: "Generating PDF...", description: "Please wait while we generate the schedule." });
+      const res = await fetch(
+        "/api/method/nirmaan_stack.api.milestone.print_dpr_target.print_dpr_target_pdf",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Frappe-CSRF-Token": (window as any).csrf_token || "",
+          },
+          body: new URLSearchParams({
+            project_id: projectId,
+            payload: JSON.stringify(payload),
+          }).toString(),
+        }
+      );
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeName = (project?.project_name || projectId).replace(/[^a-z0-9]+/gi, "_");
+      link.href = url;
+      link.download = `${safeName}_DPR_Project_Target.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "DPR Project Target PDF downloaded.", variant: "success" });
+    } catch (e: any) {
+      toast({ title: "Failed to download PDF", description: e?.message || "Please try again.", variant: "destructive" });
+    } finally {
+      setDownloadingSchedulePdf(false);
     }
   };
 
@@ -492,22 +574,20 @@ const PMOProjectDetail: React.FC = () => {
             {isPMO && (
               <button
                 onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${
-                  showMyTasksOnly
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border ${showMyTasksOnly
                     ? "bg-blue-600 text-white border-transparent shadow-sm"
                     : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                }`}
+                  }`}
               >
                 <UserCheck className="h-3.5 w-3.5" />
                 <span>My Tasks</span>
                 {myTasksCount > 0 && (
                   <Badge
                     variant="secondary"
-                    className={`h-5 min-w-[20px] px-1.5 text-xs ${
-                      showMyTasksOnly
+                    className={`h-5 min-w-[20px] px-1.5 text-xs ${showMyTasksOnly
                         ? "bg-blue-500 text-white"
                         : "bg-blue-100 text-blue-700"
-                    }`}
+                      }`}
                   >
                     {myTasksCount}
                   </Badge>
@@ -579,99 +659,98 @@ const PMOProjectDetail: React.FC = () => {
                     const showBreachWarning = isOverdue && isWarningStatus;
 
                     return (
-                      <TableRow 
-                        key={task.name} 
+                      <TableRow
+                        key={task.name}
                         className={`
                           ${showBreachWarning ? "bg-yellow-50 hover:bg-yellow-100" : "hover:bg-white"}
                           transition-colors
                         `}
                       >
-                      {isAdmin && (
-                        <TableCell className="w-10">
-                          <Checkbox
-                            checked={selectedTaskIds.has(task.name)}
-                            onCheckedChange={() => toggleTaskSelection(task.name)}
-                            aria-label={`Select ${task.task_name}`}
-                            className="translate-y-[2px]"
-                          />
-                        </TableCell>
-                      )}
-                      <TableCell className="text-sm text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${task.status === "Approve by client"
-                              ? "bg-green-500"
-                              : task.status === "Sent/Submision"
-                                ? "bg-blue-500"
-                                : task.status === "WIP"
-                                  ? "bg-orange-500"
-                                  : "bg-gray-300"
-                              }`}
-                          />
-                          {task.task_name}
-                        </div>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(task.status)}</TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {formatDate(task.expected_completion_date)}
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {formatDate(task.completion_date)}
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {(() => {
-                          const assigned = parseAssignedFromField(task.assigned_to);
-                          if (assigned.length === 0) return <span className="text-gray-400">---</span>;
-                          return (
-                            <div className="flex flex-wrap gap-0.5">
-                              {assigned.map((d, idx) => (
-                                <Badge
-                                  key={idx}
-                                  variant="secondary"
-                                  className="px-1.5 py-0 text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
-                                >
-                                  {d.userName || d.userId}
-                                </Badge>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {task.attachment ? (
-                          <a
-                            href={task.attachment}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                          >
-                            <FileText className="h-4 w-4" />
-                            View
-                          </a>
-                        ) : (
-                          "---"
+                        {isAdmin && (
+                          <TableCell className="w-10">
+                            <Checkbox
+                              checked={selectedTaskIds.has(task.name)}
+                              onCheckedChange={() => toggleTaskSelection(task.name)}
+                              aria-label={`Select ${task.task_name}`}
+                              className="translate-y-[2px]"
+                            />
+                          </TableCell>
                         )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <button
-                          disabled={isPMO && !canPMOEdit(task)}
-                          onClick={() => {
-                            if (isPMO && !canPMOEdit(task)) return;
-                            setEditTask(task);
-                            setEditOpen(true);
-                          }}
-                          className={`p-1 ${
-                            isPMO && !canPMOEdit(task)
-                              ? "text-gray-300 cursor-not-allowed"
-                              : "text-gray-400 hover:text-gray-600"
-                          }`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                        <TableCell className="text-sm text-gray-900">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${task.status === "Approve by client"
+                                ? "bg-green-500"
+                                : task.status === "Sent/Submision"
+                                  ? "bg-blue-500"
+                                  : task.status === "WIP"
+                                    ? "bg-orange-500"
+                                    : "bg-gray-300"
+                                }`}
+                            />
+                            {task.task_name}
+                          </div>
+                        </TableCell>
+                        <TableCell>{getStatusBadge(task.status)}</TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {formatDate(task.expected_completion_date)}
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {formatDate(task.completion_date)}
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {(() => {
+                            const assigned = parseAssignedFromField(task.assigned_to);
+                            if (assigned.length === 0) return <span className="text-gray-400">---</span>;
+                            return (
+                              <div className="flex flex-wrap gap-0.5">
+                                {assigned.map((d, idx) => (
+                                  <Badge
+                                    key={idx}
+                                    variant="secondary"
+                                    className="px-1.5 py-0 text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
+                                  >
+                                    {d.userName || d.userId}
+                                  </Badge>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {task.attachment ? (
+                            <a
+                              href={task.attachment}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                            >
+                              <FileText className="h-4 w-4" />
+                              View
+                            </a>
+                          ) : (
+                            "---"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <button
+                            disabled={isPMO && !canPMOEdit(task)}
+                            onClick={() => {
+                              if (isPMO && !canPMOEdit(task)) return;
+                              setEditTask(task);
+                              setEditOpen(true);
+                            }}
+                            className={`p-1 ${isPMO && !canPMOEdit(task)
+                                ? "text-gray-300 cursor-not-allowed"
+                                : "text-gray-400 hover:text-gray-600"
+                              }`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </React.Fragment>
               ))}
               {visibleCategoryOrder.length === 0 && (
@@ -732,25 +811,25 @@ const PMOProjectDetail: React.FC = () => {
                 <div className="flex justify-center">
                   {statusOverview?.drawing ? (
                     <div className="inline-flex flex-wrap gap-1.5 items-center justify-center">
-                    {(() => {
-                      const counts = statusOverview.drawing!.status_counts || {};
-                      const total = statusOverview.drawing!.total;
-                      const statuses = [
-                        { label: "Not Started", key: "Not Started", classes: "bg-gray-100 text-gray-600" },
-                        { label: "Submitted", key: "Submitted", classes: "bg-green-100 text-green-700" },
-                        { label: "In Progress", key: "In Progress", classes: "bg-blue-50 text-blue-700" }
-                      ];
+                      {(() => {
+                        const counts = statusOverview.drawing!.status_counts || {};
+                        const total = statusOverview.drawing!.total;
+                        const statuses = [
+                          { label: "Not Started", key: "Not Started", classes: "bg-gray-100 text-gray-600" },
+                          { label: "Submitted", key: "Submitted", classes: "bg-green-100 text-green-700" },
+                          { label: "In Progress", key: "In Progress", classes: "bg-blue-50 text-blue-700" }
+                        ];
 
-                      return statuses.map((st) => (
-                        <span key={st.key} className={`text-[11px] px-2 py-0.5 rounded font-medium ${st.classes}`}>
-                          {st.label}: {counts[st.key] || 0}/{total}
-                        </span>
-                      ));
-                    })()}
-                  </div>
-                ) : (
-                  <span className="text-xs text-gray-400">No data</span>
-                )}
+                        return statuses.map((st) => (
+                          <span key={st.key} className={`text-[11px] px-2 py-0.5 rounded font-medium ${st.classes}`}>
+                            {st.label}: {counts[st.key] || 0}/{total}
+                          </span>
+                        ));
+                      })()}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-400">No data</span>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="px-6 py-3 text-right w-[35%]">
@@ -791,11 +870,24 @@ const PMOProjectDetail: React.FC = () => {
                 </div>
               </TableCell>
               <TableCell className="px-6 py-3">
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-1">
                   {statusOverview?.dpr ? (
-                    <span className="inline-flex items-center text-[11px] font-medium text-gray-600 px-3 py-1 rounded border border-gray-200 bg-white shadow-sm">
-                      {formatDate(statusOverview.dpr.last_updated)}
-                    </span>
+                    <>
+                      <span className="inline-flex items-center text-[11px] font-medium text-gray-600 px-3 py-1 rounded border border-gray-200 bg-white shadow-sm">
+                        {formatDate(statusOverview.dpr.last_updated)}
+                      </span>
+                      {statusOverview.dpr.pm_off_site ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                          <UserX className="w-3 h-3" />
+                          PM Off Site
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <MapPin className="w-3 h-3" />
+                          PM On Site
+                        </span>
+                      )}
+                    </>
                   ) : (
                     <span className="text-xs text-gray-400">No data</span>
                   )}
@@ -824,6 +916,48 @@ const PMOProjectDetail: React.FC = () => {
                     </button>
                   </div>
                 )}
+              </TableCell>
+            </TableRow>
+
+            {/* Project DPR Schedule Row */}
+            <TableRow className="hover:bg-slate-50/50">
+              <TableCell className="px-6 py-3 w-[35%]">
+                <div className="flex items-center gap-2">
+                  <span className="text-red-500">
+                    <CalendarRange className="w-4 h-4" />
+                  </span>
+                  <span className="text-sm text-gray-900 font-medium">Project Schedule</span>
+                </div>
+              </TableCell>
+              <TableCell className="px-6 py-3">
+                <div className="flex justify-center">
+                  {schedulerProjectStart && schedulerProjectEnd ? (
+                    <span className="inline-flex items-center text-[11px] font-medium text-gray-600 px-3 py-1 rounded border border-gray-200 bg-white shadow-sm">
+                      {formatDate(schedulerProjectStart.toISOString())} – {formatDate(schedulerProjectEnd.toISOString())}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400">No schedule</span>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="px-6 py-3 text-right w-[35%]">
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => navigate(`/projects/${projectId}?page=schedule`)}
+                    className="text-blue-500 hover:text-blue-700 p-1 inline-flex items-center justify-center border border-blue-200 rounded hover:bg-blue-50 transition-colors"
+                    title="Open Schedule Tab"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleDownloadProjectSchedulePdf}
+                    disabled={downloadingSchedulePdf || schedulerGroups.length === 0}
+                    className="text-red-500 hover:text-red-700 p-1 inline-flex items-center justify-center border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Download DPR Project Target PDF"
+                  >
+                    {downloadingSchedulePdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  </button>
+                </div>
               </TableCell>
             </TableRow>
 
