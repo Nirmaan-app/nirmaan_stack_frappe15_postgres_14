@@ -580,7 +580,21 @@ export const ApproveSelectSR: React.FC = () => {
     if (!actionRow) return;
     try {
       setIsActing(true);
-      await updateDoc("Service Requests", actionRow.name, { status: "Approved" });
+      // Pull project_gst from the project so we can stamp it onto the SR.
+      let projectGst = "";
+      if (actionRow.project) {
+        try {
+          const projectDoc = await db.getDoc("Projects", actionRow.project);
+          projectGst = projectDoc?.project_gst || "";
+        } catch {
+          // Non-fatal — fall through with empty project_gst.
+        }
+      }
+      await updateDoc("Service Requests", actionRow.name, {
+        status: "Approved",
+        gst: "false",
+        project_gst: projectGst,
+      });
       toast({
         title: "Success!",
         description: `SR: ${actionRow.name} approved.`,
@@ -597,7 +611,7 @@ export const ApproveSelectSR: React.FC = () => {
       });
       setIsActing(false);
     }
-  }, [actionRow, updateDoc, refetch, closeActionDialog]);
+  }, [actionRow, updateDoc, db, refetch, closeActionDialog]);
 
   const handleConfirmReject = useCallback(async () => {
     if (!actionRow) return;

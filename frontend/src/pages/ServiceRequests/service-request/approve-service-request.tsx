@@ -52,6 +52,13 @@ export const ApproveServiceRequest: React.FC = () => {
 
     const { data: serviceVendor, isLoading: serviceVendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
 
+    // Project — needed to copy `project_gst` onto the SR at approval time
+    const { data: projectDoc } = useFrappeGetDoc(
+        "Projects",
+        service_request?.project,
+        service_request?.project ? undefined : null
+    )
+
     const { data: usersList, isLoading: usersListLoading } = useUsersList()
 
     const { data: universalComment, isLoading: universalCommentLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
@@ -121,7 +128,9 @@ export const ApproveServiceRequest: React.FC = () => {
         try {
             setIsLoading("approveSR")
             await updateDoc("Service Requests", id, {
-                status: "Approved"
+                status: "Approved",
+                gst: "false",
+                project_gst: projectDoc?.project_gst || "",
             })
 
             toast({
