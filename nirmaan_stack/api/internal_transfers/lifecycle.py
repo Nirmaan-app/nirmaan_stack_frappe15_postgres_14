@@ -8,7 +8,12 @@ ITMs are created in "Approved" status and only need dispatch + delivery manageme
 import frappe
 from frappe import _
 
-ADMIN_ROLE = "Nirmaan Admin Profile"
+# Single source of truth for "who can dispatch" lives on the ITM controller
+# alongside the state-machine guard so UI gating, controller hook, and this
+# whitelisted endpoint stay in sync.
+from nirmaan_stack.integrations.controllers.internal_transfer_memo import (
+    _require_dispatcher,
+)
 
 
 @frappe.whitelist()
@@ -24,9 +29,9 @@ def dispatch_itm(name: str) -> dict:
     if frappe.session.user == "Guest":
         frappe.throw(_("Authentication required."), frappe.PermissionError)
 
-    roles = frappe.get_roles(frappe.session.user)
-    if frappe.session.user != "Administrator" and ADMIN_ROLE not in roles:
-        frappe.throw(_("Only admins can dispatch ITMs."), frappe.PermissionError)
+    _require_dispatcher(
+        _("Only administrators or procurement executives can dispatch ITMs.")
+    )
 
     doc = frappe.get_doc("Internal Transfer Memo", name)
 
@@ -37,7 +42,11 @@ def dispatch_itm(name: str) -> dict:
         )
 
     doc.status = "Dispatched"
-    doc.save()
+    # Bypass User Permission check on linked Project fields. Authorisation has
+    # already been enforced above by `_require_dispatcher`; per-project User
+    # Permissions are an orthogonal Frappe-level scoping that doesn't apply
+    # to a cross-project workflow like ITM dispatch.
+    doc.save(ignore_permissions=True)
     frappe.db.commit()
 
     return {

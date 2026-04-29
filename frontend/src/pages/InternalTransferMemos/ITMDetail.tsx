@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { toast } from "@/components/ui/use-toast";
 
 import { useUserData } from "@/hooks/useUserData";
-import { ITM_APPROVE_ROLES, ITM_VIEW_ROLES } from "@/constants/itm";
+import { ITM_APPROVE_ROLES, ITM_DISPATCH_ROLES, ITM_VIEW_ROLES } from "@/constants/itm";
 
 import { useITM } from "./hooks/useITM";
 import { useITMMutations } from "./hooks/useITMMutations";
@@ -53,10 +53,17 @@ export const ITMDetail: React.FC = () => {
     [role, user_id]
   );
 
+  // Dispatch authority is broader than admin: Admin + Procurement Executive can
+  // dispatch (see ITM_DISPATCH_ROLES). Approve/reject stays Admin-only via isAdmin.
+  const canDispatch = useMemo(
+    () => ITM_DISPATCH_ROLES.includes(role) || user_id === "Administrator",
+    [role, user_id]
+  );
+
   const status = itm?.status;
   const isApproved = status === "Approved";
   const isDispatched = status ? DISPATCHED_STATUSES.has(status) : false;
-  const showDispatchButton = isApproved && isAdmin;
+  const showDispatchButton = isApproved && canDispatch;
 
   // --- Render guards ---
   if (!canView) {

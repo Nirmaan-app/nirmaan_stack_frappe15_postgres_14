@@ -28,7 +28,7 @@ interface TdsExportItem {
 interface TdsExportDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    onExport: (selectedItems: TdsExportItem[]) => void;
+    onExport: (selectedItems: TdsExportItem[], selectedStatus: string) => void;
     settings: TDSRepositoryData;
     historyData: TdsExportItem[];
     isExporting: boolean;
@@ -228,10 +228,10 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     };
 
     const handleExport = () => {
-        const selectedItems = groupedItems.flatMap(group => 
+        const selectedItems = groupedItems.flatMap(group =>
             group.items.filter(item => selectedIds.has(item.name))
         );
-        onExport(selectedItems);
+        onExport(selectedItems, selectedStatus);
     };
 
     const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.has(item.name));

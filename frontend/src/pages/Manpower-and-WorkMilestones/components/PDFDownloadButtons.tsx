@@ -81,11 +81,11 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [isDownloadingOverall, setIsDownloadingOverall] = useState(false);
 
-  // Admin flag — passed into the print format URL so the template can render
-  // admin-only sections (Zone Target, header Target, Target column).
+  // Admin flag — gates whether the "With Target Progress" option is offered.
+  // The actual is_admin=1 query param is now decided at confirm time so the
+  // admin can pick with/without target per download.
   const { user_id, role } = useUserData();
   const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
-  const adminQuery = isAdmin ? `&is_admin=1` : ``;
 
   // Dialog state
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -173,8 +173,10 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   //   }
   // };
 
-  // Download all zones merged PDF
-  const handleDownloadAllZones = async () => {
+  // Download all zones merged PDF.
+  // includeTarget=true sends &is_admin=1 so the print format renders
+  // Target Progress columns alongside Actual.
+  const handleDownloadAllZones = async (includeTarget: boolean) => {
     if (!zones.length) {
       toast({
         title: 'No Zones Available',
@@ -188,22 +190,21 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
     try {
       const dateStr = formatDateForAPI(reportDate);
+      const adminQ = includeTarget ? `&is_admin=1` : ``;
+      const targetSuffix = includeTarget ? '_with_target' : '';
 
-      // Generate filename with "All_Zones"
-      const fileName = generateFileName(projectName, 'All_Zones', reportDate);
+      const fileName = generateFileName(projectName, `All_Zones${targetSuffix}`, reportDate);
 
-      // Call the merge API endpoint
       const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_merged_zone_reports_pdf?` +
         `project_id=${encodeURIComponent(projectId)}&` +
         `report_date=${dateStr}` +
-        adminQuery;
+        adminQ;
 
-      // Force download with proper filename
       await forceDownload(pdfUrl, fileName);
 
       toast({
         title: 'Download Complete',
-        description: 'Downloaded merged DPR for all zones',
+        description: `Downloaded merged DPR for all zones${includeTarget ? ' with Target Progress' : ''}`,
         variant: 'default',
       });
     } catch (error) {
@@ -220,21 +221,22 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
 
   // Download "All Zones 14 Days" merged PDF
-  const handleDownloadOverall = async () => {
-    // Logic for All Zones 14 Days
+  const handleDownloadOverall = async (includeTarget: boolean) => {
     setIsDownloadingOverall(true);
     try {
-      const fileName = `${(projectName || 'Project').replace(/\s+/g, '_')}_Overall_14Days_AllZones.pdf`;
+      const adminQ = includeTarget ? `&is_admin=1` : ``;
+      const targetSuffix = includeTarget ? '_with_target' : '';
+      const fileName = `${(projectName || 'Project').replace(/\s+/g, '_')}_Overall_14Days_AllZones${targetSuffix}.pdf`;
 
       const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_all_zones_overall_report_pdf?` +
         `project_id=${encodeURIComponent(projectId)}` +
-        adminQuery;
+        adminQ;
 
       await forceDownload(pdfUrl, fileName);
 
       toast({
         title: "Download Complete",
-        description: "Downloaded 14-Days Overall Report for All Zones",
+        description: `Downloaded 14-Days Overall Report for All Zones${includeTarget ? ' with Target Progress' : ''}`,
         variant: "default",
       });
 
@@ -250,7 +252,8 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
     }
   };
 
-  // Check for missing reports and trigger download or dialog
+  // Decide whether to open the dialog (admin always sees it so they can
+  // pick with/without target; non-admin only sees it when reports are missing).
   const handleCheckAndDownload = (type: 'all_zones' | 'overall') => {
     if (!zoneProgress) return;
 
@@ -262,23 +265,25 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
       }
     });
 
-    if (missing.length > 0) {
-      setMissingZonesList(missing);
-      setPendingAction(type);
+    setMissingZonesList(missing);
+    setPendingAction(type);
+
+    if (isAdmin || missing.length > 0) {
       setShowConfirmDialog(true);
     } else {
-      // Proceed directly if no missing zones
-      if (type === 'all_zones') handleDownloadAllZones();
-      else handleDownloadOverall();
+      // Non-admin, all zones complete → direct download without target.
+      if (type === 'all_zones') handleDownloadAllZones(false);
+      else handleDownloadOverall(false);
+      setPendingAction(null);
     }
   };
 
-  const handleConfirmDownload = () => {
+  const handleConfirmDownload = (includeTarget: boolean) => {
     setShowConfirmDialog(false);
     if (pendingAction === 'all_zones') {
-      handleDownloadAllZones();
+      handleDownloadAllZones(includeTarget);
     } else if (pendingAction === 'overall') {
-      handleDownloadOverall();
+      handleDownloadOverall(includeTarget);
     }
     setPendingAction(null);
   };
@@ -400,24 +405,64 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
 
 
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent>
+        <AlertDialogContent className="sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Some Zones Have Incomplete Reports</AlertDialogTitle>
-            <AlertDialogDescription>
-              Reports are missing for the following zones:
-              <ul className="list-disc pl-5 mt-2 mb-2">
-                {missingZonesList.map(zone => (
-                  <li key={zone}>{zone}</li>
-                ))}
-              </ul>
-              Do you want to proceed and download the report for the completed zones only?
+            <AlertDialogTitle>
+              {missingZonesList.length > 0
+                ? 'Some Zones Have Incomplete Reports'
+                : 'Download Merged Report'}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              {missingZonesList.length > 0 && (
+                <>
+                  Reports are missing for the following zones:
+                  <ul className="list-disc pl-5 mt-2 mb-2">
+                    {missingZonesList.map(zone => (
+                      <li key={zone}>{zone}</li>
+                    ))}
+                  </ul>
+                  Only the completed zones will be included in the merged PDF.
+                </>
+              )}
+              {isAdmin && (
+                <span className="block pt-1 text-sm text-slate-600">
+                  Choose a version of the PDF. The admin version splits the{' '}
+                  <span className="font-semibold text-slate-800">Done</span> column into{' '}
+                  <span className="font-semibold text-slate-800">Target</span> and{' '}
+                  <span className="font-semibold text-slate-800">Actual</span> sub-columns for each milestone.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPendingAction(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDownload}>
-              Confirm / Download
-            </AlertDialogAction>
+          <AlertDialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
+            <AlertDialogCancel className="mt-0 sm:mt-0" onClick={() => setPendingAction(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <div className="flex flex-col-reverse sm:flex-row gap-2">
+              {isAdmin ? (
+                <>
+                  <Button
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    onClick={() => handleConfirmDownload(false)}
+                  >
+                    Without Target Progress
+                  </Button>
+                  <AlertDialogAction
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => handleConfirmDownload(true)}
+                  >
+                    With Target Progress
+                  </AlertDialogAction>
+                </>
+              ) : (
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={() => handleConfirmDownload(false)}
+                >
+                  Confirm / Download
+                </AlertDialogAction>
+              )}
+            </div>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
