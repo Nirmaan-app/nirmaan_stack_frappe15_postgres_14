@@ -52,7 +52,7 @@ import {
   ShoppingCart,
   SquareSquare,
   Store,
-  UsersRound, Waypoints, Search
+  UsersRound, Waypoints
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -201,7 +201,6 @@ export function NewSidebar() {
         },
       ]
       : []),
-    { key: "/document-search", icon: Search, label: "Document Search" },
     ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
       ? [
         {
@@ -632,7 +631,6 @@ export function NewSidebar() {
   ], [user_id, role]);
 
   const allKeys = useMemo(() => new Set([
-    "document-search",
     "projects",
     "users",
     "products",
@@ -697,7 +695,6 @@ export function NewSidebar() {
 
   const groupMappings = useMemo(() => ({
     "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst"],
-    "/document-search": ["document-search"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -806,7 +803,6 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard",
-                    "Document Search",
                     "Item Price Search",
                     "TDS Repository",
                     "Procurement Requests",

@@ -125,10 +125,6 @@ app_license = "mit"
 # Hook on document methods and events
 
 doc_events = {
-    "File": {
-        "after_insert": "nirmaan_stack.services.file_extractor.process_file",
-        "on_update": "nirmaan_stack.services.file_extractor.process_file"
-    },
 	"User": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
