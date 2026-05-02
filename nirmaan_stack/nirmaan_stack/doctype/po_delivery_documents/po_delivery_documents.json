@@ -8,7 +8,8 @@
  "engine": "InnoDB",
  "field_order": [
   "links_section",
-  "procurement_order",
+  "parent_doctype",
+  "parent_docname",
   "project",
   "vendor",
   "column_break_links",
@@ -33,14 +34,29 @@
    "label": "Links"
   },
   {
+   "default": "Procurement Orders",
+   "fieldname": "parent_doctype",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Parent Doctype",
+   "options": "Procurement Orders\nInternal Transfer Memo",
+   "search_index": 1
+  },
+  {
+   "fieldname": "parent_docname",
+   "fieldtype": "Dynamic Link",
+   "in_standard_filter": 1,
+   "label": "Parent Docname",
+   "options": "parent_doctype",
+   "search_index": 1
+  },
+  {
+   "description": "Deprecated. Use parent_doctype + parent_docname for new code. Field is preserved on legacy rows for back-compat reads but is no longer populated by create_po_delivery_documents.",
    "fieldname": "procurement_order",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Procurement Order",
+   "label": "Procurement Order (Deprecated)",
    "options": "Procurement Orders",
-   "reqd": 1,
-   "search_index": 1
+   "read_only": 1
   },
   {
    "fieldname": "project",

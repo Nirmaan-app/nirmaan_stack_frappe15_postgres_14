@@ -190,3 +190,115 @@ def get_unique_categories_for_delivery_challans(project_id=None):
 		"categories": sorted(list(categories)),
 		"total_categories": len(categories)
 	}
+
+
+_ITM_ELIGIBLE_STATUSES = ["Partially Delivered", "Delivered"]
+
+
+@frappe.whitelist()
+def get_delivery_challan_itms_with_categories(project_id=None):
+	"""
+	Mirror of get_delivery_challan_pos_with_categories for Internal Transfer Memos.
+	Filters by `target_project` (the receiver) since DC/MIR is filed against the
+	project that received the items.
+
+	Eligible ITM statuses: Partially Delivered, Delivered (Dispatched excluded —
+	user must have received at least one DN before filing a DC/MIR).
+
+	Returns the same shape as the PO endpoint so the frontend can reuse rendering.
+	"""
+	filters = {
+		"status": ["in", _ITM_ELIGIBLE_STATUSES]
+	}
+
+	if project_id:
+		filters["target_project"] = project_id
+
+	itm_list = frappe.get_all(
+		"Internal Transfer Memo",
+		filters=filters,
+		fields=[
+			"name",
+			"source_project",
+			"target_project",
+			"status",
+			"creation",
+			"dispatched_on",
+			"latest_delivery_date",
+			"transfer_request",
+			"requested_by",
+		],
+		order_by="latest_delivery_date desc, creation desc",
+		limit=0,
+	)
+
+	unique_categories = set()
+	category_itm_map = {}
+	enriched_itms = []
+
+	for itm in itm_list:
+		try:
+			itm_doc = frappe.get_doc("Internal Transfer Memo", itm.name)
+
+			itm_categories = set()
+			items_data = []
+
+			for item in itm_doc.items:
+				category = item.category
+				if category:
+					unique_categories.add(category)
+					itm_categories.add(category)
+					if category not in category_itm_map:
+						category_itm_map[category] = 0
+
+				items_data.append({
+					"item_id": item.item_id,
+					"item_name": item.item_name,
+					"category": category,
+					"quantity": flt(item.transfer_quantity),
+					"received_quantity": flt(item.received_quantity),
+					"unit": item.unit,
+					"make": item.make,
+				})
+
+			for category in itm_categories:
+				category_itm_map[category] += 1
+
+			enriched_itms.append({
+				"name": itm.name,
+				"project": itm.target_project,
+				"source_project": itm.source_project,
+				"target_project": itm.target_project,
+				"status": itm.status,
+				"creation": itm.creation,
+				"dispatch_date": itm.dispatched_on,
+				"latest_delivery_date": itm.latest_delivery_date,
+				"transfer_request": itm.transfer_request,
+				"requested_by": itm.requested_by,
+				"categories": sorted(list(itm_categories)),
+				"category_count": len(itm_categories),
+				"items": items_data,
+				"item_count": len(items_data)
+			})
+
+		except Exception as e:
+			frappe.log_error(
+				message=f"Error processing ITM {itm.name}: {str(e)}",
+				title="Delivery Challan ITM Data API Error"
+			)
+			enriched_itms.append({
+				**itm,
+				"project": itm.target_project,
+				"categories": [],
+				"category_count": 0,
+				"items": [],
+				"item_count": 0,
+				"error": "Failed to load item details"
+			})
+
+	return {
+		"itms": enriched_itms,
+		"unique_categories": sorted(list(unique_categories)),
+		"category_counts": category_itm_map,
+		"total_itms": len(enriched_itms)
+	}
