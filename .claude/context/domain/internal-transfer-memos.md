@@ -14,12 +14,43 @@ ITMs are created from the **Inventory Item-Wise** page via a global item/source 
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| **Phase 1** | ✅ Implemented (this delivery) | Doctype + create flow + approval/rejection + pre-dispatch delete |
-| **Phase 2** | 🚧 Planned | Dispatch action; DN polymorphism (`parent_doctype`/`parent_docname`); DN creation against ITM; status machine Dispatched → Partially Delivered → Delivered |
-| **Phase 3** | 🚧 Planned | Transferred Out / Transferred In columns on Material Usage; receiver RIR eligibility extension; RIR mutation guard; receiver-rate fallback |
-| **Phase 4** | 🚧 Planned | Socket.IO events (`itm:new`/`approved`/`rejected`/`dispatched`/`delivered`); FCM push; print format |
+| **Phase 1** | ✅ Implemented | Doctype + create flow + approval/rejection + pre-dispatch delete |
+| **Phase 2** | ✅ Implemented | Dispatch action; DN polymorphism (`parent_doctype`/`parent_docname`); DN creation against ITM; status machine Dispatched → Partially Delivered → Delivered |
+| **Phase 3** | ✅ Implemented (partial) | Transferred Out / Transferred In aggregates via `get_transfer_summary` |
+| **Phase 4** | ✅ Implemented | Socket.IO events on dispatch/delivery; PO Delivery Documents polymorphism; ITM DC & MIR upload + reporting |
 
-Every Phase 2+ item below is prefixed with 🚧 so readers instantly see what is live.
+---
+
+## Phase 4 — DC & MIR for ITM (recent delivery)
+
+**Schema**: `PO Delivery Documents` doctype now polymorphic — added `parent_doctype` (Select: `Procurement Orders` / `Internal Transfer Memo`) + `parent_docname` (Dynamic Link). `procurement_order` field made optional (set for PO rows, NULL for ITM rows). Migration patch `patches/v3_0/backfill_pdd_parent_doctype.py` backfills legacy PO rows. `parent_doctype="Internal Transfer Memo"` rows are validated on create — ITM status must be `Partially Delivered` or `Delivered`.
+
+**Backend APIs** (`api/po_delivery_documentss.py` + `api/delivery_challans_data.py`):
+- `create_po_delivery_documents` — accepts optional `parent_doctype` + `parent_docname`. For ITM: copies `target_project` to `project`, sets `vendor=None`, `procurement_order=None`. Validates status.
+- `get_po_delivery_documents` — split-path: PO uses legacy `procurement_order` filter (back-compat with un-backfilled rows); ITM uses `parent_doctype` + `parent_docname`.
+- `get_project_po_delivery_documents` — **PO-only** by design (filter `procurement_order ["is", "set"]`). Used by Material Usage + DN > DC PO report.
+- `get_all_delivery_documents(doc_type, parent_doctype)` — returns all rows; report layer filters client-side.
+- `get_delivery_challan_itms_with_categories(project_id)` — new ITM picker analog to the PO endpoint. Filters ITMs by `target_project` + status in {Partially Delivered, Delivered}.
+- `_enrich_delivery_docs` — batch-fetches `source_project` for ITM-parented rows in one extra SQL query.
+- `get_project_itms` — extended to also include child items (`transfer_quantity`, `received_quantity`) for the DN > DC ITM report.
+
+**Frontend surfaces**:
+- **Hub** `/prs&milestones/delivery-challans-and-mirs` — top-level PO / ITM toggle (URL param `parent`). Renders `POListTable`+`POListCards` for PO mode, `ITMListTable`+`ITMListCards` for ITM mode (mobile cards exist for both).
+- **ITM detail page** — `ITMAttachmentSection` (mirror of PO `DocumentAttachments`'s DC/MIR card). Card always renders when `canView`; upload buttons gated on `canUpload` (status in delivered states). Historical DCs/MIRs never hide.
+- **Project DC & MIR tab** — outer 3 tabs (DN > DC Report / DC / MIR), inner PO/ITM toggle (URL param `dcmir_parent`). Counts split by parent.
+- **Reports `DCs & MIRs` tab** — PO/ITM toggle (URL param `dcmir_parent`) on its own row below the tabs. Shared `DCMIRReports` component: ITM mode replaces Vendor / PO / Critical PO columns with ITM No. + Source Project; replaces Vendor facet with Source Project facet; replaces PO No. searchable with ITM No. + Source Project searchable.
+- **DN > DC ITM report** — `ITMDNDCQuantityReport.tsx`. Mirrors PO `DNDCQuantityReport` exactly: parent ITM rows expand to item sub-rows, status rollup, sortable totals (`SortableHeader` with Asc/Desc/Clear dropdown), source-project + status facets, status filter defaults to hide Matched, search across ITM/source project/item/category, CSV export with PO-equivalent columns, info banner, error state, row tinting via `getReconcileRowClasses` + `getItemRowClasses`.
+- **Generalized `UploadDCMIRDialog`** — accepts optional `parentDoctype` prop. Defaults to "Procurement Orders" for back-compat. ITM mode skips vendor link in `Nirmaan Attachments`.
+- **Bulk PDF Download** — **PO-only** by design (filter `procurement_order ["is", "set"]` at [useBulkDownloadWizard.ts:148](frontend/src/pages/BulkDownload/useBulkDownloadWizard.ts#L148)). The wizard's vendor-centric UX would not handle ITM rows cleanly.
+
+**UX conventions**:
+- PO/ITM segmented toggle uses red-active pill (`bg-red-600 text-white shadow-sm`) on muted track, with full labels "Purchase Orders" / "Transfer Memos". Black text for inactive (not muted). Same styling on project tab + reports hub.
+- Status semantics align with PO: `dnQty===0 && dcQty>0` → Pending DN; `dcQty>=dnQty` → Matched; `dnQty>0 && dcQty===0` → No DC Update; else → Mismatch.
+- Activity filter (drop `dnQty===0 && dcQty===0`) and orphan-DC handling mirror PO.
+
+**Permission parity**: ITM detail is gated by `ITM_VIEW_ROLES` (Admin/PMO/Procurement/PL/PM). Estimates Executive cannot reach ITM detail page (functionally equivalent to PO's `!isEstimatesExecutive` upload gate). Hub is unprotected at the route level for both PO and ITM (existing PO behavior).
+
+Every Phase 2+ item below is prefixed with 🚧 only if it remains unimplemented; otherwise treated as live.
 
 ---
 
