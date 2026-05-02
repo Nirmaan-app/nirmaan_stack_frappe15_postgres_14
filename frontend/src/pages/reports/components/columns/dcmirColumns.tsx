@@ -85,20 +85,28 @@ const vendorColumn: ColumnDef<DCMIRReportRowData> = {
     filterFn: facetedFilterFn,
 };
 
+// PO No. column — only included for parent_doctype="Procurement Orders" rows.
+// Reads `parent_docname` (the polymorphic field) with a fallback to the deprecated
+// `procurement_order` field for any pre-backfill row that slips through.
 const poColumn: ColumnDef<DCMIRReportRowData> = {
-    accessorKey: "procurement_order",
+    id: "po_no",
+    accessorFn: (row) => row.parent_docname || row.procurement_order || "",
     header: ({ column }) => <DataTableColumnHeader column={column} title="PO No." />,
-    cell: ({ row }) => (
-        <Link
-            to={`/project-payments/${row.original.procurement_order.split("/").join("&=")}`}
-            className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium"
-        >
-            {row.original.procurement_order}
-        </Link>
-    ),
+    cell: ({ row }) => {
+        const po = row.original.parent_docname || row.original.procurement_order;
+        if (!po) return <span className="text-gray-400 text-xs">—</span>;
+        return (
+            <Link
+                to={`/project-payments/${po.split("/").join("&=")}`}
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium"
+            >
+                {po}
+            </Link>
+        );
+    },
     meta: {
         exportHeaderName: "PO No.",
-        exportValue: (row: DCMIRReportRowData) => row.procurement_order,
+        exportValue: (row: DCMIRReportRowData) => row.parent_docname || row.procurement_order || "",
     },
 };
 
@@ -213,11 +221,73 @@ const attachmentColumn: ColumnDef<DCMIRReportRowData> = {
     },
 };
 
+// --- Source Project column: shown for ITM rows (replaces vendorColumn) ---
+const sourceProjectColumn: ColumnDef<DCMIRReportRowData> = {
+    id: "source_project_name",
+    accessorFn: (row) => row.sourceProjectName || row.source_project || "",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Source Project" />,
+    cell: ({ row }) => <div>{row.original.sourceProjectName || row.original.source_project || "—"}</div>,
+    meta: {
+        exportHeaderName: "Source Project",
+        exportValue: (row: DCMIRReportRowData) => row.sourceProjectName || row.source_project || "",
+    },
+    filterFn: facetedFilterFn,
+};
+
+// --- ITM-specific column: replaces poColumn when parent is an ITM ---
+const itmColumn: ColumnDef<DCMIRReportRowData> = {
+    id: "itm_no",
+    accessorFn: (row) => row.parent_docname || "",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="ITM No." />,
+    cell: ({ row }) => {
+        const itmName = row.original.parent_docname;
+        if (!itmName) return <span className="text-gray-400 text-xs">—</span>;
+        return (
+            <Link
+                to={`/internal-transfer-memos/${itmName}`}
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium"
+            >
+                {itmName}
+            </Link>
+        );
+    },
+    meta: {
+        exportHeaderName: "ITM No.",
+        exportValue: (row: DCMIRReportRowData) => row.parent_docname || "",
+    },
+};
+
+interface DCMIRColumnOptions {
+    parentDoctype?: 'Procurement Orders' | 'Internal Transfer Memo';
+}
+
 // --- Function to get columns based on report type ---
-export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DCMIRReportRowData>[] => {
+export const getDCMIRReportColumns = (
+    reportType: DCMIRReportType,
+    { parentDoctype = 'Procurement Orders' }: DCMIRColumnOptions = {}
+): ColumnDef<DCMIRReportRowData>[] => {
+    const isITM = parentDoctype === 'Internal Transfer Memo';
+
+    // Project column header label changes for ITM (it's the receiver / target project)
+    const projectCol: ColumnDef<DCMIRReportRowData> = isITM
+        ? {
+            ...projectColumn,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Target Project" />,
+            meta: {
+                exportHeaderName: "Target Project",
+                exportValue: (row: DCMIRReportRowData) => row.projectName || row.project,
+            },
+        }
+        : projectColumn;
+
+    // Parent identity columns: ITM No. + Source Project for ITM; Vendor + PO + Critical for PO.
+    const parentCols: ColumnDef<DCMIRReportRowData>[] = isITM
+        ? [itmColumn, sourceProjectColumn]
+        : [vendorColumn, poColumn, criticalPOColumn];
+
     if (reportType === 'MIR Report') {
         return [
-            projectColumn,
+            projectCol,
             {
                 accessorKey: "reference_number",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="MIR No." />,
@@ -236,9 +306,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
                     exportValue: (row: DCMIRReportRowData) => row.dc_reference || "",
                 },
             },
-            vendorColumn,
-            poColumn,
-            criticalPOColumn,
+            ...parentCols,
             dateColumn,
             itemsColumn,
             signedColumn,
@@ -249,7 +317,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
 
     // DC Report (default)
     return [
-        projectColumn,
+        projectCol,
         {
             accessorKey: "reference_number",
             header: ({ column }) => <DataTableColumnHeader column={column} title="DC No." />,
@@ -259,9 +327,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
                 exportValue: (row: DCMIRReportRowData) => row.reference_number || "",
             },
         },
-        vendorColumn,
-        poColumn,
-        criticalPOColumn,
+        ...parentCols,
         dateColumn,
         itemsColumn,
         signedColumn,

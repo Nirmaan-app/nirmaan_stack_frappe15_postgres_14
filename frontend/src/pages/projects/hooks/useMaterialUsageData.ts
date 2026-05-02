@@ -98,6 +98,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
     for (const doc of docs) {
       const isStub = doc.is_stub === 1;
+      // PO id resolution: parent_docname is the polymorphic field; procurement_order
+      // is the deprecated legacy fallback for any pre-backfill row that slips through.
+      const poId = doc.parent_docname || doc.procurement_order;
+      if (!poId) continue;
 
       const docInfo: DeliveryDocumentInfo = {
         name: doc.name,
@@ -106,14 +110,14 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         isSignedByClient: doc.is_signed_by_client === 1,
         attachmentUrl: doc.attachment_url,
         itemCount: doc.items?.length || 0,
-        poNumber: doc.procurement_order,
+        poNumber: poId,
         isStub,
       };
 
       const isDC = doc.type === "Delivery Challan";
 
       // Build poDeliveryMap
-      const poKey = doc.procurement_order;
+      const poKey = poId;
       if (!poMap.has(poKey)) {
         poMap.set(poKey, { dcs: [], mirs: [] });
       }
@@ -378,6 +382,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     const docs = poDeliveryDocsData?.message || [];
     for (const doc of docs) {
       if (doc.is_stub === 1 || !doc.items) continue;
+      const poId = doc.parent_docname || doc.procurement_order;
+      if (!poId) continue;
       const isDC = doc.type === "Delivery Challan";
       const docInfo: DeliveryDocumentInfo = {
         name: doc.name,
@@ -386,11 +392,11 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         isSignedByClient: doc.is_signed_by_client === 1,
         attachmentUrl: doc.attachment_url,
         itemCount: doc.items.length,
-        poNumber: doc.procurement_order,
+        poNumber: poId,
         isStub: false,
       };
       for (const item of doc.items) {
-        const key = `${doc.procurement_order}_${item.category}_${item.item_id}`;
+        const key = `${poId}_${item.category}_${item.item_id}`;
         if (!poItemDeliveryMap.has(key)) {
           poItemDeliveryMap.set(key, { dcQty: 0, mirQty: 0, dcs: [], mirs: [] });
         }
@@ -491,7 +497,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     // --- Step 3: Orphan DC/MIR item detection ---
     for (const doc of docs) {
       if (doc.is_stub === 1 || !doc.items || doc.items.length === 0) continue;
-      const poNumber = doc.procurement_order;
+      const poNumber = doc.parent_docname || doc.procurement_order;
+      if (!poNumber) continue;
       const existingGroup = poGroupMap.get(poNumber);
 
       for (const childItem of doc.items) {
@@ -592,9 +599,10 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
     for (const doc of docs) {
       const isStub = doc.is_stub === 1;
+      const poId = doc.parent_docname || doc.procurement_order || "";
 
       const displayItems: DCMIRItemDisplay[] = (doc.items || []).map(item => {
-        const recvKey = `${doc.procurement_order}_${item.category}_${item.item_id}`;
+        const recvKey = `${poId}_${item.category}_${item.item_id}`;
         return {
           itemId: item.item_id,
           itemName: item.item_name,
@@ -617,8 +625,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         documentName: doc.name,
         referenceNumber: doc.reference_number || doc.name,
         dcReference: doc.dc_reference,
-        poNumber: doc.procurement_order,
-        vendorName: vendorByPO.get(doc.procurement_order) || "",
+        poNumber: poId,
+        vendorName: vendorByPO.get(poId) || "",
         dcDate: doc.dc_date,
         billingCategory: isStub ? "N/A" : docBillingCategory,
         totalReceivedQuantity: displayItems.reduce((sum, i) => sum + i.receivedQuantity, 0),
