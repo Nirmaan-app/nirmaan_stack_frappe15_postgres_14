@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Edit } from "lucide-react";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { FillReportButton, type MasterTaskInfo } from "../components/FillReportButton";
 import { CommissionReportTask } from "../types";
 import {
     getUnifiedStatusStyle,
@@ -174,7 +175,11 @@ const dateFilterFn = (row: any, columnId: string, filterValue: DateFilterValue) 
 export const getTaskTableColumns = (
     handleEditClick: (task: CommissionReportTask) => void,
     isRestrictedUser: boolean,
-    checkIfUserAssigned: (task: CommissionReportTask) => boolean
+    checkIfUserAssigned: (task: CommissionReportTask) => boolean,
+    /** Required for the "Report" column. Pass empty Map() to hide it. */
+    masterMap: Map<string, MasterTaskInfo> = new Map(),
+    /** Required for the "Report" column. */
+    parentName: string = '',
 ): ColumnDef<CommissionReportTask>[] => {
     return [
         {
@@ -281,6 +286,32 @@ export const getTaskTableColumns = (
             size: 80,
             minSize: 70,
             maxSize: 100,
+            meta: { excludeFromExport: true },
+        },
+        {
+            id: "report",
+            header: ({ column }: { column: any }) => (
+                <div className="flex justify-center px-2">
+                    <DataTableColumnHeader column={column} title="Report" />
+                </div>
+            ),
+            cell: ({ row }: { row: any }) => {
+                const canEdit = !isRestrictedUser ||
+                    (isRestrictedUser && checkIfUserAssigned(row.original));
+                return (
+                    <div className="flex justify-center">
+                        <FillReportButton
+                            parentName={parentName}
+                            task={row.original}
+                            masterMap={masterMap}
+                            canEdit={canEdit}
+                        />
+                    </div>
+                );
+            },
+            size: 90,
+            minSize: 80,
+            maxSize: 110,
             meta: { excludeFromExport: true },
         },
         {

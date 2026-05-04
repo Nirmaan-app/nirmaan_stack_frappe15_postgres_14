@@ -48,6 +48,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/commissionTableColumns';
+import { useMasterTaskMap } from './report-wizard/data/useMasterTaskMap';
 
 const DOCTYPE = 'Project Commission Report';
 
@@ -1033,10 +1034,19 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
         { value: "commission_category", label: "Category" },
     ];
 
+    // Master template map for the "Report" wizard column.
+    const { map: masterTaskMap } = useMasterTaskMap();
+
     // Column definitions
     const columns = useMemo(
-        () => getTaskTableColumns(setEditingTask, isRestrictedAssigneeRole, checkIfUserAssigned),
-        [isRestrictedAssigneeRole, checkIfUserAssigned]
+        () => getTaskTableColumns(
+            setEditingTask,
+            isRestrictedAssigneeRole,
+            checkIfUserAssigned,
+            masterTaskMap,
+            trackerId || '',
+        ),
+        [isRestrictedAssigneeRole, checkIfUserAssigned, masterTaskMap, trackerId]
     );
 
     // Client-side TanStack Table instance
