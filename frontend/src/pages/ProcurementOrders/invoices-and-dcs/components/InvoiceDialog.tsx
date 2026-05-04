@@ -107,10 +107,11 @@ export function InvoiceDialog<T extends DocumentType>({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Autofill state
-  const [mode, setMode] = useState<"select" | "autofill" | "manual">("select");
+  const [stage, setStage] = useState<"upload" | "form">("upload");
   const [isAutofilling, setIsAutofilling] = useState(false);
   const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount">>(new Set());
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const [autofillConfidence, setAutofillConfidence] = useState<Record<string, number> | null>(null);
 
   // API hooks
   const { call: updateInvoiceApiCall, loading: updateInvoiceApiCallLoading } =
@@ -141,24 +142,26 @@ export function InvoiceDialog<T extends DocumentType>({
           amount: String(selectedInvoice.invoice_amount || ""),
           date: selectedInvoice.invoice_date || "",
         });
-        // Edit mode skips the mode picker — straight to manual form.
-        setMode("manual");
+        // Edit mode skips the upload-first stage.
+        setStage("form");
       } else {
         setInvoiceData(initialInvoiceState);
-        setMode("select");
+        setStage("upload");
       }
       setSelectedAttachment(null);
       setDuplicateCheckResult(null);
       setIsCheckingDuplicate(false);
       setAutofilledFields(new Set());
       setUploadedFileUrl(null);
+      setAutofillConfidence(null);
     }
   }, [isOpen, selectedInvoice]);
 
-  // Reset autofill state when user picks a different file (autofill mode only)
+  // Reset autofill state when user picks a different file
   useEffect(() => {
     setAutofilledFields(new Set());
     setUploadedFileUrl(null);
+    setAutofillConfidence(null);
   }, [selectedAttachment]);
 
   // Handle closing manually to clear selectedInvoice
@@ -272,24 +275,31 @@ export function InvoiceDialog<T extends DocumentType>({
         return;
       }
 
+      // Compute updates synchronously so `filled.size` reflects the actual count
+      // when we decide which toast to show. Previously this logic ran inside a
+      // `setInvoiceData(updater)` callback which executes asynchronously during
+      // React reconciliation — so the toast check always saw an empty Set.
       const filled = new Set<"invoice_no" | "date" | "amount">();
-      setInvoiceData((prev) => {
-        const next = { ...prev };
-        if (extracted.invoice_no) {
-          next.invoice_no = extracted.invoice_no;
-          filled.add("invoice_no");
-        }
-        if (extracted.invoice_date) {
-          next.date = extracted.invoice_date;
-          filled.add("date");
-        }
-        if (extracted.amount) {
-          next.amount = extracted.amount;
-          filled.add("amount");
-        }
-        return next;
-      });
+      const updates: Partial<typeof initialInvoiceState> = {};
+
+      if (extracted.invoice_no) {
+        updates.invoice_no = extracted.invoice_no;
+        filled.add("invoice_no");
+      }
+      if (extracted.invoice_date) {
+        updates.date = extracted.invoice_date;
+        filled.add("date");
+      }
+      if (extracted.amount) {
+        updates.amount = extracted.amount;
+        filled.add("amount");
+      }
+
+      setInvoiceData((prev) => ({ ...prev, ...updates }));
       setAutofilledFields(filled);
+      if (extracted.confidence && typeof extracted.confidence === "object") {
+        setAutofillConfidence(extracted.confidence);
+      }
 
       if (filled.size === 0) {
         toast({
@@ -309,20 +319,25 @@ export function InvoiceDialog<T extends DocumentType>({
       toast({
         title: "Auto-fill Failed",
         description:
-          error instanceof Error ? error.message : "Could not extract fields from invoice.",
+          error instanceof Error
+            ? `${error.message} You can fill in the details manually.`
+            : "Could not extract fields from invoice. Please fill in manually.",
         variant: "destructive",
       });
     } finally {
       setIsAutofilling(false);
+      // Advance to the form stage regardless of success/failure — user can
+      // always edit fields manually if extraction misses anything.
+      setStage("form");
     }
   }, [docName, docType, upload, extractInvoiceFieldsApi]);
 
   const handleAttachmentSelect = useCallback((file: File | null) => {
     setSelectedAttachment(file);
-    if (file && mode === "autofill") {
+    if (file && !isEditMode) {
       runAutofillExtraction(file);
     }
-  }, [mode, runAutofillExtraction]);
+  }, [isEditMode, runAutofillExtraction]);
 
   const clearAutofillFlag = useCallback((field: "invoice_no" | "date" | "amount") => {
     setAutofilledFields((prev) => {
@@ -358,12 +373,21 @@ export function InvoiceDialog<T extends DocumentType>({
         updated_by: userData?.user_id,
       };
 
+      // Only mark as autofilled if at least one field was AI-extracted
+      // and we're creating a new invoice (not editing).
+      const autofillUsed = !isEditMode && autofilledFields.size > 0;
+
       const apiPayload = {
         docname: docName,
         invoice_data: JSON.stringify(invoicePayloadForApi),
         invoice_attachment: attachmentUrl,
         isSR: docType === "Service Requests",
-        invoice_id: selectedInvoice?.name // Pass invoice ID if editing
+        invoice_id: selectedInvoice?.name, // Pass invoice ID if editing
+        autofill_used: autofillUsed,
+        autofill_confidence_json:
+          autofillUsed && autofillConfidence
+            ? JSON.stringify(autofillConfidence)
+            : null,
       };
 
       const response = await updateInvoiceApiCall(apiPayload);
@@ -378,7 +402,11 @@ export function InvoiceDialog<T extends DocumentType>({
         });
         await docMutate();
         await globalMutate((key) =>
-          typeof key === "string" && key.startsWith("VendorInvoices-")
+          typeof key === "string" && (
+            key.startsWith("VendorInvoices-") ||
+            key.startsWith("Invoice-Attachments-") ||
+            key.startsWith("Nirmaan Attachments-")
+          )
         );
         handleClose();
       } else {
@@ -407,7 +435,9 @@ export function InvoiceDialog<T extends DocumentType>({
     globalMutate,
     handleClose,
     isEditMode,
-    selectedInvoice
+    selectedInvoice,
+    autofilledFields,
+    autofillConfidence,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -487,7 +517,7 @@ export function InvoiceDialog<T extends DocumentType>({
       {/* Main Invoice Dialog */}
       <AlertDialog
         open={isOpen}
-        onOpenChange={(open) => !open && !isLoading ? handleClose() : undefined}
+        onOpenChange={(open) => !open && !isLoading && !isAutofilling ? handleClose() : undefined}
       >
         <AlertDialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
           {/* Header */}
@@ -509,76 +539,61 @@ export function InvoiceDialog<T extends DocumentType>({
           </div>
 
           {/* Body */}
-          {mode === "select" ? (
-            <div className="px-6 py-6">
-              <p className="text-sm text-muted-foreground mb-4">
-                How would you like to fill in the invoice details?
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setMode("autofill")}
-                  className="flex flex-col items-start gap-2 rounded-lg border-2 border-amber-200 bg-amber-50/60 hover:bg-amber-50 hover:border-amber-300 transition-colors p-4 text-left"
-                >
-                  <div className="flex items-center gap-2 text-amber-900 font-semibold">
-                    <Sparkles className="h-5 w-5" />
-                    Auto-fill
+          {stage === "upload" ? (
+            // ───────── Stage 1: Upload-only screen ─────────
+            <div className="px-6 py-8 space-y-4">
+              {!isAutofilling ? (
+                <>
+                  <div className="text-center space-y-1">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      Upload your invoice
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      We'll read the invoice and fill in the details for you.
+                    </p>
                   </div>
-                  <p className="text-xs text-amber-900/80 leading-snug">
-                    Upload the invoice file and let Document AI extract the
-                    invoice number, date, and amount automatically.
+                  <CustomAttachment
+                    maxFileSize={20 * 1024 * 1024}
+                    selectedFile={selectedAttachment}
+                    onFileSelect={handleAttachmentSelect}
+                    label="Choose Invoice File (PDF or image)"
+                    className="w-full"
+                    disabled={isLoading || isAutofilling}
+                  />
+                  <p className="text-[11px] text-center text-muted-foreground">
+                    Supported: PDF, PNG, JPG · max 20 MB
                   </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMode("manual")}
-                  className="flex flex-col items-start gap-2 rounded-lg border-2 border-gray-200 bg-gray-50/60 hover:bg-gray-50 hover:border-gray-300 transition-colors p-4 text-left"
-                >
-                  <div className="flex items-center gap-2 text-gray-900 font-semibold">
-                    <FileText className="h-5 w-5" />
-                    Manual entry
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-6">
+                  <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
+                  <div className="text-center space-y-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      Reading your invoice…
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Document AI is extracting invoice details. This usually takes a few seconds.
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-700 leading-snug">
-                    Type the invoice number, date, and amount yourself, then
-                    attach the invoice file.
-                  </p>
-                </button>
-              </div>
-              <div className="mt-5 flex justify-end">
-                <Button variant="outline" onClick={handleClose}>
-                  Cancel
-                </Button>
-              </div>
+                </div>
+              )}
+              {!isAutofilling && (
+                <div className="flex justify-end pt-2 border-t">
+                  <Button variant="outline" onClick={handleClose}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
+            // ───────── Stage 2: Form (prefilled if autofill ran) ─────────
             <>
           <div className="px-6 py-5 space-y-4">
-            {!isEditMode && (
-              <div className="flex items-center justify-between -mt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode("select");
-                    setSelectedAttachment(null);
-                    setInvoiceData(initialInvoiceState);
-                    setAutofilledFields(new Set());
-                    setUploadedFileUrl(null);
-                  }}
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                  disabled={isLoading || isAutofilling}
-                >
-                  ← Choose another method
-                </button>
-                <span
-                  className={cn(
-                    "text-[11px] font-medium px-2 py-0.5 rounded-full",
-                    mode === "autofill"
-                      ? "bg-amber-100 text-amber-800"
-                      : "bg-gray-100 text-gray-700"
-                  )}
-                >
-                  {mode === "autofill" ? "✨ Auto-fill mode" : "Manual entry"}
+            {!isEditMode && autofilledFields.size > 0 && (
+              <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 -mt-1">
+                <Sparkles className="h-3.5 w-3.5 text-amber-700 flex-shrink-0" />
+                <span className="text-xs text-amber-900 leading-snug">
+                  Auto-filled from your invoice. Please review and edit if anything is wrong.
                 </span>
               </div>
             )}
@@ -739,7 +754,7 @@ export function InvoiceDialog<T extends DocumentType>({
                 disabled={isLoading || isAutofilling}
               />
 
-              {mode === "autofill" && isAutofilling && (
+              {!isEditMode && isAutofilling && (
                 <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
                   <Loader2 className="h-4 w-4 text-amber-700 animate-spin" />
                   <span className="text-xs text-amber-900">
@@ -747,7 +762,7 @@ export function InvoiceDialog<T extends DocumentType>({
                   </span>
                 </div>
               )}
-              {mode === "autofill" && !isAutofilling && autofilledFields.size > 0 && (
+              {!isEditMode && !isAutofilling && autofilledFields.size > 0 && (
                 <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
                   <Sparkles className="h-3.5 w-3.5 text-amber-700" />
                   <span className="text-xs text-amber-900">

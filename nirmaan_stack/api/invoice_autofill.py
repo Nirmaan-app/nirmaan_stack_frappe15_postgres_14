@@ -12,7 +12,10 @@ MIN_CONFIDENCE = 0.70
 
 INVOICE_NO_KEYS = ("invoice_id", "invoice_number", "invoice_no")
 INVOICE_DATE_KEYS = ("invoice_date",)
-AMOUNT_KEYS = ("total_amount", "net_amount", "amount_due", "amount")
+# Only `total_amount` (grand total, incl. tax) — must NOT fall back to
+# `net_amount` (pre-tax subtotal) since the form field is "Amount (incl. GST)".
+# If V1-base misses total_amount, we'd rather leave it blank than fill the wrong value.
+AMOUNT_KEYS = ("total_amount",)
 
 
 @frappe.whitelist()
@@ -117,7 +120,13 @@ def _pick_entity(entities, candidate_keys, prefer_normalized=False):
 
 
 def _normalize_date(value):
-    """Normalize a date string into YYYY-MM-DD if possible; otherwise return as-is."""
+    """Normalize a date string into YYYY-MM-DD.
+
+    The frontend renders the date in an HTML <input type="date"> which silently
+    rejects values not in YYYY-MM-DD format. So if we can't normalize, return
+    "" rather than the raw string — better to leave the field blank for manual
+    entry than to silently drop a non-parseable value into the form.
+    """
     if not value:
         return ""
 
@@ -127,20 +136,30 @@ def _normalize_date(value):
 
     candidate_formats = (
         "%Y-%m-%d",
+        "%Y/%m/%d",
         "%d-%m-%Y",
         "%d/%m/%Y",
+        "%d.%m.%Y",
         "%m/%d/%Y",
         "%d %b %Y",
         "%d %B %Y",
         "%d-%b-%Y",
         "%d-%B-%Y",
+        "%b %d, %Y",
+        "%B %d, %Y",
+        "%d %b, %Y",
+        "%d %B, %Y",
+        "%d-%b-%y",
+        "%d/%m/%y",
     )
     for fmt in candidate_formats:
         try:
             return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
-    return value
+    # Unparseable → return empty so the form field stays blank instead of
+    # silently rendering an empty date input from a malformed string.
+    return ""
 
 
 def _normalize_amount(value):

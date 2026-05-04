@@ -32,7 +32,11 @@
   "column_break_recon",
   "reconciled_by",
   "reconciled_amount",
-  "reconciliation_proof"
+  "reconciliation_proof",
+  "autofill_section",
+  "autofill_used",
+  "autofill_processor_id",
+  "autofill_confidence_json"
  ],
  "fields": [
   {
@@ -196,6 +200,38 @@
    "fieldtype": "Link",
    "label": "Reconciliation Proof",
    "options": "Nirmaan Attachments"
+  },
+  {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:!doc.autofill_used",
+   "fieldname": "autofill_section",
+   "fieldtype": "Section Break",
+   "label": "AI Autofill"
+  },
+  {
+   "default": "0",
+   "description": "Set to 1 if this invoice was created using Document AI autofill.",
+   "fieldname": "autofill_used",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Autofill Used",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Document AI processor ID that performed the extraction.",
+   "fieldname": "autofill_processor_id",
+   "fieldtype": "Data",
+   "label": "Autofill Processor ID",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Per-field confidence scores returned by Document AI (JSON).",
+   "fieldname": "autofill_confidence_json",
+   "fieldtype": "Long Text",
+   "label": "Autofill Confidence JSON",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

@@ -41,33 +41,41 @@ def fetch_file_content(file_doc, file_name=None):
 
 
 def get_document_ai_settings():
+    """Read Document AI Settings via direct DB access — bypasses doctype-level
+    read permissions so non-admin users (Procurement Executive, PM, Accountant,
+    etc.) can use the invoice autofill flow. The settings doctype is still only
+    *writable* by System Manager; this only relaxes read-side access."""
     try:
-        settings = frappe.get_single(DOC_AI_SETTINGS_DOCTYPE)
+        get = lambda field: frappe.db.get_single_value(DOC_AI_SETTINGS_DOCTYPE, field)
+        return {
+            "enabled": bool(cint(get("enabled"))),
+            "project_id": (get("project_id") or "").strip(),
+            "location": (get("location") or "us").strip(),
+            "processor_id": (get("processor_id") or "").strip(),
+            "invoice_processor_id": (get("invoice_processor_id") or "").strip(),
+            "expense_processor_id": (get("expense_processor_id") or "").strip(),
+            "invoice_target_doctypes": _parse_doctypes_list(get("invoice_target_doctypes")),
+            "expense_target_doctypes": _parse_doctypes_list(get("expense_target_doctypes")),
+            "timeout_seconds": int(get("timeout_seconds") or 90),
+        }
     except Exception:
+        frappe.log_error(
+            title="Document AI Settings load failed",
+            message=frappe.get_traceback(),
+        )
         return {
             "enabled": False,
             "timeout_seconds": 90,
         }
 
-    return {
-        "enabled": bool(cint(settings.get("enabled"))),
-        "project_id": (settings.get("project_id") or "").strip(),
-        "location": (settings.get("location") or "us").strip(),
-        "processor_id": (settings.get("processor_id") or "").strip(),
-        "invoice_processor_id": (settings.get("invoice_processor_id") or "").strip(),
-        "expense_processor_id": (settings.get("expense_processor_id") or "").strip(),
-        "invoice_target_doctypes": _parse_doctypes_list(settings.get("invoice_target_doctypes")),
-        "expense_target_doctypes": _parse_doctypes_list(settings.get("expense_target_doctypes")),
-        "timeout_seconds": int(settings.get("timeout_seconds") or 90),
-    }
-
 
 def get_document_ai_service_account_json():
+    """Read service-account JSON via direct DB access (bypasses doctype perms)."""
     try:
-        settings = frappe.get_single(DOC_AI_SETTINGS_DOCTYPE)
+        value = frappe.db.get_single_value(DOC_AI_SETTINGS_DOCTYPE, "service_account_json_input")
+        return (value or "").strip() or None
     except Exception:
         return None
-    return (settings.get("service_account_json_input") or "").strip() or None
 
 
 def resolve_processor_id(settings, attached_to_doctype):
