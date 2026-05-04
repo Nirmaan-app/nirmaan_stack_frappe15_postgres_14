@@ -1,6 +1,6 @@
 import { useFrappePostCall } from "frappe-react-sdk";
 import { useCallback, useEffect, useState } from "react";
-import type { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
+import type { PODeliveryDocuments, PDDParentDoctype } from "@/types/NirmaanStack/PODeliveryDocuments";
 
 interface UsePODeliveryDocumentsResult {
   data: PODeliveryDocuments[] | null;
@@ -9,8 +9,15 @@ interface UsePODeliveryDocumentsResult {
   mutate: () => void;
 }
 
+/**
+ * Fetch all DC/MIR records for a given parent (PO or ITM).
+ *
+ * Back-compat: if `parentDoctype` is omitted, defaults to "Procurement Orders"
+ * and passes the legacy `procurement_order` arg so existing PO callers keep working.
+ */
 export const usePODeliveryDocuments = (
-  procurementOrder: string | null
+  parentName: string | null,
+  parentDoctype: PDDParentDoctype = "Procurement Orders"
 ): UsePODeliveryDocumentsResult => {
   const [data, setData] = useState<PODeliveryDocuments[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -21,7 +28,7 @@ export const usePODeliveryDocuments = (
   );
 
   const fetchData = useCallback(async () => {
-    if (!procurementOrder) {
+    if (!parentName) {
       setData(null);
       return;
     }
@@ -30,7 +37,12 @@ export const usePODeliveryDocuments = (
     setError(null);
 
     try {
-      const response = await call({ procurement_order: procurementOrder });
+      const response = await call({
+        parent_doctype: parentDoctype,
+        parent_docname: parentName,
+        // Legacy field for back-compat with un-backfilled rows
+        procurement_order: parentDoctype === "Procurement Orders" ? parentName : undefined,
+      });
       setData(response?.message || []);
     } catch (err) {
       setError(err);
@@ -38,7 +50,7 @@ export const usePODeliveryDocuments = (
     } finally {
       setIsLoading(false);
     }
-  }, [procurementOrder]);
+  }, [parentName, parentDoctype]);
 
   useEffect(() => {
     fetchData();

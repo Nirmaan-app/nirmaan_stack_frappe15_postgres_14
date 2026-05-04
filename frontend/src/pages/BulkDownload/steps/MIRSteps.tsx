@@ -42,13 +42,13 @@ export const MIRSteps = ({
     const filteredItems = useMemo(() => {
         if (!searchQuery.trim()) return items;
         const q = searchQuery.toLowerCase();
-        return items.filter(
-            (att) =>
-                att.name.toLowerCase().includes(q) ||
+        return items.filter((att) => {
+            const poId = att.parent_docname || att.procurement_order;
+            return att.name.toLowerCase().includes(q) ||
                 (att.vendor_name && att.vendor_name.toLowerCase().includes(q)) ||
                 (att.vendor && att.vendor.toLowerCase().includes(q)) ||
-                (att.procurement_order && att.procurement_order.toLowerCase().includes(q))
-        );
+                (poId && poId.toLowerCase().includes(q));
+        });
     }, [items, searchQuery]);
 
     const baseItems: BaseItem[] = filteredItems.map((att) => ({

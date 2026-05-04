@@ -17,6 +17,7 @@ import { TransferDetailsCard } from "./components/TransferDetailsCard";
 import { TransferListTable } from "./components/TransferListTable";
 import { ITMDispatchSheet } from "./components/ITMDispatchSheet";
 import { ITMDeliverySection } from "./components/ITMDeliverySection";
+import { ITMAttachmentSection } from "./components/ITMAttachmentSection";
 
 const DISPATCHED_STATUSES = new Set([
   "Dispatched",
@@ -153,6 +154,14 @@ export const ITMDetail: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* DC & MIR upload — visible only on Partially Delivered + Delivered */}
+      <ITMAttachmentSection
+        itmName={itm.name}
+        itmStatus={itm.status}
+        targetProject={itm.target_project}
+        items={itm.items}
+      />
 
       {/* Dispatch Sheet */}
       {itm.items && (

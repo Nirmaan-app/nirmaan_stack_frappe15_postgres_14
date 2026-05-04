@@ -145,11 +145,21 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         projectId ? `bulk-vi-${projectId}` : null
     );
 
+    // PO-only by design: the Bulk Download wizard's UX (vendor facet, vendor_name
+    // subtitle, parent search) is built for PO-parented PDDs. Since
+    // `PO Delivery Documents` is polymorphic (PO + ITM share the table), an
+    // unfiltered fetch would mix in ITM rows that show as anonymous entries.
+    // Filter on `parent_doctype = "Procurement Orders"` — backfill patch
+    // populates this field for every legacy PO PDD, and the create API stamps
+    // it on every new row. ITM bulk download, if needed later, is a separate flow.
     const { data: poDeliveryDocs = [], isLoading: poDeliveryDocsLoading } = useFrappeGetDocList<PODeliveryDocuments>(
         "PO Delivery Documents",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "procurement_order", "creation", "nirmaan_attachment", "dc_date"],
-            filters: [["project", "=", projectId]],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "parent_docname", "procurement_order", "creation", "nirmaan_attachment", "dc_date"],
+            filters: [
+                ["project", "=", projectId],
+                ["parent_doctype", "=", "Procurement Orders"],
+            ],
             limit: 0,
             orderBy: { field: "`tabPO Delivery Documents`.dc_date", order: "asc" },
         },
@@ -267,7 +277,13 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         if (commonDateFilter) l = l.filter(d => isDateMatchingFilter(d.dc_date || d.creation!, commonDateFilter));
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
-            l = l.filter(d => d.name.toLowerCase().includes(q) || d.procurement_order?.toLowerCase().includes(q) || (d.vendor_name && d.vendor_name.toLowerCase().includes(q)) || (d.vendor && d.vendor.toLowerCase().includes(q)));
+            l = l.filter(d => {
+                const poId = d.parent_docname || d.procurement_order;
+                return d.name.toLowerCase().includes(q)
+                    || (poId && poId.toLowerCase().includes(q))
+                    || (d.vendor_name && d.vendor_name.toLowerCase().includes(q))
+                    || (d.vendor && d.vendor.toLowerCase().includes(q));
+            });
         }
         return l;
     }, [poDeliveryDocs, commonVendorFilter, commonDateFilter, searchQuery]);

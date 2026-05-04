@@ -17,13 +17,18 @@ export interface DCItem {
     idx: number;
 }
 
+export type PDDParentType = "Procurement Orders" | "Internal Transfer Memo";
+
 // --- Raw response shape from backend API ---
 interface RawDeliveryDoc {
     name: string;
     creation: string;
     modified_by: string;
+    parent_doctype?: PDDParentType;
+    parent_docname?: string;
     procurement_order: string;
     project: string;
+    source_project?: string | null;
     vendor: string;
     type: "Delivery Challan" | "Material Inspection Report";
     nirmaan_attachment?: string;
@@ -41,8 +46,12 @@ interface RawDeliveryDoc {
 export interface DCMIRReportRowData {
     name: string;           // PDD-YYYY-#####
     creation: string;
+    parent_doctype: PDDParentType;
+    parent_docname: string;
     procurement_order: string;
     project: string;
+    /** For ITM rows: id of the project the items were transferred FROM. Empty for PO rows. */
+    source_project: string;
     vendor?: string;
     type: "Delivery Challan" | "Material Inspection Report";
     reference_number?: string;
@@ -55,6 +64,8 @@ export interface DCMIRReportRowData {
     attachment_url?: string;
     // Enriched fields
     projectName: string;
+    /** For ITM rows: human-readable source project name. Empty for PO rows. */
+    sourceProjectName: string;
     vendorName: string;
     itemsSummary: string;   // Pre-computed "Item1 (UOM x Qty), ..." for display/search
     criticalPOTasks: CriticalPOTask[];
@@ -190,11 +201,18 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
                 )
                 .join(', ');
 
+            const parentDoctype: PDDParentType = doc.parent_doctype || "Procurement Orders";
+            const parentDocname = doc.parent_docname || doc.procurement_order || "";
+            const sourceProject = doc.source_project || "";
+
             return {
                 name: doc.name,
                 creation: doc.creation,
+                parent_doctype: parentDoctype,
+                parent_docname: parentDocname,
                 procurement_order: doc.procurement_order,
                 project: doc.project,
+                source_project: sourceProject,
                 vendor: doc.vendor,
                 type: doc.type,
                 reference_number: doc.reference_number,
@@ -207,9 +225,15 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
                 attachment_url: doc.attachment_url,
                 // Enriched fields
                 projectName: projectMap[doc.project] || doc.project,
+                sourceProjectName: sourceProject ? (projectMap[sourceProject] || sourceProject) : '',
                 vendorName: doc.vendor ? (vendorMap[doc.vendor] || doc.vendor) : '',
                 itemsSummary,
-                criticalPOTasks: criticalTasksByPO.get(doc.procurement_order) || [],
+                // Critical PO tasks only apply to PO-parent rows. Look up by
+                // parent_docname (the polymorphic field) and fall back to the
+                // deprecated procurement_order for any pre-backfill row.
+                criticalPOTasks: parentDoctype === "Procurement Orders"
+                    ? (criticalTasksByPO.get(parentDocname || doc.procurement_order) || [])
+                    : [],
             };
         });
     }, [
