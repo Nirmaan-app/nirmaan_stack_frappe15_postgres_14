@@ -380,7 +380,7 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
     return (
       <Card className={className}>
         <CardHeader>
-          <CardTitle className="text-lg">Project Scheduler</CardTitle>
+          <CardTitle className="text-lg">Project Schedule</CardTitle>
         </CardHeader>
         <CardContent className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
           <Info className="w-4 h-4 mt-0.5" />
@@ -401,7 +401,7 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
           <CardTitle className="flex flex-wrap items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <CalendarDays className="w-5 h-5 text-red-600 shrink-0" />
-              <span className="text-lg truncate">Project Scheduler</span>
+              <span className="text-lg truncate">Project Schedule</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="font-normal">
