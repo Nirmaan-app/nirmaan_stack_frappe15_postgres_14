@@ -112,6 +112,14 @@ export function InvoiceDialog<T extends DocumentType>({
   const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount">>(new Set());
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [autofillConfidence, setAutofillConfidence] = useState<Record<string, number> | null>(null);
+  const [autofillExtractedValues, setAutofillExtractedValues] = useState<{
+    invoice_no?: string;
+    invoice_date?: string;
+    amount?: string;
+  } | null>(null);
+  const [autofillAllEntities, setAutofillAllEntities] = useState<
+    Array<{ type: string; value: string; confidence: number }> | null
+  >(null);
 
   // API hooks
   const { call: updateInvoiceApiCall, loading: updateInvoiceApiCallLoading } =
@@ -154,6 +162,8 @@ export function InvoiceDialog<T extends DocumentType>({
       setAutofilledFields(new Set());
       setUploadedFileUrl(null);
       setAutofillConfidence(null);
+      setAutofillExtractedValues(null);
+      setAutofillAllEntities(null);
     }
   }, [isOpen, selectedInvoice]);
 
@@ -162,6 +172,8 @@ export function InvoiceDialog<T extends DocumentType>({
     setAutofilledFields(new Set());
     setUploadedFileUrl(null);
     setAutofillConfidence(null);
+    setAutofillExtractedValues(null);
+    setAutofillAllEntities(null);
   }, [selectedAttachment]);
 
   // Handle closing manually to clear selectedInvoice
@@ -300,6 +312,19 @@ export function InvoiceDialog<T extends DocumentType>({
       if (extracted.confidence && typeof extracted.confidence === "object") {
         setAutofillConfidence(extracted.confidence);
       }
+      // Capture original AI-extracted values so we can persist them on submit
+      // independently of any manual edits the user makes before submitting.
+      setAutofillExtractedValues({
+        invoice_no: extracted.invoice_no || "",
+        invoice_date: extracted.invoice_date || "",
+        amount: extracted.amount || "",
+      });
+      // Capture the FULL entity list so reviewers can later inspect everything
+      // Document AI returned (supplier_name, supplier_gstin, total_tax_amount,
+      // purchase_order, etc.) from the recon page hover card.
+      if (Array.isArray(extracted.entities)) {
+        setAutofillAllEntities(extracted.entities);
+      }
 
       if (filled.size === 0) {
         toast({
@@ -388,6 +413,16 @@ export function InvoiceDialog<T extends DocumentType>({
           autofillUsed && autofillConfidence
             ? JSON.stringify(autofillConfidence)
             : null,
+        autofill_extracted_invoice_no:
+          autofillUsed ? (autofillExtractedValues?.invoice_no || null) : null,
+        autofill_extracted_invoice_date:
+          autofillUsed ? (autofillExtractedValues?.invoice_date || null) : null,
+        autofill_extracted_amount:
+          autofillUsed ? (autofillExtractedValues?.amount || null) : null,
+        autofill_all_entities_json:
+          autofillUsed && autofillAllEntities && autofillAllEntities.length > 0
+            ? JSON.stringify(autofillAllEntities)
+            : null,
       };
 
       const response = await updateInvoiceApiCall(apiPayload);
@@ -438,6 +473,8 @@ export function InvoiceDialog<T extends DocumentType>({
     selectedInvoice,
     autofilledFields,
     autofillConfidence,
+    autofillExtractedValues,
+    autofillAllEntities,
   ]);
 
   const handleSubmit = useCallback(() => {

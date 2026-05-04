@@ -24,6 +24,10 @@ def update_invoice_data(
     invoice_id: str = None,
     autofill_used: bool = False,
     autofill_confidence_json: str = None,
+    autofill_extracted_invoice_no: str = None,
+    autofill_extracted_invoice_date: str = None,
+    autofill_extracted_amount: str = None,
+    autofill_all_entities_json: str = None,
 ):
     """
     Creates or updates an invoice entry for a document (PO or SR).
@@ -42,6 +46,11 @@ def update_invoice_data(
             When True, the backend resolves the processor ID from Document AI Settings and stores
             it on the Vendor Invoice for traceability.
         autofill_confidence_json (str, optional): JSON string of per-field confidence scores.
+        autofill_extracted_invoice_no (str, optional): Original invoice number value AI extracted.
+        autofill_extracted_invoice_date (str, optional): Original invoice date value AI extracted (YYYY-MM-DD).
+        autofill_extracted_amount (str, optional): Original total amount value AI extracted.
+        autofill_all_entities_json (str, optional): JSON array of every entity Document AI returned
+            ({type, value, confidence}). Used by the recon UI to surface the full AI extraction.
 
     Returns:
         dict: Success response with invoice details or error message.
@@ -137,6 +146,10 @@ def update_invoice_data(
                     autofill_used=autofill_used,
                     autofill_processor_id=resolved_processor_id,
                     autofill_confidence_json=autofill_confidence_json,
+                    autofill_extracted_invoice_no=autofill_extracted_invoice_no,
+                    autofill_extracted_invoice_date=autofill_extracted_invoice_date,
+                    autofill_extracted_amount=autofill_extracted_amount,
+                    autofill_all_entities_json=autofill_all_entities_json,
                 )
         except Exception as invoice_err:
             frappe.log_error(
@@ -206,6 +219,10 @@ def create_vendor_invoice(
     autofill_used: bool = False,
     autofill_processor_id: Optional[str] = None,
     autofill_confidence_json: Optional[str] = None,
+    autofill_extracted_invoice_no: Optional[str] = None,
+    autofill_extracted_invoice_date: Optional[str] = None,
+    autofill_extracted_amount: Optional[str] = None,
+    autofill_all_entities_json: Optional[str] = None,
 ) -> Document:
     """
     Creates a new Vendor Invoices document.
@@ -217,6 +234,10 @@ def create_vendor_invoice(
         autofill_used: Whether this invoice was prefilled via Document AI autofill
         autofill_processor_id: Document AI processor ID used for extraction
         autofill_confidence_json: JSON string of per-field confidence scores
+        autofill_extracted_invoice_no: Original invoice_no AI extracted (pre-edit)
+        autofill_extracted_invoice_date: Original invoice_date AI extracted (pre-edit, YYYY-MM-DD)
+        autofill_extracted_amount: Original amount AI extracted (pre-edit)
+        autofill_all_entities_json: Full Document AI entities array (JSON string)
 
     Returns:
         The created Vendor Invoices document
@@ -246,6 +267,10 @@ def create_vendor_invoice(
         "autofill_used": 1 if autofill_used else 0,
         "autofill_processor_id": autofill_processor_id if autofill_used else None,
         "autofill_confidence_json": autofill_confidence_json if autofill_used else None,
+        "autofill_extracted_invoice_no": autofill_extracted_invoice_no if autofill_used else None,
+        "autofill_extracted_invoice_date": autofill_extracted_invoice_date if autofill_used else None,
+        "autofill_extracted_amount": autofill_extracted_amount if autofill_used else None,
+        "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
     })
     invoice.insert(ignore_permissions=True)
 

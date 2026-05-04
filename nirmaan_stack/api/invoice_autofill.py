@@ -66,6 +66,21 @@ def extract_invoice_fields(file_url):
     invoice_date, invoice_date_conf = _pick_entity(entities, INVOICE_DATE_KEYS, prefer_normalized=True)
     amount, amount_conf = _pick_entity(entities, AMOUNT_KEYS, prefer_normalized=True)
 
+    # Slimmed-down view of every entity Document AI returned. Persisted on
+    # Vendor Invoices so reviewers can see the full extraction (supplier_name,
+    # supplier_gstin, total_tax_amount, purchase_order, etc.) without paying
+    # the cost of re-running extraction.
+    all_entities = [
+        {
+            "type": (entity.get("type") or "").strip(),
+            "value": (entity.get("normalized_text") or entity.get("mention_text") or "").strip(),
+            "confidence": round(float(entity.get("confidence") or 0), 3),
+        }
+        for entity in (entities or [])
+        if (entity.get("type") or "").strip()
+        and ((entity.get("normalized_text") or entity.get("mention_text") or "").strip())
+    ]
+
     return {
         "invoice_no": invoice_no if invoice_no_conf >= MIN_CONFIDENCE else "",
         "invoice_date": _normalize_date(invoice_date) if invoice_date_conf >= MIN_CONFIDENCE else "",
@@ -75,6 +90,7 @@ def extract_invoice_fields(file_url):
             "invoice_date": round(invoice_date_conf, 3),
             "amount": round(amount_conf, 3),
         },
+        "entities": all_entities,
         "min_confidence": MIN_CONFIDENCE,
         "processor_id": processor_id,
     }
