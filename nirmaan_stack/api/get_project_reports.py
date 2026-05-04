@@ -20,6 +20,7 @@ def _process_report_data(report_doc, work_header_order_map=None):
         )
 
     # Calculate total_completed_works
+    # Disabled milestones never count as completed work.
     total_completed_works = 0
     if report_dict.get("milestones"):
         for milestone in report_dict["milestones"]:
@@ -27,11 +28,15 @@ def _process_report_data(report_doc, work_header_order_map=None):
                 total_completed_works += 1
     report_dict["total_completed_works"] = total_completed_works
 
-    # Calculate number_of_work_headers (unique work_header values)
+    # Calculate number_of_work_headers (unique work_header values).
+    # A header that contains only Disabled rows is treated as inactive for
+    # this report and excluded from the package count.
     number_of_work_headers = 0
     if report_dict.get("milestones"):
         unique_work_headers = set()
         for milestone in report_dict["milestones"]:
+            if milestone.get("status") == "Disabled":
+                continue
             if milestone.get("work_header"):
                 unique_work_headers.add(milestone["work_header"])
         number_of_work_headers = len(unique_work_headers)

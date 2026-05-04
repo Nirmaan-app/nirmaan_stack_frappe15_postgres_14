@@ -24,7 +24,7 @@ def get_tracker_list():
     projects = frappe.get_list(
         "Projects",
         # filters={"status": "Handover"},
-        fields=["name", "project_name"],
+        fields=["name", "project_name", "status"],
         order_by="creation desc"
     )
 
@@ -43,6 +43,7 @@ def get_tracker_list():
             "name": proj.name, # Using project ID for navigation fallback if no tracker exists
             "project": proj.name,
             "project_name": proj.project_name,
+            "status_of_project": proj.get("status") or "",
             "total_tasks": 0,
             "completed_tasks": 0,
             "status_counts": {},
@@ -62,8 +63,12 @@ def get_tracker_list():
                 continue
 
             proj_dict["has_tracker"] = True
+            project_status = proj_dict["status_of_project"]
             proj_dict["name"] = doc.name # Override with tracker name for routing
             proj_dict.update(doc.as_dict())
+            # Restore project lifecycle status (doc.as_dict may carry the tracker's own `status` field)
+            proj_dict["status_of_project"] = project_status
+            proj_dict["name"] = doc.name
 
             for task in doc.commission_report_task:
                 status = task.task_status or "Unknown"

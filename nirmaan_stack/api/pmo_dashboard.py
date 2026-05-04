@@ -498,7 +498,7 @@ def get_project_status_overview(project):
     latest_dpr = frappe.get_all(
         "Project Progress Reports",
         filters={"project": project},
-        fields=["report_date", "modified", "report_zone"],
+        fields=["report_date", "modified", "report_zone", "declaration_user_not_at_site"],
         order_by="report_date desc",
         limit=1,
     )
@@ -507,6 +507,7 @@ def get_project_status_overview(project):
         result["dpr"] = {
             "last_updated": str(latest_dpr[0].report_date or latest_dpr[0].modified),
             "zone": latest_dpr[0].report_zone,
+            "pm_off_site": bool(latest_dpr[0].declaration_user_not_at_site),
         }
 
     # 3. Inventory status - last updated from Remaining Items Report

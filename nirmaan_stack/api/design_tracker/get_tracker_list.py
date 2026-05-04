@@ -49,6 +49,7 @@ def get_trackers_with_stats():
     should_filter_hidden = user != "Administrator" and role not in FULL_VISIBILITY_ROLES
 
     result = []
+    project_status_cache: dict[str, str] = {}
 
     # 2. Iterate and fetch full Element (Get Doc)
     for t in trackers:
@@ -93,7 +94,18 @@ def get_trackers_with_stats():
         doc_dict["completed_tasks"] = completed_tasks
         doc_dict["submitted_tasks"] = submitted_tasks
         doc_dict["status_counts"] = dict(status_counts)
-        
+
+        # Attach project lifecycle status (used by frontend status filter)
+        project_id = doc.get("project")
+        if project_id:
+            if project_id not in project_status_cache:
+                project_status_cache[project_id] = (
+                    frappe.db.get_value("Projects", project_id, "status") or ""
+                )
+            doc_dict["status_of_project"] = project_status_cache[project_id]
+        else:
+            doc_dict["status_of_project"] = ""
+
         result.append(doc_dict)
 
     return result

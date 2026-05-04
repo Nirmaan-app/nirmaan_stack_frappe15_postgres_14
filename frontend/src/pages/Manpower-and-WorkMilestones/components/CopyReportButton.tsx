@@ -311,10 +311,15 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
     }
   }, [isDialogOpen, fullPreviousReport, REMARKS_DELIMITER]);
 
-  // Group editable milestones for display
+  // Group editable milestones for display.
+  // Disabled milestones are hidden from the Copy Previous Report dialog (not
+  // shown, not counted in the per-header lists). They remain in
+  // `editableMilestones` so the save payload preserves their state — only
+  // the rendering layer drops them.
   const groupedMilestones = useMemo(() => {
     if (!editableMilestones || editableMilestones.length === 0) return {};
     const groups = editableMilestones.reduce((acc: any, milestone: any) => {
+      if (milestone.status === 'Disabled') return acc;
       const header = milestone.work_header || "Other";
       (acc[header] = acc[header] || []).push(milestone);
       return acc;
@@ -1295,7 +1300,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                       <ListTodo className="w-4 h-4" /> Work Milestones (Editable)
                     </h3>
                     <Badge variant="outline" className="text-xs">
-                      {editableMilestones.length} Total
+                      {editableMilestones.filter((m: any) => m.status !== 'Disabled').length} Total
                     </Badge>
                   </div>
 

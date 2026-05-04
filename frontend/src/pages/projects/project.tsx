@@ -77,6 +77,9 @@ const ProjectPRSummaryTable = React.lazy(() => import("./components/ProjectPRSum
 const ProjectFinancialsTab = React.lazy(() => import("./ProjectFinancialsTab"));
 const ProjectMakesTab = React.lazy(() => import("./ProjectMakesTab"));
 const ProjectOverviewTab = React.lazy(() => import("./ProjectOverviewTab"));
+const ProjectScheduler = React.lazy(() =>
+  import("../Manpower-and-WorkMilestones/components/ProjectScheduler").then((m) => ({ default: m.ProjectScheduler }))
+);
 const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
 const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
@@ -232,6 +235,7 @@ export const Component = Project;
 export const PROJECT_PAGE_TABS = {
   OVERVIEW: 'overview',
   WORK_REPORT: 'workreport', // ADD THIS NEW KEY
+  SCHEDULE: 'schedule',
   SEVEN_DAY_PLANNING: '7dayplanning', // ADD THIS NEW KEY
   CRITICAL_POS: 'criticalpos', // Critical PO Tasks Tab
   DESIGN_TRACKER: 'designtracker',
@@ -365,6 +369,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
   const nonPrivilegedAllowedTabs = useMemo(() => new Set([
     PROJECT_PAGE_TABS.WORK_REPORT,
+    PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
@@ -378,6 +383,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // Allowed tabs for Procurement Executive
   const procurementExecutiveAllowedTabs = useMemo(() => new Set([
     PROJECT_PAGE_TABS.CRITICAL_POS,
+    PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
@@ -393,6 +399,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // Allowed tabs for Estimates Executive
   const estimatesExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.WORK_REPORT,
+    PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
@@ -427,6 +434,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Work Report",
           key: PROJECT_PAGE_TABS.WORK_REPORT,
+        },
+        {
+          label: "Schedule",
+          key: PROJECT_PAGE_TABS.SCHEDULE,
         },
         {
           label: "Planning",
@@ -465,6 +476,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Critical POs",
           key: PROJECT_PAGE_TABS.CRITICAL_POS,
+        },
+        {
+          label: "Schedule",
+          key: PROJECT_PAGE_TABS.SCHEDULE,
         },
         {
           label: "Planning",
@@ -515,6 +530,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Work Report",
           key: PROJECT_PAGE_TABS.WORK_REPORT,
+        },
+        {
+          label: "Schedule",
+          key: PROJECT_PAGE_TABS.SCHEDULE,
         },
         {
           label: "Planning",
@@ -581,6 +600,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "Work Report",
         key: PROJECT_PAGE_TABS.WORK_REPORT,
+      }] : []),
+      // Hide Schedule from Accountant
+      ...(!isAccountant ? [{
+        label: "Schedule",
+        key: PROJECT_PAGE_TABS.SCHEDULE,
       }] : []),
       // Hide Planning from Accountant
       ...(!isAccountant ? [{
@@ -1395,6 +1419,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
         return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role} />;
+      case PROJECT_PAGE_TABS.SCHEDULE:
+        return <Suspense fallback={<LoadingFallback />}><ProjectScheduler projectId={projectId} /></Suspense>;
       case PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING:
         return <SevenDayPlanningTab projectName={data?.project_name} />;
       case PROJECT_PAGE_TABS.CRITICAL_POS:
@@ -1580,24 +1606,25 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {data?.status === "CEO Hold" && <CEOHoldBanner className="mb-4" heldBy={data?.ceo_hold_by} />}
 
       <div className="w-full">
-        <ConfigProvider
-          theme={{
-            components: {
-              Menu: {
-                horizontalItemSelectedColor: "#D03B45",
-                itemSelectedBg: "#FFD3CC",
-                itemSelectedColor: "#D03B45",
-              },
-            },
-          }}
-        >
-          <Menu
-            selectedKeys={[activePage]}
-            onClick={handlePageChange}
-            mode="horizontal"
-            items={items}
-          />
-        </ConfigProvider>
+        <div className="flex flex-wrap gap-2">
+          {items.map((item) => {
+            const isActive = activePage === item?.key;
+            return (
+              <button
+                key={item?.key as string}
+                onClick={() => handlePageChange({ key: item?.key as string } as any)}
+                className={
+                  "px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap " +
+                  (isActive
+                    ? "bg-[#D03B45] text-white shadow-sm"
+                    : "bg-white text-gray-700 border border-gray-200 hover:bg-[#FFD3CC] hover:text-[#D03B45] hover:border-[#FFD3CC]")
+                }
+              >
+                {(item as any)?.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Content Area for the Active Tab */}

@@ -9,7 +9,12 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, MessageCircle, Edit, ArrowUpRight, Check, EyeOff } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, CirclePlus, MessageCircle, Edit, ArrowUpRight, EyeOff } from "lucide-react";
+import {
+    ProjectStatus,
+    DEFAULT_PROJECT_STATUS_FILTER,
+} from "@/components/common/projectStatus";
+import { ProjectStatusFilter } from "@/components/common/ProjectStatusFilter";
 import { FilesCell } from './components/FilesCell';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
@@ -17,11 +22,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import ReactSelect from 'react-select';
-
-// New Imports for Facet Filter
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
-import { cn } from "@/lib/utils";
 
 import {
     AlertDialog,
@@ -337,8 +337,11 @@ export const DesignTrackerList: React.FC = () => {
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
+    const [statusFilter, setStatusFilter] = useState<ProjectStatus[]>(DEFAULT_PROJECT_STATUS_FILTER);
     const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
+
+    // Non-admins are locked to the default WIP + Handover view
+    const effectiveStatusFilter = isAdmin ? statusFilter : DEFAULT_PROJECT_STATUS_FILTER;
 
     const initialTab = useMemo(() => getUrlStringParam("tab", DESIGN_TABS.PROJECT_WISE), []);
     const [activeTab, setActiveTab] = useState<string>(initialTab);
@@ -404,16 +407,6 @@ export const DesignTrackerList: React.FC = () => {
         }
     }, [activeTab, mutateMasters]);
 
-    // Derive Unique Project Names for Filter
-    const projectFilterOptions = useMemo(() => {
-        if (!trackerDocs) return [];
-        const unique = new Set<string>();
-        trackerDocs.forEach(doc => {
-             if(doc.project_name) unique.add(doc.project_name);
-        });
-        return Array.from(unique).sort();
-    }, [trackerDocs]);
-
     const filteredDocs = useMemo(() => {
         if (!trackerDocs) return [];
         const lowerCaseSearch = searchTerm.toLowerCase();
@@ -421,12 +414,13 @@ export const DesignTrackerList: React.FC = () => {
         return trackerDocs.filter(doc => {
             const matchesSearch = doc.project_name.toLowerCase().includes(lowerCaseSearch) ||
             doc.name.toLowerCase().includes(lowerCaseSearch);
-            
-            const matchesProject = selectedProjectFilters.length === 0 || selectedProjectFilters.includes(doc.project_name);
 
-            return matchesSearch && matchesProject;
+            const matchesStatus = effectiveStatusFilter.length === 0 ||
+                effectiveStatusFilter.includes(doc.status_of_project as ProjectStatus);
+
+            return matchesSearch && matchesStatus;
         })
-    }, [trackerDocs, searchTerm, selectedProjectFilters]);
+    }, [trackerDocs, searchTerm, effectiveStatusFilter]);
 
     const handleToggleCollapse = useCallback((docName: string) => {
         setExpandedProject(prev => prev === docName ? null : docName)
@@ -602,75 +596,21 @@ export const DesignTrackerList: React.FC = () => {
                             placeholder="Search by project name or ID..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 h-10 border-gray-300 focus:ring-2 focus:ring-primary/20"
+                            className="pl-10 h-11 border-gray-300 focus:ring-2 focus:ring-primary/20"
                         />
                     </div>
 
-                    {/* Filter Button */}
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant="outline"
-                                className="flex items-center gap-2 h-10 border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
-                            >
-                                <Filter className="h-4 w-4" />
-                                <span className="hidden sm:inline">Filter</span>
-                                {selectedProjectFilters.length > 0 && (
-                                    <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 bg-primary text-white text-xs">
-                                        {selectedProjectFilters.length}
-                                    </Badge>
-                                )}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[280px] p-0" align="end">
-                            <Command>
-                                <CommandInput placeholder="Search projects..." className="h-9" />
-                                <CommandList>
-                                    <CommandEmpty>No project found.</CommandEmpty>
-                                    <CommandGroup>
-                                        {projectFilterOptions.map(option => {
-                                            const isSelected = selectedProjectFilters.includes(option);
-                                            return (
-                                                <CommandItem
-                                                    key={option}
-                                                    onSelect={() => {
-                                                        if (isSelected) {
-                                                            setSelectedProjectFilters(prev => prev.filter(p => p !== option));
-                                                        } else {
-                                                            setSelectedProjectFilters(prev => [...prev, option]);
-                                                        }
-                                                    }}
-                                                    className="cursor-pointer"
-                                                >
-                                                    <div className={cn(
-                                                        "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
-                                                        isSelected
-                                                            ? "bg-primary text-primary-foreground"
-                                                            : "opacity-50 [&_svg]:invisible"
-                                                    )}>
-                                                        <Check className="h-4 w-4" />
-                                                    </div>
-                                                    <span className="flex-1 truncate">{option}</span>
-                                                </CommandItem>
-                                            )
-                                        })}
-                                    </CommandGroup>
-                                </CommandList>
-                                {selectedProjectFilters.length > 0 && (
-                                    <div className="p-2 border-t bg-gray-50">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="w-full h-8 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50"
-                                            onClick={() => setSelectedProjectFilters([])}
-                                        >
-                                            Clear filters
-                                        </Button>
-                                    </div>
-                                )}
-                            </Command>
-                        </PopoverContent>
-                    </Popover>
+                    {isAdmin && (
+                        <span className="text-sm text-gray-500 whitespace-nowrap self-center">
+                            {filteredDocs.length} of {trackerDocs.length} projects
+                        </span>
+                    )}
+
+                    <ProjectStatusFilter
+                        editable={isAdmin}
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                    />
                 </div>
             )}
 
@@ -691,8 +631,8 @@ export const DesignTrackerList: React.FC = () => {
                                         No trackers found
                                     </h3>
                                     <p className="text-sm text-gray-500 max-w-sm">
-                                        {searchTerm || selectedProjectFilters.length > 0
-                                            ? "Try adjusting your search or filters"
+                                        {searchTerm || effectiveStatusFilter.length > 0
+                                            ? "Try adjusting your search or status filter"
                                             : "No design trackers available"}
                                     </p>
                                 </div>

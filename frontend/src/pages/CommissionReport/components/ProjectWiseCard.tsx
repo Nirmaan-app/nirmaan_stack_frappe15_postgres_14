@@ -4,6 +4,7 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PROJECT_STATUS_BADGE_CLASSES } from "@/components/common/projectStatus";
 
 // --- Phase Status Section (compact, left-border accent) ---
 interface ProjectWiseCardProps {
@@ -83,9 +84,20 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                  Hidden
                              </Badge>
                          )}
-                        <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
-                            {tracker.project_name}
-                        </h3>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
+                                {tracker.project_name}
+                            </h3>
+                            {tracker.status_of_project && (
+                                <Badge
+                                    variant="outline"
+                                    className={`text-[10px] px-1.5 py-0 shrink-0 font-medium ${PROJECT_STATUS_BADGE_CLASSES[tracker.status_of_project] || 'bg-gray-100 text-gray-700 border-gray-300'}`}
+                                    title="Project status"
+                                >
+                                    {tracker.status_of_project}
+                                </Badge>
+                            )}
+                        </div>
                     </div>
                     {tracker.has_tracker ? (
                         <ProgressCircle

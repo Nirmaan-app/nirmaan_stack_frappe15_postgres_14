@@ -1036,31 +1036,31 @@ export const SevendaysWorkPlan = ({
                             </div>
                         </div>
 
-                        {/* RIGHT: Zone-specific Download Buttons — side-by-side when space allows, stack when constrained */}
-                        <div className="flex flex-col sm:flex-row flex-wrap gap-2 flex-shrink-0">
+                        {/* RIGHT: Zone-specific Download Buttons — full row on mobile, side-by-side on larger screens */}
+                        <div className="flex flex-col sm:flex-row flex-wrap gap-2 w-full lg:w-auto lg:flex-shrink-0">
                             <Button
                                 variant="outline"
-                                className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 gap-2 px-3 border-gray-300"
+                                className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 gap-2 px-3 border-gray-300 w-full sm:w-auto sm:flex-1 lg:flex-initial min-w-0"
                                 onClick={(e) => openBufferDialog(e, activeZone)}
                                 disabled={isDownloading}
                                 title={`Client Buffer Export ${activeZone}`}
                             >
-                                <Download className="h-4 w-4" />
-                                <span>Client Download <span className="text-red-600 font-medium">{activeZone}</span></span>
+                                <Download className="h-4 w-4 shrink-0" />
+                                <span className="truncate">Client Download <span className="text-red-600 font-medium">{activeZone}</span></span>
                             </Button>
                             <Button
                                 variant="outline"
-                                className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 hover:text-blue-600 gap-2 px-3"
+                                className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 hover:text-blue-600 gap-2 px-3 w-full sm:w-auto sm:flex-1 lg:flex-initial min-w-0"
                                 onClick={handleDownloadZone}
                                 disabled={isDownloading}
                                 title={`Internal Export ${activeZone} data`}
                             >
                                 {isDownloading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
                                 ) : (
-                                    <Download className="h-4 w-4" />
+                                    <Download className="h-4 w-4 shrink-0" />
                                 )}
-                                <span>Internal Download <span className="text-red-600 font-medium">{activeZone}</span></span>
+                                <span className="truncate">Internal Download <span className="text-red-600 font-medium">{activeZone}</span></span>
                             </Button>
                         </div>
                     </div>
