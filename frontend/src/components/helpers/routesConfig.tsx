@@ -127,6 +127,7 @@ const ITRDetail = lazy(() => import("@/pages/InternalTransferMemos/ITRDetail"));
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
+// Document Search
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -750,7 +751,6 @@ export const appRoutes: RouteObject[] = [
           // ======================================================
           // --- END: WAREHOUSE SECTION ---
           // ======================================================
-
         ],
       },
     ],

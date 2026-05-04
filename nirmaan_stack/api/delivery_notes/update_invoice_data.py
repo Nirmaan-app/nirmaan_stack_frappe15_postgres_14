@@ -16,7 +16,19 @@ import json
 
 
 @frappe.whitelist()
-def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str = None, isSR: bool = False, invoice_id: str = None):
+def update_invoice_data(
+    docname: str,
+    invoice_data: str,
+    invoice_attachment: str = None,
+    isSR: bool = False,
+    invoice_id: str = None,
+    autofill_used: bool = False,
+    autofill_confidence_json: str = None,
+    autofill_extracted_invoice_no: str = None,
+    autofill_extracted_invoice_date: str = None,
+    autofill_extracted_amount: str = None,
+    autofill_all_entities_json: str = None,
+):
     """
     Creates or updates an invoice entry for a document (PO or SR).
 
@@ -30,6 +42,15 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
         invoice_attachment (str, optional): URL of the uploaded invoice attachment. Defaults to None.
         isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
         invoice_id (str, optional): The name of the existing Vendor Invoice to update.
+        autofill_used (bool, optional): True if this invoice was prefilled via Document AI autofill.
+            When True, the backend resolves the processor ID from Document AI Settings and stores
+            it on the Vendor Invoice for traceability.
+        autofill_confidence_json (str, optional): JSON string of per-field confidence scores.
+        autofill_extracted_invoice_no (str, optional): Original invoice number value AI extracted.
+        autofill_extracted_invoice_date (str, optional): Original invoice date value AI extracted (YYYY-MM-DD).
+        autofill_extracted_amount (str, optional): Original total amount value AI extracted.
+        autofill_all_entities_json (str, optional): JSON array of every entity Document AI returned
+            ({type, value, confidence}). Used by the recon UI to surface the full AI extraction.
 
     Returns:
         dict: Success response with invoice details or error message.
@@ -100,10 +121,35 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
                 vendor_invoice.save(ignore_permissions=True)
             else:
                 # Create new record
+                # Resolve the processor ID from Document AI Settings if autofill was used.
+                # The frontend doesn't send this — backend is the source of truth.
+                resolved_processor_id = None
+                if autofill_used:
+                    try:
+                        from nirmaan_stack.services.document_ai import (
+                            get_document_ai_settings,
+                            resolve_processor_id,
+                        )
+                        settings = get_document_ai_settings()
+                        resolved_processor_id = resolve_processor_id(settings, "Vendor Invoices")
+                    except Exception:
+                        # Non-fatal — invoice still gets saved, just without processor_id traceability.
+                        frappe.log_error(
+                            title="Autofill processor_id resolution failed",
+                            message=frappe.get_traceback(),
+                        )
+
                 vendor_invoice = create_vendor_invoice(
                     parent_doc=doc,
                     invoice_data=new_invoice_entry_data,
-                    attachment_id=attachment_id
+                    attachment_id=attachment_id,
+                    autofill_used=autofill_used,
+                    autofill_processor_id=resolved_processor_id,
+                    autofill_confidence_json=autofill_confidence_json,
+                    autofill_extracted_invoice_no=autofill_extracted_invoice_no,
+                    autofill_extracted_invoice_date=autofill_extracted_invoice_date,
+                    autofill_extracted_amount=autofill_extracted_amount,
+                    autofill_all_entities_json=autofill_all_entities_json,
                 )
         except Exception as invoice_err:
             frappe.log_error(
@@ -169,7 +215,14 @@ def create_attachment_doc(parent_doc: Document, file_url: str, attachment_type: 
 def create_vendor_invoice(
     parent_doc: Document,
     invoice_data: dict,
-    attachment_id: Optional[str]
+    attachment_id: Optional[str],
+    autofill_used: bool = False,
+    autofill_processor_id: Optional[str] = None,
+    autofill_confidence_json: Optional[str] = None,
+    autofill_extracted_invoice_no: Optional[str] = None,
+    autofill_extracted_invoice_date: Optional[str] = None,
+    autofill_extracted_amount: Optional[str] = None,
+    autofill_all_entities_json: Optional[str] = None,
 ) -> Document:
     """
     Creates a new Vendor Invoices document.
@@ -178,6 +231,13 @@ def create_vendor_invoice(
         parent_doc: The parent PO or SR document
         invoice_data: Dict with invoice_no, amount, date
         attachment_id: Nirmaan Attachments document name (optional)
+        autofill_used: Whether this invoice was prefilled via Document AI autofill
+        autofill_processor_id: Document AI processor ID used for extraction
+        autofill_confidence_json: JSON string of per-field confidence scores
+        autofill_extracted_invoice_no: Original invoice_no AI extracted (pre-edit)
+        autofill_extracted_invoice_date: Original invoice_date AI extracted (pre-edit, YYYY-MM-DD)
+        autofill_extracted_amount: Original amount AI extracted (pre-edit)
+        autofill_all_entities_json: Full Document AI entities array (JSON string)
 
     Returns:
         The created Vendor Invoices document
@@ -204,6 +264,13 @@ def create_vendor_invoice(
         "invoice_attachment": attachment_id,
         "status": "Pending",
         "uploaded_by": uploaded_by,
+        "autofill_used": 1 if autofill_used else 0,
+        "autofill_processor_id": autofill_processor_id if autofill_used else None,
+        "autofill_confidence_json": autofill_confidence_json if autofill_used else None,
+        "autofill_extracted_invoice_no": autofill_extracted_invoice_no if autofill_used else None,
+        "autofill_extracted_invoice_date": autofill_extracted_invoice_date if autofill_used else None,
+        "autofill_extracted_amount": autofill_extracted_amount if autofill_used else None,
+        "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
     })
     invoice.insert(ignore_permissions=True)
 

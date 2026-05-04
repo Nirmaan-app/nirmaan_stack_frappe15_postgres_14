@@ -40,6 +40,17 @@ export interface VendorInvoice {
   reconciled_by?: string;
   reconciled_amount?: number;
   reconciliation_proof?: string;
+
+  /** Document AI autofill metadata (set when invoice was created via autofill) */
+  autofill_used?: 0 | 1;
+  autofill_processor_id?: string;
+  autofill_extracted_invoice_no?: string;
+  autofill_extracted_invoice_date?: string;
+  autofill_extracted_amount?: number;
+  /** JSON string of `{invoice_no, invoice_date, amount}` confidence scores */
+  autofill_confidence_json?: string;
+  /** JSON string of full Document AI entity list `[{type, value, confidence}, ...]` */
+  autofill_all_entities_json?: string;
 }
 
 /**
