@@ -7,7 +7,9 @@
     "field_order": [
         "task_name",
         "category_link",
-        "deadline_offset"
+        "deadline_offset",
+        "is_active",
+        "source_format"
     ],
     "fields": [
         {
@@ -25,6 +27,19 @@
             "fieldname": "deadline_offset",
             "fieldtype": "Int",
             "label": "Deadline Offset"
+        },
+        {
+            "default": "1",
+            "description": "Soft-delete flag. When 0, the Fill Report button is hidden on new task rows. Existing filled responses keep rendering via snapshot.",
+            "fieldname": "is_active",
+            "fieldtype": "Check",
+            "label": "Is Active"
+        },
+        {
+            "description": "JSON template defining the report wizard. See frontend/.claude/context/domain/commissioning-report-templates.md.",
+            "fieldname": "source_format",
+            "fieldtype": "Long Text",
+            "label": "Source Format (JSON)"
         }
     ],
     "grid_page_length": 50,

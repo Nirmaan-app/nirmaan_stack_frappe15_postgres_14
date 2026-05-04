@@ -19,6 +19,10 @@
         "task_sub_status",
         "file_link",
         "approval_proof",
+        "response_data",
+        "response_snapshot_id",
+        "response_filled_at",
+        "response_filled_by",
         "comments"
     ],
     "fields": [
@@ -71,6 +75,30 @@
             "fieldname": "comments",
             "fieldtype": "Long Text",
             "label": "Comments"
+        },
+        {
+            "description": "Filled report payload (JSON). Written by the wizard; never auto-mutated.",
+            "fieldname": "response_data",
+            "fieldtype": "Long Text",
+            "label": "Response Data (JSON)"
+        },
+        {
+            "description": "Reference to the frozen template snapshot used when this report was filled.",
+            "fieldname": "response_snapshot_id",
+            "fieldtype": "Link",
+            "label": "Response Snapshot",
+            "options": "Commission Report Template Snapshot"
+        },
+        {
+            "fieldname": "response_filled_at",
+            "fieldtype": "Datetime",
+            "label": "Response Filled At"
+        },
+        {
+            "fieldname": "response_filled_by",
+            "fieldtype": "Link",
+            "label": "Response Filled By",
+            "options": "User"
         },
         {
             "fieldname": "assigned_designers",
