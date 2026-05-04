@@ -100,9 +100,9 @@ export const useCommissionTaskList = (orderBy?: { field: string; order: 'asc' | 
     const response = useFrappeGetDocList<CommissionTaskMaster>(
         COMMISSION_TASK_MASTER_DOCTYPE,
         { 
-            fields: ["name", "task_name", "category_link", "deadline_offset"], 
-            limit: 0, 
-            orderBy: orderBy || { field: "creation", order: "asc" } 
+            fields: ["name", "task_name", "category_link", "deadline_offset", "source_format", "is_active"],
+            limit: 0,
+            orderBy: orderBy || { field: "creation", order: "asc" }
         },
         commissionKeys.taskList(orderBy)
     );

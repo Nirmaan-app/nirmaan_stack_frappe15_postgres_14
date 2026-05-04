@@ -51,12 +51,13 @@ import {
     useCategoryMutations,
     useTaskMasterMutations,
 } from "../data/useCommissionMutations";
+import { SourceFormatDialog } from "./SourceFormatDialog";
 
 // --- Types ---
-import { 
-    CommissionCategoryMaster, 
-    CommissionTaskMaster, 
-    WorkPackage 
+import {
+    CommissionCategoryMaster,
+    CommissionTaskMaster,
+    WorkPackage
 } from "../types";
 
 // --- Zod Schemas ---
@@ -823,7 +824,25 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
                                 >
                                     <TableCell className="font-medium text-slate-900">
-                                        {task.task_name}
+                                        <div className="flex items-center gap-2">
+                                            <span>{task.task_name}</span>
+                                            {!!task.source_format?.trim() && (
+                                                <span
+                                                    className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0 text-[10px] font-semibold text-blue-700"
+                                                    title="Has template"
+                                                >
+                                                    Tpl
+                                                </span>
+                                            )}
+                                            {task.is_active === 0 && (
+                                                <span
+                                                    className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0 text-[10px] font-semibold text-amber-900"
+                                                    title="Inactive — Fill button hidden on new rows"
+                                                >
+                                                    Inactive
+                                                </span>
+                                            )}
+                                        </div>
                                     </TableCell>
                                     <TableCell>
                                         {task.deadline_offset == 0 ? (
@@ -836,6 +855,7 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-1">
+                                            <SourceFormatDialog task={task} mutate={mutateTasks} />
                                             <EditTaskDialog task={task} mutate={mutateTasks} />
                                             <DeleteTaskDialog task={task} mutate={mutateTasks} />
                                         </div>
