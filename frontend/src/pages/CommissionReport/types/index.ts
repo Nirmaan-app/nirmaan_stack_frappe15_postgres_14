@@ -36,6 +36,13 @@ export interface CommissionReportTask {
     approval_proof?: string;
     comments?: string;
 
+    // Wizard-filled report payload (added 2026-05). All four are nullable —
+    // a row only has them set after the wizard is submitted at least once.
+    response_data?: string;            // JSON string. Parse on read.
+    response_snapshot_id?: string;     // SHA-256 docname → Commission Report Template Snapshot
+    response_filled_at?: string;       // Datetime ISO
+    response_filled_by?: string;       // User id
+
     // Other fields to preserve
     sort_order: number;
     parent?: string;
@@ -102,6 +109,10 @@ export interface CommissionTaskMaster {
     deadline_offset?: number;
     creation?: string;
     modified?: string;
+
+    // Template-driven wizard fields (added 2026-05)
+    source_format?: string;  // JSON template (Long Text). Empty = no wizard.
+    is_active?: 0 | 1;       // Soft-delete. Default 1.
 }
 
 export interface WorkPackage {
