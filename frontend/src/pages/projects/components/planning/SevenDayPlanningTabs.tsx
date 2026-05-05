@@ -52,7 +52,7 @@ export const SevenDayPlanningTabs = ({
   }, [role, user_id]);
 
   return (
-    <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC]">
+    <div className="flex border rounded-md w-full sm:w-fit overflow-hidden border-[#D7D7EC]">
       {tabs.map((tab) => {
         const Icon = TAB_ICONS[tab];
         return (
@@ -60,14 +60,14 @@ export const SevenDayPlanningTabs = ({
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "inline-flex items-center gap-2 px-6 py-2 text-sm font-medium transition-colors border-r border-[#D7D7EC] last:border-r-0",
+              "inline-flex flex-1 sm:flex-initial min-w-0 items-center justify-center gap-1.5 sm:gap-2 px-1.5 sm:px-6 py-2 text-xs sm:text-sm font-medium whitespace-nowrap transition-colors border-r border-[#D7D7EC] last:border-r-0",
               activeTab === tab
                 ? "bg-red-600 text-white"
                 : "bg-white text-gray-800 hover:bg-gray-50"
             )}
           >
-            {Icon && <Icon className="h-4 w-4" />}
-            {tab}
+            {Icon && <Icon className="hidden sm:block h-4 w-4 shrink-0" />}
+            <span className="truncate">{tab}</span>
           </button>
         );
       })}

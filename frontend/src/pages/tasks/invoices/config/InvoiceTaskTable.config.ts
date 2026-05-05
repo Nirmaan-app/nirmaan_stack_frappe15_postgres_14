@@ -27,6 +27,8 @@ export const DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH: (keyof VendorInvoice | 'nam
     "approved_by",
     "approved_on",
     "rejection_reason",
+    "autofill_used",
+    "autofill_all_entities_json",
 ];
 
 /**

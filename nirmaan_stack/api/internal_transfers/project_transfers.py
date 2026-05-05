@@ -13,8 +13,13 @@ from frappe import _
 @frappe.whitelist()
 def get_project_itms(project_id: str) -> dict:
     """Return ITMs where source_project OR target_project = project_id,
-    with a direction indicator ('Outgoing' / 'Incoming') and the
-    counterpart project name for display."""
+    with a direction indicator ('Outgoing' / 'Incoming'), the counterpart
+    project name for display, and the child `items` array for per-item
+    reconciliation reports (DN > DC).
+
+    Each item carries `transfer_quantity` and `received_quantity` (the latter
+    is populated by the DN recalc hook when DNs are filed against the ITM).
+    """
 
     if frappe.session.user == "Guest":
         frappe.throw(_("Authentication required."), frappe.PermissionError)
@@ -58,6 +63,37 @@ def get_project_itms(project_id: str) -> dict:
         {"project_id": project_id},
         as_dict=True,
     )
+
+    # Attach child items to every ITM in one batched query to avoid N+1.
+    itm_names = [row["name"] for row in data]
+    items_by_parent: dict[str, list] = {}
+    if itm_names:
+        item_rows = frappe.db.sql(
+            """
+            SELECT
+                parent,
+                name,
+                idx,
+                item_id,
+                item_name,
+                unit,
+                category,
+                make,
+                transfer_quantity,
+                received_quantity
+            FROM "tabInternal Transfer Memo Item"
+            WHERE parent IN %(parents)s
+            ORDER BY parent ASC, idx ASC
+            """,
+            {"parents": tuple(itm_names)},
+            as_dict=True,
+        )
+        for row in item_rows:
+            parent = row.pop("parent")
+            items_by_parent.setdefault(parent, []).append(row)
+
+    for row in data:
+        row["items"] = items_by_parent.get(row["name"], [])
 
     return {"data": data}
 

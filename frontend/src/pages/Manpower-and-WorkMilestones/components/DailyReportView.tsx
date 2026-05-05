@@ -122,7 +122,9 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
         wm => wm.work_milestone_name === m.work_milestone_name && wm.work_header === header
       );
       const weightage = milestoneData?.weightage || 1.0;
-      const effectiveWeightage = m.status !== "Not Applicable" ? weightage : 0;
+      // Both Disabled and Not Applicable contribute 0 weight to the rollup.
+      const effectiveWeightage =
+        m.status === "Not Applicable" || m.status === "Disabled" ? 0 : weightage;
       return {
         ...m,
         weightage,
@@ -163,7 +165,7 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
 
     for (const [header, milestones] of milestoneGroups) {
       const hasActiveMilestones = (milestones as any[]).some(
-        m => m.status !== "Not Applicable"
+        m => m.status !== "Not Applicable" && m.status !== "Disabled"
       );
       if (!hasActiveMilestones) continue;
 
@@ -195,7 +197,7 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
     let weightedSum = 0;
     let totalWeight = 0;
     for (const m of milestones) {
-      if (m.status === "Not Applicable") continue;
+      if (m.status === "Not Applicable" || m.status === "Disabled") continue;
       const wm = workMilestonesList?.find(
         x => x.work_milestone_name === m.work_milestone_name && x.work_header === header
       );

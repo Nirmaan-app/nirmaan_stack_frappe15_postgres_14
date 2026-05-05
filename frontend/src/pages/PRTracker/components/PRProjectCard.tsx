@@ -2,6 +2,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight, CheckCircle2 } from "lucide-react";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 import { ProjectWithCriticalPRStats } from "../types";
 import { getProgressColor } from "../utils";
 
@@ -17,6 +18,7 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
   const {
     total_tags,
     project_name,
+    status_of_project,
     total_enabled_packages,
     used_packages_count,
     total_available_headers,
@@ -42,12 +44,15 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
     >
       <CardHeader className="pb-3 space-y-0">
         <div className="flex items-start justify-between gap-3">
-          <CardTitle
-            className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug flex-1"
-            title={project_name}
-          >
-            {project_name}
-          </CardTitle>
+          <div className="flex-1 min-w-0 flex items-start gap-2 flex-wrap">
+            <CardTitle
+              className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug min-w-0"
+              title={project_name}
+            >
+              {project_name}
+            </CardTitle>
+            <ProjectStatusBadge status={status_of_project} />
+          </div>
 
           {/* Progress Circle - Shows released percentage */}
           <ProgressCircle

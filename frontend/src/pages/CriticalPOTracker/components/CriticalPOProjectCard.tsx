@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight, CheckCircle2 } from "lucide-react";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 import { ProjectWithCriticalPOStats } from "../types";
 import { getStatusStyle, getProgressColor } from "../utils";
 
@@ -20,7 +21,7 @@ export const CriticalPOProjectCard: React.FC<CriticalPOProjectCardProps> = ({
   project,
   onClick,
 }) => {
-  const { status_counts, total_tasks, released_tasks, project_name } = project;
+  const { status_counts, total_tasks, released_tasks, project_name, status_of_project } = project;
 
   const completionPercentage =
     total_tasks > 0 ? Math.round((released_tasks / total_tasks) * 100) : 0;
@@ -56,12 +57,15 @@ export const CriticalPOProjectCard: React.FC<CriticalPOProjectCardProps> = ({
     >
       <CardHeader className="pb-3 space-y-0">
         <div className="flex items-start justify-between gap-3">
-          <CardTitle
-            className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug flex-1"
-            title={project_name}
-          >
-            {project_name}
-          </CardTitle>
+          <div className="flex-1 min-w-0 flex items-start gap-2 flex-wrap">
+            <CardTitle
+              className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug min-w-0"
+              title={project_name}
+            >
+              {project_name}
+            </CardTitle>
+            <ProjectStatusBadge status={status_of_project} />
+          </div>
 
           {/* Progress Circle - Shows released percentage */}
           <ProgressCircle

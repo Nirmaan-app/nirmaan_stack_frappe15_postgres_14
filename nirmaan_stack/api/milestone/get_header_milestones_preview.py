@@ -105,12 +105,14 @@ def seed_header_milestones(project, work_header, active_milestone_names, zones=N
     For each zone in `zones`:
       - If a completed Project Progress Report exists for (project, zone):
         update its milestone child rows for this header. Selected -> "Not
-        Started", unselected -> "Not Applicable". Rows from master that don't
-        exist in the report are appended.
+        Started", unselected -> "Disabled" (with progress reset and dates
+        cleared). Rows from master that don't exist in the report are appended.
       - Else: create a new Project Progress Reports (report_status=Completed,
         report_date=yesterday, report_zone=zone) seeded with the header's
-        master milestones; selected -> "Not Started", unselected -> "Not
-        Applicable".
+        master milestones; selected -> "Not Started", unselected -> "Disabled".
+
+    "Not Applicable" is treated as a regular active status (default-checked
+    in the UI). Only "Disabled" represents the unchecked/deselected state.
 
     Backwards compatibility:
       - If `zones` is not provided but `zone` is, operate on that single zone.
@@ -184,22 +186,28 @@ def _update_report_for_header(report_name, work_header, master_rows, active_set)
 
         if existing:
             if is_checked:
-                # Only reactivate rows that were deselected. In-progress
-                # work (Not Started / WIP / Completed) is preserved.
-                if existing.status == "Not Applicable":
+                # Only "Disabled" rows are reactivated. Every other status
+                # (Not Started / WIP / Completed / Not Applicable) is
+                # preserved as-is — "Not Applicable" is now treated as a
+                # regular active status, default-checked in the UI.
+                if existing.status == "Disabled":
                     existing.status = "Not Started"
                     existing.progress = 0
+                    existing.expected_starting_date = None
+                    existing.expected_completion_date = None
             else:
-                if existing.status != "Not Applicable":
-                    existing.status = "Not Applicable"
+                if existing.status != "Disabled":
+                    existing.status = "Disabled"
                     existing.progress = 0
+                    existing.expected_starting_date = None
+                    existing.expected_completion_date = None
         else:
             doc.append(
                 "milestones",
                 {
                     "work_milestone_name": name,
                     "work_header": work_header,
-                    "status": "Not Started" if is_checked else "Not Applicable",
+                    "status": "Not Started" if is_checked else "Disabled",
                     "progress": 0,
                 },
             )
@@ -221,7 +229,7 @@ def _create_seed_report(project, zone, work_header, master_rows, active_set):
                     "work_header": work_header,
                     "status": "Not Started"
                     if m.work_milestone_name in active_set
-                    else "Not Applicable",
+                    else "Disabled",
                     "progress": 0,
                 }
                 for m in master_rows
@@ -310,14 +318,16 @@ def ensure_zone_reports(project, zones):
             continue
 
         if reference_rows:
-            # Clone preserves the active/Not-Applicable split only.
+            # Clone preserves the active/deselected split only.
             # Progress (WIP / Completed) is zone-specific, so the new zone
             # starts every active milestone at "Not Started" with progress=0.
+            # Both "Disabled" (new) and "Not Applicable" (legacy) are
+            # preserved as-is so the deselected state carries over.
             milestones = [
                 {
                     "work_milestone_name": r.work_milestone_name,
                     "work_header": r.work_header,
-                    "status": "Not Applicable" if r.status == "Not Applicable" else "Not Started",
+                    "status": r.status if r.status in ("Disabled", "Not Applicable") else "Not Started",
                     "progress": 0,
                 }
                 for r in reference_rows

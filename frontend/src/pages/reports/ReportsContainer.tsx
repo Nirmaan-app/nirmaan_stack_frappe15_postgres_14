@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
+import { cn } from '@/lib/utils';
 
 // Lazy load report components
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
@@ -13,6 +14,7 @@ const POReports = React.lazy(() => import('./components/POReports'));
 const SRReports = React.lazy(() => import('./components/SRReports'));
 const VendorReports = React.lazy(() => import('./components/VendorReports'));
 const DCMIRReports = React.lazy(() => import('./components/DCMIRReports'));
+const ITMDNDCQuantityReport = React.lazy(() => import('./components/ITMDNDCQuantityReport'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -73,6 +75,13 @@ export default function ReportsContainer() {
 
 
     const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+    // Parent doctype toggle for the DCs & MIRs tab (PO vs ITM)
+    const initialDcmirParent = (getUrlStringParam("dcmir_parent", "PO") === "ITM" ? "ITM" : "PO") as "PO" | "ITM";
+    const [dcmirParent, setDcmirParent] = useState<"PO" | "ITM">(initialDcmirParent);
+    useEffect(() => {
+        urlStateManager.updateParam("dcmir_parent", dcmirParent);
+    }, [dcmirParent]);
 
     // --- THIS IS THE FIX ---
     // The dependency array is corrected to prevent the infinite loop.
@@ -272,9 +281,24 @@ export default function ReportsContainer() {
         }
         if (activeTab === REPORTS_TABS.PROJECTS) return <ProjectReports />;
         if (activeTab === REPORTS_TABS.VENDORS) return <VendorReports />;
-        if (activeTab === REPORTS_TABS.PO) return <POReports />;
+        if (activeTab === REPORTS_TABS.PO) {
+            // PO tab > DN > DC Quantity Report supports a PO/ITM sub-toggle.
+            // When ITM is active, render the ITM variant directly (it has its
+            // own project selector). Otherwise let POReports handle PO + every
+            // other PO report type.
+            if (selectedReportType === 'DN > DC Quantity Report' && dcmirParent === 'ITM') {
+                return <ITMDNDCQuantityReport />;
+            }
+            return <POReports />;
+        }
         if (activeTab === REPORTS_TABS.SR) return <SRReports />;
-        if (activeTab === REPORTS_TABS.DCS_MIRS) return <DCMIRReports />;
+        if (activeTab === REPORTS_TABS.DCS_MIRS) {
+            return (
+                <DCMIRReports
+                    parentDoctype={dcmirParent === "ITM" ? "Internal Transfer Memo" : "Procurement Orders"}
+                />
+            );
+        }
         return <div className="p-4 text-center text-gray-500">Select a report tab to view details.</div>;
     };
 
@@ -306,6 +330,42 @@ export default function ReportsContainer() {
                     </div>
                 )}
             </div>
+
+            {/* PO / ITM segmented toggle — visible on DCs & MIRs tab, AND on the
+                PO tab when DN > DC Quantity Report is selected. Same styling as
+                the project page's toggle (sits below the outer tabs). */}
+            {(activeTab === REPORTS_TABS.DCS_MIRS ||
+                (activeTab === REPORTS_TABS.PO && selectedReportType === 'DN > DC Quantity Report')) && (
+                <div className="flex items-center gap-3">
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Source
+                    </span>
+                    <div className="inline-flex items-center bg-muted rounded-lg p-1 gap-1">
+                        <button
+                            onClick={() => setDcmirParent("PO")}
+                            className={cn(
+                                "relative inline-flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all",
+                                dcmirParent === "PO"
+                                    ? "bg-red-600 text-white shadow-sm"
+                                    : "text-foreground hover:text-black"
+                            )}
+                        >
+                            Purchase Orders
+                        </button>
+                        <button
+                            onClick={() => setDcmirParent("ITM")}
+                            className={cn(
+                                "relative inline-flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-md transition-all",
+                                dcmirParent === "ITM"
+                                    ? "bg-red-600 text-white shadow-sm"
+                                    : "text-foreground hover:text-black"
+                            )}
+                        >
+                            Transfer Memos
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <Suspense fallback={<LoadingFallback />}>
                 {renderReportContent()}

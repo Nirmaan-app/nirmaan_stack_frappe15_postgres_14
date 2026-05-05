@@ -489,7 +489,6 @@ const DeliveryNotes: React.FC = () => {
                             <TableHead>From Project</TableHead>
                             <TableHead>Dispatch Date</TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead className="text-center">DNs</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -509,9 +508,6 @@ const DeliveryNotes: React.FC = () => {
                                 <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
                                   {itm.status}
                                 </Badge>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Badge variant="secondary">{itm.total_items ?? 0}</Badge>
                               </TableCell>
                             </TableRow>
                           ))}

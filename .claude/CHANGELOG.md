@@ -4,6 +4,66 @@ Changes made by Claude Code sessions.
 
 ---
 
+## 2026-04-30: Invoice Autofill via Document AI (branch: `meta-data`)
+
+**Summary:** Replaced the global file-OCR auto-indexing pipeline with a targeted, opt-in invoice autofill feature inside the PO/SR `Add Invoice` dialog. Backed by a custom-trained Google Document AI processor (V1-base, F1=0.863) for Indian invoices.
+
+### What was built
+
+- **Backend autofill endpoint:** `nirmaan_stack/api/invoice_autofill.py` — `extract_invoice_fields(file_url)` returns `{invoice_no, invoice_date, amount, confidence, ...}`. Confidence threshold = 0.70; values below threshold returned as empty strings. Includes date and amount normalizers.
+- **Shared GCP helpers:** `nirmaan_stack/services/document_ai.py` — credentials, processor resolution, S3-aware file fetch, Document AI client. Public functions: `get_document_ai_settings`, `resolve_processor_id`, `fetch_file_content`, `extract_with_document_ai`, `get_document_ai_service_account_json`.
+- **Frontend mode-picker UI:** `frontend/src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog.tsx` — Add Invoice dialog now opens with a two-card picker (✨ Auto-fill / 📄 Manual). Auto-fill mode auto-runs extraction when a file is picked; AI-filled inputs render with amber tint that clears when user edits the field. Edit mode skips the picker (forces "manual"). Cached `uploadedFileUrl` state avoids re-upload on submit.
+
+### What was removed
+
+- **`nirmaan_stack/services/file_extractor.py`** — the auto-indexing pipeline that OCR'd every uploaded file in a background job. Deleted.
+- **`File` doc_events** — removed from `hooks.py`. Uploaded files no longer trigger any background extraction.
+- **`File Text Search Index` doctype** — directory deleted. A patch exists at `nirmaan_stack/patches/v3_0/drop_file_text_search_index.py` to drop the table; **not registered in `patches.txt`** (apply manually with `bench --site localhost execute …` if needed).
+- **DocumentSearch frontend** — `frontend/src/pages/DocumentSearch/` directory deleted. Routes `/document-search` and `/document-search-test` removed from `routesConfig.tsx`. Sidebar entries (key, icon, group mapping, mobile menu set) removed from `NewSidebar.tsx`. Unused `Search` icon import cleaned.
+- **`clean_structured_fields_json` field** — removed from the (now-deleted) doctype. Was a derived/redundant copy of `extracted_entities_json`.
+
+### Configuration required
+
+`Document AI Settings` singleton must have:
+- Location = `asia-south1` (V1-base custom processor region; previously `asia-southeast1` which was wrong)
+- Invoice Processor ID = `398ed5af98c95e0c` (custom V1-base; previously a generic processor)
+- Invoice Target DocTypes includes `Vendor Invoices`
+- Service account JSON with Document AI permissions
+
+### Decisions documented for future work
+
+- Extraction response is **not persisted** — lives in React state until form submit, then discarded. Considered adding `autofill_used` / `autofill_confidence_json` / `autofill_processor_id` fields on `Vendor Invoices` for adoption tracking; **deferred to V2**.
+- Autofill is currently scoped to the PO/SR Invoice Dialog only. Extending to Project Invoices, Vendor Invoices list, and Non Project Expenses is a planned future feature requiring backend generalization (accept `target_doctype` param) and a reusable `<AutofillUploadField/>` component.
+- Re-extract button was added then **removed by user request**. Users re-trigger by re-picking the file.
+- `supplier_name` excluded from autofill due to low V1-base F1 (0.667) — labeling consistency issue. Plan: re-train with cleaned labels before extending.
+
+### Key files
+
+| File | Change |
+|---|---|
+| `nirmaan_stack/api/invoice_autofill.py` | NEW |
+| `nirmaan_stack/services/document_ai.py` | NEW |
+| `nirmaan_stack/services/file_extractor.py` | DELETED |
+| `nirmaan_stack/nirmaan_stack/doctype/file_text_search_index/` | DELETED |
+| `nirmaan_stack/patches/v3_0/drop_file_text_search_index.py` | NEW (unregistered) |
+| `nirmaan_stack/hooks.py` | Removed `File` doc_events block |
+| `frontend/src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog.tsx` | Added mode picker + autofill flow |
+| `frontend/src/pages/DocumentSearch/` | DELETED |
+| `frontend/src/components/helpers/routesConfig.tsx` | Removed DocumentSearch imports + routes |
+| `frontend/src/components/layout/NewSidebar.tsx` | Removed Document Search entries + unused Search icon |
+| `CLAUDE.md` | Added gotcha #12 + reference doc table entry |
+| `.claude/context/domain/invoice-autofill.md` | NEW — full flow, config, model background, future work |
+
+### V1-base model snapshot (for reference)
+
+- Processor: Nirmaan Indian Invoice Extractor (`398ed5af98c95e0c` in `asia-south1`)
+- Version: V1-base (`3b2df2b9f7b07a53`)
+- Trained: 36 train / 16 test invoices
+- Aggregate: F1 0.863, Precision 95.7%, Recall 78.6%
+- Per-label F1: invoice_id 1.000, purchase_order 0.963, receiver_gstin 0.933, invoice_date 0.903, supplier_gstin 0.897, total_amount 0.828, net_amount 0.759, total_tax_amount 0.750, supplier_name 0.667
+
+---
+
 ## 2026-02-25: Context Sync - 2 Week Feature Analysis
 
 **Summary:** Analyzed 122 commits from 2026-02-10 to 2026-02-25. Major feature areas documented below.

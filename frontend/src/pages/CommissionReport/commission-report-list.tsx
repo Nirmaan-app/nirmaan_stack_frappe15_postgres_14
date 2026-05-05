@@ -3,15 +3,18 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { Search, FolderGit2, EyeOff, ChevronDown, Filter, Check } from "lucide-react";
+import { Search, FolderGit2, EyeOff, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
+import {
+    ProjectStatus,
+    DEFAULT_PROJECT_STATUS_FILTER,
+} from "@/components/common/projectStatus";
+import { ProjectStatusFilter } from "@/components/common/ProjectStatusFilter";
 
 import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import { TaskWiseTable } from "./components/TaskWiseTable";
@@ -28,7 +31,7 @@ export default function CommissionReportList() {
 
     // List filters
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
+    const [statusFilter, setStatusFilter] = useState<ProjectStatus[]>(DEFAULT_PROJECT_STATUS_FILTER);
     const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
 
     const initialTab = useMemo(() => getUrlStringParam("tab", COMMISSION_TABS.PROJECT_WISE), []);
@@ -39,7 +42,11 @@ export default function CommissionReportList() {
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
     const hasHideAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Project Manager Profile" || user_id === "Administrator" || role === "Administrator";
+
+    // Non-admins are locked to the default WIP + Handover view
+    const effectiveStatusFilter = isAdmin ? statusFilter : DEFAULT_PROJECT_STATUS_FILTER;
 
     const onClick = useCallback((value: string) => {
         if (activeTab === value) return;
@@ -78,15 +85,6 @@ export default function CommissionReportList() {
         return trackerDocs.filter((doc: any) => doc?.has_tracker === true);
     }, [trackerDocs]);
 
-    // Derive Unique Project Names for Filter
-    const projectFilterOptions = useMemo(() => {
-        if (!trackerDocsWithReport) return [];
-        const names = trackerDocsWithReport
-            .map((doc: any) => doc.project_name)
-            .filter(Boolean);
-        return Array.from(new Set(names)).sort();
-    }, [trackerDocsWithReport]);
-
     const filteredDocs = useMemo(() => {
         if (!trackerDocsWithReport) return [];
         const lowerCaseSearch = searchTerm.toLowerCase();
@@ -95,11 +93,12 @@ export default function CommissionReportList() {
                 doc.name?.toLowerCase().includes(lowerCaseSearch) ||
                 doc.project?.toLowerCase().includes(lowerCaseSearch);
 
-            const matchesProject = selectedProjectFilters.length === 0 || selectedProjectFilters.includes(doc.project_name);
+            const matchesStatus = effectiveStatusFilter.length === 0 ||
+                effectiveStatusFilter.includes(doc.status_of_project as ProjectStatus);
 
-            return matchesSearch && matchesProject;
+            return matchesSearch && matchesStatus;
         });
-    }, [trackerDocsWithReport, searchTerm, selectedProjectFilters]);
+    }, [trackerDocsWithReport, searchTerm, effectiveStatusFilter]);
 
     const activeDocs = useMemo(() => filteredDocs.filter((doc: any) => doc.hide_commission_report !== 1), [filteredDocs]);
     const hiddenDocs = useMemo(() => filteredDocs.filter((doc: any) => doc.hide_commission_report === 1), [filteredDocs]);
@@ -189,99 +188,22 @@ export default function CommissionReportList() {
                                 placeholder="Search by project name or ID..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-10 h-10 border-gray-300 focus:ring-2 focus:ring-primary/20"
+                                className="pl-10 h-11 border-gray-300 focus:ring-2 focus:ring-primary/20"
                             />
                         </div>
 
-                        {/* Filter Button */}
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    className="flex items-center gap-2 h-10 border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
-                                >
-                                    <Filter className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Filter</span>
-                                    {selectedProjectFilters.length > 0 && (
-                                        <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 bg-primary text-white text-xs">
-                                            {selectedProjectFilters.length}
-                                        </Badge>
-                                    )}
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[280px] p-0" align="end">
-                                <Command>
-                                    <CommandInput placeholder="Search projects..." className="h-9" />
-                                    <CommandList>
-                                        <CommandEmpty>No project found.</CommandEmpty>
-                                        <CommandGroup>
-                                            {projectFilterOptions.map((option: any) => {
-                                                const isSelected = selectedProjectFilters.includes(option);
-                                                return (
-                                                    <CommandItem
-                                                        key={option}
-                                                        onSelect={() => {
-                                                            if (isSelected) {
-                                                                setSelectedProjectFilters(prev => prev.filter(p => p !== option));
-                                                            } else {
-                                                                setSelectedProjectFilters(prev => [...prev, option]);
-                                                            }
-                                                        }}
-                                                        className="cursor-pointer"
-                                                    >
-                                                        <div className="flex items-center gap-2">
-                                                            <div className={`flex h-4 w-4 items-center justify-center rounded-sm border transition-colors ${isSelected
-                                                                    ? "border-primary bg-primary text-primary-foreground"
-                                                                    : "border-primary/20 opacity-50"
-                                                                }`}>
-                                                                <Check className={isSelected ? "h-3 w-3 text-white" : "h-3 w-3 opacity-0"} />
-                                                            </div>
-                                                            <span>{option}</span>
-                                                        </div>
-                                                    </CommandItem>
-                                                );
-                                            })}
-                                        </CommandGroup>
-                                    </CommandList>
-                                    {selectedProjectFilters.length > 0 && (
-                                        <div className="p-2 border-t text-center">
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-8 w-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
-                                                onClick={() => setSelectedProjectFilters([])}
-                                            >
-                                                Clear filters
-                                            </Button>
-                                        </div>
-                                    )}
-                                </Command>
-                            </PopoverContent>
-                        </Popover>
-                    </div>
+                        {isAdmin && (
+                            <span className="text-sm text-gray-500 whitespace-nowrap self-center">
+                                {filteredDocs.length} of {trackerDocsWithReport.length} projects
+                            </span>
+                        )}
 
-                    {/* Active Filters Display */}
-                    {selectedProjectFilters.length > 0 && (
-                        <div className="flex flex-wrap gap-2 px-2 mt-4 items-center">
-                            <span className="text-sm text-gray-500 mr-2">Filters:</span>
-                            {selectedProjectFilters.map(filter => (
-                                <Badge
-                                    key={filter}
-                                    variant="secondary"
-                                    className="bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1.5 px-3 border border-primary/20"
-                                >
-                                    <span className="truncate max-w-[200px]">{filter}</span>
-                                    <button
-                                        onClick={() => setSelectedProjectFilters(prev => prev.filter(p => p !== filter))}
-                                        className="rounded-full hover:bg-primary/20 p-0.5"
-                                    >
-                                        ×
-                                        <span className="sr-only">Remove filter</span>
-                                    </button>
-                                </Badge>
-                            ))}
-                        </div>
-                    )}
+                        <ProjectStatusFilter
+                            editable={isAdmin}
+                            value={statusFilter}
+                            onChange={setStatusFilter}
+                        />
+                    </div>
 
                     {/* Mapping Project Cards */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 px-2 mt-6 pb-4">

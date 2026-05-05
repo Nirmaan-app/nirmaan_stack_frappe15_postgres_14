@@ -58,6 +58,12 @@ interface UploadDCMIRDialogProps {
   existingDoc?: PODeliveryDocuments;
   /** Callback after successful create/edit */
   onSuccess: () => void;
+  /**
+   * Polymorphic parent doctype. Defaults to "Procurement Orders" — pass
+   * "Internal Transfer Memo" to file the DC/MIR against an ITM instead of a PO.
+   * When set to ITM, vendor is omitted and the parent docname is `poName`.
+   */
+  parentDoctype?: "Procurement Orders" | "Internal Transfer Memo";
 }
 
 export const UploadDCMIRDialog = ({
@@ -72,7 +78,9 @@ export const UploadDCMIRDialog = ({
   poItems,
   existingDoc,
   onSuccess,
+  parentDoctype = "Procurement Orders",
 }: UploadDCMIRDialogProps) => {
+  const isITM = parentDoctype === "Internal Transfer Memo";
   const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
@@ -196,7 +204,7 @@ export const UploadDCMIRDialog = ({
         // Handle attachment replacement if user chose to replace
         if (attachmentAction === "replace" && selectedFile) {
           const uploadResult = await upload(selectedFile, {
-            doctype: "Procurement Orders",
+            doctype: parentDoctype,
             docname: poName,
             fieldname: "attachment",
             isPrivate: true,
@@ -244,7 +252,7 @@ export const UploadDCMIRDialog = ({
 
         // Step 1: Upload file
         const uploadResult = await upload(selectedFile, {
-          doctype: "Procurement Orders",
+          doctype: parentDoctype,
           docname: poName,
           fieldname: "attachment",
           isPrivate: true,
@@ -254,31 +262,36 @@ export const UploadDCMIRDialog = ({
           throw new Error("File upload failed");
         }
 
-        // Step 2: Create Nirmaan Attachment (backward compat)
+        // Step 2: Create Nirmaan Attachment (backward compat).
+        // For ITMs: no vendor link.
         const attachmentType =
           dcType === "Delivery Challan"
-            ? "po delivery challan"
+            ? (isITM ? "itm delivery challan" : "po delivery challan")
             : "material inspection report";
 
-        const attResult = await createAttachmentDoc({
-          doc: {
-            doctype: "Nirmaan Attachments",
-            project: poProject,
-            attachment: uploadResult.file_url,
-            attachment_type: attachmentType,
-            associated_doctype: "Procurement Orders",
-            associated_docname: poName,
-            attachment_link_doctype: "Vendors",
-            attachment_link_docname: poVendor,
-            attachment_ref: data.referenceNumber || undefined,
-          },
-        });
+        const attDoc: Record<string, unknown> = {
+          doctype: "Nirmaan Attachments",
+          project: poProject,
+          attachment: uploadResult.file_url,
+          attachment_type: attachmentType,
+          associated_doctype: parentDoctype,
+          associated_docname: poName,
+          attachment_ref: data.referenceNumber || undefined,
+        };
+        if (!isITM && poVendor) {
+          attDoc.attachment_link_doctype = "Vendors";
+          attDoc.attachment_link_docname = poVendor;
+        }
+
+        const attResult = await createAttachmentDoc({ doc: attDoc });
 
         const attachmentId = attResult?.message?.name;
 
-        // Step 3: Create PO Delivery Documents record
+        // Step 3: Create PO Delivery Documents record (polymorphic)
         await createPDD({
-          procurement_order: poName,
+          parent_doctype: parentDoctype,
+          parent_docname: poName,
+          procurement_order: isITM ? null : poName,
           dc_type: dcType,
           reference_number: data.referenceNumber,
           dc_reference: data.dcReference || null,

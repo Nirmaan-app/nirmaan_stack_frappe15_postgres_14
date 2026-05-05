@@ -14,6 +14,7 @@ import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import {
     DCMIR_REPORTS_SEARCHABLE_FIELDS,
+    DCMIR_REPORTS_ITM_SEARCHABLE_FIELDS,
     DCMIR_REPORTS_DATE_COLUMNS,
 } from "../config/dcmirReportsTable.config";
 import { toast } from "@/components/ui/use-toast";
@@ -28,23 +29,30 @@ interface SelectOption {
 interface DCMIRReportsProps {
     projectId?: string;
     forcedReportType?: 'DC Report' | 'MIR Report';
+    /**
+     * Filter to PO-only or ITM-only rows. Defaults to "Procurement Orders" so legacy
+     * callers preserve PO-only behavior. Pass "Internal Transfer Memo" for ITM tabs.
+     */
+    parentDoctype?: 'Procurement Orders' | 'Internal Transfer Memo';
 }
 
-export default function DCMIRReports({ projectId, forcedReportType }: DCMIRReportsProps = {}) {
+export default function DCMIRReports({ projectId, forcedReportType, parentDoctype = 'Procurement Orders' }: DCMIRReportsProps = {}) {
     const { reportData: allDeliveryDocs, isLoading: isLoadingInitialData, error: initialDataError } = useDCMIRReportsData();
 
     const storeReportType = useReportStore(
         (state) => state.selectedReportType as DCMIRReportType | null
     );
     const selectedReportType = forcedReportType || storeReportType;
+    const isITM = parentDoctype === 'Internal Transfer Memo';
 
-    // Determine columns based on selected report type, filtering project column in project view
+    // Determine columns based on selected report type + parent doctype.
+    // ITM mode: hide vendor, PO No., Critical PO; show parent_docname (ITM No.) instead.
     const tableColumnsToDisplay = useMemo(
         () => {
-            const cols = getDCMIRReportColumns(selectedReportType || 'DC Report');
+            const cols = getDCMIRReportColumns(selectedReportType || 'DC Report', { parentDoctype });
             return projectId ? cols.filter(c => c.id !== 'project_name') : cols;
         },
-        [selectedReportType, projectId]
+        [selectedReportType, projectId, parentDoctype]
     );
 
     // Filter data by type based on selected report
@@ -53,13 +61,13 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         if (!selectedReportType) return [];
 
         const typeFilter = selectedReportType === 'DC Report' ? 'Delivery Challan' : 'Material Inspection Report';
-        
         let filtered = allDeliveryDocs.filter((doc) => doc.type === typeFilter);
+        filtered = filtered.filter(doc => doc.parent_doctype === parentDoctype);
         if (projectId) {
             filtered = filtered.filter(doc => doc.project === projectId);
         }
         return filtered;
-    }, [allDeliveryDocs, selectedReportType, projectId]);
+    }, [allDeliveryDocs, selectedReportType, projectId, parentDoctype]);
 
     // Initialize useServerDataTable in clientData mode
     const {
@@ -74,13 +82,13 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         exportAllRows,
         isExporting,
     } = useServerDataTable<DCMIRReportRowData>({
-        doctype: `DCMIRReportsVirtual_${selectedReportType || "none"}`,
+        doctype: `DCMIRReportsVirtual_${selectedReportType || "none"}_${isITM ? "itm" : "po"}`,
         columns: tableColumnsToDisplay,
         fetchFields: [],
-        searchableFields: DCMIR_REPORTS_SEARCHABLE_FIELDS,
+        searchableFields: isITM ? DCMIR_REPORTS_ITM_SEARCHABLE_FIELDS : DCMIR_REPORTS_SEARCHABLE_FIELDS,
         clientData: currentDisplayData,
         clientTotalCount: currentDisplayData.length,
-        urlSyncKey: `dcmir_reports_${projectId ? projectId + "_" : ""}${selectedReportType?.toString().replace(/\s+/g, "_") || "all"}`,
+        urlSyncKey: `dcmir_reports_${projectId ? projectId + "_" : ""}${isITM ? "itm_" : "po_"}${selectedReportType?.toString().replace(/\s+/g, "_") || "all"}`,
         defaultSort: "creation desc",
         enableRowSelection: false,
     });
@@ -151,29 +159,49 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             .map(([label, count]) => ({ label: `${label} (${count})`, value: label }));
     }, [currentDisplayData]);
 
+    // Source project facet (ITM mode only) — counts unique source projects across visible rows.
+    const sourceProjectFacetOptions = useMemo<SelectOption[]>(() => {
+        if (!isITM) return [];
+        const counts: Record<string, number> = {};
+        for (const row of currentDisplayData) {
+            const val = row.sourceProjectName || row.source_project;
+            if (val) counts[val] = (counts[val] || 0) + 1;
+        }
+        return Object.entries(counts)
+            .map(([val, count]) => ({ label: `${val} (${count})`, value: val }))
+            .sort((a, b) => a.value.localeCompare(b.value));
+    }, [currentDisplayData, isITM]);
+
     const facetOptionsConfig = useMemo(
         () => {
             const baseConfig: Record<string, { title: string; options: SelectOption[] }> = {
-                critical_po: { title: "Critical PO", options: criticalPOFacetOptions },
                 is_signed: { title: "Signed", options: signedFacetOptions },
                 is_stub: { title: "Status", options: stubFacetOptions },
             };
+            if (isITM) {
+                // ITM gets a Source Project facet (the equivalent of Vendor for POs).
+                baseConfig.source_project_name = { title: "Source Project", options: sourceProjectFacetOptions };
+            } else {
+                // PO gets Critical PO facet.
+                baseConfig.critical_po = { title: "Critical PO", options: criticalPOFacetOptions };
+            }
 
             if (!projectId) {
                return {
-                   project_name: { title: "Project", options: projectFacetOptions },
+                   project_name: { title: isITM ? "Target Project" : "Project", options: projectFacetOptions },
                    ...baseConfig
                }
             }
             return baseConfig;
         },
-        [projectFacetOptions, criticalPOFacetOptions, signedFacetOptions, stubFacetOptions, projectId]
+        [projectFacetOptions, criticalPOFacetOptions, sourceProjectFacetOptions, signedFacetOptions, stubFacetOptions, projectId, isITM]
     );
 
     const exportFileName = useMemo(() => {
-        const prefix = selectedReportType === 'MIR Report' ? 'mir_report' : 'dc_report';
+        const base = selectedReportType === 'MIR Report' ? 'mir_report' : 'dc_report';
+        const prefix = isITM ? `itm_${base}` : base;
         return projectId ? `${projectId}_${prefix}` : prefix;
-    }, [selectedReportType, projectId]);
+    }, [selectedReportType, projectId, isITM]);
 
     const handleCustomExport = useCallback(async () => {
         const allRows = await exportAllRows();
@@ -185,10 +213,12 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         const dataToExport = allRows.map((row) => ({
             document_id: row.name,
             project: row.projectName || row.project,
+            source_project: row.sourceProjectName || row.source_project || "",
             reference_number: row.reference_number || "",
             dc_reference: row.dc_reference || "",
             vendor: row.vendorName || row.vendor || "",
-            po_number: row.procurement_order,
+            po_number: row.parent_docname || row.procurement_order || "",
+            itm_number: row.parent_doctype === 'Internal Transfer Memo' ? row.parent_docname : "",
             critical_po_categories: row.criticalPOTasks?.map(criticalPOLabel).join(", ") || "",
             date: row.dc_date ? formatDate(row.dc_date) : "",
             items: row.itemsSummary,
@@ -199,12 +229,19 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
 
         const allExportColumns: ColumnDef<any, any>[] = [
             { header: "Document ID", accessorKey: "document_id" },
-            { header: "Project", accessorKey: "project" },
+            { header: isITM ? "Target Project" : "Project", accessorKey: "project" },
             { header: selectedReportType === 'MIR Report' ? "MIR No." : "DC No.", accessorKey: "reference_number" },
             ...(selectedReportType === 'MIR Report' ? [{ header: "DC Ref", accessorKey: "dc_reference" } as ColumnDef<any, any>] : []),
-            { header: "Vendor", accessorKey: "vendor" },
-            { header: "PO No.", accessorKey: "po_number" },
-            { header: "Critical PO Categories", accessorKey: "critical_po_categories" },
+            ...(isITM
+                ? [
+                    { header: "ITM No.", accessorKey: "itm_number" } as ColumnDef<any, any>,
+                    { header: "Source Project", accessorKey: "source_project" } as ColumnDef<any, any>,
+                  ]
+                : [
+                    { header: "Vendor", accessorKey: "vendor" } as ColumnDef<any, any>,
+                    { header: "PO No.", accessorKey: "po_number" } as ColumnDef<any, any>,
+                    { header: "Critical PO Categories", accessorKey: "critical_po_categories" } as ColumnDef<any, any>,
+                ]),
             { header: "Date", accessorKey: "date" },
             { header: "Items", accessorKey: "items" },
             { header: "Signed", accessorKey: "signed" },

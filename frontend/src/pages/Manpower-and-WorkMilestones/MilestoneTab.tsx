@@ -1479,8 +1479,10 @@ console.log(user)
 
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
+      // Disabled milestones are hidden from the UI and never need a per-report
+      // update — exclude them from the "all updated?" gate.
       const hasUnupdatedMilestones = currentTabMilestones.some(
-        (m) => m.is_updated_for_current_report==false
+        (m) => m.status !== 'Disabled' && m.is_updated_for_current_report == false
       );
 
       if (hasUnupdatedMilestones) {
@@ -1593,7 +1595,7 @@ console.log(user)
       report_status: submissionStatus,
       active_tab: activeTabValue,
       photo_count: localPhotos.length,
-      milestone_count: currentTabMilestones.length,
+      milestone_count: currentTabMilestones.filter(m => m.status !== 'Disabled').length,
     };
 
     const endSpan = startWorkflowTransaction('project-progress-report', sentryOperation, sentryContext);
@@ -2931,8 +2933,13 @@ console.log(user)
                 //     milestonesForThisTab = getInheritedMilestones(tab.project_work_header_name);
                 // }
 
-                const updatedMilestonesCount = currentTabMilestones.filter(m => m.is_updated_for_current_report).length;
-                const totalMilestonesCount =  currentTabMilestones.length;
+                // Disabled milestones are hidden from report creation entirely:
+                // not rendered, not counted, not part of the "X of Y updated"
+                // progress line. They remain in `currentTabMilestones` so the
+                // save payload preserves their state across reports.
+                const visibleTabMilestones = currentTabMilestones.filter(m => m.status !== 'Disabled');
+                const updatedMilestonesCount = visibleTabMilestones.filter(m => m.is_updated_for_current_report).length;
+                const totalMilestonesCount =  visibleTabMilestones.length;
                 // --- End of new calculation for this specific tab ---
                 const colorCount=totalMilestonesCount==updatedMilestonesCount
 
@@ -2951,9 +2958,9 @@ console.log(user)
                         )}
                       </CardHeader>
                       <CardContent>
-                        {currentTabMilestones && currentTabMilestones.length > 0 ? (
+                        {visibleTabMilestones && visibleTabMilestones.length > 0 ? (
                             <div className="">
-                              {currentTabMilestones.map(milestone => (
+                              {visibleTabMilestones.map(milestone => (
                                 <div key={milestone.name} className="py-2 border-b">
                                    <p className={`w-fit px-2 py-0.5 text-sm font-semibold rounded ${getStatusColor(milestone.status)}`}>
                                       {milestone.status}

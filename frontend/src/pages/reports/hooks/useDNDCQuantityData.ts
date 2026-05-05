@@ -192,19 +192,23 @@ export function useDNDCQuantityData(projectId: string | null) {
     for (const doc of poDeliveryDocsData.message) {
       // Only Delivery Challans, not stubs
       if (doc.type !== "Delivery Challan" || doc.is_stub === 1) continue;
+      // Resolve PO id from polymorphic parent_docname (preferred) with
+      // back-compat fallback to the deprecated procurement_order field.
+      const poId = doc.parent_docname || doc.procurement_order;
+      if (!poId) continue;
       // Only for valid POs
-      if (!validPOSet.has(doc.procurement_order)) continue;
+      if (!validPOSet.has(poId)) continue;
 
       for (const dcItem of doc.items ?? []) {
         const category = dcItem.category ?? "";
-        const compositeKey = `${doc.procurement_order}___${category}___${dcItem.item_id}`;
+        const compositeKey = `${poId}___${category}___${dcItem.item_id}`;
         dcQtyMap.set(compositeKey, (dcQtyMap.get(compositeKey) ?? 0) + dcItem.quantity);
 
         // Track for orphan detection
-        let poItems = dcItemsByPO.get(doc.procurement_order);
+        let poItems = dcItemsByPO.get(poId);
         if (!poItems) {
           poItems = new Map();
-          dcItemsByPO.set(doc.procurement_order, poItems);
+          dcItemsByPO.set(poId, poItems);
         }
         const itemKey = `${category}___${dcItem.item_id}`;
         const existing = poItems.get(itemKey);

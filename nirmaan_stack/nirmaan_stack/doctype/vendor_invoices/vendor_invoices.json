@@ -32,7 +32,15 @@
   "column_break_recon",
   "reconciled_by",
   "reconciled_amount",
-  "reconciliation_proof"
+  "reconciliation_proof",
+  "autofill_section",
+  "autofill_used",
+  "autofill_processor_id",
+  "autofill_extracted_invoice_no",
+  "autofill_extracted_invoice_date",
+  "autofill_extracted_amount",
+  "autofill_confidence_json",
+  "autofill_all_entities_json"
  ],
  "fields": [
   {
@@ -196,6 +204,70 @@
    "fieldtype": "Link",
    "label": "Reconciliation Proof",
    "options": "Nirmaan Attachments"
+  },
+  {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:!doc.autofill_used",
+   "fieldname": "autofill_section",
+   "fieldtype": "Section Break",
+   "label": "AI Autofill"
+  },
+  {
+   "default": "0",
+   "description": "Set to 1 if this invoice was created using Document AI autofill.",
+   "fieldname": "autofill_used",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Autofill Used",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Document AI processor ID that performed the extraction.",
+   "fieldname": "autofill_processor_id",
+   "fieldtype": "Data",
+   "label": "Autofill Processor ID",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Original invoice number extracted by AI (before any user edit).",
+   "fieldname": "autofill_extracted_invoice_no",
+   "fieldtype": "Data",
+   "label": "AI Extracted Invoice No",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Original invoice date extracted by AI (before any user edit).",
+   "fieldname": "autofill_extracted_invoice_date",
+   "fieldtype": "Date",
+   "label": "AI Extracted Invoice Date",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Original total amount extracted by AI (before any user edit).",
+   "fieldname": "autofill_extracted_amount",
+   "fieldtype": "Currency",
+   "label": "AI Extracted Amount",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Per-field confidence scores returned by Document AI (JSON).",
+   "fieldname": "autofill_confidence_json",
+   "fieldtype": "Long Text",
+   "label": "Autofill Confidence JSON",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Full list of entities Document AI returned for this invoice (JSON array of {type, value, confidence}). Used to display the AI extraction summary in the recon UI.",
+   "fieldname": "autofill_all_entities_json",
+   "fieldtype": "Long Text",
+   "label": "Autofill All Entities JSON",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
