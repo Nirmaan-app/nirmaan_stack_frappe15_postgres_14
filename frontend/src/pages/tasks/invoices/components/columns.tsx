@@ -19,6 +19,56 @@ import SITEURL from "@/constants/siteURL";
 import { parseNumber } from "@/utils/parseNumber";
 
 /**
+ * Maps Document AI entity types (snake_case) to human-readable labels.
+ */
+const ENTITY_LABELS: Record<string, string> = {
+    invoice_id: "Invoice Number",
+    invoice_number: "Invoice Number",
+    invoice_date: "Invoice Date",
+    total_amount: "Total Amount",
+    net_amount: "Net Amount",
+    total_tax_amount: "Total Tax Amount",
+    amount_due: "Amount Due",
+    supplier_name: "Supplier Name",
+    supplier_gstin: "Supplier GSTIN",
+    receiver_gstin: "Receiver GSTIN",
+    purchase_order: "Purchase Order",
+    due_date: "Due Date",
+    currency: "Currency",
+};
+
+const ACRONYMS = new Set(["gstin", "po", "wo", "pr", "sr", "id", "no"]);
+
+const humanizeEntityType = (type: string): string => {
+    if (ENTITY_LABELS[type]) return ENTITY_LABELS[type];
+    return type
+        .split(/[_\s]+/)
+        .filter(Boolean)
+        .map((word) => {
+            const lower = word.toLowerCase();
+            if (ACRONYMS.has(lower)) return lower.toUpperCase();
+            return lower.charAt(0).toUpperCase() + lower.slice(1);
+        })
+        .join(" ");
+};
+
+const formatEntityValue = (type: string, value: string): string => {
+    if (!value) return value;
+    // Format date-like fields as dd-MMM-yyyy (project standard).
+    if (/date/i.test(type)) {
+        const d = new Date(value);
+        if (!isNaN(d.getTime())) {
+            try {
+                return formatDate(d, "dd-MMM-yyyy");
+            } catch {
+                // fall through and return raw value
+            }
+        }
+    }
+    return value;
+};
+
+/**
  * Renders a small info icon that, on hover, displays all entities Document AI
  * extracted for an invoice (type, value, confidence). Only rendered when the
  * invoice was actually created via autofill.
@@ -72,13 +122,15 @@ const AutofillEntitiesHoverCard: React.FC<{ invoice: VendorInvoice }> = ({ invoi
                                         : conf >= 0.7
                                             ? "text-amber-700"
                                             : "text-red-700";
+                                const label = humanizeEntityType(entity.type);
+                                const displayValue = formatEntityValue(entity.type, entity.value);
                                 return (
                                     <tr key={i} className="border-t border-gray-100">
-                                        <td className="px-3 py-1.5 font-mono text-[11px] text-gray-600 align-top">
-                                            {entity.type}
+                                        <td className="px-3 py-1.5 text-[11px] text-gray-700 align-top">
+                                            {label}
                                         </td>
                                         <td className="px-3 py-1.5 text-gray-900 break-words">
-                                            {entity.value || <span className="text-gray-400 italic">empty</span>}
+                                            {displayValue || <span className="text-gray-400 italic">empty</span>}
                                         </td>
                                         <td className={`px-3 py-1.5 text-right font-mono ${confColor}`}>
                                             {(conf * 100).toFixed(0)}%

@@ -1,3 +1,5 @@
+import re
+
 import frappe
 
 from nirmaan_stack.services.document_ai import (
@@ -179,12 +181,25 @@ def _normalize_date(value):
 
 
 def _normalize_amount(value):
-    """Strip currency symbols and commas; return numeric string, else original."""
+    """Return a parseable numeric string or "" if value can't be cleanly parsed.
+
+    Document AI sometimes returns junk in OCR'd amount values — for example,
+    a footnote marker bleeding from a duplicate-copy page (e.g. ``*2,124.00``)
+    or stray characters from multi-page invoices. The frontend's amount input
+    regex blocks edits on non-numeric strings, so an empty field (which the
+    user can fill manually) is strictly better than a non-editable wrong value.
+
+    Strategy: keep only digits, dot, and a leading minus; return empty on any
+    parse failure.
+    """
     if not value:
         return ""
 
-    cleaned = value.strip().replace(",", "").replace("₹", "").replace("Rs.", "").replace("INR", "").strip()
+    cleaned = re.sub(r"[^\d.\-]", "", value.strip())
+    if not cleaned or not re.search(r"\d", cleaned):
+        return ""
+
     try:
         return str(float(cleaned))
     except ValueError:
-        return value
+        return ""
