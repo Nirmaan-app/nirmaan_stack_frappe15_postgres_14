@@ -189,7 +189,24 @@ def generate_versions(doc, method):
             "modified": doc.modified,  # Let serialize_dates handle this
         }
         data["changed"].append(["project_inflow_details", serialize_dates(original_data), []])
-    
+
+    elif doc.doctype == "BOQs":
+        previous_state = doc.status
+        boq_details = {
+            "project": doc.project,
+            "boq_name": doc.boq_name,
+            "version": doc.version,
+            "tax_treatment": doc.tax_treatment,
+            "uploaded_by": doc.uploaded_by,
+            "uploaded_at": doc.uploaded_at,
+            "parsed_at": doc.parsed_at,
+            "notes": doc.notes,
+            "owner": doc.owner,
+            "creation": doc.creation,
+            "modified": doc.modified,
+        }
+        data["changed"].append(["boq_details", serialize_dates(boq_details), []])
+
     else:
         # If the doctype is not handled, log it and return early to prevent errors
         # Or, if you want a generic versioning, create a generic data structure

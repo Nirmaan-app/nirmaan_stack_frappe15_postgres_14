@@ -248,7 +248,18 @@ doc_events = {
     },
     "PMO Task Master": {
         "on_update": "nirmaan_stack.api.pmo_sync.sync_task_master_update"
-    }
+    },
+    "BOQs": {
+        "before_insert": "nirmaan_stack.integrations.controllers.boqs.before_insert",
+        "validate": "nirmaan_stack.integrations.controllers.boqs.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+    },
+    "BOQ Nodes": {
+        "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",
+        "before_save": "nirmaan_stack.integrations.controllers.boq_nodes.before_save",
+        "on_update": "nirmaan_stack.integrations.controllers.boq_nodes.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.boq_nodes.on_trash",
+    },
 }
 
 # Scheduled Tasks
