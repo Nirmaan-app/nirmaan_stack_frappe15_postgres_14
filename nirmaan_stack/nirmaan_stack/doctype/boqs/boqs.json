@@ -28,37 +28,42 @@
   {
    "fieldname": "project",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Project",
    "options": "Projects",
-   "reqd": 1,
    "search_index": 1
   },
   {
    "fieldname": "boq_name",
    "fieldtype": "Data",
-   "label": "BoQ Name",
-   "reqd": 1
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "BoQ Name"
   },
   {
+   "default": "1",
    "fieldname": "version",
    "fieldtype": "Int",
+   "in_list_view": 1,
    "label": "Version",
-   "default": "1",
    "read_only": 1
   },
   {
+   "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nApproved\nSuperseded",
-   "default": "Draft"
+   "options": "Draft\nApproved\nSuperseded"
   },
   {
+   "default": "Pre-tax",
    "fieldname": "tax_treatment",
    "fieldtype": "Select",
    "label": "Tax Treatment",
-   "options": "Pre-tax\nPost-tax",
-   "default": "Pre-tax"
+   "options": "Pre-tax\nPost-tax"
   },
   {
    "fieldname": "upload_section",
@@ -69,17 +74,20 @@
    "fieldname": "uploaded_by",
    "fieldtype": "Link",
    "label": "Uploaded By",
-   "options": "User"
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "uploaded_at",
    "fieldtype": "Datetime",
-   "label": "Uploaded At"
+   "label": "Uploaded At",
+   "read_only": 1
   },
   {
    "fieldname": "parsed_at",
    "fieldtype": "Datetime",
-   "label": "Parsed At"
+   "label": "Parsed At",
+   "read_only": 1
   },
   {
    "fieldname": "notes",
