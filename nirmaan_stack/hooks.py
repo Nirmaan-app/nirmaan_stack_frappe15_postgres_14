@@ -257,6 +257,7 @@ doc_events = {
     "BOQ Nodes": {
         "validate": "nirmaan_stack.integrations.controllers.boq_nodes.validate",
         "before_save": "nirmaan_stack.integrations.controllers.boq_nodes.before_save",
+        "after_insert": "nirmaan_stack.integrations.controllers.boq_nodes.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.boq_nodes.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.boq_nodes.on_trash",
     },

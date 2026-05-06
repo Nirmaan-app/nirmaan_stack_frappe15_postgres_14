@@ -49,7 +49,8 @@ def before_save(doc, method):
 
 
 def after_insert(doc, method):
-    pass
+    _compute_path(doc)
+    frappe.db.set_value("BOQ Nodes", doc.name, "path", doc.path, update_modified=False)
 
 
 def on_update(doc, method):
@@ -119,9 +120,9 @@ def _compute_amounts(doc):
 
 def _write_audit(doc, old_doc):
     tracked_fields = [
-        "description", "unit", "qty", "supply_rate", "install_rate", "combined_rate",
-        "supply_amount", "install_amount", "total_amount", "notes", "level", "code",
-        "sort_order", "parent_node", "node_type", "path",
+        "description", "qty", "unit", "supply_rate", "install_rate", "combined_rate",
+        "supply_amount", "install_amount", "total_amount", "code", "level", "node_type",
+        "parent_node", "notes",
     ]
     changed = []
     for field in tracked_fields:
