@@ -10,7 +10,8 @@
   "docname",
   "data",
   "previous_state",
-  "new_state"
+  "new_state",
+  "reason"
  ],
  "fields": [
   {
@@ -43,6 +44,11 @@
    "fieldname": "new_state",
    "fieldtype": "Data",
    "label": "New State"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Data",
+   "label": "Reason"
   }
  ],
  "grid_page_length": 50,
