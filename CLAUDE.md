@@ -1,192 +1,175 @@
-# CLAUDE.md - Nirmaan Stack Backend
+# CLAUDE.md — Nirmaan Stack
 
-## Project Overview
+## Overview
 
-**Nirmaan Stack** is a construction project management and procurement ERP built on **Frappe Framework v15+** (Python). The backend handles business logic, data persistence, workflows, and APIs consumed by a React frontend.
-
-**Core domains:** Procurement (PR/PO/RFQ), Projects, Financial Management, Vendors, Service Requests, Design Tracking, Inventory, Bulk PDF Download
+Nirmaan Stack is a construction project management and procurement ERP built on Frappe v15+ (Python 3.10+, PostgreSQL 14). The backend exposes whitelisted Python APIs consumed by a React 18 + TypeScript SPA. Core domains: Procurement (PR → RFQ → PO → DC/DN), Projects, Vendor Management, Service Requests, Financial Tracking, Inventory, and Document AI invoice autofill.
 
 ---
 
 ## Tech Stack
 
-- **Framework:** Frappe v15+ (Python 3.10+)
-- **Database:** PostgreSQL v14.11 (NOT MariaDB)
-- **Cache:** Redis
-- **Frontend:** React 18 + TypeScript (in `frontend/` directory)
-- **Real-time:** Socket.IO
-- **Push notifications:** Firebase Cloud Messaging
+- **Backend:** Frappe v15+, Python 3.10+, PostgreSQL 14.11 (never MariaDB), Redis, Socket.IO
+- **Frontend:** React 18, TypeScript 5, Vite 5, React Router v6, `frappe-react-sdk 1.7`
+- **UI:** shadcn/ui (primary) + Ant Design 5 (selective), TailwindCSS 3
+- **State:** Zustand 5, React Hook Form + Zod, TanStack Table v8
+- **Infra:** Firebase 10 (FCM push), GCP Document AI (invoice OCR), Sentry 10
 
 ---
 
-## Quick Commands
-
-**Site name:** `localhost`
-
-```bash
-# Start development server (from frappe-bench directory)
-bench start
-# Backend: http://localhost:8000 | Socket.IO: http://localhost:9000
-
-# Database operations (use --site localhost)
-bench --site localhost migrate    # Run migrations
-bench --site localhost clear-cache # Clear Redis cache
-
-# Development
-bench new-doctype "Name"   # Create new doctype
-bench build                # Rebuild assets
-bench run-tests --app nirmaan_stack  # Run tests
-```
-
-### Ad-hoc Database Queries (from host)
-
-The `bench` CLI doesn't work on the host (click version mismatch). Use this pattern instead:
-
-```bash
-# Write script → copy into container → execute with venv Python
-cat > /tmp/query.py <<'PYEOF'
-import os
-os.chdir('/workspace/development/frappe-bench/sites')
-import frappe
-frappe.init(site='localhost')
-frappe.connect()
-
-# ... your queries ...
-
-frappe.destroy()
-PYEOF
-
-docker cp /tmp/query.py frappe_docker_devcontainer-frappe-1:/tmp/query.py
-docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/query.py
-```
-
-**Critical:** The `os.chdir` to `sites/` is required before `frappe.init()` — without it, site lookup fails.
-
----
-
-## Directory Structure
+## App / Module Map
 
 ```
 nirmaan_stack/
-├── nirmaan_stack/doctype/   # 84 custom doctypes
-├── api/                      # Whitelisted API endpoints (35+ files)
+├── nirmaan_stack/doctype/   # 84 custom doctypes — data models and JSON schemas
+├── api/                     # @frappe.whitelist() endpoints (35+ files, snake_case names)
 ├── integrations/
-│   ├── controllers/          # Document lifecycle hooks (KEEP HOOKS HERE)
-│   ├── firebase/             # FCM push notifications
-│   └── Notifications/        # Notification system
-├── tasks/                    # Scheduled background jobs
-├── www/                      # Web routes (frontend.html, boot API)
-├── hooks.py                  # App configuration
-└── patches/                  # Database migrations (v1_5 - v3_0)
+│   ├── controllers/         # ALL doc lifecycle hooks — after_insert, on_update, etc.
+│   ├── firebase/            # FCM push notification dispatch
+│   └── Notifications/       # In-app notification logic
+├── services/                # Reusable business logic (document_ai.py, finance.py)
+├── tasks/                   # Scheduled jobs: daily item status, 10 AM vendor credit cron
+├── www/                     # Serves frontend.html (SPA entry) and boot API
+├── patches/                 # DB migrations v1_5 → v3_0 (append-only)
+└── hooks.py                 # App wiring: doc_events, scheduled tasks, fixtures
 ```
 
----
-
-## Critical Patterns (MUST FOLLOW)
-
-### Before Any Change
-1. **Read `BACKEND_ARCHITECTURE.md`** - Complete doctype mappings, API docs, hooks
-2. **Read `IMPROVEMENT_CHECKLIST.md`** - Refactoring priorities, architectural decisions
-3. **Check existing patterns** - Follow established conventions
-
-### Code Organization
-- **API naming:** Use `snake_case` (NOT hyphens)
-- **Lifecycle hooks:** Keep in `integrations/controllers/`, NOT in doctype files
-- **Doctype files:** Only for `autoname`/basic `validate`
-- **Large files:** Split files >500 lines into focused modules
-
-### Data Patterns
-- **Child Tables:** For queryable, relational data (items, payment terms)
-- **JSON Fields:** For flexible, UI-driven data (categories, RFQ metadata)
+Frontend lives in `frontend/src/`:
+- `pages/` — route-level components, one folder per domain
+- `components/ui/` — shadcn/ui primitives (generated, don't hand-edit)
+- `zustand/` — global state stores
+- `components/helpers/routesConfig.tsx` — all route definitions
 
 ---
 
-## Common Gotchas
+## Coding Conventions
 
-1. **PostgreSQL `user` keyword:** Always quote in SQL: `"user"` not `user`
-2. **PostgreSQL JSON fields:** Cannot use `!=` or `is set` filters with JSON fields in `frappe.get_all()`. Use raw SQL: `WHERE json_field IS NOT NULL` with double-quoted table names (`"tabDoctype"`)
-3. **Transactions:** Always `frappe.db.commit()` after DB operations in whitelisted methods
-4. **Socket.IO:** Call `frappe.db.commit()` BEFORE `publish_realtime()` to avoid race conditions
-5. **Administrator user:** Has non-email name "Administrator" - handle explicitly in rename/delete
-6. **Link vs Data fields:** `rename_doc()` only updates Link fields, Data fields need manual SQL
-7. **Email configuration:** User creation/password reset can fail due to email server misconfiguration (encryption key issues). Use `api/users.create_user` and `api/users.reset_password` which separate email sending from the critical operation
-8. **Child table filtering:** `frappe.get_all()` and `useFrappeGetDocList` filter at PARENT document level. If ANY child row matches, ALL child rows from that parent are returned. For row-level filtering on child tables (e.g., "only show payment terms with status=Due"), use custom SQL APIs with JOINs. See `api/credits/get_credits_list.py` for the pattern.
-9. **CEO Hold authorization:** The `ceo_hold_by` field on Projects tracks who set CEO Hold. Backend validation in `integrations/controllers/projects.py` (`validate` method) restricts setting/unsetting CEO Hold to `nitesh@nirmaan.app` only — not role-based.
-10. **PO Adjustments system:** Payment reconciliation decoupled from PO Revisions. `api/po_adjustments/` module with `_payment_utils.py` (shared) and `adjustment_logic.py` (manual resolution). `PO Adjustments` doctype (POADJ-.po_id.) tracks double-entry accounting entries. `from_adjustment` flag on Project Payments skips hooks. Revision approval auto-creates/updates adjustment doc.
-11. **Vendor Credit Management:** `api/vendor_credit.py` tracks vendor credit exposure. `recalculate_vendor_credit()` called from 9 hooks (DN, payments, PO cancel/delete/merge, revision, adjustment) — updates metrics and **auto-transitions On-Hold → Active** when `available_credit > 0`. Active → On-Hold is set **only by daily cron** (`tasks/vendor_credit_update.py`, 10 AM IST). Credit limit standardized at 50,000. **Admin-only** credit management. `Vendor Credit Ledger` child table on Vendors tracks all credit events.
-12. **DC / MIR doctype is polymorphic:** `PO Delivery Documents` (legacy name) supports BOTH `parent_doctype="Procurement Orders"` and `parent_doctype="Internal Transfer Memo"`. The legacy `procurement_order` Link field is **deprecated and hidden** — it's preserved on legacy rows for back-compat reads but is no longer populated by `create_po_delivery_documents`. `parent_docname` is the single source of truth. Migration patch `patches/v3_0/backfill_pdd_parent_doctype.py` backfills `parent_doctype` + `parent_docname` on legacy rows. **PO-only consumers must filter `parent_doctype = "Procurement Orders"`** (post-backfill, every PO PDD has this; ITM rows have `"Internal Transfer Memo"`); used in `get_project_po_delivery_documents`, BulkDownload's `useBulkDownloadWizard.ts`, project DC/MIR + DN > DC reports. **PO-only readers should use `row.parent_docname` (preferred) with optional fallback `|| row.procurement_order` for any pre-backfill row that slips through.** The picker for ITM uses `api/delivery_challans_data.get_delivery_challan_itms_with_categories` (analog to the PO endpoint), filters ITMs by `target_project` + status in {Partially Delivered, Delivered}. `create_po_delivery_documents` validates ITM status before allowing DC/MIR creation. `_enrich_delivery_docs` batch-fetches `source_project` for ITM-parented rows (one extra SQL query, no N+1).
-11. **Vendor Credit Management:** `api/vendor_credit.py` tracks vendor credit exposure. `recalculate_vendor_credit()` called from 9 hooks (DN, payments, PO cancel/delete/merge, revision, adjustment) — updates metrics but does NOT change `vendor_status`. Daily cron (`tasks/vendor_credit_update.py`, 10 AM IST) is the sole authority for auto-setting On-Hold status. `Vendor Credit Ledger` child table on Vendors tracks all credit events.
-12. **Invoice Autofill (Document AI):** Global file auto-indexing was REMOVED. The `File` doc_event is no longer wired in `hooks.py` and `services/file_extractor.py` is deleted. Document AI is now opt-in only via the **Add Invoice → Auto-fill** flow in `frontend/src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog.tsx`. Backend endpoint: `nirmaan_stack.api.invoice_autofill.extract_invoice_fields(file_url)`. Shared GCP helpers live in `services/document_ai.py` (do NOT recreate `file_extractor.py`). Settings (`Document AI Settings` singleton): `Location = asia-south1`, `Invoice Processor ID = 398ed5af98c95e0c` (custom V1-base trained on Indian invoices, F1=0.863). Confidence threshold hard-coded to 0.70 in `api/invoice_autofill.py`. Extraction response is **never persisted** — it lives only in React state until the user submits. `DocumentSearch` page is also deleted; do not re-add it. The `File Text Search Index` doctype was removed; if its DB table still exists in any environment, run patch `nirmaan_stack.patches.v3_0.drop_file_text_search_index` (NOT registered in `patches.txt`; apply manually if needed). See `.claude/context/domain/invoice-autofill.md` for full flow.
+### Python
+- **Lifecycle hooks:** Always in `integrations/controllers/<doctype>.py`. Never in doctype `*.py` files.
+- **Doctype `*.py` files:** Only `autoname` and simple `validate`. Nothing else.
+- **API modules:** `snake_case` filenames under `api/<feature>/`. Never hyphens.
+- **File size:** Split any file exceeding ~500 lines into focused submodules.
+- **Child Tables:** For relational, queryable data (items, payment terms, ledger entries).
+- **JSON Fields:** For flexible, UI-driven data (category lists, RFQ metadata).
+- **Transactions:** `frappe.db.commit()` after any DML in whitelisted methods. Call it **before** `publish_realtime()` to avoid race conditions.
+
+### TypeScript
+- All Frappe data access via `frappe-react-sdk`: `useFrappeGetDocList`, `useFrappeGetDoc`, `useFrappePostCall`.
+- Backend mutations: `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`.
+- Real-time events named `{doctype}:{action}` (e.g. `po:new`, `pr:approved`).
+- **Do not introduce new UI libraries.** Stay within shadcn/ui + TanStack Table + Zustand + React Hook Form + Zod.
 
 ---
 
-## API Pattern
+## PostgreSQL Gotchas
 
-```python
-@frappe.whitelist()
-def method_name(param1, param2):
-    # Business logic
-    return {"status": "success", "data": {...}}
+1. **Reserved keyword:** Always quote `"user"` in raw SQL.
+2. **JSON field filters:** `frappe.get_all()` cannot use `!=` or `is set` on JSON fields. Use raw SQL: `WHERE json_col IS NOT NULL` with double-quoted table names (`"tabDoctype"`).
+3. **Child table filtering:** `frappe.get_all()` filters at the **parent** level — if any child row matches, all rows of that parent are returned. For row-level filtering, use SQL JOINs. See `api/credits/get_credits_list.py`.
+4. **rename_doc():** Only updates Link fields. Data fields storing document names need manual SQL.
+
+---
+
+## Domain Gotchas
+
+- **PO Delivery Documents** are polymorphic: `parent_doctype` = `"Procurement Orders"` or `"Internal Transfer Memo"`. Always filter by `parent_doctype`; use `parent_docname` (not legacy `procurement_order` field).
+- **Vendor credit status:** `recalculate_vendor_credit()` never sets `vendor_status` to On-Hold. Only the daily 10 AM cron does that. The function can auto-clear On-Hold → Active.
+- **CEO Hold:** Only `nitesh@nirmaan.app` may set/unset — enforced in `integrations/controllers/projects.py`, not role-based.
+- **Invoice Autofill:** Opt-in only via InvoiceDialog. Never recreate `services/file_extractor.py` or the `DocumentSearch` page — both intentionally deleted.
+- **Email ops:** Use `api/users.create_user` and `api/users.reset_password` — these decouple email from the core operation.
+- **Administrator user:** Name is the literal string `"Administrator"`, not an email. Handle explicitly in rename/delete logic.
+
+---
+
+## Commands
+
+```bash
+# Dev server (from frappe-bench directory)
+bench start                          # Backend :8000, Socket.IO :9000
+
+# Database
+bench --site localhost migrate        # Run pending patches
+bench --site localhost clear-cache    # Flush Redis
+
+# Assets / doctypes
+bench build
+bench new-doctype "Name"
+
+# Tests
+bench run-tests --app nirmaan_stack
 ```
 
-Frontend calls: `useFrappePostCall('nirmaan_stack.api.module.method')`
-
----
-
-## Adding Document Lifecycle Hook
-
-```python
-# integrations/controllers/my_doctype.py
-def after_insert(doc, method):
-    pass
-
-# hooks.py
-doc_events = {
-    "My Doctype": {
-        "after_insert": "nirmaan_stack.integrations.controllers.my_doctype.after_insert"
-    }
-}
+**Ad-hoc DB queries from host** (bench CLI broken on host — click version mismatch):
+```bash
+cat > /tmp/q.py <<'EOF'
+import os; os.chdir('/workspace/development/frappe-bench/sites')
+import frappe; frappe.init(site='localhost'); frappe.connect()
+# ... query ...
+frappe.destroy()
+EOF
+docker cp /tmp/q.py frappe_docker_devcontainer-frappe-1:/tmp/q.py
+docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/q.py
 ```
+`os.chdir` to `sites/` is **required** before `frappe.init()`.
 
 ---
 
-## Real-time Events
+## Testing Conventions
 
-```python
-frappe.publish_realtime(
-    event="pr:new",
-    message={...},
-    user=user['name']
-)
-```
-
-Event naming: `{doctype}:{action}` (e.g., `pr:approved`, `po:new`, `payment:fulfilled`)
+- **Framework:** `frappe.tests.utils.FrappeTestCase` (Python unittest subclass).
+- **Location:** `nirmaan_stack/nirmaan_stack/doctype/<name>/test_<name>.py` — co-located with each doctype.
+- **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
+- **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code.
+- **Frontend E2E:** Cypress 13.7 configured in `frontend/cypress.config.ts` — largely unimplemented.
 
 ---
 
-## Reference Documentation
+## Don't Touch
 
-For detailed context, read these files when working on related tasks:
-
-| Domain | File | When to Read |
-|--------|------|--------------|
-| **Doctypes** | `.claude/context/doctypes.md` | Creating/modifying doctypes |
-| **APIs** | `.claude/context/apis.md` | Adding API endpoints |
-| **Integrations** | `.claude/context/integrations.md` | Frontend-backend, Socket.IO, Firebase |
-| **Workflows** | `.claude/context/workflows.md` | Business logic, auto-approval |
-| **Patterns** | `.claude/context/patterns.md` | Code conventions, naming |
-| **Procurement** | `.claude/context/domain/procurement.md` | PR/PO/RFQ work |
-| **Service Requests** | `.claude/context/domain/service-requests.md` | Work Orders, finalization |
-| **Projects** | `.claude/context/domain/projects.md` | Status lifecycle, effects |
-| **Users** | `.claude/context/domain/users.md` | User management |
-| **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` | Vendor credit, hold status, PO blocking |
-| **Internal Transfer Memos** | `.claude/context/domain/internal-transfer-memos.md` | Inter-project material transfer (ITM) — doctype, state machine, phase roadmap |
-| **Invoice Autofill** | `.claude/context/domain/invoice-autofill.md` | Document AI invoice prefill, V1-base custom processor, mode picker UI |
-
-**Full index:** `.claude/context/_index.md`
+| Path | Reason |
+|---|---|
+| `nirmaan_stack/nirmaan_stack/doctype/*/*.json` | Auto-generated by Frappe — edit via Desk UI or bench tooling only |
+| `patches/` | Append-only migration history — never modify existing files |
+| `www/frontend.html` | Auto-generated SPA shell |
+| `frontend/src/components/ui/` | shadcn/ui generated components — update via shadcn CLI |
+| `nirmaan_stack/public/` | Compiled frontend assets — edit source in `frontend/src/` instead |
+| `services/file_extractor.py` | Intentionally deleted — do not recreate |
 
 ---
 
-## Changelog
+## Active Features
 
-See `.claude/CHANGELOG.md` for changes made by Claude Code sessions.
+| Feature | Branch | Spec | Status |
+|---|---|---|---|
+| BoQ Upload & Management | `feature/boq-phase-0` | `docs/boq-feature/spec.md` | Phase 0 in progress |
+
+Always read `docs/boq-feature/spec.md` and `docs/boq-feature/decisions.md` before working on BoQ. Adds `BOQs`, `BOQ Nodes`, `BOQ Node Audit Logs` doctypes. Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N.
+
+---
+
+## Working with Claude Code
+
+- Read `docs/<feature>/spec.md` and the latest entries in `decisions.md` before starting any feature phase.
+- **Output a written plan before writing any code. Never write code in the same turn as the plan.** Wait for user review.
+- One branch per phase: `feature/<feature>-phase-<N>`. Commit at end of each phase.
+- New doctypes: controllers go in `integrations/controllers/`. Doctype `*.py` stays minimal.
+- New APIs: `nirmaan_stack/api/<feature>/<file>.py`, snake_case.
+- Frontend: stay within the existing stack (shadcn/ui + TanStack Table + Zustand + frappe-react-sdk + React Hook Form + Zod). Do not introduce new UI libraries.
+- Pure-Python modules (parsers, services) get real unit tests with fixture files — not stubs.
+
+---
+
+## Reference Docs
+
+| Domain | File |
+|---|---|
+| Full context index | `.claude/context/_index.md` |
+| Doctypes | `.claude/context/doctypes.md` |
+| APIs | `.claude/context/apis.md` |
+| Procurement (PR/PO/RFQ) | `.claude/context/domain/procurement.md` |
+| Projects | `.claude/context/domain/projects.md` |
+| Service Requests | `.claude/context/domain/service-requests.md` |
+| Internal Transfer Memos | `.claude/context/domain/internal-transfer-memos.md` |
+| Invoice Autofill | `.claude/context/domain/invoice-autofill.md` |
+| Vendor Hold | `frontend/.claude/context/domain/vendor-hold.md` |
+| Frontend domain context (full) | `frontend/.claude/context/_index.md` |
+| Session changelog | `.claude/CHANGELOG.md` |
