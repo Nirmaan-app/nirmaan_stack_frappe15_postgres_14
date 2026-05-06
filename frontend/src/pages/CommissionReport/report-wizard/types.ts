@@ -130,13 +130,34 @@ export interface SignaturesSection {
     blocks: SignatureBlock[];
 }
 
+/** Column in a `trainees_data_table` section. Reuses the Field shape minus prefill (`bind`),
+ *  since each row has its own value — bindings don't apply per row. */
+export type TraineesDataTableColumn = Omit<Field, 'bind'> & {
+    /** Column display width hint, e.g. "20%", "120px". Optional. */
+    width?: string;
+};
+
+export interface TraineesDataTableSection {
+    id: string;
+    type: 'trainees_data_table';
+    title?: string;
+    columns: TraineesDataTableColumn[];
+    /** Render this many empty rows by default (≥ 1). Default 1. */
+    minRows?: number;
+    /** Cap the user at N rows. Default 100. */
+    maxRows?: number;
+    /** Button text when adding another row. Default "Add another trainee". */
+    addRowLabel?: string;
+}
+
 export type Section =
     | ProcessSection
     | HeaderSection
     | ChecklistSection
     | ImageAttachmentsSection
     | FieldsSection
-    | SignaturesSection;
+    | SignaturesSection
+    | TraineesDataTableSection;
 
 export type SectionType = Section['type'];
 

@@ -20,7 +20,7 @@ import type {
 } from '../types';
 import { isAllowedBinding } from './bindings';
 
-export type FormValues = Record<string, Record<string, unknown>>;
+export type FormValues = Record<string, unknown>;
 
 interface ResolveOpts {
     template: ReportTemplate;
@@ -109,6 +109,46 @@ export const resolveInitialValues = ({
                 out[section.id] = sectionOut;
                 break;
             }
+            case 'trainees_data_table': {
+                const minRows = Math.max(1, section.minRows ?? 1);
+                const existingRows = (existing as unknown as Array<Record<string, unknown>>) || null;
+
+                const buildEmptyRow = (): Record<string, unknown> => {
+                    const row: Record<string, unknown> = {};
+                    for (const col of section.columns) {
+                        // Reuse field resolver with no existing value → falls through to default → empty.
+                        row[col.key] = resolveFieldValue(
+                            { ...col, bind: undefined } as Field,
+                            undefined,
+                            prefillDict,
+                        );
+                    }
+                    return row;
+                };
+
+                if (existingRows && Array.isArray(existingRows) && existingRows.length > 0) {
+                    // Edit/view: keep saved rows; ensure each row has every current column.
+                    out[section.id] = existingRows.map((row) => {
+                        const filled: Record<string, unknown> = {};
+                        for (const col of section.columns) {
+                            const v = row?.[col.key];
+                            filled[col.key] =
+                                v === undefined || v === null
+                                    ? resolveFieldValue(
+                                          { ...col, bind: undefined } as Field,
+                                          undefined,
+                                          prefillDict,
+                                      )
+                                    : v;
+                        }
+                        return filled;
+                    });
+                } else {
+                    // Fill: seed minRows empty rows.
+                    out[section.id] = Array.from({ length: minRows }, () => buildEmptyRow());
+                }
+                break;
+            }
             case 'process':
             case 'image_attachments':
             case 'signatures':
@@ -145,6 +185,7 @@ export const collectUsedPrefillKeys = (template: ReportTemplate): string[] => {
             case 'process':
             case 'image_attachments':
             case 'signatures':
+            case 'trainees_data_table':
                 break;
         }
     };

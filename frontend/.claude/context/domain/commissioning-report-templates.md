@@ -80,7 +80,17 @@ Each commissioning task type (e.g., "Sprinkler Pressure Test Report") declares a
 
 ## Section Types
 
-Six section types. Each section has a unique `id` (referenced from `wizardSteps`) and a `type` discriminator. Renderer dispatches on `type`.
+Seven section types. Each section has a unique `id` (referenced from `wizardSteps`) and a `type` discriminator. Renderer dispatches on `type`.
+
+| `type` | Shape of `responses.<id>` | Notes |
+|---|---|---|
+| `process` | — (no input) | Read-only procedural text. |
+| `header` | `{ [field_key]: value }` | Identity / cover block. |
+| `checklist` | `{ [item_id]: { result, remarks } }` | Tabular Q&A. |
+| `image_attachments` | — (lives in `attachments`) | Image upload slots. |
+| `fields` | `{ [field_key]: value }` | Generic typed-input grid. |
+| `signatures` | — (no input) | Blank signature blocks. |
+| `trainees_data_table` | `[{ [col_key]: value }, …]` | **Array** of repeatable rows. |
 
 ### 1. `process` — Read-only procedural text
 
@@ -261,6 +271,59 @@ Renders blank labelled boxes. **No input control in v1** — purely visual place
 
 In the wizard, signatures render as muted "Signature & Stamp" placeholders. In the PDF, they render as labelled empty boxes.
 
+### 7. `trainees_data_table` — Repeatable typed rows
+
+A table where the user adds N rows, each row holding the same set of typed inputs declared by `columns`. Use for trainee rosters, attendance sheets, witness lists, or any "repeat this row 1..N times" pattern. Unlike `checklist` (which has a fixed roster of items defined in the template), the user controls the row count at fill time.
+
+```jsonc
+{
+  "id": "trainees",
+  "type": "trainees_data_table",
+  "title": "Trainee Records",
+  "minRows": 1,                                  // default 1, must be ≥ 1
+  "maxRows": 50,                                 // default 100
+  "addRowLabel": "Add another trainee",          // default "Add another trainee"
+  "columns": [
+    { "key": "name",         "label": "Trainee Name", "type": "text",   "required": true,
+      "width": "30%" },
+    { "key": "designation",  "label": "Designation",  "type": "text" },
+    { "key": "email",        "label": "Email",        "type": "text",   "maxLength": 120 },
+    { "key": "trained_on",   "label": "Trained On",   "type": "date",   "required": true },
+    { "key": "score",        "label": "Score",        "type": "number", "min": 0, "max": 100,
+      "unit": "%" },
+    { "key": "outcome",      "label": "Outcome",      "type": "select",
+      "options": ["Pass", "Fail", "Pending"], "default": "Pass" }
+  ]
+}
+```
+
+| Section key | Required | Notes |
+|---|---|---|
+| `columns` | yes | Non-empty array. Each entry uses the `header.fields[]` shape **minus `bind`** (per-row values can't share a single project binding). May add `width` (e.g. `"20%"`, `"120px"`) as a column-width hint. |
+| `minRows` | no, default `1` | Number of empty rows seeded on first fill (clamped to ≥ 1). Also enforced as the array's minimum length at submit. |
+| `maxRows` | no, default `100` | Cap on row count. The "Add another" button hides at the cap. |
+| `addRowLabel` | no, default `"Add another trainee"` | Button text. |
+| `title` | no | Section heading. |
+
+Renderer behaviour:
+- On Fill mount, seeds `responses.<id>` with `minRows` empty rows (each row built by running the field resolver for every column with no existing value, so column `default`s apply).
+- On Edit / View mount, keeps saved rows verbatim and back-fills any column added since fill (preserves forward-compatibility when the master template adds a column after rows are persisted).
+- Add / Remove row controls hide in `mode=view` (`forceReadonly`) and when the row count is at `minRows` (no remove) or `maxRows` (no add).
+- Per-row keys are **dynamic**, so the per-step Zod path is the whole `responses.<id>` array — RHF validates the array as one unit (`.min(minRows)` / `.max(maxRows)`) plus each row against the column shape.
+
+Stored shape (in `response_data.responses`):
+
+```jsonc
+"trainees": [
+  { "name": "Asha P.",    "designation": "Foreman", "email": "asha@x.io",
+    "trained_on": "2026-04-30", "score": 92, "outcome": "Pass" },
+  { "name": "Ramesh K.",  "designation": "Helper",  "email": "",
+    "trained_on": "2026-04-30", "score": 71, "outcome": "Pass" }
+]
+```
+
+> **Print format note:** the canonical filled-task Jinja (`Project Commission Report - Filled Task` in `nirmaan_stack/fixtures/print_format.json`) currently dispatches on `process` / `header` / `fields` / `checklist` / `image_attachments` / `signatures` only. A `trainees_data_table` branch must be added to the Jinja before these sections will render in the printed PDF — otherwise they're silently skipped.
+
 ---
 
 ## Field types reference
@@ -300,6 +363,12 @@ To add a new binding: register in `frontend/src/pages/CommissionReport/report-wi
 2. Else if `bind` is set → use `prefillSnapshot[bind]`.
 3. Else if `default` is set → use `default`.
 4. Else → `""` / `null` / `undefined` per type.
+
+For `trainees_data_table` sections, the path is `responses[section]` (an array, not a per-field key). Resolution rules:
+
+- **Edit / View** (saved rows present): keep each saved row verbatim; for any column missing on a row (added to the master template after that row was persisted), run the field resolver with no existing value so the column's `default` applies.
+- **Fill** (no saved rows): seed `minRows` empty rows; each cell uses the column's `default` (or empty per type).
+- `bind` is **not** honoured per row — column shapes strip `bind` before resolution, since one project value can't sensibly broadcast across N user-entered rows.
 
 ---
 
@@ -351,7 +420,7 @@ To add a new binding: register in `frontend/src/pages/CommissionReport/report-wi
 | `filledAt` / `filledBy` | Stamped on first Submit. |
 | `lastEditedAt` | Stamped on every subsequent edit. |
 | `prefillSnapshot` | Frozen prefill values, keyed by binding path. Renders identically forever even if the project changes. |
-| `responses[section_id][field_key]` | User-entered or prefilled-then-frozen values. Checklist items use `responses[section_id][item_id] = {result, remarks}`. |
+| `responses[section_id][field_key]` | User-entered or prefilled-then-frozen values. Checklist items use `responses[section_id][item_id] = {result, remarks}`. **`trainees_data_table` sections store an array** at `responses[section_id]` instead — `[{ [col_key]: value }, …]` — one entry per user-added row. |
 | `attachments[slot_key][]` | Array of Nirmaan Attachment `name`s for that slot. |
 
 ### Size constraints
@@ -632,6 +701,38 @@ Full template JSON for the canonical Sprinkler Pressure Test Report (decoded fro
   }
 }
 ```
+
+---
+
+## Templates and their tasks
+
+A single `templateId` is shared across many `Commission Report Tasks` master rows — one source_format powers every task that uses it.
+
+### `demo-training-certificate`
+
+Used by these task masters:
+
+- Electrical System Training Report
+- HVAC VRF/DX Training Report
+- HVAC Chilled Water Type Training Report
+- Fire Sprinkler System Training Report
+- FA System Training Report
+- PA System Training Report
+- CCTV System Training Report
+- Access Control Training Report
+- Critical Room ELV System Training Report
+
+### `common-template-1`
+
+Used by these task masters:
+
+- CCTV Commissioning Report
+- FA Commissioning Report
+- WLD Commissioning Report
+- ACS Commissioning Report
+- RR Commissioning Report
+- VESDA Commissioning Report
+
 
 ---
 

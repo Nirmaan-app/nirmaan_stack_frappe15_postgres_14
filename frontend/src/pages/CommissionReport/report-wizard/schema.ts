@@ -5,6 +5,7 @@ import { z, ZodTypeAny } from 'zod';
 
 import type {
     ChecklistSection,
+    TraineesDataTableSection,
     Field,
     FieldsSection,
     HeaderSection,
@@ -19,7 +20,7 @@ import type {
 const optionalText = (): ZodTypeAny =>
     z.string().optional().default('');
 
-const buildFieldSchema = (field: Field): ZodTypeAny => {
+export const buildFieldSchema = (field: Field): ZodTypeAny => {
     const required = !!field.required && !field.readonly;
     switch (field.type) {
         case 'text':
@@ -104,6 +105,20 @@ const buildChecklistSchema = (section: ChecklistSection): ZodTypeAny => {
     return z.object(shape);
 };
 
+const buildTraineesDataTableSchema = (section: TraineesDataTableSection): ZodTypeAny => {
+    const rowShape: Record<string, ZodTypeAny> = {};
+    for (const col of section.columns) {
+        rowShape[col.key] = buildFieldSchema({ ...col, bind: undefined } as Field);
+    }
+    const rowSchema = z.object(rowShape);
+    const minRows = Math.max(1, section.minRows ?? 1);
+    const maxRows = section.maxRows ?? 100;
+    return z
+        .array(rowSchema)
+        .min(minRows, `At least ${minRows} row(s) required`)
+        .max(maxRows, `No more than ${maxRows} rows allowed`);
+};
+
 const buildImageSectionSchema = (section: ImageAttachmentsSection): ZodTypeAny => {
     const shape: Record<string, ZodTypeAny> = {};
     for (const slot of section.slots) {
@@ -135,6 +150,9 @@ export const buildSchemaForSections = (sections: Section[]): z.ZodObject<any> =>
                 // so we treat them as a sibling top-level key per slot section.
                 shape[s.id] = buildImageSectionSchema(s);
                 break;
+            case 'trainees_data_table':
+                shape[s.id] = buildTraineesDataTableSchema(s);
+                break;
             case 'process':
             case 'signatures':
                 break;
@@ -158,6 +176,134 @@ export const buildSchemaForTemplate = (template: ReportTemplate): z.ZodObject<an
     return buildSchemaForSections(template.sections);
 };
 
+/** A single validation error mapped to an RHF dot-path. */
+export interface StepValidationError {
+    path: string;
+    message: string;
+}
+
+/** Validates the form values covered by a single step against the per-field Zod
+ *  schemas built from the template, returning errors keyed by RHF dot-path so
+ *  `form.setError(path, { message })` can render them inline.
+ *
+ *  We can't use a static RHF resolver here because (a) the resolver shape would
+ *  have to switch per step, and (b) the section schemas in `buildSchemaForSections`
+ *  are rooted at section ids which don't match the actual form value paths
+ *  (`responses.<section>.<field>` for inputs vs `attachments.<slot>` for images).
+ */
+export const validateStep = (
+    template: ReportTemplate,
+    step: WizardStepDef,
+    formValues: { responses?: Record<string, unknown>; attachments?: Record<string, unknown> },
+): StepValidationError[] => {
+    const errors: StepValidationError[] = [];
+    const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
+    const responses = formValues.responses || {};
+    const attachments = formValues.attachments || {};
+
+    const runField = (fieldDef: Field, value: unknown, path: string) => {
+        const schema = buildFieldSchema(fieldDef);
+        const result = schema.safeParse(value);
+        if (!result.success) {
+            errors.push({ path, message: result.error.issues[0]?.message || 'Invalid value' });
+        }
+    };
+
+    for (const sid of step.sections) {
+        const section = sectionsById.get(sid);
+        if (!section) continue;
+        switch (section.type) {
+            case 'header':
+            case 'fields': {
+                const sectionValues = (responses[sid] || {}) as Record<string, unknown>;
+                for (const f of section.fields) {
+                    if (f.readonly) continue;
+                    runField(f, sectionValues[f.key], `responses.${sid}.${f.key}`);
+                }
+                break;
+            }
+            case 'checklist': {
+                const sectionValues = (responses[sid] || {}) as Record<
+                    string,
+                    { result?: unknown; remarks?: unknown } | undefined
+                >;
+                for (const item of section.items) {
+                    const v = sectionValues[item.id] || {};
+                    runField(
+                        { ...item.result, key: 'result', label: item.result.label || item.particular } as Field,
+                        v.result,
+                        `responses.${sid}.${item.id}.result`,
+                    );
+                    if (item.remarks) {
+                        runField(
+                            { ...item.remarks, key: 'remarks', label: item.remarks.label || 'Remarks' } as Field,
+                            v.remarks,
+                            `responses.${sid}.${item.id}.remarks`,
+                        );
+                    }
+                }
+                break;
+            }
+            case 'image_attachments': {
+                for (const slot of section.slots) {
+                    if (!slot.required) continue;
+                    const items = attachments[slot.key];
+                    if (!Array.isArray(items) || items.length === 0) {
+                        errors.push({
+                            path: `attachments.${slot.key}`,
+                            message: `${slot.label} requires at least one image`,
+                        });
+                    }
+                }
+                break;
+            }
+            case 'trainees_data_table': {
+                const rows = (responses[sid] || []) as unknown[];
+                const minRows = Math.max(1, section.minRows ?? 1);
+                const maxRows = section.maxRows ?? 100;
+                if (!Array.isArray(rows) || rows.length < minRows) {
+                    errors.push({
+                        path: `responses.${sid}`,
+                        message: `At least ${minRows} row(s) required`,
+                    });
+                    break;
+                }
+                if (rows.length > maxRows) {
+                    errors.push({
+                        path: `responses.${sid}`,
+                        message: `No more than ${maxRows} rows allowed`,
+                    });
+                }
+                rows.forEach((row, idx) => {
+                    for (const col of section.columns) {
+                        const fieldDef = { ...col, bind: undefined } as Field;
+                        const value = (row as Record<string, unknown> | undefined)?.[col.key];
+                        runField(fieldDef, value, `responses.${sid}.${idx}.${col.key}`);
+                    }
+                });
+                break;
+            }
+            case 'process':
+            case 'signatures':
+                break;
+        }
+    }
+    return errors;
+};
+
+/** Validates the entire template (all input-bearing sections), used at Submit. */
+export const validateTemplate = (
+    template: ReportTemplate,
+    formValues: { responses?: Record<string, unknown>; attachments?: Record<string, unknown> },
+): StepValidationError[] => {
+    const allSectionsStep: WizardStepDef = {
+        key: '_all',
+        title: '_all',
+        sections: template.sections.map((s) => s.id),
+    };
+    return validateStep(template, allSectionsStep, formValues);
+};
+
 /** Returns the dot-path RHF field keys covered by a single step. Used by
  *  `form.trigger(stepKeys)` to validate just the current step on Next. */
 export const getRhfKeysForStep = (template: ReportTemplate, step: WizardStepDef): string[] => {
@@ -179,6 +325,10 @@ export const getRhfKeysForStep = (template: ReportTemplate, step: WizardStepDef)
                 break;
             case 'image_attachments':
                 for (const slot of s.slots) out.push(`attachments.${slot.key}`);
+                break;
+            case 'trainees_data_table':
+                // The whole array is validated as one path; per-row keys are dynamic.
+                out.push(`responses.${s.id}`);
                 break;
             case 'process':
             case 'signatures':

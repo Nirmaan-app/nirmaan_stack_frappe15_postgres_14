@@ -4,8 +4,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:12:13.609639",
   "name": "nk72h57fop",
+  "source_format": null,
   "task_name": "DB Commissioning Report"
  },
  {
@@ -13,8 +15,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:17:46.008953",
   "name": "nqeb7o7qmp",
+  "source_format": null,
   "task_name": "LT Panel Factory Test Report"
  },
  {
@@ -22,8 +26,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:01:20.949494",
   "name": "nvp0anob1j",
+  "source_format": null,
   "task_name": "Socket Testing Report"
  },
  {
@@ -31,8 +37,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:23:06.147285",
   "name": "oejirdmj42",
+  "source_format": null,
   "task_name": "Nitrogen Pressure Testing Report"
  },
  {
@@ -40,8 +48,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:24:08.776152",
   "name": "olmlea0t35",
+  "source_format": null,
   "task_name": "VRF/DX Commissioning Report"
  },
  {
@@ -49,8 +59,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:23:32.608497",
   "name": "or2cnvaleb",
+  "source_format": null,
   "task_name": "Drain Slope Test Report"
  },
  {
@@ -58,8 +70,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:04:23.604453",
+  "is_active": 1,
+  "modified": "2026-05-06 11:13:52.243294",
   "name": "posemr1il5",
+  "source_format": "{\n  \"templateId\": \"common-template-1\",\n  \"templateVersion\": 1,\n  \"title\": \"CCTV Commissioning Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT — CCTV\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"CCTV Commissioning Checklist:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"S.No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Description\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Result\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"Location of Control Equipments (accessible)\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Ensure that cables in the Racks, to the cameras are to be dressed appropriately.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Ensure that all DVR / NVR / POE Switch / Cameras & Monitors are placed properly.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Ensure that all the cables from Camera to the Network Switch are properly terminated.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Ensure that cameras are installed as per the approved drawing.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"Camera location to be clearly indicated on the monitor during viewing.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q7\",\n          \"particular\": \"Focusing of the camera to be adjusted by proper positioning to obtain optimum result.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q8\",\n          \"particular\": \"Ensure that the camera Enclosure power supply was installed properly.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q9\",\n          \"particular\": \"Ensure that Power supply outlets for the CCTV system were fed by UPS (Optional).\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q10\",\n          \"particular\": \"Check the NVR are connected to the security network LAN with Static IP (Optional).\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"N/A\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q11\",\n          \"particular\": \"Operation and maintenance information provided.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "CCTV Commissioning Report"
  },
  {
@@ -67,8 +81,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:05:08.321548",
+  "is_active": 1,
+  "modified": "2026-05-06 11:19:50.494177",
   "name": "q6rl4uu1d2",
+  "source_format": "{\n  \"templateId\": \"common-template-1\",\n  \"templateVersion\": 1,\n  \"title\": \"Fire Alarm Commissioning Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT — FIRE ALARM SYSTEM\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"Fire Alarm Commissioning Checklist:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"Sl No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Description\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Result\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"AC Power Supply\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Panel Battery Charger\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Battery Terminal & Connection\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Battery Voltage\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Panel Indication Light\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"Loop 1 Input Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q7\",\n          \"particular\": \"Loop 2 Input Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q8\",\n          \"particular\": \"Loop 1 Output Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q9\",\n          \"particular\": \"Loop 2 Output Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q10\",\n          \"particular\": \"Internal Buzzer\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q11\",\n          \"particular\": \"Detection Test\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q12\",\n          \"particular\": \"Hooter Activation\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q13\",\n          \"particular\": \"Manual Call Point Test\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q14\",\n          \"particular\": \"Control Module Activation\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q15\",\n          \"particular\": \"Monitor Module Activation\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q16\",\n          \"particular\": \"Isolation Module Activation\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q17\",\n          \"particular\": \"CSU, AHU & Fire Damper Tripping\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q18\",\n          \"particular\": \"Flow Switch Integration\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q19\",\n          \"particular\": \"FA Panel Integration\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q20\",\n          \"particular\": \"Automatic Door Integration\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"FA CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "FA Commissioning Report"
  },
  {
@@ -76,8 +92,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:05:52.685093",
   "name": "qkm9fb53am",
+  "source_format": null,
   "task_name": "PA Commissioning Report"
  },
  {
@@ -85,8 +103,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:07:10.727807",
+  "is_active": 1,
+  "modified": "2026-05-06 13:26:59.847313",
   "name": "r78kkd34n2",
+  "source_format": "{\n  \"templateId\": \"sprinkler-pressure-test\",\n  \"templateVersion\": 1,\n  \"title\": \"Sprinkler Pressure Test Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"procedure\",\n      \"title\": \"Procedure\",\n      \"sections\": [\n        \"proc\"\n      ]\n    },\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"results\",\n      \"title\": \"Test Results\",\n      \"sections\": [\n        \"images\",\n        \"measurements\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"proc\",\n      \"type\": \"process\",\n      \"title\": \"Sprinkler Pressure Test Operating Process\",\n      \"blocks\": [\n        {\n          \"subtitle\": \"Test Procedure\",\n          \"items\": [\n            \"1. Inspect the system to verify that openings are plugged and valves are closed.\",\n            \"2. Connect the test pump to a convenient location in the system.\",\n            \"3. Connect the water source to the test pump.\",\n            \"4. Open the main control valve to fill the system. (If the water service is not installed or has not been flushed, fill the system through the test pump water source.)\",\n            \"5. Fill the system slowly to avoid entrapment of air.\",\n            \"6. Open a valve (such as the inspector's test connection or a temporary valve) to vent any trapped air.\",\n            \"7. Close the valve when water flows continuously through it.\",\n            \"8. When the system pressure equals that of the water source, close the supply valve and inspect the entire system for leaks.\\n   i. Leaks may result from flanges not bolted properly, plugs not properly installed, cracked or improperly tightened fittings, etc.\\n   ii. If leaks are found, open the 2-in. main drain connection or other low-point drain connection and allow the system to drain. Repair any leaks found and repeat this procedure.\\n   iii. If no leaks are detected, begin to increase pressure with the test pump up to 200 psi or 50 psi in excess of the static pressure when static pressure exceeds 150 psi.\",\n            \"9. Monitor the test gauge to determine that the system pressure is stable. If pressure drops, check for leaks in the system, for open valves, or for leaks in the test apparatus.\",\n            \"10. Once it is determined that the test pressure has stabilized, disconnect the power to the test pump and notify the commissioning agent or authority having jurisdiction that the 2-hour test period has begun.\",\n            \"11. Record the time of day and test pressure at this time.\",\n            \"12. Hold the test pressure for 2 hours.\",\n            \"13. After the test, open the drain valve to drain the system, or if the system is to be commissioned immediately, relieve the test pressure and leave the water in the system.\",\n            \"14. Disconnect the test pump and plug the outlet or test port through which the system was tested.\",\n            \"15. If the test will be required on existing fire sprinkler systems, review the proper impairment including the fire alarm system to avoid false signals.\"\n          ]\n        },\n        {\n          \"subtitle\": \"Measurements\",\n          \"items\": [\n            \"1. Test pressure is to be maintained for 2 hours without any visible leaks.\"\n          ]\n        },\n        {\n          \"subtitle\": \"Pass/Fail Criteria\",\n          \"items\": [\n            \"1. The system must hold the test pressure for 2 hours without loss of pressure.\",\n            \"2. Absence of water leakage is verified by visual examination of the system.\"\n          ]\n        }\n      ]\n    },\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT — SPRINKLER SYSTEM\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"Sprinkler System Commissioning Report:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"Sl No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Particulars\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Results\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"All Sprinklers are as per drawing\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"Yes\",\n              \"No\",\n              \"N/A\"\n            ],\n            \"default\": \"Yes\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Testing of Sprinklers (upright, pendant)\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"Yes\",\n              \"No\",\n              \"N/A\"\n            ],\n            \"default\": \"Yes\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Hydraulic pressure testing (Pressure below 10kpa)\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"Yes\",\n              \"No\",\n              \"N/A\"\n            ],\n            \"default\": \"Yes\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Leak detection testing\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"Yes\",\n              \"No\",\n              \"N/A\"\n            ],\n            \"default\": \"Yes\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Demonstration (Practical training) work has been completed\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"Yes\",\n              \"No\",\n              \"N/A\"\n            ],\n            \"default\": \"Yes\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"The above all are working fine\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"Yes\",\n              \"No\",\n              \"N/A\"\n            ],\n            \"default\": \"Yes\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"images\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Sprinkler Pressure Test Result:\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"result_image_1\",\n          \"label\": \"Result Image 1\",\n          \"accept\": \"image/*\",\n          \"maxSizeMb\": 5\n        },\n        {\n          \"key\": \"result_image_2\",\n          \"label\": \"Result Image 2\",\n          \"accept\": \"image/*\",\n          \"maxSizeMb\": 5\n        }\n      ]\n    },\n    {\n      \"id\": \"measurements\",\n      \"type\": \"fields\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"test_start_date\",\n          \"label\": \"Test Start Date\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"test_end_date\",\n          \"label\": \"Test End Date\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"measured_pressure_initial\",\n          \"label\": \"Measured Pressure (Initial)\",\n          \"type\": \"number\",\n          \"unit\": \"kPa\",\n          \"required\": true,\n          \"min\": 0\n        },\n        {\n          \"key\": \"measured_pressure_final\",\n          \"label\": \"Measured Pressure (Final)\",\n          \"type\": \"number\",\n          \"unit\": \"kPa\",\n          \"required\": true,\n          \"min\": 0\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"hvac_contractor\",\n          \"label\": \"HVAC CONTRACTOR\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "Sprinkler Pressure Test Report"
  },
  {
@@ -94,8 +114,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:47:19.743075",
+  "is_active": 1,
+  "modified": "2026-05-06 11:16:55.238965",
   "name": "rvstds128g",
+  "source_format": "{\n  \"templateId\": \"common-template-1\",\n  \"templateVersion\": 1,\n  \"title\": \"WLD Commissioning Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT — WLD\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"WLD Commissioning Checklist:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"Sl No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Description\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Result\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"AC Power Supply\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Zone Testing\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Sensing Cable Checking\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Manual Activation Alarm\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Relay Output to Hooter\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"Hooter Activation\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q7\",\n          \"particular\": \"Input Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q8\",\n          \"particular\": \"Output Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q9\",\n          \"particular\": \"Zone Checking\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "WLD Commissioning Report"
  },
  {
@@ -103,8 +125,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:08:47.808139",
+  "is_active": 1,
+  "modified": "2026-05-05 19:07:37.157309",
   "name": "sbeu8i7qlk",
+  "source_format": "{\n  \"templateId\": \"access-control-commissioning\",\n  \"templateVersion\": 1,\n  \"title\": \"Access Control Commissioning Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT —  ACS\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"Access Control Commissioning Checklist:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"S.No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Description\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Result\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"Carry out visual inspection of all major components\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Check all power supply voltages and charging rates at door controllers and lock mains voltages.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Check the operation of the reader and LED status for valid and invalid cards\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Check control equipment in accordance with company procedure.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Check the operation of any warning on the Controller\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"Check operation of electronic release and ensure unrestricted operation of door closure. Visibly inspect equipment and components.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q7\",\n          \"particular\": \"Check the emergency break glass operation.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q8\",\n          \"particular\": \"Verify remote operation of lock release from PC including no access or blocking.\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q9\",\n          \"particular\": \"Check system is fully operational\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"YES\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q10\",\n          \"particular\": \"Static IP Assigned to Controller (Optional)\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"YES\",\n              \"NO\",\n              \"N/A\"\n            ],\n            \"default\": \"N/A\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"HVAC CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "Access Control Commissioning Report"
  },
  {
@@ -112,8 +136,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:17:40.114762",
   "name": "ukouun61cg",
+  "source_format": null,
   "task_name": "LT Panel Commissioning Report"
  },
  {
@@ -121,8 +147,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:13:13.050967",
   "name": "uuami11re7",
+  "source_format": null,
   "task_name": "LUX Level Report"
  },
  {
@@ -130,8 +158,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:13:38.565909",
   "name": "v69a31u9lj",
+  "source_format": null,
   "task_name": "Earthing Test Report"
  },
  {
@@ -139,8 +169,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:14:22.906884",
   "name": "vem1lmn0c5",
+  "source_format": null,
   "task_name": "LT Cable Megger Test Report"
  },
  {
@@ -148,8 +180,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:16:11.484058",
+  "is_active": 1,
+  "modified": "2026-05-06 10:37:16.345276",
   "name": "0m22mvkc9s",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "Electrical System Training Report"
  },
  {
@@ -157,8 +191,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:24:18.975794",
+  "is_active": 1,
+  "modified": "2026-05-06 10:36:51.028827",
   "name": "0u0q96p91d",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "HVAC VRF/DX Training Report"
  },
  {
@@ -166,8 +202,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:16:46.514652",
+  "is_active": 1,
+  "modified": "2026-05-06 10:37:38.386510",
   "name": "111bjv0glt",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "CCTV System Training Report"
  },
  {
@@ -175,8 +213,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:16:59.307031",
+  "is_active": 1,
+  "modified": "2026-05-06 10:37:48.496371",
   "name": "151r11p6lp",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "FA System Training Report"
  },
  {
@@ -184,8 +224,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:17:15.126605",
   "name": "19vjgfs82l",
+  "source_format": null,
   "task_name": "UPS Factory Test Report"
  },
  {
@@ -193,8 +235,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:18:24.891312",
   "name": "1vot05m825",
+  "source_format": null,
   "task_name": "UPS Site Test Report"
  },
  {
@@ -202,8 +246,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:24:48.902989",
   "name": "5np2v2e4an",
+  "source_format": null,
   "task_name": "Smoke Test Report"
  },
  {
@@ -211,8 +257,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:25:37.074572",
   "name": "5uhd4omsba",
+  "source_format": null,
   "task_name": "CFM/Air Balance Report"
  },
  {
@@ -220,8 +268,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:43:07.057498",
   "name": "637l2ah181",
+  "source_format": null,
   "task_name": "Duct Pressure Testing Report "
  },
  {
@@ -229,8 +279,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:26:35.987295",
   "name": "6p722vvrda",
+  "source_format": null,
   "task_name": "VAV Commissioning Report"
  },
  {
@@ -238,8 +290,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:44:11.659595",
   "name": "75a0j4gr5b",
+  "source_format": null,
   "task_name": "Pipe Pressure Testing Report"
  },
  {
@@ -247,8 +301,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:44:27.740402",
   "name": "79a4v1n2ji",
+  "source_format": null,
   "task_name": "AHU/CSU Commissioning Report"
  },
  {
@@ -256,8 +312,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:28:17.559108",
+  "is_active": 1,
+  "modified": "2026-05-06 10:36:23.908822",
   "name": "7ovm3tmemj",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "HVAC Chilled Water Type Training Report"
  },
  {
@@ -265,8 +323,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:29:06.492407",
+  "is_active": 1,
+  "modified": "2026-05-06 10:37:00.797999",
   "name": "888c12nm3q",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "PA System Training Report"
  },
  {
@@ -274,8 +334,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:36:49.034970",
+  "is_active": 1,
+  "modified": "2026-05-06 10:37:28.623723",
   "name": "coq578e0t6",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "Access Control Training Report"
  },
  {
@@ -283,8 +345,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:41:09.265592",
   "name": "fa4rqgtn67",
+  "source_format": null,
   "task_name": "Auto Sequencing Functional Testing Report"
  },
  {
@@ -292,8 +356,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:42:24.382390",
   "name": "g1jdlsctii",
+  "source_format": null,
   "task_name": "Fire Damper Functionality Test Report"
  },
  {
@@ -301,8 +367,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:44:54.095943",
   "name": "hgcvhsqr0t",
+  "source_format": null,
   "task_name": "AHU/CSU Factory Test Report"
  },
  {
@@ -310,8 +378,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:45:14.891545",
   "name": "hmsk5746ve",
+  "source_format": null,
   "task_name": "Drain Slope Test Report"
  },
  {
@@ -319,8 +389,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:46:47.600620",
   "name": "ijs5loao5f",
+  "source_format": null,
   "task_name": "Flow Switch Testing Report"
  },
  {
@@ -328,8 +400,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:47:06.974788",
+  "is_active": 1,
+  "modified": "2026-05-05 18:58:37.950270",
   "name": "iptskk72fu",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "Fire Sprinkler System Training Report"
  },
  {
@@ -337,8 +411,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:47:25.307324",
+  "is_active": 1,
+  "modified": "2026-05-06 11:18:51.378136",
   "name": "ivlto2bn7b",
+  "source_format": "{\n  \"templateId\": \"common-template-1\",\n  \"templateVersion\": 1,\n  \"title\": \"RR Commissioning Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT — RR\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"RR Commissioning Checklist:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"Sl No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Description\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Result\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"AC Power Supply\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Zone Testing\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Sensing Cable Checking\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Manual Activation Alarm\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Relay Output to Hooter\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"Hooter Activation\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q7\",\n          \"particular\": \"Input Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q8\",\n          \"particular\": \"Output Voltage\",\n          \"result\": {\n            \"type\": \"number\",\n            \"unit\": \"V\",\n            \"min\": 0,\n            \"required\": true\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q9\",\n          \"particular\": \"Zone Checking\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "RR Commissioning Report"
  },
  {
@@ -346,8 +422,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:50:15.178681",
+  "is_active": 1,
+  "modified": "2026-05-06 11:11:52.131358",
   "name": "j1iugsjp4q",
+  "source_format": "{\n  \"templateId\": \"common-template-1\",\n  \"templateVersion\": 1,\n  \"title\": \"VESDA Commissioning Report\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"checklist\",\n      \"title\": \"Checklist\",\n      \"sections\": [\n        \"chk\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"COMMISSIONING REPORT — VESDA\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"chk\",\n      \"type\": \"checklist\",\n      \"title\": \"VESDA Commissioning Checklist:\",\n      \"columns\": [\n        {\n          \"key\": \"slno\",\n          \"label\": \"Sl No\"\n        },\n        {\n          \"key\": \"particular\",\n          \"label\": \"Description\"\n        },\n        {\n          \"key\": \"result\",\n          \"label\": \"Result\"\n        },\n        {\n          \"key\": \"remarks\",\n          \"label\": \"Remarks\"\n        }\n      ],\n      \"items\": [\n        {\n          \"id\": \"q1\",\n          \"particular\": \"AC Power Supply\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q2\",\n          \"particular\": \"Battery & Charger\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q3\",\n          \"particular\": \"Battery Voltage\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q4\",\n          \"particular\": \"Detector Status\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q5\",\n          \"particular\": \"Display Panel\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q6\",\n          \"particular\": \"Airflow Normal\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q7\",\n          \"particular\": \"Airflow Fault (High/Low)\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q8\",\n          \"particular\": \"Filter Status\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q9\",\n          \"particular\": \"Pipe Network Check\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q10\",\n          \"particular\": \"Alert Level Test\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q11\",\n          \"particular\": \"Action Level Test\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q12\",\n          \"particular\": \"Fire 1 Alarm\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q13\",\n          \"particular\": \"Fire 2 Alarm\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q14\",\n          \"particular\": \"Buzzer\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q15\",\n          \"particular\": \"Reset Function\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q16\",\n          \"particular\": \"FA Panel Integration\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        },\n        {\n          \"id\": \"q17\",\n          \"particular\": \"Smoke Test\",\n          \"result\": {\n            \"type\": \"select\",\n            \"options\": [\n              \"PASS\",\n              \"FAIL\",\n              \"N/A\"\n            ],\n            \"default\": \"PASS\"\n          },\n          \"remarks\": {\n            \"type\": \"text\"\n          }\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"tested_by\",\n          \"label\": \"TESTED BY\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "VESDA Commissioning Report"
  },
  {
@@ -355,8 +433,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
-  "modified": "2026-03-17 18:50:10.504239",
+  "is_active": 1,
+  "modified": "2026-05-06 10:37:57.840969",
   "name": "kg5otcvfj6",
+  "source_format": "{\n  \"templateId\": \"demo-training-certificate\",\n  \"templateVersion\": 3,\n  \"title\": \"Demo & Training Certificate\",\n  \"wizardSteps\": [\n    {\n      \"key\": \"header\",\n      \"title\": \"Header\",\n      \"sections\": [\n        \"hdr\"\n      ]\n    },\n    {\n      \"key\": \"trainees\",\n      \"title\": \"Trainees\",\n      \"sections\": [\n        \"trainees\"\n      ]\n    },\n    {\n      \"key\": \"comments\",\n      \"title\": \"Comments\",\n      \"sections\": [\n        \"notes\"\n      ]\n    },\n    {\n      \"key\": \"signatures\",\n      \"title\": \"Signatures\",\n      \"sections\": [\n        \"sigs\"\n      ]\n    },\n    {\n      \"key\": \"review\",\n      \"title\": \"Review\",\n      \"sections\": []\n    }\n  ],\n  \"sections\": [\n    {\n      \"id\": \"hdr\",\n      \"type\": \"header\",\n      \"title\": \"DEMO & TRAINING CERTIFICATE\",\n      \"fields\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\",\n          \"type\": \"text\",\n          \"default\": \"STRATOS INFRA TECHNOLOGIES PVT LTD\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"project\",\n          \"label\": \"PROJECT\",\n          \"type\": \"text\",\n          \"bind\": \"project.project_name\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"LOCATION\",\n          \"type\": \"text\",\n          \"bind\": \"project.location.full\",\n          \"readonly\": true\n        },\n        {\n          \"key\": \"date\",\n          \"label\": \"DATE\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"trained_by\",\n          \"label\": \"TRAINED BY\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"training_topic\",\n          \"label\": \"TRAINING TOPIC\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"placeholder\": \"e.g. FA System Training\"\n        }\n      ]\n    },\n    {\n      \"id\": \"trainees\",\n      \"type\": \"trainees_data_table\",\n      \"title\": \"Trainees\",\n      \"minRows\": 1,\n      \"maxRows\": 50,\n      \"addRowLabel\": \"Add another trainee\",\n      \"columns\": [\n        {\n          \"key\": \"trainee\",\n          \"label\": \"Trainee\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"designation\",\n          \"label\": \"Designation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"organisation\",\n          \"label\": \"Organisation\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"email\",\n          \"label\": \"Email ID\",\n          \"type\": \"text\"\n        }\n      ]\n    },\n    {\n      \"id\": \"notes\",\n      \"type\": \"fields\",\n      \"title\": \"Comments / Remarks\",\n      \"layout\": \"stack\",\n      \"fields\": [\n        {\n          \"key\": \"comments\",\n          \"label\": \"Comments / Remarks\",\n          \"type\": \"textarea\",\n          \"rows\": 6\n        }\n      ]\n    },\n    {\n      \"id\": \"sigs\",\n      \"type\": \"signatures\",\n      \"blocks\": [\n        {\n          \"key\": \"vendor\",\n          \"label\": \"VENDOR\"\n        },\n        {\n          \"key\": \"consultant\",\n          \"label\": \"CONSULTANT\"\n        },\n        {\n          \"key\": \"client\",\n          \"label\": \"CLIENT\"\n        }\n      ]\n    }\n  ]\n}",
   "task_name": "Critical Room ELV System Training Report"
  },
  {
@@ -364,8 +444,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:52:01.641256",
   "name": "lm0tiaq6u8",
+  "source_format": null,
   "task_name": "Fluke Testing Report"
  },
  {
@@ -373,8 +455,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:54:12.355874",
   "name": "murf0dus00",
+  "source_format": null,
   "task_name": "Sensor Calibration Report"
  },
  {
@@ -382,8 +466,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:54:30.159756",
   "name": "n4djh3en77",
+  "source_format": null,
   "task_name": "BMS System Functionality Test Report"
  },
  {
@@ -391,8 +477,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:55:01.256457",
   "name": "ne4mh645k7",
+  "source_format": null,
   "task_name": "Network Continuity Test Report "
  },
  {
@@ -400,8 +488,10 @@
   "deadline_offset": 1,
   "docstatus": 0,
   "doctype": "Commission Report Tasks",
+  "is_active": 0,
   "modified": "2026-03-17 18:55:58.114211",
   "name": "nvtgkiealo",
+  "source_format": null,
   "task_name": "Wifi Heat Map Report"
  }
 ]

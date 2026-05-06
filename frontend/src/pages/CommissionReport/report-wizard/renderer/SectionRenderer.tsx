@@ -10,6 +10,7 @@ import { HeaderSection } from './HeaderSection';
 import { ImageAttachmentSection } from './ImageAttachmentSection';
 import { ProcessSection } from './ProcessSection';
 import { SignaturesSection } from './SignaturesSection';
+import { TraineesDataTableSection } from './TraineesDataTableSection';
 
 export interface SectionRendererProps {
     section: Section;
@@ -59,6 +60,8 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
         }
         case 'signatures':
             return <SignaturesSection section={section} />;
+        case 'trainees_data_table':
+            return <TraineesDataTableSection section={section} forceReadonly={forceReadonly} />;
         default: {
             const _exhaustive: never = section;
             void _exhaustive;
