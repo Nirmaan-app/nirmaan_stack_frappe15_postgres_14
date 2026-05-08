@@ -52,11 +52,18 @@ class RawRow:
 
 
 # ------------------------------------------------------------------
-# Header-row heuristic keywords
+# Header-row heuristic keywords (weighted)
 # ------------------------------------------------------------------
 
-_HEADER_KEYWORDS = {
-    "sl.no", "s.no", "sno", "sr.no", "item", "description", "item description",
+# Strong match: +2 pts per cell (unambiguous column-header vocabulary)
+_STRONG_HEADER_KEYWORDS = {
+    "sl.no", "s.no", "sno", "sr.no", "description", "item description",
+}
+
+# Medium match: +1 pt per cell (domain-specific but less definitive)
+_MEDIUM_HEADER_KEYWORDS = {
+    "item", "material", "materials", "details of materials",
+    "make/model", "approved make", "approved makes",
 }
 
 _COL_LETTER_RE = re.compile(r"^[A-Z]+$")
@@ -193,29 +200,73 @@ class BoqReader:
         self, sheet_name: str, scan_top_n: int = 15
     ) -> int | None:
         """
-        Scan the first scan_top_n rows and return the row number with the most
-        cells whose value (lowercased) contains a header keyword.
+        Scan the first scan_top_n rows and return the row number that best
+        matches a BoQ column-header row.
 
-        Returns None if no row has 2+ keyword matches.
+        Scoring (weighted, per cell — each cell counted at most once):
+          Strong keywords (e.g. "sl.no", "description"): +2
+          Medium keywords (e.g. "item", "materials"):     +1
+
+        Row-shape guards (row skipped when any fail):
+          1. ≥ 3 non-empty cells — filters merged-title and label-only rows
+          2. ≤ 1 cell with text > 60 chars — filters narrative description rows
+          3. Not the last content row — avoids isolated data rows at sheet end
+
+        Returns None if no row scores > 1 (requires ≥ 2 weighted points).
         Tiebreak: earliest row wins.
         """
         ws = self._wb_values[sheet_name]
+        last_content_row, _ = self.get_sheet_dimensions(sheet_name)
+
         best_row: int | None = None
-        best_score = 1  # require at least 2 matches
+        best_score = 1  # require score strictly > 1
 
         for row_cells in ws.iter_rows(max_row=scan_top_n):
             if not row_cells:
                 continue
             row_num = row_cells[0].row
-            score = 0
+
+            # Guard 3 — skip last content row (likely a totals / data row)
+            if row_num == last_content_row:
+                continue
+
+            # Collect non-empty cell texts
+            cell_texts: list[str] = []
+            long_text_count = 0
             for cell in row_cells:
                 if cell.value is None:
                     continue
-                cell_text = str(cell.value).strip().lower()
-                for kw in _HEADER_KEYWORDS:
-                    if kw in cell_text:
-                        score += 1
-                        break  # count cell once even if it matches multiple kws
+                text = str(cell.value).strip()
+                if not text:
+                    continue
+                cell_texts.append(text)
+                if len(text) > 60:
+                    long_text_count += 1
+
+            # Guard 1 — at least 3 non-empty cells
+            if len(cell_texts) < 3:
+                continue
+
+            # Guard 2 — at most 1 cell with text > 60 chars
+            if long_text_count > 1:
+                continue
+
+            # Weighted scoring
+            score = 0
+            for text in cell_texts:
+                text_lower = text.lower()
+                matched = False
+                for kw in _STRONG_HEADER_KEYWORDS:
+                    if kw in text_lower:
+                        score += 2
+                        matched = True
+                        break
+                if not matched:
+                    for kw in _MEDIUM_HEADER_KEYWORDS:
+                        if kw in text_lower:
+                            score += 1
+                            break
+
             if score > best_score:
                 best_score = score
                 best_row = row_num

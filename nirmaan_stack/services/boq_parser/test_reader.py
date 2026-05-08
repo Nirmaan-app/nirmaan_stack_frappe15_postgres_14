@@ -230,6 +230,50 @@ class TestBoqReader(unittest.TestCase):
         self.assertIn("Sl.No.", text)
         self.assertIn("First item", text)
 
+    # ------------------------------------------------------------------ #
+    # Test 17 — sparse multi-area header                                   #
+    # ------------------------------------------------------------------ #
+
+    def test_detect_header_row_sparse_multi_area(self):
+        """
+        synthetic_sparse_header has merged area labels (rows 3-4) above a
+        sparse column-header row at row 5 ("Sl.No.", "Description", "Unit", …).
+        detect_header_row() must return 5.
+        """
+        reader = BoqReader(_p("synthetic_sparse_header.xlsx"))
+        result = reader.detect_header_row("HVAC-style")
+        self.assertEqual(result, 5)
+
+    # ------------------------------------------------------------------ #
+    # Test 18 — domain-vocabulary header                                   #
+    # ------------------------------------------------------------------ #
+
+    def test_detect_header_row_domain_vocab(self):
+        """
+        synthetic_makelist_header row 3 uses "Details of Materials" and
+        "Approved Makes" — domain-specific vocabulary instead of generic names.
+        detect_header_row() must still return 3.
+        """
+        reader = BoqReader(_p("synthetic_makelist_header.xlsx"))
+        result = reader.detect_header_row("Make List")
+        self.assertEqual(result, 3)
+
+    # ------------------------------------------------------------------ #
+    # Test 19 — data row with long description not picked                  #
+    # ------------------------------------------------------------------ #
+
+    def test_detect_header_row_long_description_data_row_not_picked(self):
+        """
+        Row 7 of synthetic_sparse_header is a data row whose description cell
+        exceeds 60 characters. detect_header_row() must not return row 7; the
+        correct header row (5) must be returned instead.
+        """
+        reader = BoqReader(_p("synthetic_sparse_header.xlsx"))
+        result = reader.detect_header_row("HVAC-style")
+        self.assertIsNotNone(result)
+        self.assertNotEqual(result, 7)
+        self.assertEqual(result, 5)
+
 
 if __name__ == "__main__":
     unittest.main()
