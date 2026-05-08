@@ -210,6 +210,28 @@ class TestBOQNodes(FrappeTestCase):
                                   description="L3 deep path")
         self.assertEqual(l3.path, f"{l1.name}/{l2.name}/{l3.name}")
 
+    def test_path_updates_on_reparent(self):
+        """
+        Moving a node to a different parent must recompute its own path.
+
+        Note: only the moved node's path is verified here. Propagating the
+        path change to the node's descendants (if any) is a known Phase 5
+        concern and is intentionally out of scope for this Phase 1 test.
+        """
+        l1_a = self._make_preamble(level=1, description="L1-A reparent test")
+        l1_b = self._make_preamble(level=1, description="L1-B reparent test")
+        l2 = self._make_preamble(level=2, parent_node=l1_a.name,
+                                  description="L2 reparent test")
+
+        self.assertEqual(l2.path, f"{l1_a.name}/{l2.name}")
+
+        l2.parent_node = l1_b.name
+        l2.save(ignore_permissions=True)
+
+        self.assertEqual(l2.path, f"{l1_b.name}/{l2.name}")
+        db_path = frappe.db.get_value("BOQ Nodes", l2.name, "path")
+        self.assertEqual(db_path, f"{l1_b.name}/{l2.name}")
+
     # ------------------------------------------------------------------ #
     # Amount auto-computation                                              #
     # ------------------------------------------------------------------ #
@@ -317,7 +339,15 @@ class TestBOQNodes(FrappeTestCase):
             frappe.db.commit()
 
     def test_audit_entry_not_written_without_reason(self):
-        """Saving without edit_reason must not create any audit entry."""
+        """
+        Saving without edit_reason must not create any audit entry.
+
+        This test relies on the fact that _write_audit calls
+        frappe.db.commit() — so if the audit incorrectly fired, the row
+        would be persisted and visible to get_all even within the current
+        transaction. The current controller does commit. If that ever
+        changes, this test needs revisiting.
+        """
         node = self._make_line_item(qty=5, supply_rate=100,
                                     description="No audit test")
         node_name = node.name
@@ -332,6 +362,38 @@ class TestBOQNodes(FrappeTestCase):
             fields=["name"],
         )
         self.assertEqual(len(audit_entries), 0)
+
+    def test_audit_entry_not_written_on_initial_insert(self):
+        """
+        Setting edit_reason on a new doc before insert() must not produce
+        an audit entry. on_update skips audit when old_doc is None (first
+        insert), regardless of whether edit_reason is set.
+        """
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Insert with reason test"
+        node.qty = 5
+        node.supply_rate = 100
+        node.edit_reason = "Initial setup"  # set before insert — must be ignored
+        node.insert(ignore_permissions=True)
+
+        audit_entries = frappe.get_all(
+            "Nirmaan Versions",
+            filters={"ref_doctype": "BOQ Nodes", "docname": node.name},
+            fields=["name"],
+        )
+        # Defensive cleanup in case behaviour changes and a commit is introduced
+        try:
+            self.assertEqual(len(audit_entries), 0)
+        finally:
+            if audit_entries:
+                frappe.db.delete(
+                    "Nirmaan Versions",
+                    {"ref_doctype": "BOQ Nodes", "docname": node.name},
+                )
+                frappe.db.delete("BOQ Nodes", {"name": node.name})
+                frappe.db.commit()
 
     # ------------------------------------------------------------------ #
     # on_trash guard                                                       #
@@ -359,3 +421,15 @@ class TestBOQNodes(FrappeTestCase):
 
         with self.assertRaises(frappe.ValidationError):
             frappe.delete_doc("BOQ Nodes", node.name, ignore_permissions=True)
+
+    def test_can_delete_node_from_draft_boq(self):
+        """
+        Deleting a node from a Draft BoQ must succeed — the on_trash guard
+        only blocks Approved BoQs. The setUpClass BoQ is in Draft status.
+        """
+        node = self._make_preamble(level=1, description="Delete from draft BoQ")
+        node_name = node.name
+
+        frappe.delete_doc("BOQ Nodes", node_name, ignore_permissions=True)
+
+        self.assertFalse(frappe.db.exists("BOQ Nodes", node_name))

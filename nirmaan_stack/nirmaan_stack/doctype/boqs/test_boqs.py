@@ -100,3 +100,10 @@ class TestBOQs(FrappeTestCase):
         # In-memory boq.status is still "Draft"; save() will see old_doc as Superseded
         with self.assertRaises(frappe.ValidationError):
             boq.save(ignore_permissions=True)
+
+    def test_draft_to_approved_is_allowed(self):
+        """Draft → Approved is a valid transition; validate must not block it."""
+        boq = self._make_boq(boq_name="Approved Transition BoQ")
+        boq.status = "Approved"
+        boq.save(ignore_permissions=True)
+        self.assertEqual(boq.status, "Approved")
