@@ -188,7 +188,11 @@ def generate_blank_cols() -> Path:
         ws.cell(row=row, column=2).value = f"B{row}"   # col B
         ws.cell(row=row, column=3).value = f"C{row}"   # col C
         ws.cell(row=row, column=4).value = f"D{row}"   # col D
-        # col Z (index 26) stays blank; col A (index 1) stays blank
+
+    # Write empty string to Z1 so openpyxl's max_column extends to 26.
+    # The cell is blank (empty string is treated as blank by detect_blank_columns).
+    # Column A (index 1) stays blank throughout.
+    ws["Z1"] = ""
 
     path = _path("synthetic_blank_cols.xlsx")
     wb.save(str(path))
