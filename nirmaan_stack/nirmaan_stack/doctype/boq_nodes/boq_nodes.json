@@ -21,6 +21,8 @@
   "line_item_section",
   "unit",
   "qty",
+  "qty_by_area",
+  "make_model",
   "rates_col_break",
   "supply_rate",
   "install_rate",
@@ -118,6 +120,19 @@
    "fieldname": "qty",
    "fieldtype": "Float",
    "label": "Qty"
+  },
+  {
+   "description": "Per-area quantity breakdown. Total qty is the source of truth; sum of areas is informational.",
+   "fieldname": "qty_by_area",
+   "fieldtype": "Table",
+   "label": "Qty by Area",
+   "options": "BOQ Node Qty By Area"
+  },
+  {
+   "description": "Brand and model identifier for this line item. Used in procurement reference.",
+   "fieldname": "make_model",
+   "fieldtype": "Data",
+   "label": "Make / Model"
   },
   {
    "fieldname": "rates_col_break",

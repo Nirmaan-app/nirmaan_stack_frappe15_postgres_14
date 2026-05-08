@@ -9,6 +9,7 @@
  "field_order": [
   "details_section",
   "project",
+  "parent_boq",
   "boq_name",
   "version",
   "status",
@@ -17,7 +18,11 @@
   "uploaded_by",
   "uploaded_at",
   "parsed_at",
-  "notes"
+  "notes",
+  "parser_metadata_section",
+  "source_sheet_name",
+  "source_file_url",
+  "area_dimensions"
  ],
  "fields": [
   {
@@ -33,6 +38,13 @@
    "label": "Project",
    "options": "Projects",
    "search_index": 1
+  },
+  {
+   "description": "If this BoQ is a sub-package under a master BoQ, link to the master here.",
+   "fieldname": "parent_boq",
+   "fieldtype": "Link",
+   "label": "Parent BoQ",
+   "options": "BOQs"
   },
   {
    "fieldname": "boq_name",
@@ -93,6 +105,31 @@
    "fieldname": "notes",
    "fieldtype": "Text",
    "label": "Notes"
+  },
+  {
+   "fieldname": "parser_metadata_section",
+   "fieldtype": "Section Break",
+   "label": "Parser Metadata"
+  },
+  {
+   "description": "The Excel sheet name this BoQ was parsed from. Set automatically by the parser; blank for manually created BoQs.",
+   "fieldname": "source_sheet_name",
+   "fieldtype": "Data",
+   "label": "Source Sheet Name",
+   "read_only": 1
+  },
+  {
+   "description": "Path to the uploaded Excel file.",
+   "fieldname": "source_file_url",
+   "fieldtype": "Data",
+   "label": "Source File URL",
+   "read_only": 1
+  },
+  {
+   "description": "JSON array of area names this BoQ uses, e.g. [\"B1\", \"B3\", \"B6\"]. Empty for single-qty BoQs.",
+   "fieldname": "area_dimensions",
+   "fieldtype": "Small Text",
+   "label": "Area Dimensions (JSON)"
   }
  ],
  "grid_page_length": 50,
