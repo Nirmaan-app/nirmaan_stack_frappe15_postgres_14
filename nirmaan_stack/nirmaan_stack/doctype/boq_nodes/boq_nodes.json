@@ -69,6 +69,7 @@
    "options": "Preamble\nLine Item"
   },
   {
+   "depends_on": "eval:doc.node_type == 'Preamble'",
    "fieldname": "level",
    "fieldtype": "Int",
    "label": "Level"
@@ -104,10 +105,9 @@
    "search_index": 1
   },
   {
-   "depends_on": "eval:doc.node_type == 'Line Item'",
    "fieldname": "line_item_section",
    "fieldtype": "Section Break",
-   "label": "Line Item Fields"
+   "label": "Qty, Rates & Amounts"
   },
   {
    "fieldname": "unit",
@@ -166,6 +166,7 @@
    "description": "Auto-set when qty=0 and at least one rate is set. Common in tender BoQs.",
    "fieldname": "is_rate_only",
    "fieldtype": "Check",
+   "in_list_view": 1,
    "label": "Rate Only",
    "read_only": 1
   },

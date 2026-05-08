@@ -412,6 +412,64 @@ class TestBOQNodes(FrappeTestCase):
         self.assertIsNone(node.total_amount)
 
     # ------------------------------------------------------------------ #
+    # Combined Rate consistency validation                                 #
+    # ------------------------------------------------------------------ #
+
+    def test_combined_rate_must_match_supply_plus_install(self):
+        """combined_rate != supply_rate + install_rate must be rejected."""
+        with self.assertRaises(frappe.ValidationError):
+            self._make_line_item(
+                qty=10, supply_rate=400, install_rate=200, combined_rate=700,
+                description="Mismatched combined rate",
+            )
+
+    def test_combined_rate_matches_supply_plus_install_succeeds(self):
+        """combined_rate == supply_rate + install_rate must save; total uses combined path."""
+        node = self._make_line_item(
+            qty=10, supply_rate=400, install_rate=200, combined_rate=600,
+            description="Exact match combined rate",
+        )
+        self.assertEqual(node.total_amount, 6000.0)
+
+    def test_only_combined_rate_set_succeeds(self):
+        """Only combined_rate set (no supply/install): no consistency check fires."""
+        node = self._make_line_item(
+            qty=10, combined_rate=500,
+            description="Only combined rate",
+        )
+        self.assertEqual(node.total_amount, 5000.0)
+
+    def test_only_supply_install_set_succeeds(self):
+        """supply_rate + install_rate with no combined_rate: no consistency check fires."""
+        node = self._make_line_item(
+            qty=10, supply_rate=400, install_rate=200,
+            description="Supply and install only",
+        )
+        self.assertEqual(node.total_amount, 6000.0)
+
+    def test_combined_rate_zero_does_not_trigger_validation(self):
+        """combined_rate=0 is treated as not-set; supply+install path is used for total."""
+        node = self._make_line_item(
+            qty=10, supply_rate=400, install_rate=200, combined_rate=0,
+            description="Zero combined rate",
+        )
+        self.assertEqual(node.total_amount, 6000.0)
+
+    def test_leaf_preamble_combined_rate_validation(self):
+        """Rate consistency check fires for leaf preambles with mismatched combined_rate."""
+        with self.assertRaises(frappe.ValidationError):
+            node = frappe.new_doc("BOQ Nodes")
+            node.boq = self.boq_name
+            node.node_type = "Preamble"
+            node.level = 1
+            node.description = "Leaf preamble mismatched rate"
+            node.qty = 10
+            node.supply_rate = 400
+            node.install_rate = 200
+            node.combined_rate = 700
+            node.insert(ignore_permissions=True)
+
+    # ------------------------------------------------------------------ #
     # Audit log (Nirmaan Versions)                                         #
     # ------------------------------------------------------------------ #
 

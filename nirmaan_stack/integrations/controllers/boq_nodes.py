@@ -35,6 +35,16 @@ def validate(doc, method):
         if not any([doc.supply_rate, doc.install_rate, doc.combined_rate]):
             frappe.msgprint(_("No rate fields are set on this Line Item"), alert=True)
 
+    # Rate consistency: combined_rate must equal supply_rate + install_rate when all are set.
+    # combined_rate of 0 is treated as "not set" (matches Currency field UI behaviour).
+    if doc.combined_rate and (doc.supply_rate or doc.install_rate):
+        expected = (doc.supply_rate or 0) + (doc.install_rate or 0)
+        if doc.combined_rate != expected:
+            frappe.throw(
+                _("Combined Rate must equal Supply Rate + Install Rate when all are set. "
+                  "Either remove Combined Rate or use only Combined Rate.")
+            )
+
     if doc.parent_node:
         parent = frappe.db.get_value(
             "BOQ Nodes", doc.parent_node, ["node_type", "level"], as_dict=True
@@ -125,7 +135,7 @@ def _compute_amounts(doc):
     if doc.install_rate is not None:
         doc.install_amount = qty * doc.install_rate
 
-    if doc.combined_rate is not None:
+    if doc.combined_rate:  # 0 treated as not-set, consistent with validation
         doc.total_amount = qty * doc.combined_rate
     elif any([doc.supply_rate, doc.install_rate]):
         supply = doc.supply_amount or 0
