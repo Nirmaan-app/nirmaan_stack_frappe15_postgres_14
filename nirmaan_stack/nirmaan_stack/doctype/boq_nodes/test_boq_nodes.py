@@ -325,7 +325,7 @@ class TestBOQNodes(FrappeTestCase):
             self.assertEqual(entry.reason, "Correcting description")
             self.assertEqual(entry.new_state, "Edited")
 
-            diff = json.loads(entry.data)
+            diff = json.loads(entry.data) if isinstance(entry.data, str) else entry.data
             changed_by_field = {c[0]: c for c in diff["changed"]}
             self.assertIn("description", changed_by_field)
             self.assertEqual(changed_by_field["description"][1], "Audit original")
