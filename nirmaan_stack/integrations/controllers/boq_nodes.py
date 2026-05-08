@@ -66,6 +66,8 @@ def validate(doc, method):
             alert=True,
         )
 
+    _validate_qty_by_area(doc)
+
 
 def before_save(doc, method):
     _compute_path(doc)
@@ -146,6 +148,44 @@ def _compute_amounts(doc):
     doc.is_rate_only = 1 if (
         doc.qty == 0 and any([doc.supply_rate, doc.install_rate, doc.combined_rate])
     ) else 0
+
+
+def _validate_qty_by_area(doc):
+    rows = doc.get("qty_by_area") or []
+    if not rows:
+        return
+
+    # A. Duplicate area_name
+    area_names = [r.area_name for r in rows if r.area_name]
+    if len(area_names) != len(set(area_names)):
+        frappe.throw(_("qty_by_area contains duplicate area names."))
+
+    # B. Sum vs qty mismatch — warning only
+    if doc.qty is not None:
+        total = sum(r.qty or 0 for r in rows)
+        if total != doc.qty:
+            frappe.msgprint(
+                _("Sum of qty_by_area ({0}) does not match Qty ({1}).").format(total, doc.qty),
+                alert=True,
+            )
+
+    # C. area_name not declared in BOQ's area_dimensions — warning only
+    if doc.boq:
+        raw = frappe.db.get_value("BOQs", doc.boq, "area_dimensions")
+        if raw:
+            try:
+                declared = set(json.loads(raw))
+            except (json.JSONDecodeError, ValueError):
+                declared = set()
+            if declared:
+                for row in rows:
+                    if row.area_name and row.area_name not in declared:
+                        frappe.msgprint(
+                            _("Area '{0}' in qty_by_area is not declared in the BoQ's area_dimensions.").format(
+                                row.area_name
+                            ),
+                            alert=True,
+                        )
 
 
 def _write_audit(doc, old_doc):

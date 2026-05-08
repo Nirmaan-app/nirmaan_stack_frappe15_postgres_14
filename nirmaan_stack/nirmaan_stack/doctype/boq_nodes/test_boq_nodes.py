@@ -610,3 +610,149 @@ class TestBOQNodes(FrappeTestCase):
         frappe.delete_doc("BOQ Nodes", node_name, ignore_permissions=True)
 
         self.assertFalse(frappe.db.exists("BOQ Nodes", node_name))
+
+    # ------------------------------------------------------------------ #
+    # Group D — qty_by_area validation (7 tests)                         #
+    # ------------------------------------------------------------------ #
+
+    def test_qty_by_area_duplicate_area_name_rejected(self):
+        """Two rows sharing the same area_name must raise ValidationError."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Duplicate area names"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {"area_name": "B1", "qty": 5})
+        node.append("qty_by_area", {"area_name": "B1", "qty": 5})
+        with self.assertRaises(frappe.ValidationError):
+            node.insert(ignore_permissions=True)
+
+    def test_qty_by_area_sum_matches_qty_saves_without_error(self):
+        """Sum of qty_by_area rows equal to qty must save without error."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Matching qty_by_area sum"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {"area_name": "B1", "qty": 6})
+        node.append("qty_by_area", {"area_name": "B2", "qty": 4})
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+
+    def test_qty_by_area_sum_mismatch_warns_but_saves(self):
+        """Sum of qty_by_area != qty emits a warning but must not block save."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Mismatched qty_by_area sum"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {"area_name": "B1", "qty": 3})
+        node.insert(ignore_permissions=True)  # sum=3, qty=10 → warning only
+        self.assertIsNotNone(node.name)
+
+    def test_qty_by_area_empty_table_saves_fine(self):
+        """No qty_by_area rows — must save without error."""
+        node = self._make_line_item(qty=10, supply_rate=100,
+                                    description="No qty_by_area rows")
+        self.assertIsNotNone(node.name)
+
+    def test_qty_by_area_no_boq_dimensions_no_area_warning(self):
+        """BOQ has no area_dimensions set — undeclared-area check must not fire."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name  # shared BOQ has no area_dimensions
+        node.node_type = "Line Item"
+        node.description = "BOQ without dims"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.append("qty_by_area", {"area_name": "AnyArea", "qty": 5})
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+
+    def test_qty_by_area_undeclared_area_warns_but_saves(self):
+        """area_name absent from BOQ's area_dimensions fires a warning but must not block save."""
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT
+        boq.boq_name = "Area Dims Warn Test BoQ"
+        boq.area_dimensions = '["B1", "B2"]'
+        boq.insert(ignore_permissions=True, ignore_links=True)
+
+        preamble = frappe.new_doc("BOQ Nodes")
+        preamble.boq = boq.name
+        preamble.node_type = "Preamble"
+        preamble.level = 1
+        preamble.description = "Preamble for undeclared area test"
+        preamble.insert(ignore_permissions=True)
+
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = boq.name
+        node.node_type = "Line Item"
+        node.description = "Node with undeclared area"
+        node.parent_node = preamble.name
+        node.qty = 5
+        node.append("qty_by_area", {"area_name": "B3", "qty": 5})
+        node.insert(ignore_permissions=True)  # B3 not in [B1, B2] → warning only
+        self.assertIsNotNone(node.name)
+
+    def test_qty_by_area_declared_area_saves_cleanly(self):
+        """area_name present in BOQ's area_dimensions — must save without any warning."""
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT
+        boq.boq_name = "Area Dims Clean Test BoQ"
+        boq.area_dimensions = '["B1", "B2"]'
+        boq.insert(ignore_permissions=True, ignore_links=True)
+
+        preamble = frappe.new_doc("BOQ Nodes")
+        preamble.boq = boq.name
+        preamble.node_type = "Preamble"
+        preamble.level = 1
+        preamble.description = "Preamble for declared area test"
+        preamble.insert(ignore_permissions=True)
+
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = boq.name
+        node.node_type = "Line Item"
+        node.description = "Node with declared area"
+        node.parent_node = preamble.name
+        node.qty = 5
+        node.append("qty_by_area", {"area_name": "B1", "qty": 5})
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+
+    # ------------------------------------------------------------------ #
+    # Group E — make_model (3 tests)                                     #
+    # ------------------------------------------------------------------ #
+
+    def test_make_model_persists(self):
+        """Setting make_model on insert must persist the value."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Make model test"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.supply_rate = 100
+        node.make_model = "Brand XYZ / Model ABC"
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.make_model, "Brand XYZ / Model ABC")
+
+    def test_make_model_null_is_valid(self):
+        """make_model not set must save without error."""
+        node = self._make_line_item(qty=5, supply_rate=100,
+                                    description="No make_model")
+        self.assertFalse(node.make_model)
+
+    def test_make_model_update_persists(self):
+        """Updating make_model after initial save must persist the new value."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Make model update test"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.insert(ignore_permissions=True)
+        node.make_model = "Updated Brand / Model"
+        node.save(ignore_permissions=True)
+        self.assertEqual(node.make_model, "Updated Brand / Model")

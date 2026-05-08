@@ -252,6 +252,7 @@ doc_events = {
     "BOQs": {
         "before_insert": "nirmaan_stack.integrations.controllers.boqs.before_insert",
         "validate": "nirmaan_stack.integrations.controllers.boqs.validate",
+        "on_update": "nirmaan_stack.integrations.controllers.boqs.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "BOQ Nodes": {
