@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14 -type d -iname *delivery* -o -type d -iname *mir*)",
+      "Bash(xargs grep:*)",
+      "Bash(powershell -Command \"Get-Process | Where-Object {$_MainWindowTitle -like ''*PLATFORM_OVERVIEW*''}\")",
+      "Bash(find /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/nirmaan_stack/api -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(find /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/nirmaan_stack/integrations -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(wc -l /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/nirmaan_stack/api/*.py)",
+      "Bash(find /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/frontend/src/pages -name \"*.tsx\" -type f -exec wc -l {} +)",
+      "Bash(find /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/nirmaan_stack -name \"*.py\" -type f -exec wc -l {} +)",
+      "Bash(find /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/nirmaan_stack -name \"*.py\" -path \"*/api/*\" -exec wc -l {} +)",
+      "Bash(ls /c/Users/nites/Documents/nirmaan_stack_frappe15_postgres_14/nirmaan_stack/api/*.py)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(docker exec frappe_docker_devcontainer-frappe-1 *)"
+    ]
+  }
+}
