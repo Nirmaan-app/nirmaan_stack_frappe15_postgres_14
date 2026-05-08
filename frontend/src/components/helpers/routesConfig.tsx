@@ -74,9 +74,9 @@ import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
 // --- End component imports ---
 
 // NEW COMMISSION REPORT PAGES
-const CommissionReportList = lazy(() => import('@/pages/CommissionReport/commission-report-list'));
-const ProjectCommissionReportDetail = lazy(() => import('@/pages/CommissionReport/project-commission-report-details'));
-const CommissionReportWizard = lazy(() => import('@/pages/CommissionReport/report-wizard'));
+import CommissionReportList from '@/pages/CommissionReport/commission-report-list';
+import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
+import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";

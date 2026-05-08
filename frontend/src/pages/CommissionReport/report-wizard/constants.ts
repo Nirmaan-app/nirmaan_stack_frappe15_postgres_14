@@ -9,6 +9,7 @@ export const SECTION_TYPES: readonly SectionType[] = [
     'image_attachments',
     'fields',
     'signatures',
+    'trainees_data_table',
 ] as const;
 
 export const FIELD_TYPES: readonly FieldType[] = [
@@ -23,7 +24,12 @@ export const REVIEW_STEP_KEY = 'review';
 export const DEFAULT_REVIEW_STEP_TITLE = 'Review';
 
 /** Sections that contribute to `response_data.responses[section.id]`. */
-export const INPUT_SECTION_TYPES: readonly SectionType[] = ['header', 'checklist', 'fields'] as const;
+export const INPUT_SECTION_TYPES: readonly SectionType[] = [
+    'header',
+    'checklist',
+    'fields',
+    'trainees_data_table',
+] as const;
 
 export const isInputSection = (type: SectionType): boolean =>
     INPUT_SECTION_TYPES.includes(type);

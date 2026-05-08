@@ -196,6 +196,41 @@ const validateSection = (
             return true;
         }
 
+        case 'trainees_data_table': {
+            if (!Array.isArray(obj.columns) || obj.columns.length === 0) {
+                errors.push(err('missing_field', `${path}.columns required (non-empty)`, path));
+                return false;
+            }
+            const colKeys = new Set<string>();
+            for (let i = 0; i < obj.columns.length; i++) {
+                const col = obj.columns[i] as Record<string, unknown>;
+                // Columns are "Field-shaped" — reuse validateField. Bindings aren't
+                // meaningful per-row, so strip if present.
+                if (!validateField(
+                    { ...col, bind: undefined } as object,
+                    `${path}.columns[${i}]`,
+                    errors,
+                )) return false;
+                const k = col.key as string;
+                if (colKeys.has(k)) {
+                    errors.push(err('duplicate_id', `${path}.columns[${i}].key "${k}" duplicated`, path));
+                    return false;
+                }
+                colKeys.add(k);
+            }
+            const minRows = obj.minRows;
+            if (minRows !== undefined && (typeof minRows !== 'number' || minRows < 1)) {
+                errors.push(err('invalid_type', `${path}.minRows must be a positive integer`, path));
+                return false;
+            }
+            const maxRows = obj.maxRows;
+            if (maxRows !== undefined && (typeof maxRows !== 'number' || maxRows < 1)) {
+                errors.push(err('invalid_type', `${path}.maxRows must be a positive integer`, path));
+                return false;
+            }
+            return true;
+        }
+
         default:
             errors.push(err('invalid_type', `${path}.type unsupported`, path));
             return false;

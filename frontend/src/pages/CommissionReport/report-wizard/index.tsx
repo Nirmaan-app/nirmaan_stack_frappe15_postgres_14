@@ -22,6 +22,7 @@ import { DraftResumeDialog } from '@/components/ui/draft-resume-dialog';
 import { FormSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { WizardSteps, type WizardStep } from '@/components/ui/wizard-steps';
+import { formatDate } from '@/utils/FormatDate';
 
 import { commissionKeys } from '../commission.constants';
 import { useCommissionTrackerDoc } from '../data/useCommissionQueries';
@@ -33,11 +34,20 @@ import { useReportDraft } from './hooks/useReportDraft';
 import { useReportSubmit } from './hooks/useReportSubmit';
 import { buildPrefillSnapshot, resolveInitialValues } from './prefill/resolve';
 import { SectionRenderer } from './renderer/SectionRenderer';
-import { getRhfKeysForStep } from './schema';
-import type { AttachmentRecord, AttachmentSlotValue, ReportTemplate, ResponseData, WizardMode } from './types';
+import { getRhfKeysForStep, validateStep, validateTemplate } from './schema';
+import type {
+    AttachmentRecord,
+    AttachmentSlotValue,
+    Field,
+    NumberField,
+    ReportTemplate,
+    ResponseData,
+    WizardMode,
+} from './types';
 
 interface FormShape extends Record<string, unknown> {
-    responses: Record<string, Record<string, unknown>>;
+    // Per-section responses: object for header/fields/checklist; array for trainees_data_table.
+    responses: Record<string, unknown>;
     attachments: Record<string, AttachmentSlotValue[]>;
 }
 
@@ -209,14 +219,24 @@ export const CommissionReportWizard: React.FC = () => {
         if (!template) return;
         const step = template.wizardSteps?.[currentStep];
         if (!step) return;
-        const keys = getRhfKeysForStep(template, step);
-        if (keys.length > 0) {
-            const ok = await form.trigger(keys as Parameters<typeof form.trigger>[0]);
-            if (!ok) {
-                toast({ title: 'Please fix errors before continuing', variant: 'destructive' });
-                return;
-            }
+
+        // Clear any prior errors on this step's fields, then re-validate.
+        const stepKeys = getRhfKeysForStep(template, step);
+        for (const k of stepKeys) {
+            form.clearErrors(k as Parameters<typeof form.clearErrors>[0]);
         }
+        const stepErrors = validateStep(template, step, form.getValues());
+        if (stepErrors.length > 0) {
+            for (const err of stepErrors) {
+                form.setError(err.path as Parameters<typeof form.setError>[0], {
+                    type: 'manual',
+                    message: err.message,
+                });
+            }
+            toast({ title: 'Please fix errors before continuing', variant: 'destructive' });
+            return;
+        }
+
         if (currentStep < (template.wizardSteps?.length ?? 1) - 1) {
             setCurrentStep((n) => n + 1);
         }
@@ -231,8 +251,15 @@ export const CommissionReportWizard: React.FC = () => {
         if (!template || !parentDoc || !childRow) return;
 
         // Final full-template validation.
-        const full = await form.trigger();
-        if (!full) {
+        form.clearErrors();
+        const fullErrors = validateTemplate(template, form.getValues());
+        if (fullErrors.length > 0) {
+            for (const err of fullErrors) {
+                form.setError(err.path as Parameters<typeof form.setError>[0], {
+                    type: 'manual',
+                    message: err.message,
+                });
+            }
             toast({ title: 'Form has errors', description: 'Review previous steps.', variant: 'destructive' });
             return;
         }
@@ -247,7 +274,7 @@ export const CommissionReportWizard: React.FC = () => {
             filledBy: existingResponse?.filledBy || currentUser || '',
             lastEditedAt: new Date().toISOString(),
             prefillSnapshot,
-            responses: values.responses,
+            responses: values.responses as ResponseData['responses'],
             attachments: values.attachments,
         };
 
@@ -549,41 +576,268 @@ const ConflictBanner: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => (
     </div>
 );
 
+const formatReviewValue = (field: Field, raw: unknown): string => {
+    if (raw === undefined || raw === null || raw === '') return '—';
+    if (field.type === 'date') {
+        try {
+            return formatDate(String(raw));
+        } catch {
+            return String(raw);
+        }
+    }
+    if (field.type === 'number') {
+        const unit = (field as NumberField).unit;
+        return unit ? `${raw} ${unit}` : String(raw);
+    }
+    return String(raw);
+};
+
+const ResultBadge: React.FC<{ value?: string }> = ({ value }) => {
+    if (!value) return <span className="italic text-muted-foreground">—</span>;
+    const v = value.toLowerCase();
+    let cls = 'bg-slate-100 text-slate-700';
+    if (v === 'yes' || v === 'pass') cls = 'bg-emerald-100 text-emerald-800';
+    else if (v === 'no' || v === 'fail') cls = 'bg-red-100 text-red-800';
+    else if (v === 'n/a' || v === 'na') cls = 'bg-amber-100 text-amber-800';
+    return (
+        <span className={'inline-block rounded px-1.5 py-0.5 text-xs font-medium ' + cls}>
+            {value}
+        </span>
+    );
+};
+
 const ReviewSummary: React.FC<{ template: ReportTemplate; formValues: FormShape }> = ({
     template,
     formValues,
 }) => {
     return (
         <div className="space-y-4">
-            <h2 className="text-base font-semibold">Review your answers</h2>
+            <div>
+                <h2 className="text-base font-semibold">Review your answers</h2>
+                <p className="text-xs text-muted-foreground">
+                    Check the values below before submitting. Use Back to make corrections.
+                </p>
+            </div>
+
             {template.sections.map((section) => {
                 if (section.type === 'process' || section.type === 'signatures') return null;
-                if (section.type === 'image_attachments') {
+
+                if (section.type === 'header' || section.type === 'fields') {
+                    const sectionValues = (formValues.responses?.[section.id] || {}) as Record<string, unknown>;
                     return (
                         <div key={section.id} className="rounded-md border p-3">
-                            <h3 className="mb-2 text-sm font-medium">{section.title || section.id}</h3>
-                            <ul className="space-y-1 text-xs">
-                                {section.slots.map((slot) => {
-                                    const count = (formValues.attachments?.[slot.key] || []).length;
+                            <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
+                            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                                {section.fields.map((f) => {
+                                    const display = formatReviewValue(f, sectionValues[f.key]);
+                                    const isEmpty = display === '—';
                                     return (
-                                        <li key={slot.key}>
-                                            {slot.label}: <span className="font-mono">{count} file(s)</span>
-                                        </li>
+                                        <div key={f.key} className="flex flex-col gap-0.5">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                {f.label}
+                                            </dt>
+                                            <dd
+                                                className={
+                                                    'text-sm ' +
+                                                    (isEmpty ? 'italic text-muted-foreground' : 'text-foreground')
+                                                }
+                                            >
+                                                {display}
+                                            </dd>
+                                        </div>
                                     );
                                 })}
-                            </ul>
+                            </dl>
                         </div>
                     );
                 }
-                const sectionValues = formValues.responses?.[section.id] || {};
-                return (
-                    <div key={section.id} className="rounded-md border p-3">
-                        <h3 className="mb-2 text-sm font-medium">{section.title || section.id}</h3>
-                        <pre className="overflow-x-auto rounded bg-muted/30 p-2 text-xs">
-                            {JSON.stringify(sectionValues, null, 2)}
-                        </pre>
-                    </div>
-                );
+
+                if (section.type === 'checklist') {
+                    const sectionValues = (formValues.responses?.[section.id] || {}) as Record<
+                        string,
+                        { result?: string; remarks?: string }
+                    >;
+                    return (
+                        <div key={section.id} className="rounded-md border p-3">
+                            <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full border-collapse text-sm">
+                                    <thead>
+                                        <tr className="border-b text-xs text-muted-foreground">
+                                            <th className="w-12 py-1.5 pr-2 text-left font-medium">Sl No</th>
+                                            <th className="py-1.5 pr-2 text-left font-medium">Particulars</th>
+                                            <th className="w-24 py-1.5 pr-2 text-left font-medium">Result</th>
+                                            <th className="py-1.5 text-left font-medium">Remarks</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {section.items.map((item, idx) => {
+                                            const v = sectionValues[item.id] || {};
+                                            return (
+                                                <tr key={item.id} className="border-b last:border-0 align-top">
+                                                    <td className="py-2 pr-2 text-muted-foreground">{idx + 1}</td>
+                                                    <td className="py-2 pr-2">{item.particular}</td>
+                                                    <td className="py-2 pr-2">
+                                                        <ResultBadge value={v.result} />
+                                                    </td>
+                                                    <td className="py-2 text-muted-foreground">
+                                                        {v.remarks?.trim() ? (
+                                                            v.remarks
+                                                        ) : (
+                                                            <span className="italic">—</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    );
+                }
+
+                if (section.type === 'trainees_data_table') {
+                    const rows = (formValues.responses?.[section.id] || []) as unknown as Array<Record<string, unknown>>;
+                    return (
+                        <div key={section.id} className="rounded-md border p-3">
+                            <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
+                            {rows.length === 0 ? (
+                                <p className="text-xs italic text-muted-foreground">No rows entered.</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full border-collapse text-sm">
+                                        <thead>
+                                            <tr className="border-b text-xs text-muted-foreground">
+                                                <th className="w-12 py-1.5 pr-2 text-left font-medium">#</th>
+                                                {section.columns.map((c) => (
+                                                    <th
+                                                        key={c.key}
+                                                        className="py-1.5 pr-2 text-left font-medium"
+                                                    >
+                                                        {c.label}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {rows.map((row, idx) => (
+                                                <tr
+                                                    key={idx}
+                                                    className="border-b last:border-0 align-top"
+                                                >
+                                                    <td className="py-2 pr-2 text-muted-foreground">
+                                                        {idx + 1}
+                                                    </td>
+                                                    {section.columns.map((c) => {
+                                                        const display = formatReviewValue(
+                                                            { ...c, bind: undefined } as Field,
+                                                            row?.[c.key],
+                                                        );
+                                                        const isEmpty = display === '—';
+                                                        return (
+                                                            <td
+                                                                key={c.key}
+                                                                className={
+                                                                    'py-2 pr-2 ' +
+                                                                    (isEmpty
+                                                                        ? 'italic text-muted-foreground'
+                                                                        : '')
+                                                                }
+                                                            >
+                                                                {display}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    );
+                }
+
+                if (section.type === 'image_attachments') {
+                    return (
+                        <div key={section.id} className="rounded-md border p-3">
+                            <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
+                            <div className="space-y-3">
+                                {section.slots.map((slot) => {
+                                    const items = (formValues.attachments?.[slot.key] || []) as AttachmentSlotValue[];
+                                    return (
+                                        <div key={slot.key}>
+                                            <div className="mb-1.5 flex items-center justify-between">
+                                                <span className="text-xs font-medium">{slot.label}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {items.length} file{items.length === 1 ? '' : 's'}
+                                                </span>
+                                            </div>
+                                            {items.length === 0 ? (
+                                                <p className="text-xs italic text-muted-foreground">
+                                                    No file uploaded
+                                                </p>
+                                            ) : (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {items.map((it, i) => {
+                                                        const isObj = it && typeof it === 'object';
+                                                        const url = isObj ? (it as AttachmentRecord).file_url : '';
+                                                        const name = isObj
+                                                            ? (it as AttachmentRecord).file_name
+                                                            : (it as string);
+                                                        const isImage = url && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url);
+                                                        if (url && isImage) {
+                                                            return (
+                                                                <a
+                                                                    key={i}
+                                                                    href={url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="block h-16 w-16 overflow-hidden rounded border bg-muted/30"
+                                                                    title={name}
+                                                                >
+                                                                    <img
+                                                                        src={url}
+                                                                        alt={name}
+                                                                        className="h-full w-full object-cover"
+                                                                    />
+                                                                </a>
+                                                            );
+                                                        }
+                                                        if (url) {
+                                                            return (
+                                                                <a
+                                                                    key={i}
+                                                                    href={url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="rounded border bg-muted/30 px-2 py-1 text-xs hover:bg-muted/50"
+                                                                >
+                                                                    {name}
+                                                                </a>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <span
+                                                                key={i}
+                                                                className="rounded border bg-muted/30 px-2 py-1 text-xs"
+                                                            >
+                                                                {name}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                }
+
+                return null;
             })}
         </div>
     );

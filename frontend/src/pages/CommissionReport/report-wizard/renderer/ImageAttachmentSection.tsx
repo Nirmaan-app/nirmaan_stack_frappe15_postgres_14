@@ -245,7 +245,7 @@ const ImageSlotControl: React.FC<SlotProps> = ({
                         </ul>
                     )}
 
-                    {!forceReadonly && (slot.multi || records.length === 0) && (
+                    {!forceReadonly && (
                         <>
                             <input
                                 id={inputId}
@@ -262,7 +262,11 @@ const ImageSlotControl: React.FC<SlotProps> = ({
                             <Button asChild variant="outline" size="sm" className="w-full">
                                 <label htmlFor={inputId} className="cursor-pointer">
                                     <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                                    {records.length > 0 ? 'Add another' : 'Choose image…'}
+                                    {records.length === 0
+                                        ? 'Choose image…'
+                                        : slot.multi
+                                            ? 'Add another'
+                                            : 'Replace image'}
                                 </label>
                             </Button>
                             <p className="text-[10px] text-muted-foreground">
