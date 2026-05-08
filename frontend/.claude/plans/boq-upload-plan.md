@@ -1,8 +1,9 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Design approved, Phase 0 complete (this plan + CLAUDE.md + initial decisions).
+**Status:** Phase 2a (Reader + Mapping Config schema) complete. Phase 2b (parsing engine) ready to draft.
 **Owner:** Internal team.
-**Last updated:** 2026-05-06.
+**Last updated:** 2026-05-09 (after Phase 2a completion + working agreement #11 added).
+**Active branch:** `feature/boq-phase-2`
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -349,6 +350,21 @@ Each phase = one feature branch (`feature/boq-phase-<N>`) → review → merge b
 - Permissions: match Procurement Requests / Procurement Orders conventions.
 - **Exit:** can manually create a BoQ tree via Frappe Desk; tests pass.
 
+### Phase 2a — Reader + Mapping Config schema ✅ COMPLETE
+
+**What it built:**
+- Pydantic-based `MappingConfig` schema with full validation (column letters, area dimensions, role uniqueness, master_preamble vs data sheet types)
+- `BoqReader` class wrapping openpyxl with: `list_sheets()` preserving exact names including whitespace, `get_sheet_dimensions()` (content-based), `iter_rows()` with lazy iteration, `detect_header_row()` heuristic, `detect_blank_columns()`, `get_master_preamble_text()`
+- `RawRow` + `CellInfo` dataclasses capturing computed values, formulas, merged ranges, bold, fill, indent
+- Synthetic fixture generator producing 5 `.xlsx` test fixtures (committed to repo)
+- 32 new tests (14 config + 18 reader), all passing. Phase 1.x: 77/77 still passing.
+
+**Two bugs fixed during implementation:**
+1. `detect_blank_columns` couldn't see column Z because openpyxl's `max_column` only reflects written columns. Fixed by writing empty string to Z1 in fixture to extend `max_column`.
+2. Empty sheets produced phantom blank row because openpyxl's `max_row` defaults to 1. Fixed by content-based dimension detection in `iter_rows` when `end_row` not specified.
+
+**Branch:** `feature/boq-phase-2` (new branch from `feature/boq-phase-1`)
+
 ### Phase 2 — Excel parsing engine (backend only) *(4–5 days)*
 - `services/boq_excel_parser.py`: reader, mapping config schema (dataclass / Pydantic), classifier (code-driven + rule-driven), hierarchy resolver (stack walk), validator.
 - Sample BoQ corpus: 3–5 anonymized real `.xlsx` files under `tests/fixtures/boq_samples/`. Each has an expected JSON.
@@ -409,6 +425,8 @@ Each sub-phase gets its own design doc. All linkages are standalone doctypes fol
 - Pure-Python modules (parser, AI assist) get real unit tests with fixtures. No stubs.
 - `frappe.db.commit()` before `publish_realtime()`.
 - For ad-hoc DB queries: docker cp + docker exec pattern in CLAUDE.md.
+
+11. **End-of-session git verification — MANDATORY.** Every Claude Code prompt must include in its "Stopping conditions" section: (a) run `git status` and report the output — working directory must be clean (no `M`, no `??`, no untracked files in scope); (b) run `git log <current-branch> --oneline -10` and report output to verify all intended changes are committed. This guards against the failure mode where Claude Code edits files but forgets to `git add` and commit the final round of changes — leaving uncommitted work that gets silently picked up by the next session. (Real lesson from the start of Phase 2a, where uncommitted Phase 1.7 controller and hook changes had to be recovered as the first action of the new session.)
 
 ## 15. Open questions
 
