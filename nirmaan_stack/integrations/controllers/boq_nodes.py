@@ -12,19 +12,26 @@ def validate(doc, method):
         frappe.throw(_("Description is required"))
 
     if doc.node_type == "Preamble":
-        if doc.level not in (1, 2, 3):
-            frappe.throw(_("Level must be 1, 2, or 3 for Preamble nodes"))
-        if not doc.amount_override and any([doc.qty, doc.supply_rate, doc.install_rate, doc.combined_rate]):
+        if doc.level is None or doc.level < 1:
+            frappe.throw(_("Level must be a positive integer for Preamble nodes"))
+        if doc.level > 5:
             frappe.msgprint(
-                _("Preamble node has qty/rate values set. Set Amount Override to suppress this warning."),
+                _("Preamble level {0} is unusually deep (> 5). Verify the hierarchy is correct.").format(doc.level),
                 alert=True,
             )
+        if not doc.amount_override and any([doc.qty, doc.supply_rate, doc.install_rate, doc.combined_rate]):
+            has_children = frappe.db.exists("BOQ Nodes", {"parent_node": doc.name})
+            if has_children:
+                frappe.msgprint(
+                    _("Non-leaf Preamble node has qty/rate values set. Set Amount Override to suppress this warning."),
+                    alert=True,
+                )
 
     elif doc.node_type == "Line Item":
         if doc.level:
             frappe.throw(_("Level must not be set for Line Item nodes"))
-        if not doc.qty:
-            frappe.throw(_("Qty is required for Line Item nodes"))
+        if doc.qty is None:
+            frappe.throw(_("Qty is required for Line Item nodes (use 0 for rate-only items)"))
         if not any([doc.supply_rate, doc.install_rate, doc.combined_rate]):
             frappe.msgprint(_("No rate fields are set on this Line Item"), alert=True)
 
@@ -34,13 +41,20 @@ def validate(doc, method):
         )
         if parent:
             if doc.node_type == "Preamble":
-                if doc.level == 2 and (parent.node_type != "Preamble" or parent.level != 1):
-                    frappe.throw(_("An L2 Preamble's parent must be an L1 Preamble"))
-                if doc.level == 3 and (parent.node_type != "Preamble" or parent.level != 2):
-                    frappe.throw(_("An L3 Preamble's parent must be an L2 Preamble"))
+                if doc.level > 1 and (parent.node_type != "Preamble" or parent.level != doc.level - 1):
+                    frappe.throw(
+                        _("An L{0} Preamble's parent must be an L{1} Preamble").format(
+                            doc.level, doc.level - 1
+                        )
+                    )
             elif doc.node_type == "Line Item":
                 if parent.node_type != "Preamble":
                     frappe.throw(_("A Line Item's parent must be a Preamble"))
+    elif doc.node_type == "Line Item":
+        frappe.msgprint(
+            _("This Line Item has no parent Preamble. It will be saved as a standalone node."),
+            alert=True,
+        )
 
 
 def before_save(doc, method):
@@ -95,14 +109,15 @@ def _compute_path(doc):
 
 
 def _compute_amounts(doc):
-    if doc.node_type != "Line Item" or doc.amount_override:
+    if doc.amount_override:
         return
 
     # Reset before recomputing to prevent stale values from a prior save leaking through
     doc.supply_amount = None
     doc.install_amount = None
+    doc.total_amount = None
 
-    qty = doc.qty or 0
+    qty = doc.qty if doc.qty is not None else 0
 
     if doc.supply_rate is not None:
         doc.supply_amount = qty * doc.supply_rate
@@ -112,10 +127,15 @@ def _compute_amounts(doc):
 
     if doc.combined_rate is not None:
         doc.total_amount = qty * doc.combined_rate
-    else:
+    elif any([doc.supply_rate, doc.install_rate]):
         supply = doc.supply_amount or 0
         install = doc.install_amount or 0
-        doc.total_amount = (supply + install) if (supply or install) else None
+        doc.total_amount = supply + install
+
+    # Auto-set is_rate_only: qty is explicitly zero and at least one rate is present
+    doc.is_rate_only = 1 if (
+        doc.qty == 0 and any([doc.supply_rate, doc.install_rate, doc.combined_rate])
+    ) else 0
 
 
 def _write_audit(doc, old_doc):

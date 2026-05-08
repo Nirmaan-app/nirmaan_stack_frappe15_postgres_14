@@ -13,14 +13,18 @@ class TestBOQNodes(FrappeTestCase):
     """
     Tests for the BOQ Nodes controller (integrations/controllers/boq_nodes.py).
 
-    A single shared BOQ is created in setUpClass (committed) and reused by
-    all tests. Individual node inserts are not committed, so FrappeTestCase's
-    tearDown rollback cleans them up automatically.
+    A single shared BOQ and a shared L1 preamble are created in setUpClass
+    (committed) and reused by all tests. Individual node inserts inside each
+    test are NOT committed, so FrappeTestCase's tearDown rollback cleans them
+    up automatically.
 
-    Exception: test_audit_written_on_edit_with_reason — the _write_audit
-    helper calls frappe.db.commit(), which commits both the node and the
-    Nirmaan Versions entry. That test performs explicit cleanup in a
-    finally block.
+    Exception: test_audit_entry_written_on_edit_with_reason — the _write_audit
+    helper calls frappe.db.commit(), committing both the node and the Nirmaan
+    Versions entry. That test performs explicit cleanup in a finally block.
+
+    _make_line_item defaults parent_node to the shared preamble (cls.default_preamble)
+    so that most tests don't trigger the standalone-line-item warning. Pass
+    parent_node=None explicitly to test standalone behaviour.
     """
 
     @classmethod
@@ -30,8 +34,17 @@ class TestBOQNodes(FrappeTestCase):
         boq.project = _TEST_PROJECT
         boq.boq_name = "Shared Test BoQ"
         boq.insert(ignore_permissions=True, ignore_links=True)
+
+        preamble = frappe.new_doc("BOQ Nodes")
+        preamble.boq = boq.name
+        preamble.node_type = "Preamble"
+        preamble.level = 1
+        preamble.description = "Shared L1 Preamble for Line Item Tests"
+        preamble.insert(ignore_permissions=True)
+
         frappe.db.commit()
         cls.boq_name = boq.name
+        cls.default_preamble = preamble.name
 
     @classmethod
     def tearDownClass(cls):
@@ -55,14 +68,14 @@ class TestBOQNodes(FrappeTestCase):
         node.insert(ignore_permissions=True)
         return node
 
-    def _make_line_item(self, parent_node=None, description="Test Line Item",
+    def _make_line_item(self, parent_node="DEFAULT", description="Test Line Item",
                         qty=10, supply_rate=None, install_rate=None,
                         combined_rate=None, amount_override=0):
         node = frappe.new_doc("BOQ Nodes")
         node.boq = self.boq_name
         node.node_type = "Line Item"
         node.description = description
-        node.parent_node = parent_node
+        node.parent_node = self.default_preamble if parent_node == "DEFAULT" else parent_node
         node.qty = qty
         node.supply_rate = supply_rate
         node.install_rate = install_rate
@@ -100,10 +113,11 @@ class TestBOQNodes(FrappeTestCase):
             node.insert(ignore_permissions=True)
 
     # ------------------------------------------------------------------ #
-    # validate: Preamble rules                                             #
+    # validate: Preamble level rules                                       #
     # ------------------------------------------------------------------ #
 
     def test_preamble_level_zero_rejected(self):
+        """Level 0 is not a positive integer and must be rejected."""
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
             node.boq = self.boq_name
@@ -112,14 +126,30 @@ class TestBOQNodes(FrappeTestCase):
             node.description = "Bad level"
             node.insert(ignore_permissions=True)
 
-    def test_preamble_level_four_rejected(self):
-        with self.assertRaises(frappe.ValidationError):
-            node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
-            node.node_type = "Preamble"
-            node.level = 4
-            node.description = "Bad level"
-            node.insert(ignore_permissions=True)
+    def test_preamble_level_four_saves_successfully(self):
+        """Level 4 preambles are valid since Phase 1.5 removed the L1–L3 cap."""
+        l1 = self._make_preamble(level=1, description="L1 for L4 test")
+        l2 = self._make_preamble(level=2, parent_node=l1.name, description="L2 for L4 test")
+        l3 = self._make_preamble(level=3, parent_node=l2.name, description="L3 for L4 test")
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Preamble"
+        node.level = 4
+        node.description = "L4 preamble"
+        node.parent_node = l3.name
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.level, 4)
+        self.assertEqual(node.path, f"{l1.name}/{l2.name}/{l3.name}/{node.name}")
+
+    def test_preamble_level_six_warns_but_saves(self):
+        """Level 6 exceeds the soft limit of 5; a warning is emitted but save succeeds."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Preamble"
+        node.level = 6
+        node.description = "Deep preamble level 6"
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.level, 6)
 
     # ------------------------------------------------------------------ #
     # validate: Line Item rules                                            #
@@ -136,14 +166,43 @@ class TestBOQNodes(FrappeTestCase):
             node.supply_rate = 100
             node.insert(ignore_permissions=True)
 
-    def test_line_item_requires_qty(self):
+    def test_line_item_with_null_qty_rejected(self):
+        """qty left as None (not set) must be blocked — zero is valid, None is not."""
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
             node.boq = self.boq_name
             node.node_type = "Line Item"
             node.description = "Line Item without qty"
             node.supply_rate = 100
+            # node.qty intentionally not set → stays None
             node.insert(ignore_permissions=True)
+
+    def test_line_item_with_zero_qty_succeeds(self):
+        """qty=0 is valid for rate-only items; the null guard uses 'is None', not falsy check."""
+        node = self._make_line_item(qty=0, supply_rate=100,
+                                    description="Zero qty line item")
+        self.assertEqual(node.qty, 0)
+
+    # ------------------------------------------------------------------ #
+    # is_rate_only auto-computation                                        #
+    # ------------------------------------------------------------------ #
+
+    def test_is_rate_only_auto_set_for_zero_qty_with_rate(self):
+        """qty=0 plus at least one rate → is_rate_only must be set to 1."""
+        node = self._make_line_item(qty=0, supply_rate=100,
+                                    description="Rate only auto-set")
+        self.assertEqual(node.is_rate_only, 1)
+
+    def test_is_rate_only_zero_when_qty_positive(self):
+        """qty > 0 → is_rate_only stays 0 regardless of rates."""
+        node = self._make_line_item(qty=5, supply_rate=100,
+                                    description="Not rate only")
+        self.assertEqual(node.is_rate_only, 0)
+
+    def test_is_rate_only_zero_when_no_rate_set(self):
+        """qty=0 but no rate fields set → is_rate_only stays 0."""
+        node = self._make_line_item(qty=0, description="No rate zero qty")
+        self.assertEqual(node.is_rate_only, 0)
 
     # ------------------------------------------------------------------ #
     # validate: parent-child consistency                                   #
@@ -163,14 +222,14 @@ class TestBOQNodes(FrappeTestCase):
             node.insert(ignore_permissions=True)
 
     def test_l3_preamble_parent_must_be_l2_preamble(self):
-        """L3 whose parent is an L1 preamble (not L2) must be rejected."""
+        """L3 whose parent is an L1 preamble (skipping L2) must be rejected."""
         l1 = self._make_preamble(level=1, description="L1 for L3 parent test")
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
             node.boq = self.boq_name
             node.node_type = "Preamble"
             node.level = 3
-            node.description = "L3 with L1 parent"
+            node.description = "L3 with L1 parent (wrong)"
             node.parent_node = l1.name
             node.insert(ignore_permissions=True)
 
@@ -187,6 +246,21 @@ class TestBOQNodes(FrappeTestCase):
             node.supply_rate = 50
             node.parent_node = li_parent.name
             node.insert(ignore_permissions=True)
+
+    def test_standalone_line_item_with_no_parent_succeeds(self):
+        """
+        A Line Item with no parent_node emits a warning but saves successfully.
+        Standalone line items are allowed from Phase 1.5 onwards.
+        """
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Standalone line item"
+        node.qty = 5
+        node.supply_rate = 100
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        self.assertEqual(node.total_amount, 500.0)
 
     # ------------------------------------------------------------------ #
     # Path computation                                                     #
@@ -270,6 +344,7 @@ class TestBOQNodes(FrappeTestCase):
         node.boq = self.boq_name
         node.node_type = "Line Item"
         node.description = "Amount override test"
+        node.parent_node = self.default_preamble
         node.qty = 10
         node.supply_rate = 100
         node.supply_amount = 999.0
@@ -279,15 +354,59 @@ class TestBOQNodes(FrappeTestCase):
         self.assertEqual(node.supply_amount, 999.0)
         self.assertEqual(node.total_amount, 999.0)
 
-    def test_preamble_amounts_are_not_computed(self):
-        """_compute_amounts must skip Preamble nodes entirely."""
+    def test_leaf_preamble_with_qty_and_rate_computes_amounts(self):
+        """
+        A leaf preamble (no children) with qty and supply_rate set must have
+        amounts computed — the old node_type guard has been removed.
+        """
         node = frappe.new_doc("BOQ Nodes")
         node.boq = self.boq_name
         node.node_type = "Preamble"
         node.level = 1
-        node.description = "Preamble no amounts"
+        node.description = "Leaf preamble with amounts"
         node.qty = 5
-        node.amount_override = 1  # suppress preamble-qty warning
+        node.supply_rate = 100
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.supply_amount, 500.0)
+        self.assertEqual(node.total_amount, 500.0)
+
+    def test_non_leaf_preamble_with_qty_emits_warning_but_saves(self):
+        """
+        A non-leaf preamble (has children) with qty/rate set must emit a
+        warning but still save — the check is informational, not blocking.
+        """
+        parent = frappe.new_doc("BOQ Nodes")
+        parent.boq = self.boq_name
+        parent.node_type = "Preamble"
+        parent.level = 1
+        parent.description = "Non-leaf preamble with qty"
+        parent.qty = 5
+        parent.supply_rate = 100
+        parent.insert(ignore_permissions=True)
+
+        child = frappe.new_doc("BOQ Nodes")
+        child.boq = self.boq_name
+        child.node_type = "Preamble"
+        child.level = 2
+        child.description = "Child of non-leaf preamble"
+        child.parent_node = parent.name
+        child.insert(ignore_permissions=True)
+
+        # Save the parent again — it's now a non-leaf, warning fires but no throw
+        parent.description = "Non-leaf preamble with qty (saved again)"
+        parent.save(ignore_permissions=True)
+        self.assertEqual(parent.description, "Non-leaf preamble with qty (saved again)")
+
+    def test_amount_override_skips_computation_for_preamble(self):
+        """With amount_override=1, _compute_amounts returns early for any node type."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Preamble with override"
+        node.qty = 5
+        node.supply_rate = 100
+        node.amount_override = 1
         node.insert(ignore_permissions=True)
         self.assertIsNone(node.supply_amount)
         self.assertIsNone(node.total_amount)
@@ -373,6 +492,7 @@ class TestBOQNodes(FrappeTestCase):
         node.boq = self.boq_name
         node.node_type = "Line Item"
         node.description = "Insert with reason test"
+        node.parent_node = self.default_preamble
         node.qty = 5
         node.supply_rate = 100
         node.edit_reason = "Initial setup"  # set before insert — must be ignored
@@ -383,7 +503,6 @@ class TestBOQNodes(FrappeTestCase):
             filters={"ref_doctype": "BOQ Nodes", "docname": node.name},
             fields=["name"],
         )
-        # Defensive cleanup in case behaviour changes and a commit is introduced
         try:
             self.assertEqual(len(audit_entries), 0)
         finally:

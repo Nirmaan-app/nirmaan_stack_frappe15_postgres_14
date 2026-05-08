@@ -53,7 +53,9 @@ We do **not** use Frappe's `is_tree` / lft+rgt nested sets — there's no preced
 
 ### 5.3 Hierarchical model
 
-Preambles nest to three levels (L1, L2, L3). Line items belong to the deepest preamble in their ancestor chain — which may be L1, L2, or L3 depending on what's open at that point in the sheet.
+Preambles can nest to any positive depth (level ≥ 1). A soft warning is emitted above level 5 (unusual but allowed). Line items belong to the deepest preamble in their ancestor chain. Standalone line items (no parent) are allowed — they receive a warning but save successfully.
+
+The original L1/L2/L3 constraint was too rigid for real-world BoQs which sometimes nest 4–6 levels deep. The stack-walk algorithm already handles arbitrary depth without changes; the validation layer was the only restriction.
 
 ### 5.4 Versioning
 
@@ -120,26 +122,28 @@ Single self-referencing table for both preambles and line items.
 | description | Text | required |
 | source_row_number | Int | which Excel row this came from |
 | path | Data | slash-separated ancestor IDs, denormalized |
-| **Line item fields** (null for preambles): | | |
+| **Line item / amount fields** (null for preambles unless leaf): | | |
 | unit | Data | |
-| qty | Float | |
+| qty | Float | nullable; 0 is valid (rate-only items) |
 | supply_rate | Currency | nullable |
 | install_rate | Currency | nullable |
 | combined_rate | Currency | nullable |
 | supply_amount | Currency | computed unless explicitly overridden |
 | install_amount | Currency | computed unless explicitly overridden |
 | total_amount | Currency | computed sum |
+| is_rate_only | Check | auto-set when qty=0 and at least one rate is set; common in tender BoQs |
 | notes | Text | |
 
 Indexes: `boq`, `parent_node`, `path` (for prefix queries).
 
 ### 6.3 Validation rules (in `integrations/controllers/boq_nodes.py`)
 
-- If `node_type = "Line Item"`: `qty` required, `level` must be null, at least one rate field should be set (warn if none).
-- If `node_type = "Preamble"`: `level` must be 1, 2, or 3; qty/rates must be null (warn if any set, allow with explicit override flag).
-- `parent_node` consistency: an L2 preamble's parent must be L1, an L3's parent must be L2, a line item's parent must be a preamble (any level).
+- If `node_type = "Line Item"`: `qty` must not be `None` (0 is valid for rate-only items); `level` must be null; at least one rate field should be set (warn if none).
+- If `node_type = "Preamble"`: `level` must be a positive integer ≥ 1; warn (do not throw) if `level > 5`; qty/rates on a **non-leaf** preamble emit a warning (leaf preambles may carry qty/rate for tender computation — silent); `amount_override` suppresses the non-leaf warning.
+- `parent_node` consistency (generic rule): a preamble at level N must have a parent at level N−1; a line item's parent must be a preamble (any level); standalone nodes (`parent_node` null) are allowed with a warning.
 - `path` recomputed on save and on parent changes.
-- Amount fields auto-computed from qty × rate unless explicitly set (track this with a flag if needed).
+- `is_rate_only` auto-set in `before_save`: true when `qty == 0` and at least one rate field is set; false otherwise.
+- Amount fields auto-computed from qty × rate unless `amount_override` is set. When `qty == 0` and rates are set, amounts compute to 0 correctly (`(supply or install)` logic replaced with `any([supply_rate, install_rate])` check).
 
 ### 6.4 Audit
 
@@ -163,14 +167,16 @@ Use **Nirmaan Versions** pattern. Phase 1 task: confirm Nirmaan Versions schema;
 
 ```python
 def assign_parents(classified_rows):
-    stack = {}  # level -> node_id
+    # stack maps level (any positive int) -> node_id
+    # Algorithm is depth-agnostic: handles L1..L3 and L1..LN equally
+    stack = {}
 
     for row in classified_rows:
         if row.type == 'preamble':
-            level = row.level  # 1, 2, or 3
-            # Truncate stack: anything deeper than (level - 1) is no longer an ancestor
+            level = row.level  # any positive integer ≥ 1
+            # Truncate stack: anything at level ≥ current is no longer an ancestor
             stack = {k: v for k, v in stack.items() if k < level}
-            row.parent_id = stack.get(level - 1)  # None if level == 1
+            row.parent_id = stack.get(level - 1)  # None if level == 1 (root preamble)
             row.id = create_node(row)
             stack[level] = row.id
 
@@ -179,11 +185,11 @@ def assign_parents(classified_rows):
                 deepest_level = max(stack.keys())
                 row.parent_id = stack[deepest_level]
             else:
-                row.parent_id = None  # orphan — flag warning
+                row.parent_id = None  # standalone — flag warning, still saved
             row.id = create_node(row)
 ```
 
-Handles: L1 directly followed by line items, L2 → L1 transitions, L3 → L3 same parent, uneven trees.
+Handles: L1 directly followed by line items, L2 → L1 transitions, arbitrary nesting depth (L4, L5, …), uneven trees, standalone line items.
 
 ### 7.3 Examples-based row classification
 
@@ -425,6 +431,18 @@ Each sub-phase gets its own design doc. All linkages are standalone doctypes fol
 ## Decisions log
 
 Newest at the top.
+
+### 2026-05-08 — Phase 1.5: Foundation refinements
+
+**Context:** After Phase 1 tests passed, three real-world BoQ patterns were found to be unsupported by the controller: (1) preambles nested deeper than L3, (2) zero-qty line items (rate-only tender entries), (3) standalone line items with no parent.
+
+**Decisions:**
+- **Arbitrary preamble depth:** Remove hard L1/L2/L3 constraint. Validation now accepts `level ≥ 1`, soft-warns above 5. The stack-walk algorithm already handled arbitrary depth; only the validator needed updating.
+- **Zero-qty line items:** `if not doc.qty` blocked `qty=0` — changed to `if doc.qty is None`. Auto-set `is_rate_only=True` when `qty==0` and a rate is present. Amount computation fixed: `(supply or install)` was falsy for zero amounts — replaced with `any([supply_rate, install_rate])`.
+- **Standalone line items:** `parent_node=None` on a line item now warns rather than throws.
+- **Leaf preamble computation:** Leaf preambles (no children) may carry qty/rate silently; non-leaf preambles with qty/rate emit a warning. Detection via `frappe.db.exists("BOQ Nodes", {"parent_node": doc.name})`.
+
+**Consequences:** `is_rate_only` field added to `boq_nodes.json`. Tests expanded from 25 to 33 (8 new, 1 removed, 3 renamed, 1 split into 2).
 
 ### 2026-05-06 — Wizard reference is project creation wizard
 

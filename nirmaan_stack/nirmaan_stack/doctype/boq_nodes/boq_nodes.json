@@ -29,6 +29,7 @@
   "supply_amount",
   "install_amount",
   "total_amount",
+  "is_rate_only",
   "amount_override",
   "notes",
   "edit_reason"
@@ -158,6 +159,14 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Auto-set when qty=0 and at least one rate is set. Common in tender BoQs.",
+   "fieldname": "is_rate_only",
+   "fieldtype": "Check",
+   "label": "Rate Only",
    "read_only": 1
   },
   {
