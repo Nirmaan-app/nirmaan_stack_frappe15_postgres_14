@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 (multi-area + first end-to-end fixture) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole extensions) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
 **Owner:** Internal team.
-**Last updated:** 2026-05-10 (after Phase 2b.1b preamble candidate scoring — 37 hierarchy tests, 98 parser tests, 175 total).
+**Last updated:** 2026-05-10 (after Phase 2b.2 Part A1 — reader merged-cell propagation; 27 reader tests, 104 parser tests, 181 total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2b.1b preamble candidate scoring (`481035ba`).
+**Latest commit:** Phase 2b.2 Part A1 reader merged-cell propagation (`ed860248`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -423,13 +423,21 @@ Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 
 **Third follow-up addition (preamble candidate scoring + `is_synthetic` field for Phase 3 wizard):** Manual verification on real Inovalon HVAC BoQ revealed BoQ authors sometimes use unnumbered text-only rows as section headers (example: row 36 "Central Air Cleaner for AHUs" introduces line items 41-42 but has no sl_no). The classifier correctly labels these as NOTE since they have no sl_no, but Phase 3 wizard needs metadata to surface promotion candidates. Added `preamble_candidate_score: int` (0-5) and `preamble_candidate_signals: list[str]` to `ClassifiedRow` (both default to 0/[] — rows classified individually are unaffected). Score breakdown: bold +2, first-note-in-block-ending-at-line-item +2, short description (<80 chars) +1. Computed by new function `populate_preamble_candidate_scores(classified_rows, sheet_config)` called as a separate post-pass after individual row classification (Phase 2b.2's `parse_boq()` orchestrator will call it). Also added `is_synthetic: bool = False` field to `ResolvedRow` (parser never sets True) reserved for Phase 3 wizard's "create new preamble from scratch" action. Classifier classification and tree logic unchanged — this is data preparation only. Test count: classifier 18 → 26, hierarchy 36 → 37; total parser tests 98 (14 config + 21 reader + 26 classifier + 37 hierarchy). Commit: `481035ba`.
 
-### Phase 2b.2 — Multi-area + first end-to-end fixture ⏳ NEXT
+### Phase 2b.2 — Multi-area + first end-to-end fixture 🔧 IN PROGRESS (Part A1 ✅ complete)
 
 - Multi-area qty processing — populates qty_by_area per row from the qty_by_area_raw dict the classifier already captures
 - First end-to-end test fixture using real Snitch BoQ (small, 4-sheet file, simple structure)
 - Hand-written expected-output JSON for the Snitch fixture (~1 hour of careful work)
 - parse_boq(file_path, config) entry point wiring reader + classifier + hierarchy resolver
 - ~13 unit tests + 1 integration test using the Snitch fixture
+
+**Part A1 complete (2026-05-10):** `iter_rows()` extended so that cells covered by a merged range (not the origin) now propagate the origin's `value`, `formula`, `formula_text`, and `merged_range` string into their `CellInfo`. `is_merged_origin` stays `False` for covered cells. Formatting fields (`font_bold`, `fill_color_rgb`, `indent`) are always the covered cell's own data — not inherited from the origin. Implementation: a per-invocation `covered_lookup: dict[(row, col), (range_str, value, formula_text, is_formula)]` built at the start of `iter_rows()` by walking `ws.merged_cells.ranges`; origin cells fall through to existing logic unchanged. 6 new tests in `TestMergedCellPropagation` class (origin unchanged, covered inherits range, covered inherits value, covered is not origin, formatting not inherited, two-row Pattern-2-shaped layout). Test count: reader 21 → 27; total 175 → 181. Commit: `ed860248`.
+
+**Part A2 remaining:** ColumnRole enum extensions (`rate_combined`, `amount_combined`, `qty_by_area`, `amount_by_area`, `total_qty`), `area_name` field on ColumnRole with cross-validation, `GlobalSettings.multi_area_reserved_keywords`.
+
+**Part A3 remaining:** `multi_area_detection.py` module — three-pattern auto-detection (Pattern 1 adjacent area-only labels, Pattern 2 two-row merged header, Pattern 3 single-row alternating label/AMOUNT pairs).
+
+**Part B remaining:** classifier `amount_by_area_raw` capture; `parse_boq()` orchestrator; multi-area splitting post-pass; sum validation (sum per-area qty ≈ TOTAL QTY); Snitch fixture (hand-written JSON); 1 integration test.
 
 ### Phase 2c — DB commit + version cascade + 4 more fixtures ⏳ FUTURE
 
