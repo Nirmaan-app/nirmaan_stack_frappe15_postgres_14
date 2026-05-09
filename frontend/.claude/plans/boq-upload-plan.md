@@ -1,11 +1,16 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a (Reader + Mapping Config schema) complete. Phase 2b (parsing engine) ready to draft.
+**Status:** Phase 2a + Phase 2b.1a complete and tested. Phase 2b.1b (hierarchy resolver) ready to draft. Phase 2b.2 (multi-area + first end-to-end fixture) and Phase 2c (DB commit + version cascade + 4 more fixtures) follow.
 **Owner:** Internal team.
-**Last updated:** 2026-05-09 (after Phase 2a completion + working agreement #11 added).
-**Active branch:** `feature/boq-phase-2`
+**Last updated:** 2026-05-10 (after Phase 2a + heuristic loosening + Phase 2b.1a row classifier completion + working agreements 11/12/13 added + bundle backup created).
+**Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
+**Latest commit:** Phase 2b.1a row classifier completion (`9d8afac5`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
+
+**Off-machine backup:** Full repo bundle at `C:\Users\nites\OneDrive\Desktop\nirmaan_boq_backup_2026-05-09.bundle` (17.23 MiB, OneDrive-synced). Created 2026-05-09 because tech-person Monday push pending. Bundle restorable on any machine with `git clone <bundle-path>`.
+
+**GitHub push pending:** `feature/boq-phase-1` and `feature/boq-phase-2` to be pushed Monday 2026-05-11 by Nitesh's tech person (Nitesh has no push access).
 
 ---
 
@@ -332,6 +337,24 @@ frontend/src/components/ui/boq-parsing-dialog.tsx # Multi-stage progress dialog 
 | Orphan line items | Warn, allow save with `parent_node = null`. |
 | Level skip (L1 → L3) | Warn, allow save. |
 
+### 12.1 Parser behaviors locked from sample analysis
+
+The following behaviors are settled from analysis of the real BoQ corpus (JSW, Paytm, Inovalon, HYBE, Snitch). Do not re-open without a new sample driving the change.
+
+- **Sheet-to-package mapping: 1 sheet = 1 package always.** The only exception is mid-sheet numbering resets (Inovalon HVAC pattern) which produce multiple implicit packages within one sheet — auto-detected by parser via "TOTAL ITEM NO. X" regex, user confirms in Phase 3 review.
+- **"RO" / "ro" / "R/O" / "RATE ONLY" markers in qty cell** → treat as qty=0, is_rate_only=True.
+- **Blank qty cell** → treat as 0.
+- **AMC / Lump Sum / annual maintenance items** → standard rate-only treatment (qty=0, is_rate_only=True). Parser does NOT synthesize qty=1.
+- **Description and Product Specifications columns** merge into single description with " — " separator (deferred to Phase 2b.2 when `description_specs` role is added to config.py).
+- **Numbering reset mid-sheet** → auto-detect via "TOTAL ITEM NO. X" regex pattern; user confirms in Phase 3 review.
+- **Pivot/matrix sheets** → skip.
+- **Multiple general-notes sheets** → all append to master notes with separators.
+- **HYBE-style Milestone/Product columns** → ignore (Phase 7 builds linkages).
+- **Image columns** → ignore + parser warning.
+- **Vendor WO / DT Reply / RC Rates / Drawing Qty columns** → ignore.
+- **Missing Supply Rate column entirely** (e.g. Cuberoot FA, FPS) → mapping omits rate_supply role; controller sets amount_override=1 on resulting line items.
+- **Combined-rate rounding mismatches** → parser surfaces as warning (does NOT throw); user resolves in Phase 3 review per row.
+
 ## 13. Phasing
 
 Each phase = one feature branch (`feature/boq-phase-<N>`) → review → merge before next phase.
@@ -350,20 +373,60 @@ Each phase = one feature branch (`feature/boq-phase-<N>`) → review → merge b
 - Permissions: match Procurement Requests / Procurement Orders conventions.
 - **Exit:** can manually create a BoQ tree via Frappe Desk; tests pass.
 
-### Phase 2a — Reader + Mapping Config schema ✅ COMPLETE
+### Phase 2a — Reader + Mapping Config schema ✅ COMPLETE & MANUALLY VERIFIED
 
 **What it built:**
-- Pydantic-based `MappingConfig` schema with full validation (column letters, area dimensions, role uniqueness, master_preamble vs data sheet types)
-- `BoqReader` class wrapping openpyxl with: `list_sheets()` preserving exact names including whitespace, `get_sheet_dimensions()` (content-based), `iter_rows()` with lazy iteration, `detect_header_row()` heuristic, `detect_blank_columns()`, `get_master_preamble_text()`
-- `RawRow` + `CellInfo` dataclasses capturing computed values, formulas, merged ranges, bold, fill, indent
-- Synthetic fixture generator producing 5 `.xlsx` test fixtures (committed to repo)
-- 32 new tests (14 config + 18 reader), all passing. Phase 1.x: 77/77 still passing.
+- Pydantic-based MappingConfig schema (`config.py`): MappingConfig, SheetConfig, ColumnRole, GlobalSettings, MasterBoqMetadata. Full validation: column letters `^[A-Z]+$`, role uniqueness, area-must-match-area_dimensions, header_row required for data sheets, master_preamble vs data sheet types.
+- BoqReader class (`reader.py`) wrapping openpyxl: list_sheets() preserving exact names including whitespace; get_sheet_dimensions() (content-based); iter_rows() with lazy iteration and content-based dimension detection on empty sheets; detect_header_row() weighted-keyword heuristic with row-shape guards; detect_blank_columns(); get_master_preamble_text().
+- RawRow + CellInfo dataclasses capturing: computed values, formulas, merged ranges, bold formatting, fill RGB, indent.
+- Synthetic fixture generator producing 7 .xlsx test fixtures (committed to repo): synthetic_simple, synthetic_merged_header, synthetic_trailing_spaces, synthetic_blank_cols, synthetic_empty, synthetic_sparse_header, synthetic_makelist_header.
+- 35 new tests (14 config + 21 reader), all passing. Phase 1.x: 77/77 still passing.
 
-**Two bugs fixed during implementation:**
-1. `detect_blank_columns` couldn't see column Z because openpyxl's `max_column` only reflects written columns. Fixed by writing empty string to Z1 in fixture to extend `max_column`.
-2. Empty sheets produced phantom blank row because openpyxl's `max_row` defaults to 1. Fixed by content-based dimension detection in `iter_rows` when `end_row` not specified.
+**Two bugs fixed:**
+1. `detect_blank_columns` couldn't see column Z because openpyxl's `max_column` only reflects written columns. Fixed by writing `ws["Z1"] = ""` in the test fixture to extend `max_column` to 26.
+2. Empty sheets returning phantom blank row because openpyxl's `max_row` defaults to 1 after save/reload. Fixed by content-based dimension detection in `iter_rows()` when `end_row` not specified.
 
-**Branch:** `feature/boq-phase-2` (new branch from `feature/boq-phase-1`)
+**Heuristic loosening (follow-up commit `c34b1440`):** Manual verification on real JSW BoQ revealed `detect_header_row` returned `None` for HVAC and ELEC Make List sheets (sparse multi-area headers and domain-specific vocabulary). Heuristic was loosened with weighted scoring (strong keywords +2pts: sl.no, s.no, sno, sr.no, description, item description; medium keywords +1pt: item, material, materials, details of materials, make/model, approved make, approved makes) and row-shape guards (≥3 non-empty cells, ≤1 cell with text >60 chars, not the last content row). 3 new tests + 2 new synthetic fixtures added. After loosening, all 3 real-file sheets returned correctly: Elect B1 → 2, HVAC → 5, ELEC Make List → 3.
+
+**Manual verification done on real JSW Unpriced BoQ via Frappe console** — sheet listing exact, dimensions detected including stray content in column G that initial inspection missed (reader correctly returned (438, 7) — column G has values at rows 181 and 185), bold detection works, formulas captured, blank rows detected, header detection works on all 3 spot-checked sheets.
+
+Branch: `feature/boq-phase-2`.
+
+### Phase 2b.1a — Row classifier ✅ COMPLETE
+
+**What it built:**
+- `classifier.py`: RowClassification enum (PREAMBLE, LINE_ITEM, NOTE, SUBTOTAL_MARKER, SPACER, HEADER_REPEAT), ClassifiedRow dataclass, classify_row() pure function.
+- Evaluation order: spacer → header-repeat (3+ keyword matches in mapped columns) → subtotal (text regex patterns OR =SUM( formula in any amount column) → qty extraction with RO-marker detection and blank-qty+rate rule → PREAMBLE / LINE_ITEM / NOTE decision.
+- Handles RO/ro/R/O/RATE ONLY markers (qty=0, is_rate_only=True), blank qty cells (qty=0 when rates present), unit whitespace stripping, make_model passthrough, row_notes passthrough, numeric sl_no preservation as string, per-area raw qty capture (splitting deferred to 2b.2).
+- Pure per-row logic — no tree-walking, no parent inference, no multi-area splitting.
+- 17 new tests (asked for 12 minimum, +5 bonus for edge cases). All passing. Phase 1.x + Phase 2a tests: 129/129 still passing (28 BOQs + 49 BOQ Nodes + 14 config + 21 reader + 17 classifier).
+
+Branch: `feature/boq-phase-2`. Commit: `9d8afac5`.
+
+### Phase 2b.1b — Hierarchy resolver ⏳ NEXT
+
+- resolve_hierarchy(classified_rows, sheet_config) → list of nodes with parent_index assignments + path strings
+- Stack-walk algorithm with in-memory path cache (DB-driven path computation breaks during bulk insert)
+- Handles mid-sheet numbering reset via "TOTAL ITEM NO. X" regex (Inovalon HVAC pattern)
+- Note attachment: default to immediate parent preamble (warning if note has no parent)
+- ~10 unit tests on synthetic data
+- ~45 min Claude Code work
+
+### Phase 2b.2 — Multi-area + first end-to-end fixture ⏳ AFTER 2b.1b
+
+- Multi-area qty processing — populates qty_by_area per row from the qty_by_area_raw dict the classifier already captures
+- First end-to-end test fixture using real Snitch BoQ (small, 4-sheet file, simple structure)
+- Hand-written expected-output JSON for the Snitch fixture (~1 hour of careful work)
+- parse_boq(file_path, config) entry point wiring reader + classifier + hierarchy resolver
+- ~13 unit tests + 1 integration test using the Snitch fixture
+
+### Phase 2c — DB commit + version cascade + 4 more fixtures ⏳ FUTURE
+
+- commit_parsed_boq(parsed_output) writes master + sub-BoQs + nodes + qty_by_area to DB
+- Version cascade (deferred from Phase 1.7) — re-upload triggers cascade: old master + old children → Superseded; new master + new children at v+1; missing-sheet handling per Q-Cascade-Missing decision (drop, not carry-forward)
+- 4 more end-to-end fixtures (JSW Unpriced, Paytm, Inovalon HVAC, HYBE) using golden-with-review approach (run parser, eyeball output, save as expected)
+- ~20 tests
+- Manual back-office demo at end
 
 ### Phase 2 — Excel parsing engine (backend only) *(4–5 days)*
 - `services/boq_excel_parser.py`: reader, mapping config schema (dataclass / Pydantic), classifier (code-driven + rule-driven), hierarchy resolver (stack walk), validator.
@@ -417,7 +480,7 @@ Each sub-phase gets its own design doc. All linkages are standalone doctypes fol
 ## 14. Working agreements
 
 - Before each phase, output a written plan; user reviews; then code.
-- One feature branch per phase: `feature/boq-phase-<N>`.
+2. **One feature branch per phase.** Phase 1.x stayed on `feature/boq-phase-1` (continuation rule). Phase 2 branched fresh as `feature/boq-phase-2` from `feature/boq-phase-1`. Phase 2 sub-phases (2a, 2b.1a, 2b.1b, 2b.2, 2c) all continue on `feature/boq-phase-2` since they're a single phase split for risk management. Phase 3 will branch fresh again.
 - Doctype changes go through `bench --site <site> migrate`. New patches in `patches/` only when backfilling data on existing doctypes.
 - All Python lifecycle logic in `integrations/controllers/`. Doctype `.py` stays minimal.
 - All API endpoints under `nirmaan_stack/api/boq/`, snake_case.
@@ -427,6 +490,10 @@ Each sub-phase gets its own design doc. All linkages are standalone doctypes fol
 - For ad-hoc DB queries: docker cp + docker exec pattern in CLAUDE.md.
 
 11. **End-of-session git verification — MANDATORY.** Every Claude Code prompt must include in its "Stopping conditions" section: (a) run `git status` and report the output — working directory must be clean (no `M`, no `??`, no untracked files in scope); (b) run `git log <current-branch> --oneline -10` and report output to verify all intended changes are committed. This guards against the failure mode where Claude Code edits files but forgets to `git add` and commit the final round of changes — leaving uncommitted work that gets silently picked up by the next session. (Real lesson from the start of Phase 2a, where uncommitted Phase 1.7 controller and hook changes had to be recovered as the first action of the new session.)
+
+12. **Test fixtures use real BoQ files — no anonymization required (Option C).** Decided 2026-05-10. The BoQ feature is for internal use by Nitesh's tendering team at Stratos Infra Technologies; confidentiality of project/client/vendor names is not a constraint. Real BoQ files are committed directly to `nirmaan_stack/services/boq_parser/tests/fixtures/` (~5-8 MB total across 5 fixtures). Saves ~5-10 hours of manual anonymization. (Future-Claude-or-developer note: if this project ever becomes externally distributed or open-sourced, fixture anonymization would need to be revisited.)
+
+13. **Documentation maintenance — MANDATORY in every Claude Code prompt.** From 2026-05-11 onwards, every Claude Code prompt for a sub-phase must include a Documentation Maintenance section that requires Claude Code, before reporting completion, to: (a) update `frontend/.claude/plans/boq-upload-plan.md` to reflect what the sub-phase delivered (commit hashes, test counts, status flips, new known issues, new working agreements); (b) commit the doc update as a separate commit with message `docs(boq): update plan for <sub-phase> completion`; (c) verify via `git status` (clean) and `git log --oneline -10` (both commits present — code commit + docs commit). This bakes documentation maintenance into every sub-phase and prevents drift between in-repo docs and reality. (Real lesson from 2026-05-10 when 2b.1a started against a stale plan doc that hadn't captured Phase 2a completion or working agreements 11/12.)
 
 ## 15. Open questions
 
