@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. level_1_style context-aware fix). Phase 2b.2 (multi-area + first end-to-end fixture) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. lookahead-based level_1_style detection). Phase 2b.2 (multi-area + first end-to-end fixture) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
 **Owner:** Internal team.
-**Last updated:** 2026-05-09 (after Phase 2b.1b level_1_style fix — 31 hierarchy tests, 84 parser tests, 161 total).
+**Last updated:** 2026-05-10 (after Phase 2b.1b lookahead-detection fix — 36 hierarchy tests, 89 parser tests, 166 total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2b.1b level_1_style fix (`7f63e39a`).
+**Latest commit:** Phase 2b.1b lookahead-detection fix (`90b0f0db`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -418,6 +418,8 @@ Branch: `feature/boq-phase-2`. Commit: `9d8afac5`.
 Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 
 **Follow-up fix (level_1_style detection — context-aware level determination):** Manual verification on real JSW Elect B1 revealed all 32 preambles classifying at level 1 (flat list, no tree) due to context-blind heuristic. Root cause: trailing-zero stripping rule for `1.0` produced level 1 even when `1.0` was a sub-section under a letter-coded parent. Fix: pre-scan sheet to detect first-preamble code style as `level_1_style` (one of letter/roman/numeric/part); subsequent preambles matching that style → level 1, different recognized style → level 2, multi-dot decimal → 1 + dots, lowercase letter → stack_depth + 1, unknown → fallback chain (cell indent → stack_depth + 1). Re-detects after mid-sheet "TOTAL ITEM NO. X" reset. Added `level_1_style_override` field to `SheetConfig` for Phase 3/4 manual override. Pattern Y multi-dot ambiguity emits warning category `ambiguous_level_pattern_y` and uses default depth — Phase 3 wizard resolves. Test count increased from 19 → 31 hierarchy tests; total parser tests 84 (14 config + 21 reader + 18 classifier + 31 hierarchy). Commit: `7f63e39a`.
+
+**Second follow-up fix (lookahead-based level_1_style detection):** Manual re-verification on JSW Elect B1 (after the level_1_style fix) revealed sections C and D being mis-categorized because single chars C, D, L, M, I, V, X are valid Roman characters and match `_RE_ROMAN` before `_RE_UPPER`. A simple regex-order swap was attempted and reverted — it broke Paytm's legitimate Roman pattern starting at `I.` (where I, II, III sequences need single-char I to be Roman, not letter). Correct fix: lookahead-based detection in `_detect_level_1_style` that examines the first TWO level-1-eligible preambles. Unambiguous chars (A, B, E, F, G — not in [IVXLCDM]) return "letter" immediately. Ambiguous single chars (I, V, X, L, C, D, M) check the second preamble: multi-char Roman second (II, III...) → roman (Paytm I./II./III. pattern); single char alphabetically near (abs(ord) ≤ 3, e.g. C→D) → letter; both in Roman set and far apart → roman; else → letter. Plus a small special case in `_determine_preamble_level` so single-char Roman codes (C, D etc.) are accepted at level 1 on letter-style sheets (the categorizer still returns "roman" for them since `_RE_ROMAN` is unchanged). Handles both JSW alphabetic (A-G with C/D) and Paytm Roman (I-IV) correctly without regression. Test count increased from 31 → 36 hierarchy tests; total parser tests 89 (14 config + 21 reader + 18 classifier + 36 hierarchy). Commit: `90b0f0db`.
 
 ### Phase 2b.2 — Multi-area + first end-to-end fixture ⏳ NEXT
 
