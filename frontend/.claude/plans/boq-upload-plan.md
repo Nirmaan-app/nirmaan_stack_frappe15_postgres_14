@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a complete and tested. Phase 2b.1b (hierarchy resolver) ready to draft. Phase 2b.2 (multi-area + first end-to-end fixture) and Phase 2c (DB commit + version cascade + 4 more fixtures) follow.
+**Status:** Phase 2a + Phase 2b.1a complete and tested (incl. ghost-note fix). Phase 2b.1b (hierarchy resolver) ready to draft. Phase 2b.2 (multi-area + first end-to-end fixture) and Phase 2c (DB commit + version cascade + 4 more fixtures) follow.
 **Owner:** Internal team.
-**Last updated:** 2026-05-10 (after Phase 2a + heuristic loosening + Phase 2b.1a row classifier completion + working agreements 11/12/13 added + bundle backup created).
+**Last updated:** 2026-05-09 (after Phase 2b.1a ghost-note suppression fix — 18 classifier tests, 130 total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2b.1a row classifier completion (`9d8afac5`).
+**Latest commit:** Phase 2b.1a ghost-note fix (`ab99fb6c`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -402,6 +402,8 @@ Branch: `feature/boq-phase-2`.
 - 17 new tests (asked for 12 minimum, +5 bonus for edge cases). All passing. Phase 1.x + Phase 2a tests: 129/129 still passing (28 BOQs + 49 BOQ Nodes + 14 config + 21 reader + 17 classifier).
 
 Branch: `feature/boq-phase-2`. Commit: `9d8afac5`.
+
+**Follow-up fix (ghost-note suppression):** Manual verification on real JSW Elect B1 revealed ~70 visually-empty rows being classified as NOTE because they contained leftover template formulas (e.g. `=N($D17)*N(E17)` evaluating to 0 with blank qty/rate). Added a post-extraction emptiness check after the classification decision: if classification = NOTE AND every extracted field (sl_no_value, desc_text, unit, qty, all rates, make_model, row_notes) is None/empty, override to SPACER and clear warnings. 1 new test (18 total classifier tests, 130 total). Commit: `ab99fb6c`.
 
 ### Phase 2b.1b — Hierarchy resolver ⏳ NEXT
 
