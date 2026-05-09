@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested. Phase 2b.2 (multi-area + first end-to-end fixture) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. level_1_style context-aware fix). Phase 2b.2 (multi-area + first end-to-end fixture) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
 **Owner:** Internal team.
-**Last updated:** 2026-05-09 (after Phase 2b.1b hierarchy resolver — 19 hierarchy tests, 72 parser tests, 149 total).
+**Last updated:** 2026-05-09 (after Phase 2b.1b level_1_style fix — 31 hierarchy tests, 84 parser tests, 161 total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2b.1b hierarchy resolver (`fdb6eb64`).
+**Latest commit:** Phase 2b.1b level_1_style fix (`7f63e39a`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -417,6 +417,8 @@ Branch: `feature/boq-phase-2`. Commit: `9d8afac5`.
 
 Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 
+**Follow-up fix (level_1_style detection — context-aware level determination):** Manual verification on real JSW Elect B1 revealed all 32 preambles classifying at level 1 (flat list, no tree) due to context-blind heuristic. Root cause: trailing-zero stripping rule for `1.0` produced level 1 even when `1.0` was a sub-section under a letter-coded parent. Fix: pre-scan sheet to detect first-preamble code style as `level_1_style` (one of letter/roman/numeric/part); subsequent preambles matching that style → level 1, different recognized style → level 2, multi-dot decimal → 1 + dots, lowercase letter → stack_depth + 1, unknown → fallback chain (cell indent → stack_depth + 1). Re-detects after mid-sheet "TOTAL ITEM NO. X" reset. Added `level_1_style_override` field to `SheetConfig` for Phase 3/4 manual override. Pattern Y multi-dot ambiguity emits warning category `ambiguous_level_pattern_y` and uses default depth — Phase 3 wizard resolves. Test count increased from 19 → 31 hierarchy tests; total parser tests 84 (14 config + 21 reader + 18 classifier + 31 hierarchy). Commit: `7f63e39a`.
+
 ### Phase 2b.2 — Multi-area + first end-to-end fixture ⏳ NEXT
 
 - Multi-area qty processing — populates qty_by_area per row from the qty_by_area_raw dict the classifier already captures
@@ -515,6 +517,26 @@ Each sub-phase gets its own design doc. All linkages are standalone doctypes fol
 - **Line item** — single work entry with quantity, unit, and rate(s).
 - **Supply rate / Install rate / Combined rate** — material vs labor; sometimes separate, sometimes combined.
 - **Pre-tax / Post-tax** — whether quoted rates include taxes. Default pre-tax.
+
+## 17. Known Parser Issues
+
+Issues identified during real-BoQ verification. Each entry has a disposition: deferred or requires Phase 3 wizard action.
+
+### 17.1 Pattern Y multi-dot ambiguity (level resolution)
+
+**Issue:** In BoQs with numeric top-level coding (1., 2., ...) and letter sub-sections (A., B., ...), multi-dot sub-codes like `1.1` that appear under an `A.` parent are structurally ambiguous — they could be a sibling of `A.` at level 2, or a child of `A.` at level 3. The resolver cannot distinguish without user intent.
+
+**Current behavior:** Resolver emits a warning with `category=ambiguous_level_pattern_y` and assigns default depth (1 + dot count). The tree structure is plausible but may not match the source document's intent.
+
+**Disposition:** Defer to Phase 3 wizard. Phase 3 mapping UI will surface rows with this warning and let the user confirm or override the assigned level before saving. Working agreement #18 (TBD): all `ambiguous_level_pattern_y` warnings surface as explicit confirmation prompts in Phase 3 review step.
+
+### 17.2 Stray `Note` sl_no rows misclassified as PREAMBLE
+
+**Issue:** Some BoQ files include sl_no cells containing the literal text "Note" or "NOTE" followed by a description but no quantity. The classifier correctly routes these to PREAMBLE (sl_no + description, no qty) but they are not section headers — they are annotation notes.
+
+**Current behavior:** These rows are inserted into the preamble stack, potentially becoming unwanted parent nodes for subsequent line items. One occurrence confirmed in JSW Elect B1.
+
+**Disposition:** Visible but not catastrophic — the note becomes a leaf preamble with no line-item children in the one observed case. Defer: in Phase 3, add a reserved-keyword filter to the classifier that treats sl_no values matching `^note$` (case-insensitive) as NOTE classification regardless of description presence.
 
 ---
 
