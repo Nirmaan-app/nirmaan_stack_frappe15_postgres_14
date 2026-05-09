@@ -143,10 +143,41 @@ class BoqReader:
 
         Reads computed values from the data_only workbook and formula strings
         from the non-data_only workbook, then merges them per cell.
+
+        Covered cells (inside a merged range but not the top-left origin) receive
+        the origin's value, formula text, and merged_range string.  Formatting
+        fields (font_bold, fill_color_rgb, indent) always reflect the covered
+        cell's own data — they are never inherited from the origin.
         """
         ws_val = self._wb_values[sheet_name]
         ws_fml = self._wb_formulas[sheet_name]
         origins = self._merged_origins.get(sheet_name, {})
+
+        # Build a per-invocation lookup for covered cells (inside a merge but
+        # not the origin).  Key: (row, col) integer tuple.
+        # Value: (range_str, origin_value, origin_formula_text, origin_is_formula)
+        covered_lookup: dict[tuple[int, int], tuple[str, Any, str | None, bool]] = {}
+        for rng in ws_val.merged_cells.ranges:
+            origin_row, origin_col = rng.min_row, rng.min_col
+            origin_cell_val = ws_val.cell(origin_row, origin_col)
+            origin_cell_fml = ws_fml.cell(origin_row, origin_col)
+            origin_value = origin_cell_val.value
+            origin_raw_fml = origin_cell_fml.value
+            origin_is_formula = (
+                isinstance(origin_raw_fml, str) and origin_raw_fml.startswith("=")
+            )
+            origin_formula_text = origin_raw_fml if origin_is_formula else None
+            range_str = str(rng)
+            for r in range(rng.min_row, rng.max_row + 1):
+                for c in range(rng.min_col, rng.max_col + 1):
+                    if r == origin_row and c == origin_col:
+                        continue  # origin handled by existing logic below
+                    covered_lookup[(r, c)] = (
+                        range_str,
+                        origin_value,
+                        origin_formula_text,
+                        origin_is_formula,
+                    )
 
         if end_row is None:
             # Use content-based last-row detection so empty sheets yield nothing
@@ -164,21 +195,28 @@ class BoqReader:
             for cell_val in row_cells:
                 col_letter = get_column_letter(cell_val.column)
                 cell_key = f"{col_letter}{row_num}"
+                coord = (row_num, cell_val.column)
 
-                # Formula string from the non-data-only workbook
-                cell_fml = ws_fml[cell_key]
-                raw_formula = cell_fml.value
-                is_formula = isinstance(raw_formula, str) and raw_formula.startswith("=")
-                formula_text = raw_formula if is_formula else None
+                covered = covered_lookup.get(coord)
+                if covered is not None:
+                    # Covered cell: propagate value, formula, and range from origin.
+                    range_str, origin_value, origin_formula_text, origin_is_formula = covered
+                    computed_value = origin_value
+                    formula_text = origin_formula_text
+                    is_formula = origin_is_formula
+                    is_origin = False
+                    merged_range_val = range_str
+                else:
+                    # Non-covered cell (origin or unmerged): existing behavior.
+                    cell_fml = ws_fml[cell_key]
+                    raw_formula = cell_fml.value
+                    is_formula = isinstance(raw_formula, str) and raw_formula.startswith("=")
+                    formula_text = raw_formula if is_formula else None
+                    computed_value = cell_val.value
+                    is_origin = cell_key in origins
+                    merged_range_val = origins.get(cell_key)
 
-                # Computed value from the data-only workbook
-                computed_value = cell_val.value
-
-                # Merged range detection
-                is_origin = cell_key in origins
-                merged_range = origins.get(cell_key)
-
-                # Formatting
+                # Formatting — always the covered cell's own, never inherited from origin.
                 font_bold = bool(cell_val.font and cell_val.font.bold)
                 fill_rgb = _extract_fill_rgb(cell_val)
                 indent = _extract_indent(cell_val)
@@ -188,7 +226,7 @@ class BoqReader:
                     formula=formula_text,
                     is_formula=is_formula,
                     is_merged_origin=is_origin,
-                    merged_range=merged_range,
+                    merged_range=merged_range_val,
                     font_bold=font_bold,
                     fill_color_rgb=fill_rgb,
                     indent=indent,

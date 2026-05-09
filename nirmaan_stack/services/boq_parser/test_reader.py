@@ -275,5 +275,175 @@ class TestBoqReader(unittest.TestCase):
         self.assertEqual(result, 5)
 
 
+class TestMergedCellPropagation(unittest.TestCase):
+    """Phase 2b.2 Part A1: covered cells now inherit value and merged_range from origin."""
+
+    # Class-level paths assigned in setUpClass; cleared in tearDownClass.
+    _temp_simple_merge = ""
+    _temp_pattern2_layout = ""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import os
+        import tempfile
+        import openpyxl
+        from openpyxl.styles import Font
+
+        # Fixture 1 — horizontal merge A1:B1.
+        # Origin A1 = "B1 BUILDING" (bold); covered B1 has default (non-bold) formatting.
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws["A1"] = "B1 BUILDING"
+        ws["A1"].font = Font(bold=True)
+        ws.merge_cells("A1:B1")
+        wb.save(path)
+        cls._temp_simple_merge = path
+
+        # Fixture 2 — two-row Pattern-2-shaped layout.
+        # Row 1: [A1:B1]="B1 BUILDING" | [C1:D1]="B3 BUILDING" | [E1:F1]="TOTAL"
+        # Row 2: QTY | AMOUNT | QTY | AMOUNT | QTY | AMOUNT  (no merges)
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws["A1"] = "B1 BUILDING"
+        ws.merge_cells("A1:B1")
+        ws["C1"] = "B3 BUILDING"
+        ws.merge_cells("C1:D1")
+        ws["E1"] = "TOTAL"
+        ws.merge_cells("E1:F1")
+        ws["A2"] = "QTY"
+        ws["B2"] = "AMOUNT"
+        ws["C2"] = "QTY"
+        ws["D2"] = "AMOUNT"
+        ws["E2"] = "QTY"
+        ws["F2"] = "AMOUNT"
+        wb.save(path)
+        cls._temp_pattern2_layout = path
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        import os
+        for path in (cls._temp_simple_merge, cls._temp_pattern2_layout):
+            if path and os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    # ------------------------------------------------------------------ #
+    # Test 20 — origin cell unchanged                                      #
+    # ------------------------------------------------------------------ #
+
+    def test_merged_cell_origin_unchanged(self):
+        """Origin A1 of merge A1:B1 retains value, is_merged_origin=True, merged_range."""
+        reader = BoqReader(self._temp_simple_merge)
+        rows = list(reader.iter_rows("Sheet1", start_row=1, end_row=1))
+        a1 = rows[0].get_cell("A")
+        self.assertIsNotNone(a1)
+        self.assertEqual(a1.value, "B1 BUILDING")
+        self.assertTrue(a1.is_merged_origin)
+        self.assertEqual(a1.merged_range, "A1:B1")
+
+    # ------------------------------------------------------------------ #
+    # Test 21 — covered cell inherits merged_range                         #
+    # ------------------------------------------------------------------ #
+
+    def test_merged_cell_covered_inherits_merged_range(self):
+        """Covered B1 of merge A1:B1 reports merged_range='A1:B1' (was None before Part A1)."""
+        reader = BoqReader(self._temp_simple_merge)
+        rows = list(reader.iter_rows("Sheet1", start_row=1, end_row=1))
+        b1 = rows[0].get_cell("B")
+        self.assertIsNotNone(b1)
+        self.assertEqual(b1.merged_range, "A1:B1")
+
+    # ------------------------------------------------------------------ #
+    # Test 22 — covered cell inherits value                                #
+    # ------------------------------------------------------------------ #
+
+    def test_merged_cell_covered_inherits_value(self):
+        """Covered B1 of merge A1:B1 reports same value as origin ('B1 BUILDING')."""
+        reader = BoqReader(self._temp_simple_merge)
+        rows = list(reader.iter_rows("Sheet1", start_row=1, end_row=1))
+        b1 = rows[0].get_cell("B")
+        self.assertIsNotNone(b1)
+        self.assertEqual(b1.value, "B1 BUILDING")
+
+    # ------------------------------------------------------------------ #
+    # Test 23 — covered cell is NOT the origin                             #
+    # ------------------------------------------------------------------ #
+
+    def test_merged_cell_covered_is_not_origin(self):
+        """Covered B1 retains is_merged_origin=False — only the top-left is the origin."""
+        reader = BoqReader(self._temp_simple_merge)
+        rows = list(reader.iter_rows("Sheet1", start_row=1, end_row=1))
+        b1 = rows[0].get_cell("B")
+        self.assertIsNotNone(b1)
+        self.assertFalse(b1.is_merged_origin)
+
+    # ------------------------------------------------------------------ #
+    # Test 24 — covered cell does NOT inherit formatting                   #
+    # ------------------------------------------------------------------ #
+
+    def test_merged_cell_covered_does_not_inherit_formatting(self):
+        """Covered B1 has its own font_bold=False; bold is NOT inherited from bold origin A1."""
+        reader = BoqReader(self._temp_simple_merge)
+        rows = list(reader.iter_rows("Sheet1", start_row=1, end_row=1))
+        a1 = rows[0].get_cell("A")
+        b1 = rows[0].get_cell("B")
+        self.assertTrue(a1.font_bold, "Origin A1 must be bold for this assertion to be meaningful")
+        self.assertFalse(b1.font_bold, "Covered B1 must NOT inherit bold from origin")
+
+    # ------------------------------------------------------------------ #
+    # Test 25 — two-row Pattern-2-shaped merged header layout              #
+    # ------------------------------------------------------------------ #
+
+    def test_two_row_merged_header_layout(self):
+        """
+        Row 1 has three horizontal merges (area-name cells).
+        Covered cells in row 1 share their origin's merged_range and value.
+        Row 2 cells are unmerged — all have merged_range=None.
+        This verifies the data shape that Part A3 multi-area detection will read.
+        """
+        reader = BoqReader(self._temp_pattern2_layout)
+        rows = list(reader.iter_rows("Sheet1", start_row=1, end_row=2))
+        self.assertEqual(len(rows), 2)
+        row1, row2 = rows[0], rows[1]
+
+        # Row 1 origins: each is_merged_origin=True, value and range set
+        self.assertTrue(row1.get_cell("A").is_merged_origin)
+        self.assertEqual(row1.get_cell("A").merged_range, "A1:B1")
+        self.assertTrue(row1.get_cell("C").is_merged_origin)
+        self.assertEqual(row1.get_cell("C").merged_range, "C1:D1")
+        self.assertTrue(row1.get_cell("E").is_merged_origin)
+        self.assertEqual(row1.get_cell("E").merged_range, "E1:F1")
+
+        # Row 1 covered cells: value and range propagated from origin, not origin
+        self.assertFalse(row1.get_cell("B").is_merged_origin)
+        self.assertEqual(row1.get_cell("B").merged_range, "A1:B1")
+        self.assertEqual(row1.get_cell("B").value, "B1 BUILDING")
+        self.assertFalse(row1.get_cell("D").is_merged_origin)
+        self.assertEqual(row1.get_cell("D").merged_range, "C1:D1")
+        self.assertEqual(row1.get_cell("D").value, "B3 BUILDING")
+        self.assertFalse(row1.get_cell("F").is_merged_origin)
+        self.assertEqual(row1.get_cell("F").merged_range, "E1:F1")
+        self.assertEqual(row1.get_cell("F").value, "TOTAL")
+
+        # Row 2: unmerged — all merged_range=None
+        for col in ("A", "B", "C", "D", "E", "F"):
+            cell = row2.get_cell(col)
+            self.assertIsNotNone(cell)
+            self.assertIsNone(
+                cell.merged_range,
+                f"Row 2 column {col} is not merged; merged_range must be None",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
