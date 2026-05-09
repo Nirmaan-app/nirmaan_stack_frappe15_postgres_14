@@ -388,5 +388,241 @@ class TestClassifier(unittest.TestCase):
         self.assertEqual(result.warnings, [])
 
 
+class TestPreambleCandidateScoring(unittest.TestCase):
+    """Tests for populate_preamble_candidate_scores — the Phase 3 wizard data hook."""
+
+    from nirmaan_stack.services.boq_parser.classifier import populate_preamble_candidate_scores
+
+    def _make_note_row(
+        self, idx: int, description: str, bold: bool = False
+    ) -> ClassifiedRow:
+        """Build a NOTE ClassifiedRow with a description cell at column B."""
+        cells = {
+            "B": CellInfo(
+                value=description,
+                formula=None,
+                is_formula=False,
+                is_merged_origin=False,
+                merged_range=None,
+                font_bold=bold,
+                fill_color_rgb=None,
+                indent=0,
+            ),
+        }
+        raw_row = RawRow(row_number=idx + 1, cells=cells)
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.NOTE,
+            sl_no_value=None,
+            description=description,
+        )
+
+    def _make_line_item_row(self, idx: int, sl_no: str = "a.") -> ClassifiedRow:
+        raw_row = RawRow(row_number=idx + 1, cells={})
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.LINE_ITEM,
+            sl_no_value=sl_no,
+            description="Item",
+            qty=1.0,
+        )
+
+    def _make_preamble_row(self, idx: int, sl_no: str = "1.0") -> ClassifiedRow:
+        raw_row = RawRow(row_number=idx + 1, cells={})
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.PREAMBLE,
+            sl_no_value=sl_no,
+            description="Section",
+        )
+
+    def _make_spacer_row(self, idx: int) -> ClassifiedRow:
+        raw_row = RawRow(row_number=idx + 1, cells={})
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.SPACER,
+        )
+
+    def _config(self) -> SheetConfig:
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "D": ColumnRole(role="qty"),
+            },
+        )
+
+    def _run(self, rows: list) -> None:
+        """Run populate_preamble_candidate_scores in place."""
+        from nirmaan_stack.services.boq_parser.classifier import populate_preamble_candidate_scores
+        populate_preamble_candidate_scores(rows, self._config())
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — bold + short + first-in-block-before-line-item = 5      #
+    # ---------------------------------------------------------------- #
+
+    def test_strong_candidate_bold_short_note_before_line_item_scores_5(self):
+        """Bold short note immediately preceding a line item block scores 5."""
+        rows = [
+            self._make_note_row(0, "Central Air Cleaner for AHUs", bold=True),
+            self._make_line_item_row(1),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].preamble_candidate_score, 5)
+        self.assertIn("bold", rows[0].preamble_candidate_signals)
+        self.assertIn("precedes_line_item_block", rows[0].preamble_candidate_signals)
+        self.assertIn("short_description", rows[0].preamble_candidate_signals)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — first note in block scores high; others score lower     #
+    # ---------------------------------------------------------------- #
+
+    def test_first_note_in_block_with_spec_notes_then_line_item(self):
+        """
+        Block: bold-short header note + two bold-long spec notes + line item.
+        Only the first note gets the position bonus. Subsequent bold long notes
+        get bold (+2) only.
+        """
+        long_desc = "A" * 90  # > 80 chars, no short_description signal
+        rows = [
+            self._make_note_row(0, "Central Air Cleaner for AHUs", bold=True),  # short
+            self._make_note_row(1, long_desc, bold=True),
+            self._make_note_row(2, long_desc, bold=True),
+            self._make_line_item_row(3),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].preamble_candidate_score, 5)   # bold+position+short
+        self.assertEqual(rows[1].preamble_candidate_score, 2)   # bold only
+        self.assertEqual(rows[2].preamble_candidate_score, 2)   # bold only
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — Inovalon HVAC row 36 pattern reproduction               #
+    # ---------------------------------------------------------------- #
+
+    def test_inovalon_hvac_row_36_pattern(self):
+        """
+        Reproduction of the real Inovalon HVAC case: bold short note header
+        (the section header) followed by several bold long spec notes, then
+        line items. First row scores 5; spec notes score 2 each.
+        """
+        long_desc = "B" * 90
+        rows = [
+            self._make_note_row(0, "Central Air Cleaner for AHUs", bold=True),
+            self._make_note_row(1, long_desc, bold=True),
+            self._make_note_row(2, long_desc, bold=True),
+            self._make_note_row(3, long_desc, bold=True),
+            self._make_note_row(4, long_desc, bold=True),
+            self._make_line_item_row(5, "a."),
+            self._make_line_item_row(6, "b."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].preamble_candidate_score, 5)
+        for i in range(1, 5):
+            self.assertEqual(rows[i].preamble_candidate_score, 2,
+                             f"Spec note at idx {i} should score 2")
+        # Line items are untouched
+        self.assertEqual(rows[5].preamble_candidate_score, 0)
+        self.assertEqual(rows[6].preamble_candidate_score, 0)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — block terminating at preamble: no position bonus        #
+    # ---------------------------------------------------------------- #
+
+    def test_note_block_terminating_at_preamble_no_position_bonus(self):
+        """Block followed by preamble (not line item) → no position bonus."""
+        rows = [
+            self._make_note_row(0, "Short bold note", bold=True),
+            self._make_preamble_row(1),
+        ]
+        self._run(rows)
+        # bold (+2) + short (+1) only; no position bonus because next row is preamble
+        self.assertEqual(rows[0].preamble_candidate_score, 3)
+        self.assertIn("bold", rows[0].preamble_candidate_signals)
+        self.assertNotIn("precedes_line_item_block", rows[0].preamble_candidate_signals)
+        self.assertIn("short_description", rows[0].preamble_candidate_signals)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — spacers within block are transparent                    #
+    # ---------------------------------------------------------------- #
+
+    def test_note_block_with_spacers_between(self):
+        """Spacers between notes are part of the block; end detection looks past them."""
+        rows = [
+            self._make_note_row(0, "Short bold note", bold=True),
+            self._make_spacer_row(1),
+            self._make_note_row(2, "C" * 90, bold=True),  # long, bold
+            self._make_spacer_row(3),
+            self._make_line_item_row(4),
+        ]
+        self._run(rows)
+        # First note: bold + position + short = 5
+        self.assertEqual(rows[0].preamble_candidate_score, 5)
+        # Spacer at idx 1: score stays 0
+        self.assertEqual(rows[1].preamble_candidate_score, 0)
+        # Second note: bold only = 2 (not first in block)
+        self.assertEqual(rows[2].preamble_candidate_score, 2)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — plain non-bold long note scores low                     #
+    # ---------------------------------------------------------------- #
+
+    def test_plain_note_in_middle_of_paragraph_scores_low(self):
+        """Non-bold long notes: only first-in-block gets position bonus; rest score 0."""
+        long_desc = "D" * 90
+        rows = [
+            self._make_note_row(0, long_desc, bold=False),  # first
+            self._make_note_row(1, long_desc, bold=False),  # second
+            self._make_line_item_row(2),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].preamble_candidate_score, 2)   # position only
+        self.assertIn("precedes_line_item_block", rows[0].preamble_candidate_signals)
+        self.assertEqual(rows[1].preamble_candidate_score, 0)   # nothing
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — short non-bold note before line item scores 3           #
+    # ---------------------------------------------------------------- #
+
+    def test_short_non_bold_note_before_line_item_scores_3(self):
+        """Non-bold short note before line item: position (2) + short (1) = 3."""
+        rows = [
+            self._make_note_row(0, "Short note", bold=False),
+            self._make_line_item_row(1),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].preamble_candidate_score, 3)
+        self.assertNotIn("bold", rows[0].preamble_candidate_signals)
+        self.assertIn("precedes_line_item_block", rows[0].preamble_candidate_signals)
+        self.assertIn("short_description", rows[0].preamble_candidate_signals)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — classify_row alone does NOT populate score              #
+    # ---------------------------------------------------------------- #
+
+    def test_classify_row_alone_does_not_populate_score(self):
+        """
+        Calling classify_row() directly (without populate_preamble_candidate_scores)
+        always yields score=0, signals=[]. The scoring is a separate pass.
+        """
+        row = _make_row(1, {
+            "B": {"value": "Short bold header", "font_bold": True},
+        })
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "D": ColumnRole(role="qty"),
+            },
+        )
+        classified = classify_row(row, config, GlobalSettings())
+        self.assertEqual(classified.classification, RowClassification.NOTE)
+        self.assertEqual(classified.preamble_candidate_score, 0)
+        self.assertEqual(classified.preamble_candidate_signals, [])
+
+
 if __name__ == "__main__":
     unittest.main()

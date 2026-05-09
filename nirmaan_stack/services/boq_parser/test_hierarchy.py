@@ -828,5 +828,30 @@ class TestLevel1StyleDetection(unittest.TestCase):
         self.assertIsNone(result.rows[1].parent_index)
 
 
+    # ---------------------------------------------------------------- #
+    # Test 18 — is_synthetic defaults to False on all resolved rows    #
+    # ---------------------------------------------------------------- #
+
+    def test_resolved_row_is_synthetic_defaults_to_false(self):
+        """
+        Every ResolvedRow produced by the parser has is_synthetic=False.
+        The field is reserved for Phase 3 wizard synthetic preambles (user-created
+        preambles with no source row); the parser never sets it to True.
+        """
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "1.0"),
+            _make_line_item(2),
+            _make_note(3, "Some note"),
+            _make_spacer(4),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        for i, resolved in enumerate(result.rows):
+            self.assertFalse(
+                resolved.is_synthetic,
+                f"ResolvedRow at idx {i} should have is_synthetic=False",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

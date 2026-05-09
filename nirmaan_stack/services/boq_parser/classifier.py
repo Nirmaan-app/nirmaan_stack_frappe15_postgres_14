@@ -59,6 +59,13 @@ class ClassifiedRow:
     # (splitting is deferred to Phase 2b.2).  Keys = area_name, values = float.
     qty_by_area_raw: dict[str, float] = field(default_factory=dict)
 
+    # Preamble candidate metadata — populated by populate_preamble_candidate_scores()
+    # (a separate post-classification pass, not by classify_row). Always 0 / []
+    # when rows are classified individually. Phase 3 wizard reads these to surface
+    # NOTE rows that look like unnumbered section headers.
+    preamble_candidate_score: int = 0
+    preamble_candidate_signals: list[str] = field(default_factory=list)
+
 
 # ------------------------------------------------------------------
 # Constants
@@ -118,6 +125,117 @@ def _to_str(value: Any) -> str:
 def _norm_desc(text: str) -> str:
     """Strip and collapse internal whitespace runs to a single space."""
     return re.sub(r"\s+", " ", text.strip())
+
+
+# ------------------------------------------------------------------
+# Preamble candidate scoring (separate post-classification pass)
+# ------------------------------------------------------------------
+
+def _compute_preamble_candidate_score(
+    raw_row: RawRow,
+    description: str | None,
+    is_first_note_in_block: bool,
+    block_ends_with_line_item: bool,
+    sheet_config: SheetConfig,
+) -> tuple[int, list[str]]:
+    """
+    Score a NOTE row on how "preamble-like" it looks. Used by Phase 3 wizard
+    to surface promotion candidates. NOT used by parser classification logic.
+
+    Score breakdown (0-5):
+      - Bold formatting on description cell: +2
+      - First note in a contiguous note-block (allowing spacers) that ends
+        at a LINE_ITEM: +2
+      - Description short (< 80 chars after strip): +1
+
+    Returns (score, signals_list).
+    """
+    score = 0
+    signals: list[str] = []
+
+    # Find the description column letter from sheet config
+    desc_col: str | None = None
+    for col_letter, col_role in sheet_config.column_role_map.items():
+        if col_role.role == "description":
+            desc_col = col_letter
+            break
+
+    # Signal 1: bold (+2)
+    if desc_col:
+        desc_cell = raw_row.cells.get(desc_col)
+        if desc_cell and desc_cell.font_bold:
+            score += 2
+            signals.append("bold")
+
+    # Signal 2: first note in a block ending at a LINE_ITEM (+2)
+    if is_first_note_in_block and block_ends_with_line_item:
+        score += 2
+        signals.append("precedes_line_item_block")
+
+    # Signal 3: short description (+1)
+    if description and len(description.strip()) < 80:
+        score += 1
+        signals.append("short_description")
+
+    return score, signals
+
+
+def populate_preamble_candidate_scores(
+    classified_rows: list[ClassifiedRow],
+    sheet_config: SheetConfig,
+) -> None:
+    """
+    Walk the classified rows and populate preamble_candidate_score +
+    preamble_candidate_signals on every NOTE row. Mutates rows in place.
+
+    Detects "note blocks" — contiguous sequences of NOTE (allowing SPACER
+    between) — and identifies the first NOTE in each block plus whether
+    the block terminates at a LINE_ITEM.
+
+    Must be called ONCE PER SHEET after all rows have been individually
+    classified via classify_row(). The parse_boq() orchestrator (Phase 2b.2)
+    will call this automatically; callers that invoke classify_row() directly
+    must call this manually if they need scoring.
+    """
+    n = len(classified_rows)
+    i = 0
+    while i < n:
+        c = classified_rows[i]
+        if c.classification != RowClassification.NOTE:
+            i += 1
+            continue
+
+        # Found the start of a note block. Walk forward to find the end
+        # of the contiguous note-or-spacer sequence and what terminates it.
+        block_start = i
+        j = i + 1
+        while j < n and classified_rows[j].classification in (
+            RowClassification.NOTE,
+            RowClassification.SPACER,
+        ):
+            j += 1
+        # j is now either out of bounds or pointing at the first non-note/spacer row
+        block_ends_with_line_item = (
+            j < n and classified_rows[j].classification == RowClassification.LINE_ITEM
+        )
+
+        # Score every NOTE in the block
+        for k in range(block_start, j):
+            row_k = classified_rows[k]
+            if row_k.classification != RowClassification.NOTE:
+                continue  # skip spacers within the block
+            is_first = (k == block_start)
+            score, signals = _compute_preamble_candidate_score(
+                row_k.raw_row,
+                row_k.description,
+                is_first_note_in_block=is_first,
+                block_ends_with_line_item=block_ends_with_line_item,
+                sheet_config=sheet_config,
+            )
+            row_k.preamble_candidate_score = score
+            row_k.preamble_candidate_signals = signals
+
+        i = j  # skip past the processed block
 
 
 # ------------------------------------------------------------------
