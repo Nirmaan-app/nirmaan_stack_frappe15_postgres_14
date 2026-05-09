@@ -103,23 +103,110 @@ def _categorize_sl_no_style(sl_no_value: str | None) -> str | None:
     return None
 
 
-def _detect_level_1_style(
+def _collect_first_two_preambles_for_detection(
     classified_rows: list[ClassifiedRow],
     start_index: int = 0,
-) -> Literal["letter", "roman", "numeric", "part"] | None:
+) -> tuple[str | None, str | None]:
     """
-    Scan forward from start_index to find the first PREAMBLE whose sl_no
-    categorizes as a level-1-eligible style (letter/roman/numeric/part).
-    Returns the style, or None if no such preamble exists.
+    Scan forward from start_index. Return the normalized sl_no of the first two
+    PREAMBLE rows whose categorized style is level-1-eligible
+    (letter, roman, numeric, or part — NOT lowercase_letter or multi_dot_numeric).
+    Returns (first, second) where either may be None if not enough preambles found.
     """
+    found: list[str] = []
     for i in range(start_index, len(classified_rows)):
         c = classified_rows[i]
         if c.classification != RowClassification.PREAMBLE:
             continue
         style = _categorize_sl_no_style(c.sl_no_value)
-        if style in _L1_STYLES:
-            return style  # type: ignore[return-value]
-    return None
+        if style not in _L1_STYLES:
+            continue
+        sl_no = (c.sl_no_value or "").strip().rstrip(".")
+        if sl_no:
+            found.append(sl_no)
+        if len(found) >= 2:
+            break
+    first = found[0] if len(found) >= 1 else None
+    second = found[1] if len(found) >= 2 else None
+    return first, second
+
+
+def _detect_level_1_style(
+    classified_rows: list[ClassifiedRow],
+    start_index: int = 0,
+) -> Literal["letter", "roman", "numeric", "part"] | None:
+    """
+    Detect the sheet's level_1_style by examining the first one or two
+    level-1-eligible preambles.
+
+    Single-character codes that are ambiguous (I, V, X, L, C, D, M can be
+    either alphabetic letters OR Roman numerals) are disambiguated by
+    looking at the next preamble's pattern:
+      - Unambiguous single letter (A, B, E, F, G, ... — NOT in [IVXLCDM]):
+        _categorize_sl_no_style returns "letter" → return "letter" immediately.
+      - Multi-char Roman (II, III, IV...) → "roman" immediately.
+      - Numeric or part → return directly (unambiguous).
+      - Single ambiguous char (I, V, X, L, C, D, M) — check second:
+          - second is multi-char Roman (II, III...) → "roman"  (e.g. Paytm I./II./III.)
+          - second is single char alphabetically near (abs(ord) ≤ 3) → "letter"
+            (e.g. JSW C./D. where C and D are adjacent)
+          - second is single char, both in [IVXLCDM], far apart → "roman"
+          - second absent or other style → "letter" (alphabetic codes are far more
+            common; user can override via SheetConfig.level_1_style_override="roman")
+    """
+    first, second = _collect_first_two_preambles_for_detection(classified_rows, start_index)
+
+    if first is None:
+        return None
+
+    first_style = _categorize_sl_no_style(first)
+
+    # Unambiguous: numeric and part need no lookahead
+    if first_style == "numeric":
+        return "numeric"
+    if first_style == "part":
+        return "part"
+
+    # Unambiguous: single uppercase letter that is NOT a Roman character
+    # (A, B, E, F, G, H, J, K, N, O, P, Q, R, S, T, U, W, Y, Z).
+    # _categorize_sl_no_style returns "letter" for these because they don't
+    # match _RE_ROMAN (^[IVXLCDM]+$).
+    if first_style == "letter":
+        return "letter"
+
+    # Unambiguous: multi-character Roman string (II, III, IV, XII, ...)
+    if first_style == "roman" and len(first) >= 2:
+        return "roman"
+
+    # Ambiguous: single char in [IVXLCDM] — categorizer says "roman" but it
+    # might really be an alphabetic section label (C=100, D=500, etc.).
+    # Disambiguate using the second eligible preamble.
+    if second is None:
+        # Only one eligible preamble; default to letter (alphabetic section
+        # codes are far more common in real BoQs than single Roman numerals
+        # used as standalone section headers).
+        return "letter"
+
+    second_style = _categorize_sl_no_style(second)
+
+    # Second is multi-char Roman → first is also Roman (Paytm I./II./III. pattern)
+    if second_style == "roman" and len(second) >= 2:
+        return "roman"
+
+    # Both are single characters — distinguish by alphabetic proximity
+    if second_style in ("letter", "roman") and len(second) == 1:
+        if abs(ord(second) - ord(first)) <= 3:
+            # Consecutive or near-consecutive alphabet (C→D, C→E, C→F) →
+            # almost certainly alphabetic section labels, not Roman numerals.
+            return "letter"
+        if all(c in "IVXLCDM" for c in first + second):
+            # Both are Roman chars and far apart alphabetically (e.g. I→V=13 apart)
+            # — consistent with a Roman numeral sequence but not alphabetic order.
+            return "roman"
+        return "letter"
+
+    # Second is numeric, multi-dot, or unrecognized — treat first as letter
+    return "letter"
 
 
 def _determine_preamble_level(
@@ -181,6 +268,17 @@ def _determine_preamble_level(
 
     # 3. Style matches the sheet's established level-1 convention → level 1
     if style is not None and style == level_1_style:
+        return 1, warns
+
+    # 3a. Single-char codes that are ambiguous between letter and roman
+    # (I, V, X, L, C, D, M) categorize as "roman" but may be alphabetic
+    # section labels in a letter-style sheet. Accept them at level 1 when
+    # the sheet is letter-coded and the code is exactly one character.
+    if (
+        level_1_style == "letter"
+        and style == "roman"
+        and len(sl_no.rstrip(".")) == 1
+    ):
         return 1, warns
 
     # 4. A recognized level-1-eligible style, but DIFFERENT from level_1_style → level 2

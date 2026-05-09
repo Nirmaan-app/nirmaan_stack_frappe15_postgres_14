@@ -691,5 +691,142 @@ class TestLevel1StyleDetection(unittest.TestCase):
         self.assertEqual(result.rows[3].parent_index, 2)
 
 
+    # ---------------------------------------------------------------- #
+    # Test 13 — JSW alphabetic sequence with C/D (the bug we fixed)   #
+    # ---------------------------------------------------------------- #
+
+    def test_jsw_alphabetic_sequence_with_C_and_D(self):
+        """
+        JSW Elect B1 pattern: section codes A, B, C, D, E, F, G are alphabetic.
+        C and D are valid Roman characters but should be treated as letters in
+        this context. Lookahead sees A (unambiguous letter) → level_1_style=letter;
+        special case in _determine_preamble_level then accepts single-char Roman
+        codes (C, D) as level 1 on letter-style sheets.
+        """
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "B."),
+            _make_preamble(2, "C."),
+            _make_preamble(3, "D"),
+            _make_preamble(4, "E"),
+            _make_preamble(5, "F"),
+            _make_preamble(6, "G"),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+
+        for idx in range(7):
+            self.assertEqual(
+                result.rows[idx].level, 1,
+                f"Letter at idx {idx} (sl_no={rows[idx].sl_no_value!r}) should be level 1",
+            )
+            self.assertIsNone(
+                result.rows[idx].parent_index,
+                f"Letter at idx {idx} should have no parent",
+            )
+
+    # ---------------------------------------------------------------- #
+    # Test 14 — JSW pattern with numeric children under C and D        #
+    # ---------------------------------------------------------------- #
+
+    def test_jsw_pattern_with_numeric_children_under_letters(self):
+        """
+        Full JSW Elect B1 mini-tree: A→1.0, B→1.0, C→1.0, D→1.0.
+        Verifies C and D correctly take their own numeric children rather than
+        leaving those children parented under B (the bug before the fix).
+        """
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "1.0"),  # under A.
+            _make_preamble(2, "B."),
+            _make_preamble(3, "1.0"),  # under B.
+            _make_preamble(4, "C."),
+            _make_preamble(5, "1.0"),  # under C.
+            _make_preamble(6, "D"),
+            _make_preamble(7, "1.0"),  # under D.
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+
+        self.assertEqual(result.rows[1].parent_index, 0)  # 1.0 under A
+        self.assertEqual(result.rows[3].parent_index, 2)  # 1.0 under B
+        self.assertEqual(result.rows[5].parent_index, 4)  # 1.0 under C
+        self.assertEqual(result.rows[7].parent_index, 6)  # 1.0 under D
+
+    # ---------------------------------------------------------------- #
+    # Test 15 — Paytm Roman sequence still works (regression check)    #
+    # ---------------------------------------------------------------- #
+
+    def test_paytm_roman_sequence_starting_at_I(self):
+        """
+        Paytm pattern: section codes I, II, III, IV. Lookahead detection
+        sees first=I (ambiguous single char), second=II (multi-char Roman)
+        → resolves to roman style. All four sections at level 1.
+        This is the regression check for the previous fix attempt that broke
+        this exact pattern by doing a naive single-letter-before-Roman swap.
+        """
+        rows = [
+            _make_preamble(0, "I."),
+            _make_preamble(1, "II."),
+            _make_preamble(2, "III."),
+            _make_preamble(3, "IV."),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+
+        for idx in range(4):
+            self.assertEqual(
+                result.rows[idx].level, 1,
+                f"Roman at idx {idx} (sl_no={rows[idx].sl_no_value!r}) should be level 1",
+            )
+            self.assertIsNone(result.rows[idx].parent_index)
+
+    # ---------------------------------------------------------------- #
+    # Test 16 — single ambiguous char alone defaults to letter          #
+    # ---------------------------------------------------------------- #
+
+    def test_single_ambiguous_char_alone_defaults_to_letter(self):
+        """
+        BoQ with only one eligible preamble that's an ambiguous single Roman char
+        (C. with no second eligible preamble for disambiguation). Default to
+        'letter' style — alphabetic patterns far more common. Recovery via
+        SheetConfig.level_1_style_override='roman'.
+        """
+        rows = [
+            _make_preamble(0, "C."),
+            _make_line_item(1),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertIsNone(result.rows[0].parent_index)
+
+    # ---------------------------------------------------------------- #
+    # Test 17 — override forces Roman even when first char is C        #
+    # ---------------------------------------------------------------- #
+
+    def test_override_roman_forces_roman_even_with_C_first(self):
+        """
+        SheetConfig.level_1_style_override='roman' bypasses lookahead entirely.
+        A BoQ starting with C. but known to use Roman coding sets the override;
+        both C. and D. (both categorize as 'roman') resolve to level 1.
+        """
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "D": ColumnRole(role="qty"),
+            },
+            level_1_style_override="roman",
+        )
+        rows = [
+            _make_preamble(0, "C."),
+            _make_preamble(1, "D."),
+        ]
+        result = resolve_hierarchy(rows, config, _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertIsNone(result.rows[0].parent_index)
+        self.assertEqual(result.rows[1].level, 1)
+        self.assertIsNone(result.rows[1].parent_index)
+
+
 if __name__ == "__main__":
     unittest.main()
