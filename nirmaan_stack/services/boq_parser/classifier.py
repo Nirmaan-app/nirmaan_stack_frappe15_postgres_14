@@ -377,6 +377,30 @@ def classify_row(
             f"Row {raw_row.row_number}: has unclear classification — defaulted to note."
         )
 
+    # ---------------------------------------------------------------- #
+    # Post-extraction emptiness guard                                    #
+    # ---------------------------------------------------------------- #
+    # A row classified as NOTE that has no meaningful extracted content is
+    # a "ghost note" — typically a template row whose only non-None cell is
+    # a computed-zero formula (e.g. =N($D17)*N(E17) with blank qty/rate).
+    # JSW Elect B1 has ~70 such rows.  Override to SPACER so they are
+    # silently skipped by the hierarchy resolver.
+    if classification == RowClassification.NOTE:
+        has_any_content = (
+            bool(sl_no_value and sl_no_value.strip())
+            or bool(desc_text and desc_text.strip())
+            or bool(unit and unit.strip())
+            or qty is not None
+            or rate_supply is not None
+            or rate_install is not None
+            or rate_combined is not None
+            or bool(make_model and make_model.strip())
+            or bool(row_notes and row_notes.strip())
+        )
+        if not has_any_content:
+            classification = RowClassification.SPACER
+            warnings = []
+
     return ClassifiedRow(
         raw_row=raw_row,
         classification=classification,

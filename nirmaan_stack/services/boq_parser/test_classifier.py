@@ -358,5 +358,35 @@ class TestClassifier(unittest.TestCase):
         self.assertTrue(result.is_rate_only)
 
 
+    # ---------------------------------------------------------------- #
+    # Test — ghost-note suppression (formula-only row → SPACER)         #
+    # ---------------------------------------------------------------- #
+
+    def test_ghost_note_row_with_only_zero_formula_classifies_as_spacer(self):
+        """
+        Real-world bug: BoQ templates pre-populate amount cells with a
+        formula like =N($D17)*N(E17) that evaluates to 0 when qty and rate
+        are both blank.  The row is visually empty but raw_row.is_blank()
+        returns False because value=0 is not None.  Without the post-
+        extraction emptiness guard the row was classified as NOTE (unclear).
+        After the fix it must be SPACER since every extracted field is empty.
+        (JSW Elect B1 has ~70 such rows.)
+        """
+        row = _make_row(17, {
+            "F": {
+                "value": 0,
+                "formula": "=+N($D17)*N(E17)",
+                "is_formula": True,
+            },
+        })
+        # _basic_sheet_config() already maps F → amount_supply
+        result = classify_row(row, _basic_sheet_config(), GlobalSettings())
+
+        self.assertEqual(result.classification, RowClassification.SPACER)
+        self.assertIsNone(result.description)
+        self.assertIsNone(result.qty)
+        self.assertEqual(result.warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()
