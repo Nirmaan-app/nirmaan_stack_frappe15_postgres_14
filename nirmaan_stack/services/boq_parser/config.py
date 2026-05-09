@@ -6,7 +6,7 @@ or hand-crafted in tests) and drives the parser in Phase 2b/2c.  This module
 is pure-Python with no Frappe imports so it can be tested independently.
 """
 import re
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -59,6 +59,7 @@ class SheetConfig(BaseModel):
     column_role_map: dict[str, ColumnRole] = {}
     area_dimensions: list[str] = []
     rate_only_markers_override: list[str] | None = None
+    level_1_style_override: Optional[Literal["letter", "roman", "numeric", "part"]] = None
 
     @field_validator("column_role_map", mode="before")
     @classmethod

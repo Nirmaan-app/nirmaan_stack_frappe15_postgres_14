@@ -396,5 +396,300 @@ class TestHierarchyResolver(unittest.TestCase):
         self.assertEqual(result.warnings, [])
 
 
+class TestLevel1StyleDetection(unittest.TestCase):
+    """Phase 2b.1b fix — context-aware level_1_style detection tests."""
+
+    # ---------------------------------------------------------------- #
+    # Helper                                                            #
+    # ---------------------------------------------------------------- #
+
+    @staticmethod
+    def _make_preamble_with_indent(
+        idx: int,
+        sl_no: str,
+        indent: int = 0,
+        description: str = "Section",
+    ) -> ClassifiedRow:
+        cells = {
+            "A": CellInfo(
+                value=sl_no,
+                formula=None,
+                is_formula=False,
+                is_merged_origin=False,
+                merged_range=None,
+                font_bold=False,
+                fill_color_rgb=None,
+                indent=indent,
+            )
+        }
+        raw_row = RawRow(row_number=idx + 1, cells=cells)
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.PREAMBLE,
+            sl_no_value=sl_no,
+            description=description,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — letter detected as level_1_style                        #
+    # ---------------------------------------------------------------- #
+
+    def test_level_1_style_detected_from_first_letter_preamble(self):
+        """First preamble 'A.' sets level_1_style=letter; '1.0' → level 2."""
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "1.0"),
+            _make_line_item(2),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 2)
+        self.assertEqual(result.rows[1].parent_index, 0)
+        self.assertEqual(result.rows[2].parent_index, 1)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — numeric detected as level_1_style                       #
+    # ---------------------------------------------------------------- #
+
+    def test_level_1_style_detected_from_first_numeric_preamble(self):
+        """First preamble '1.0' sets level_1_style=numeric; '2.0' → level 1 sibling."""
+        rows = [
+            _make_preamble(0, "1.0"),
+            _make_preamble(1, "2.0"),
+            _make_line_item(2),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 1)
+        self.assertIsNone(result.rows[0].parent_index)
+        self.assertIsNone(result.rows[1].parent_index)
+        self.assertEqual(result.rows[2].parent_index, 1)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — Pattern X (JSW Elect B1 style)                          #
+    # ---------------------------------------------------------------- #
+
+    def test_pattern_x_letter_then_numeric_nesting(self):
+        """JSW Elect B1: A./B. are L1, numeric codes under them are L2."""
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "1.0"),
+            _make_preamble(2, "3.0"),
+            _make_line_item(3),
+            _make_preamble(4, "B."),
+            _make_preamble(5, "1.0"),
+            _make_line_item(6),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        # A. and B. are level 1
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[4].level, 1)
+        self.assertIsNone(result.rows[0].parent_index)
+        self.assertIsNone(result.rows[4].parent_index)
+        # 1.0 and 3.0 under A. are level 2, parent=A.
+        self.assertEqual(result.rows[1].level, 2)
+        self.assertEqual(result.rows[1].parent_index, 0)
+        self.assertEqual(result.rows[2].level, 2)
+        self.assertEqual(result.rows[2].parent_index, 0)
+        # 1.0 under B. is level 2, parent=B.
+        self.assertEqual(result.rows[5].level, 2)
+        self.assertEqual(result.rows[5].parent_index, 4)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — Pattern Y (numeric top → letter sub)                    #
+    # ---------------------------------------------------------------- #
+
+    def test_pattern_y_numeric_then_letter_nesting(self):
+        """Numeric top-level; letter preambles are level-2 sub-sections."""
+        rows = [
+            _make_preamble(0, "1."),
+            _make_preamble(1, "A."),
+            _make_preamble(2, "B."),
+            _make_preamble(3, "2."),
+            _make_preamble(4, "A."),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        # 1. and 2. are level 1
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[3].level, 1)
+        self.assertIsNone(result.rows[0].parent_index)
+        self.assertIsNone(result.rows[3].parent_index)
+        # A. and B. under 1. are level 2, parent=1.
+        self.assertEqual(result.rows[1].level, 2)
+        self.assertEqual(result.rows[1].parent_index, 0)
+        self.assertEqual(result.rows[2].level, 2)
+        self.assertEqual(result.rows[2].parent_index, 0)
+        # A. under 2. is level 2, parent=2.
+        self.assertEqual(result.rows[4].level, 2)
+        self.assertEqual(result.rows[4].parent_index, 3)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — lowercase letter always one deeper                       #
+    # ---------------------------------------------------------------- #
+
+    def test_lowercase_letter_always_one_deeper(self):
+        """Lowercase 'a' is always stack_depth+1, never a level-1 style."""
+        rows = [
+            _make_preamble(0, "1.0"),
+            _make_preamble(1, "a"),
+            _make_line_item(2),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 2)
+        self.assertEqual(result.rows[1].parent_index, 0)
+        self.assertEqual(result.rows[2].parent_index, 1)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — multi-dot numeric unambiguous in Pattern X              #
+    # ---------------------------------------------------------------- #
+
+    def test_multi_dot_numeric_unambiguous_pattern_x(self):
+        """Under letter-style L1, multi-dot codes are not Pattern Y — no warning."""
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "1.1"),
+            _make_preamble(2, "1.1.4"),
+            _make_line_item(3),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 2)  # 1 + 1 dot
+        self.assertEqual(result.rows[2].level, 3)  # 1 + 2 dots
+        # No Pattern Y warning emitted (level_1_style is "letter", not "numeric")
+        self.assertFalse(
+            any("ambiguous_level_pattern_y" in w for w in result.warnings),
+            "Pattern Y warning should NOT be emitted under letter-style L1",
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — Pattern Y warning emitted for multi-dot under non-numeric#
+    # ---------------------------------------------------------------- #
+
+    def test_multi_dot_numeric_pattern_y_emits_warning(self):
+        """Multi-dot code under a non-numeric parent with numeric L1 → Pattern Y warning."""
+        rows = [
+            _make_preamble(0, "1."),   # numeric L1
+            _make_preamble(1, "A."),   # letter → level 2 under 1.
+            _make_preamble(2, "1.1"),  # multi-dot; parent is A. (non-numeric)
+            _make_line_item(3),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertTrue(
+            any("ambiguous_level_pattern_y" in w for w in result.warnings),
+            "Expected Pattern Y warning for 1.1 under A. parent",
+        )
+        self.assertEqual(result.rows[2].level, 2)  # default = 1 + dot count
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — level_1_style_override bypasses auto-detection           #
+    # ---------------------------------------------------------------- #
+
+    def test_level_1_style_override_skips_detection(self):
+        """override='numeric' → first preamble 'A.' treated as level 2 (not L1)."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "D": ColumnRole(role="qty"),
+            },
+            level_1_style_override="numeric",
+        )
+        rows = [_make_preamble(0, "A.")]
+        result = resolve_hierarchy(rows, config, _gs())
+        # 'A.' is "letter" style, differs from "numeric" override → level 2
+        self.assertEqual(result.rows[0].level, 2)
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — re-detect level_1_style after mid-sheet reset           #
+    # ---------------------------------------------------------------- #
+
+    def test_mid_sheet_reset_redetects_level_1_style(self):
+        """After 'TOTAL ITEM NO. X', level_1_style is re-detected from next preamble."""
+        rows = [
+            _make_preamble(0, "A."),                          # sets style=letter
+            _make_preamble(1, "1.0"),                         # level 2 under A.
+            _make_subtotal(2, "TOTAL ITEM NO. 5"),            # reset + re-detect
+            _make_preamble(3, "1.0"),                         # first preamble of new section → numeric
+            _make_preamble(4, "A."),                          # letter, different → level 2 under 1.0
+            _make_line_item(5),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        # First section: A. is L1, 1.0 is L2 under A.
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 2)
+        self.assertEqual(result.rows[1].parent_index, 0)
+        # After reset: 1.0 becomes L1 (re-detected style=numeric)
+        self.assertIsNone(result.rows[3].parent_index)
+        self.assertEqual(result.rows[3].level, 1)
+        # A. after 1.0 is level 2 under 1.0
+        self.assertEqual(result.rows[4].level, 2)
+        self.assertEqual(result.rows[4].parent_index, 3)
+        # line_item parents to A.
+        self.assertEqual(result.rows[5].parent_index, 4)
+
+    # ---------------------------------------------------------------- #
+    # Test 10 — unknown sl_no falls back with warning                  #
+    # ---------------------------------------------------------------- #
+
+    def test_unknown_sl_no_falls_back_with_warning(self):
+        """Unrecognized sl_no emits a warning; tree remains well-formed."""
+        rows = [
+            _make_preamble(0, "A."),
+            _make_preamble(1, "custom-code-xyz"),
+            _make_line_item(2),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        # A warning should be recorded for the unknown code
+        self.assertTrue(
+            any("custom-code-xyz" in w for w in result.warnings),
+            "Expected warning mentioning unrecognized sl_no",
+        )
+        # Line item still parented somewhere (to the unknown preamble)
+        self.assertIsNotNone(result.rows[2].parent_index)
+        self.assertEqual(result.rows[2].parent_index, 1)
+
+    # ---------------------------------------------------------------- #
+    # Test 11 — uppercase letter is L1, lowercase is not               #
+    # ---------------------------------------------------------------- #
+
+    def test_uppercase_letter_is_level_1_lowercase_is_not(self):
+        """'A' → level 1 (letter style); 'a' → level 2 (stack_depth+1)."""
+        rows = [
+            _make_preamble(0, "A"),
+            _make_preamble(1, "a"),
+            _make_line_item(2),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 2)
+        self.assertEqual(result.rows[1].parent_index, 0)
+        self.assertEqual(result.rows[2].parent_index, 1)
+
+    # ---------------------------------------------------------------- #
+    # Test 12 — Roman numeral sets roman style; numeric → level 2      #
+    # ---------------------------------------------------------------- #
+
+    def test_roman_first_preamble_sets_roman_style(self):
+        """I./II. establish roman style; '1.0' (numeric) → level 2 under II."""
+        rows = [
+            _make_preamble(0, "I."),
+            _make_preamble(1, "II."),
+            _make_preamble(2, "1.0"),
+            _make_line_item(3),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(result.rows[0].level, 1)
+        self.assertEqual(result.rows[1].level, 1)
+        self.assertIsNone(result.rows[0].parent_index)
+        self.assertIsNone(result.rows[1].parent_index)
+        # '1.0' is numeric, different from roman → level 2 under II.
+        self.assertEqual(result.rows[2].level, 2)
+        self.assertEqual(result.rows[2].parent_index, 1)
+        self.assertEqual(result.rows[3].parent_index, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

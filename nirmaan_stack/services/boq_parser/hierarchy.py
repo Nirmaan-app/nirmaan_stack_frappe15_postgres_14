@@ -8,11 +8,13 @@ Out of scope (deferred to later phases):
   - Multi-area qty splitting into qty_by_area child rows  → Phase 2b.2
   - parse_boq() entry point wiring                        → Phase 2b.2
   - DB commit / parent_node assignment                    → Phase 2c
+  - Pattern Y multi-dot disambiguation (per-row prompt)   → Phase 3 wizard
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
 from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
 from nirmaan_stack.services.boq_parser.config import GlobalSettings, SheetConfig
@@ -51,135 +53,165 @@ _MID_SHEET_RESET_RE = re.compile(
     r"^\s*total\s+item\s+no\.?\s+\d+", re.IGNORECASE
 )
 
-# Patterns for preamble level determination (applied to normalized sl_no,
-# after stripping leading/trailing whitespace and a trailing dot).
-_PURE_DIGITS_RE      = re.compile(r"^\d+$")
-_DOTTED_DECIMAL_RE   = re.compile(r"^\d+(\.\d+)+$")
-_SINGLE_LETTER_RE    = re.compile(r"^[A-Za-z]$")
-_PART_A_RE           = re.compile(r"^PART-[A-Za-z]+$", re.IGNORECASE)
-_ROMAN_RE            = re.compile(r"^[IVXLCDMivxlcdm]+$")
-_LETTER_UNDER_NUM_RE = re.compile(r"^\d+[A-Za-z]$")
-_DECIMAL_LETTER_RE   = re.compile(r"^\d+\.\d+[A-Za-z]$")
+# Patterns for _categorize_sl_no_style (pre-compiled for performance).
+# All applied AFTER strip() + rstrip(".") normalization.
+_RE_PART    = re.compile(r"^PART-[A-Za-z]+$", re.IGNORECASE)
+_RE_ROMAN   = re.compile(r"^[IVXLCDM]+$")          # uppercase-only Roman
+_RE_UPPER   = re.compile(r"^[A-Z]$")                # single uppercase letter
+_RE_LOWER   = re.compile(r"^[a-z]$")                # single lowercase letter
+_RE_MULTI1  = re.compile(r"^\d+\.\d+(\.\d+)+$")    # e.g. "1.1.4"
+_RE_MULTI2  = re.compile(r"^\d+\.\d+$")             # e.g. "1.1"
+_RE_NUMERIC = re.compile(r"^\d+(\.0)?$")             # e.g. "1", "1.0", "30"
+
+_L1_STYLES = frozenset(("letter", "roman", "numeric", "part"))
 
 
 # ------------------------------------------------------------------
 # Private helpers
 # ------------------------------------------------------------------
 
+def _categorize_sl_no_style(sl_no_value: str | None) -> str | None:
+    """
+    Categorize a preamble sl_no code into one of:
+      'letter', 'roman', 'numeric', 'part', 'lowercase_letter',
+      'multi_dot_numeric', or None if uncategorizable.
+
+    Only 'letter', 'roman', 'numeric', and 'part' are level-1-eligible.
+    'lowercase_letter' and 'multi_dot_numeric' are inherently sub-codes.
+    """
+    if not sl_no_value:
+        return None
+    sl_no = sl_no_value.strip().rstrip(".")
+    if not sl_no:
+        return None
+    if _RE_PART.match(sl_no):
+        return "part"
+    if _RE_ROMAN.match(sl_no):
+        return "roman"
+    if _RE_UPPER.match(sl_no):
+        return "letter"
+    if _RE_LOWER.match(sl_no):
+        return "lowercase_letter"
+    # Check numeric (catches "1.0" decoration) BEFORE multi-dot checks
+    # so that "1.0" → "numeric" rather than "multi_dot_numeric".
+    if _RE_NUMERIC.match(sl_no):
+        return "numeric"
+    if _RE_MULTI1.match(sl_no):
+        return "multi_dot_numeric"
+    if _RE_MULTI2.match(sl_no):
+        return "multi_dot_numeric"
+    return None
+
+
+def _detect_level_1_style(
+    classified_rows: list[ClassifiedRow],
+    start_index: int = 0,
+) -> Literal["letter", "roman", "numeric", "part"] | None:
+    """
+    Scan forward from start_index to find the first PREAMBLE whose sl_no
+    categorizes as a level-1-eligible style (letter/roman/numeric/part).
+    Returns the style, or None if no such preamble exists.
+    """
+    for i in range(start_index, len(classified_rows)):
+        c = classified_rows[i]
+        if c.classification != RowClassification.PREAMBLE:
+            continue
+        style = _categorize_sl_no_style(c.sl_no_value)
+        if style in _L1_STYLES:
+            return style  # type: ignore[return-value]
+    return None
+
+
 def _determine_preamble_level(
     classified_row: ClassifiedRow,
+    level_1_style: Literal["letter", "roman", "numeric", "part"] | None,
     stack_depth: int,
+    stack_top_index: int | None,
+    classified_rows: list[ClassifiedRow],
+    raw_row: object,  # RawRow — typed as object to avoid circular complexity
     sheet_config: SheetConfig,
 ) -> tuple[int, list[str]]:
     """
-    Infer hierarchy level (1-indexed) from a PREAMBLE row's sl_no and formatting.
+    Determine the level of a PREAMBLE row given the sheet's level_1_style
+    and current stack state. Returns (level, warnings_for_this_row).
 
-    Falls back to cell indent, then stack_depth+1. Records a warning for each
-    fallback used. Emits a soft warning for level > 5.
+    Decision table (first match wins):
+      1. empty sl_no              → stack_depth + 1  (with warning)
+      2. lowercase_letter         → stack_depth + 1  (inherently sub-code)
+      3. multi_dot_numeric        → 1 + dot_count    (emit Pattern Y warning if ambiguous)
+      4. style == level_1_style   → 1                (matches sheet's top-level convention)
+      5. other recognized style   → 2                (different top-level style → sub-level)
+      6. unknown                  → indent fallback, then stack_depth + 1
     """
-    row_num = classified_row.raw_row.row_number
+    from nirmaan_stack.services.boq_parser.reader import RawRow as _RawRow  # local to avoid top-level cycle
+    rr: _RawRow = raw_row  # type: ignore[assignment]
+
+    sl_no = (classified_row.sl_no_value or "").strip()
+    row_num = rr.row_number
     warns: list[str] = []
 
-    sl_no = classified_row.sl_no_value
-    if not sl_no or not sl_no.strip():
+    if not sl_no:
         level = stack_depth + 1
-        warns.append(f"Row {row_num}: empty sl_no, defaulting to level {level}")
-        if level > 5:
-            warns.append(
-                f"Row {row_num}: deep preamble nesting (level {level}); "
-                f"verify this is intentional"
+        return level, [
+            f"Row {row_num}: empty sl_no for preamble; defaulted to depth + 1 = {level}"
+        ]
+
+    style = _categorize_sl_no_style(sl_no)
+
+    # 1. Single lowercase letter — always one deeper than current stack
+    if style == "lowercase_letter":
+        return stack_depth + 1, warns
+
+    # 2. Multi-dot numeric — depth derived from dot count
+    if style == "multi_dot_numeric":
+        normalized = sl_no.rstrip(".")
+        depth = 1 + normalized.count(".")
+        # Pattern Y ambiguity: level_1_style is "numeric" but parent is a non-numeric style
+        if level_1_style == "numeric" and stack_top_index is not None:
+            top_style = _categorize_sl_no_style(
+                classified_rows[stack_top_index].sl_no_value
             )
-        return level, warns
+            if top_style and top_style not in ("numeric", "multi_dot_numeric"):
+                warns.append(
+                    f"Row {row_num}: ambiguous level for code {sl_no!r} under "
+                    f"{top_style!r} parent (Pattern Y BoQ); used default depth "
+                    f"{depth}; category=ambiguous_level_pattern_y"
+                )
+        return depth, warns
 
-    normalized = sl_no.strip().rstrip(".")
-
-    # --- Pattern 1: pure integer (e.g. "1", "12") ---
-    if _PURE_DIGITS_RE.match(normalized):
+    # 3. Style matches the sheet's established level-1 convention → level 1
+    if style is not None and style == level_1_style:
         return 1, warns
 
-    # --- Pattern 2: dotted-decimal with at least one dot (e.g. "1.0", "1.1.4") ---
-    if _DOTTED_DECIMAL_RE.match(normalized):
-        parts = normalized.split(".")
-        trailing_zeros = 0
-        for part in reversed(parts):
-            if part == "0":
-                trailing_zeros += 1
-            else:
-                break
-        if trailing_zeros == 1:
-            parts = parts[:-1]
-        elif trailing_zeros > 1:
-            # Ambiguous (e.g. "1.0.0") — treat as level 1
-            return 1, warns
-        level = len(parts)
-        if level > 5:
-            warns.append(
-                f"Row {row_num}: deep preamble nesting (level {level}); "
-                f"verify this is intentional"
-            )
-        return level, warns
-
-    # --- Pattern 3: single letter (e.g. "A", "B") ---
-    if _SINGLE_LETTER_RE.match(normalized):
-        return 1, warns
-
-    # --- Pattern 4: PART-X (e.g. "PART-A", "PART-B") ---
-    if _PART_A_RE.match(normalized):
-        return 1, warns
-
-    # --- Pattern 5: Roman numeral (e.g. "I", "II", "IV") ---
-    if _ROMAN_RE.match(normalized):
-        return 1, warns
-
-    # --- Pattern 6: digit + letter (e.g. "1a", "2B") → level 2 ---
-    if _LETTER_UNDER_NUM_RE.match(normalized):
+    # 4. A recognized level-1-eligible style, but DIFFERENT from level_1_style → level 2
+    if style in _L1_STYLES:
         return 2, warns
 
-    # --- Pattern 7: digit.digit + letter (e.g. "1.1a") → level 3 ---
-    if _DECIMAL_LETTER_RE.match(normalized):
-        return 3, warns
-
-    # --- Fallback 1: cell indent on the sl_no column ---
-    sl_no_indent = _get_sl_no_indent(classified_row, sheet_config)
-    if sl_no_indent > 0:
-        level = sl_no_indent + 1
-        warns.append(
-            f"Row {row_num}: sl_no '{sl_no}' did not match known pattern; "
-            f"level inferred from indent = {level}"
-        )
-        if level > 5:
-            warns.append(
-                f"Row {row_num}: deep preamble nesting (level {level}); "
-                f"verify this is intentional"
-            )
-        return level, warns
-
-    # --- Fallback 2: stack depth + 1 ---
-    level = stack_depth + 1
-    warns.append(
-        f"Row {row_num}: level could not be determined; "
-        f"defaulted to current depth + 1"
-    )
-    if level > 5:
-        warns.append(
-            f"Row {row_num}: deep preamble nesting (level {level}); "
-            f"verify this is intentional"
-        )
-    return level, warns
-
-
-def _get_sl_no_indent(
-    classified_row: ClassifiedRow,
-    sheet_config: SheetConfig,
-) -> int:
-    """Return the indent value of the sl_no cell, or 0 if not found."""
+    # 5. Unknown style — fallback chain
+    # Try sl_no cell indent first
+    sl_no_col: str | None = None
     for col_letter, col_role in sheet_config.column_role_map.items():
         if col_role.role == "sl_no":
-            cell = classified_row.raw_row.get_cell(col_letter)
-            if cell is not None:
-                return cell.indent
-            return 0
-    return 0
+            sl_no_col = col_letter
+            break
+
+    if sl_no_col:
+        sl_no_cell = rr.cells.get(sl_no_col)
+        if sl_no_cell and sl_no_cell.indent > 0:
+            level = sl_no_cell.indent + 1
+            warns.append(
+                f"Row {row_num}: sl_no {sl_no!r} did not match known pattern; "
+                f"level inferred from cell indent = {level}"
+            )
+            return level, warns
+
+    # Final fallback: stack depth + 1
+    level = stack_depth + 1
+    warns.append(
+        f"Row {row_num}: sl_no {sl_no!r} could not be categorized; "
+        f"defaulted to stack depth + 1 = {level}"
+    )
+    return level, warns
 
 
 def _top_non_none(stack: list[int | None]) -> int | None:
@@ -208,19 +240,28 @@ def resolve_hierarchy(
     Stack invariant: stack[i] holds the resolved-row index of the most
     recently seen preamble at level (i+1). stack entries may be None when
     a higher-level preamble arrived before a lower-level one.
+
+    level_1_style is detected from the first level-1-eligible preamble and
+    re-detected after each mid-sheet numbering reset. An override can be
+    supplied via SheetConfig.level_1_style_override for Phase 3/4 use.
     """
     resolved: list[ResolvedRow] = []
-    # resolved-row-index → path string (populated as we build)
     path_cache: dict[int, str] = {}
-    # stack[i] = resolved-row index of most recent preamble at level (i+1)
     stack: list[int | None] = []
-    # preamble resolved-row-index → accumulated note texts
     notes_to_attach: dict[int, list[str]] = {}
     master_preamble_notes: list[str] = []
     sheet_warnings: list[str] = []
 
-    for classified_row in classified_rows:
-        idx = len(resolved)  # this row's position in the output list
+    # Determine level_1_style: use the override if provided, else auto-detect.
+    if sheet_config.level_1_style_override is not None:
+        level_1_style: Literal["letter", "roman", "numeric", "part"] | None = (
+            sheet_config.level_1_style_override
+        )
+    else:
+        level_1_style = _detect_level_1_style(classified_rows, 0)
+
+    for current_index, classified_row in enumerate(classified_rows):
+        idx = len(resolved)
         cls = classified_row.classification
 
         # ---------------------------------------------------------- #
@@ -237,6 +278,12 @@ def resolve_hierarchy(
             desc = classified_row.description or ""
             if _MID_SHEET_RESET_RE.match(desc):
                 stack.clear()
+                # Re-detect level_1_style from the next section's first preamble.
+                # Only re-detect if no override is in effect.
+                if sheet_config.level_1_style_override is None:
+                    new_style = _detect_level_1_style(classified_rows, current_index + 1)
+                    if new_style is not None:
+                        level_1_style = new_style
             resolved.append(ResolvedRow(classified_row=classified_row))
             continue
 
@@ -244,8 +291,15 @@ def resolve_hierarchy(
         # PREAMBLE                                                     #
         # ---------------------------------------------------------- #
         if cls == RowClassification.PREAMBLE:
+            stack_top_index = _top_non_none(stack)
             level, row_warns = _determine_preamble_level(
-                classified_row, len(stack), sheet_config
+                classified_row,
+                level_1_style,
+                len(stack),
+                stack_top_index,
+                classified_rows,
+                classified_row.raw_row,
+                sheet_config,
             )
             sheet_warnings.extend(row_warns)
 
@@ -256,7 +310,6 @@ def resolve_hierarchy(
                 stack.append(None)
 
             parent_index = stack[-1] if stack and stack[-1] is not None else None
-
             path = str(idx) if parent_index is None else path_cache[parent_index] + "/" + str(idx)
 
             # Extend stack to hold this level, then place this row
