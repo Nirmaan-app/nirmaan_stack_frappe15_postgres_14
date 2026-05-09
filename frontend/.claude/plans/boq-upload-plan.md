@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a complete and tested (incl. ghost-note fix). Phase 2b.1b (hierarchy resolver) ready to draft. Phase 2b.2 (multi-area + first end-to-end fixture) and Phase 2c (DB commit + version cascade + 4 more fixtures) follow.
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested. Phase 2b.2 (multi-area + first end-to-end fixture) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
 **Owner:** Internal team.
-**Last updated:** 2026-05-09 (after Phase 2b.1a ghost-note suppression fix — 18 classifier tests, 130 total).
+**Last updated:** 2026-05-09 (after Phase 2b.1b hierarchy resolver — 19 hierarchy tests, 72 parser tests, 149 total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2b.1a ghost-note fix (`ab99fb6c`).
+**Latest commit:** Phase 2b.1b hierarchy resolver (`fdb6eb64`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -405,16 +405,19 @@ Branch: `feature/boq-phase-2`. Commit: `9d8afac5`.
 
 **Follow-up fix (ghost-note suppression):** Manual verification on real JSW Elect B1 revealed ~70 visually-empty rows being classified as NOTE because they contained leftover template formulas (e.g. `=N($D17)*N(E17)` evaluating to 0 with blank qty/rate). Added a post-extraction emptiness check after the classification decision: if classification = NOTE AND every extracted field (sl_no_value, desc_text, unit, qty, all rates, make_model, row_notes) is None/empty, override to SPACER and clear warnings. 1 new test (18 total classifier tests, 130 total). Commit: `ab99fb6c`.
 
-### Phase 2b.1b — Hierarchy resolver ⏳ NEXT
+### Phase 2b.1b — Hierarchy resolver ✅ COMPLETE
 
-- resolve_hierarchy(classified_rows, sheet_config) → list of nodes with parent_index assignments + path strings
-- Stack-walk algorithm with in-memory path cache (DB-driven path computation breaks during bulk insert)
-- Handles mid-sheet numbering reset via "TOTAL ITEM NO. X" regex (Inovalon HVAC pattern)
-- Note attachment: default to immediate parent preamble (warning if note has no parent)
-- ~10 unit tests on synthetic data
-- ~45 min Claude Code work
+**What it built:**
+- `hierarchy.py`: `ResolvedRow` dataclass (parent_index, level, path, attached_to_index, attached_notes), `ResolvedSheet` dataclass (rows, master_preamble_notes, warnings), `resolve_hierarchy()` pure function, `_determine_preamble_level()` private helper.
+- Stack-walk algorithm with in-memory `path_cache: dict[int, str]` — avoids DB round-trips during bulk insert. `stack[i]` holds the resolved-row index of the most recent preamble at level i+1.
+- **Note attachment:** notes attach to the topmost non-None preamble on the stack. Notes before the first preamble go to `ResolvedSheet.master_preamble_notes`.
+- **Mid-sheet numbering reset:** SUBTOTAL_MARKER rows matching `^\s*total\s+item\s+no\.?\s+\d+` (case-insensitive) clear the stack entirely; subsequent preambles restart at level 1. Plain subtotals (e.g. "TOTAL CARRIED OVER") do not reset.
+- **Level determination heuristic** (in order): pure integer → level 1; dotted-decimal (trailing `.0` stripped; ambiguous `1.0.0` → level 1) → len(parts) depth; single letter (A., B.) → level 1; PART-X → level 1; Roman numeral → level 1; digit+letter (1a) → level 2; digit.digit+letter (1.1a) → level 3; fallback to `sl_no` cell indent (indent+1); final fallback to stack_depth+1. Soft warning emitted for level > 5.
+- 19 new tests across 4 families (tree shape, note attachment, special markers, level heuristics). All 72 parser tests passing (14 config + 21 reader + 18 classifier + 19 hierarchy). 77 Phase 1.x tests still passing.
 
-### Phase 2b.2 — Multi-area + first end-to-end fixture ⏳ AFTER 2b.1b
+Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
+
+### Phase 2b.2 — Multi-area + first end-to-end fixture ⏳ NEXT
 
 - Multi-area qty processing — populates qty_by_area per row from the qty_by_area_raw dict the classifier already captures
 - First end-to-end test fixture using real Snitch BoQ (small, 4-sheet file, simple structure)
