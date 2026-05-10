@@ -8,13 +8,16 @@ is pure-Python with no Frappe imports so it can be tested independently.
 import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ------------------------------------------------------------------
 # Roles a column can play
 # ------------------------------------------------------------------
 
-_AREA_COMPATIBLE_ROLES = {"qty", "amount_supply", "amount_install", "amount_total"}
+_AREA_COMPATIBLE_ROLES = {
+    "qty", "amount_supply", "amount_install", "amount_total",
+    "qty_by_area", "amount_by_area",
+}
 
 _SINGLETON_ROLES = {
     "sl_no", "description", "unit", "qty_total",
@@ -29,7 +32,8 @@ class ColumnRole(BaseModel):
     role: Literal[
         "sl_no", "description", "unit", "qty", "qty_total",
         "rate_supply", "rate_install", "rate_combined",
-        "amount_supply", "amount_install", "amount_total",
+        "amount_supply", "amount_install", "amount_total", "amount_combined",
+        "qty_by_area", "amount_by_area",
         "make_model", "row_notes", "reference_images", "ignore",
     ]
     area: str | None = None
@@ -41,6 +45,12 @@ class ColumnRole(BaseModel):
                 f"'area' is only valid for roles {_AREA_COMPATIBLE_ROLES}; "
                 f"got role='{self.role}'"
             )
+        return self
+
+    @model_validator(mode="after")
+    def area_required_for_by_area_roles(self) -> "ColumnRole":
+        if self.role in ("qty_by_area", "amount_by_area") and not self.area:
+            raise ValueError(f"role {self.role} requires area")
         return self
 
 
@@ -127,6 +137,18 @@ class SheetConfig(BaseModel):
 
 class GlobalSettings(BaseModel):
     rate_only_markers: list[str] = ["RO", "ro", "R/O", "RATE ONLY"]
+    multi_area_reserved_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "UNIT", "UOM", "MEASURE",
+            "QTY", "QUANTITY", "NOS",
+            "RATE", "SUPPLY RATE", "INSTALL RATE", "COMBINED RATE",
+            "AMOUNT", "SUPPLY AMOUNT", "INSTALL AMOUNT",
+            "TOTAL", "TOTAL QTY", "TOTAL AMOUNT",
+            "DRAWING QTY", "DESCRIPTION", "REMARKS",
+            "PART", "BOQ", "RATE/SFT",
+        ],
+        description="Words to exclude when auto-detecting area names. User-extensible."
+    )
 
 
 class MasterBoqMetadata(BaseModel):

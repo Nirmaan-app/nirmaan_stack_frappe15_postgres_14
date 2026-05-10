@@ -218,5 +218,68 @@ class TestMappingConfig(unittest.TestCase):
             )
 
 
+    # ------------------------------------------------------------------ #
+    # Tests 15-16 — qty_by_area and amount_by_area require area            #
+    # ------------------------------------------------------------------ #
+
+    def test_qty_by_area_requires_area(self):
+        """ColumnRole with role='qty_by_area' and no area raises ValidationError."""
+        with self.assertRaises(ValidationError):
+            ColumnRole(role="qty_by_area")
+
+    def test_amount_by_area_requires_area(self):
+        """ColumnRole with role='amount_by_area' and no area raises ValidationError."""
+        with self.assertRaises(ValidationError):
+            ColumnRole(role="amount_by_area")
+
+    # ------------------------------------------------------------------ #
+    # Tests 17-18 — qty_by_area and amount_by_area valid in SheetConfig    #
+    # ------------------------------------------------------------------ #
+
+    def test_qty_by_area_with_area_succeeds_in_full_sheetconfig(self):
+        """SheetConfig with qty_by_area column referencing a declared area succeeds."""
+        s = SheetConfig(
+            sheet_name="MultiArea",
+            header_row=1,
+            area_dimensions=["B1", "B3", "B6"],
+            column_role_map={"D": ColumnRole(role="qty_by_area", area="B1")},
+        )
+        self.assertEqual(s.column_role_map["D"].area, "B1")
+
+    def test_amount_by_area_with_area_succeeds_in_full_sheetconfig(self):
+        """SheetConfig with amount_by_area column referencing a declared area succeeds."""
+        s = SheetConfig(
+            sheet_name="MultiArea",
+            header_row=1,
+            area_dimensions=["B1", "B3", "B6"],
+            column_role_map={"E": ColumnRole(role="amount_by_area", area="B1")},
+        )
+        self.assertEqual(s.column_role_map["E"].area, "B1")
+
+    # ------------------------------------------------------------------ #
+    # Test 19 — amount_combined is not area-compatible                     #
+    # ------------------------------------------------------------------ #
+
+    def test_amount_combined_role_does_not_accept_area(self):
+        """amount_combined accepts no area (positive) and rejects area='B1' (negative)."""
+        cr = ColumnRole(role="amount_combined")
+        self.assertIsNone(cr.area)
+
+        with self.assertRaises(ValidationError):
+            ColumnRole(role="amount_combined", area="B1")
+
+    # ------------------------------------------------------------------ #
+    # Test 20 — GlobalSettings default reserved keywords                   #
+    # ------------------------------------------------------------------ #
+
+    def test_global_settings_default_reserved_keywords(self):
+        """Default GlobalSettings has multi_area_reserved_keywords with all 22 locked entries."""
+        gs = GlobalSettings()
+        keywords = gs.multi_area_reserved_keywords
+        self.assertEqual(len(keywords), 22)
+        for word in ("QTY", "AMOUNT", "TOTAL", "DESCRIPTION", "RATE"):
+            self.assertIn(word, keywords)
+
+
 if __name__ == "__main__":
     unittest.main()
