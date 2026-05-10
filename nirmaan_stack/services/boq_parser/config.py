@@ -22,7 +22,7 @@ _AREA_COMPATIBLE_ROLES = {
 _SINGLETON_ROLES = {
     "sl_no", "description", "unit", "qty_total",
     "rate_supply", "rate_install", "rate_combined",
-    "amount_total", "make_model", "row_notes", "reference_images",
+    "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
 }
 
 _VALID_COL_LETTER = re.compile(r"^[A-Z]+$")
