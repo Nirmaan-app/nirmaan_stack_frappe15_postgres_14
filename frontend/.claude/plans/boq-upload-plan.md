@@ -2,9 +2,9 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Part A3 (multi-area detection) is next. Phase 2c (DB commit + version cascade + 4 more fixtures) follows.
 **Owner:** Internal team.
-**Last updated:** 2026-05-10 (after Phase 2b.2 Part A2 follow-up — amount_combined added to _SINGLETON_ROLES; 20 config tests, 187 total unchanged).
+**Last updated:** 2026-05-10 (after CLAUDE.md Active Features row update at A2→A3 boundary; 20 config tests, 187 total unchanged).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** amount_combined singleton follow-up (`c7f8912b`).
+**Latest commit:** CLAUDE.md Active Features update (`017b2a1a`).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -438,6 +438,8 @@ Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 **Pre-implementation discrepancies surfaced and resolved:** (1) `rate_combined` already existed in Literal — dropped from addition list. (2) `total_qty` = same concept as existing `qty_total` — dropped; Part A3 populates `qty_total`. (3) `area_name` vs existing `area` field — resolved Option B: reuse existing `area` field, extend `_AREA_COMPATIBLE_ROLES`, add require-validator for new roles only. (4) Proposed Test 5 (area→area_dimensions cross-check for `qty_by_area`) was redundant with existing `test_area_referencing_undeclared_dimension_rejected` — replaced with combined `test_amount_combined_role_does_not_accept_area` (positive + negative assertions for `amount_combined`).
 
 **Follow-up fix (2026-05-10, commit `c7f8912b`):** `amount_combined` was omitted from `_SINGLETON_ROLES` in the original A2 commit. Added adjacent to `amount_total` to match the amount-fields cluster. Parallel to `rate_combined` (already a singleton). The existing generic duplicate-rejection validator covers it automatically — no new test required. Test count unchanged at 187.
+
+**Ops note (2026-05-10, commit `017b2a1a`):** `CLAUDE.md` Active Features row updated at the A2→A3 boundary — branch changed from `feature/boq-phase-0` to `feature/boq-phase-2`, spec path changed from `docs/boq-feature/spec.md` to `frontend/.claude/plans/boq-upload-plan.md`, `BOQ Node Audit Logs` corrected to `BOQ Node Qty By Area` (audit is via `Nirmaan Versions`), Phase 2 sub-phase split noted. Working agreement #13 (doc maintenance at sub-phase boundaries) should be extended to also require `CLAUDE.md` updates at each full phase boundary (i.e., when the Active Features table row would change).
 
 **Part A3 remaining:** `multi_area_detection.py` module — three-pattern auto-detection (Pattern 1 adjacent area-only labels, Pattern 2 two-row merged header, Pattern 3 single-row alternating label/AMOUNT pairs).
 
