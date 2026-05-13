@@ -761,5 +761,139 @@ class TestAmountByAreaRaw(unittest.TestCase):
         self.assertEqual(note_result.amount_by_area_raw, {})
 
 
+class TestPolicyX(unittest.TestCase):
+    """Phase 2b.2 Part B2a — §7.25 zero-value Policy X for per-area dicts."""
+
+    def _single_area_config_with_qty_and_amount(self, area: str = "Zone A") -> SheetConfig:
+        """Config with one qty-area col (E) and one amount_by_area col (D), plus rate."""
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="unit"),
+                "D": ColumnRole(role="amount_by_area", area=area),
+                "E": ColumnRole(role="qty", area=area),
+                "F": ColumnRole(role="rate_supply"),
+            },
+            area_dimensions=[area],
+        )
+
+    def _config_with_qty_total(self, area: str = "Zone A") -> SheetConfig:
+        """Config with per-area qty col (E), qty_total col (F), amount_by_area col (D)."""
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="unit"),
+                "D": ColumnRole(role="amount_by_area", area=area),
+                "E": ColumnRole(role="qty", area=area),
+                "F": ColumnRole(role="qty_total"),
+            },
+            area_dimensions=[area],
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — per-area amount cell 0.0 → key present (Policy X)        #
+    # ---------------------------------------------------------------- #
+
+    def test_amount_by_area_raw_zero_preserved(self):
+        """Explicit 0.0 in amount_by_area col → key present in amount_by_area_raw."""
+        config = self._single_area_config_with_qty_and_amount()
+        row = _make_row(1, {
+            "A": {"value": "a."},
+            "B": {"value": "Item"},
+            "D": {"value": 0.0},   # explicit zero amount
+            "E": {"value": 5.0},
+            "F": {"value": 100.0},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertIn("Zone A", result.amount_by_area_raw)
+        self.assertEqual(result.amount_by_area_raw["Zone A"], 0.0)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — per-area amount cell empty → key absent                  #
+    # ---------------------------------------------------------------- #
+
+    def test_amount_by_area_raw_empty_cell_key_absent(self):
+        """Blank/None amount_by_area cell → key absent from amount_by_area_raw."""
+        config = self._single_area_config_with_qty_and_amount()
+        row = _make_row(2, {
+            "A": {"value": "b."},
+            "B": {"value": "Item"},
+            "D": {"value": None},  # blank amount cell
+            "E": {"value": 5.0},
+            "F": {"value": 100.0},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertNotIn("Zone A", result.amount_by_area_raw)
+        self.assertEqual(result.amount_by_area_raw, {})
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — per-area qty cell 0.0 → key present (Policy X)           #
+    # ---------------------------------------------------------------- #
+
+    def test_qty_by_area_raw_zero_preserved(self):
+        """Explicit 0.0 in per-area qty col → key present in qty_by_area_raw."""
+        config = self._single_area_config_with_qty_and_amount()
+        row = _make_row(3, {
+            "A": {"value": "c."},
+            "B": {"value": "Item"},
+            "D": {"value": 0.0},   # zero amount
+            "E": {"value": 0.0},   # explicit zero qty
+            "F": {"value": 100.0}, # rate present → rate-only
+        })
+        result = classify_row(row, config, _GS)
+        self.assertIn("Zone A", result.qty_by_area_raw)
+        self.assertEqual(result.qty_by_area_raw["Zone A"], 0.0)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — per-area qty cell empty → key absent                     #
+    # ---------------------------------------------------------------- #
+
+    def test_qty_by_area_raw_empty_cell_key_absent(self):
+        """Blank/None per-area qty cell → key absent from qty_by_area_raw."""
+        config = self._single_area_config_with_qty_and_amount()
+        row = _make_row(4, {
+            "A": {"value": "d."},
+            "B": {"value": "Item"},
+            "D": {"value": None},  # blank amount
+            "E": {"value": None},  # blank qty cell
+        })
+        result = classify_row(row, config, _GS)
+        self.assertNotIn("Zone A", result.qty_by_area_raw)
+        self.assertEqual(result.qty_by_area_raw, {})
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — qty_total_raw populated from qty_total column             #
+    # ---------------------------------------------------------------- #
+
+    def test_qty_total_raw_populated_when_qty_total_col_present(self):
+        """qty_total column with value → qty_total_raw set; blank → None."""
+        config = self._config_with_qty_total()
+        # With value
+        row_with = _make_row(5, {
+            "A": {"value": "e."},
+            "B": {"value": "Item"},
+            "E": {"value": 4.0},   # per-area qty
+            "F": {"value": 10.0},  # qty_total column
+        })
+        result = classify_row(row_with, config, _GS)
+        self.assertEqual(result.qty_total_raw, 10.0)
+
+        # Blank qty_total cell
+        row_blank = _make_row(6, {
+            "A": {"value": "f."},
+            "B": {"value": "Item"},
+            "E": {"value": 4.0},   # per-area qty
+            "F": {"value": None},  # blank qty_total cell
+        })
+        result_blank = classify_row(row_blank, config, _GS)
+        self.assertIsNone(result_blank.qty_total_raw)
+
+
 if __name__ == "__main__":
     unittest.main()

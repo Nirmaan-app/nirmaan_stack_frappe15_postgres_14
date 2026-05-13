@@ -331,6 +331,79 @@ def generate_makelist_header() -> Path:
 
 
 # ------------------------------------------------------------------
+# synthetic_multi_area.xlsx  (Policy X + post-pass integration fixture)
+# ------------------------------------------------------------------
+
+def generate_multi_area() -> Path:
+    """
+    Sheet "Multi Area" — tests _apply_multi_area_post_pass():
+
+    Header row 1:
+      A=Sl.No. B=Description C=Unit D=Floor 1 E=Floor 2 F=Total Qty
+      G=Rate H=Amt Floor 1 I=Amt Floor 2 J=Total Amt
+
+    Row 2 — clean: qty sum (8) == total (8); amt sum (800) == total (800)  → no warnings
+    Row 3 — qty mismatch: qty sum (8) vs total (10), diff=2 > ±1           → qty warning
+    Row 4 — blank totals: F=None, J=None; per-area populated               → fallback computes totals
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Multi Area"
+
+    # Row 1 — column headers
+    ws["A1"] = "Sl.No."
+    ws["B1"] = "Description"
+    ws["C1"] = "Unit"
+    ws["D1"] = "Floor 1"
+    ws["E1"] = "Floor 2"
+    ws["F1"] = "Total Qty"
+    ws["G1"] = "Rate"
+    ws["H1"] = "Amt Floor 1"
+    ws["I1"] = "Amt Floor 2"
+    ws["J1"] = "Total Amt"
+
+    # Row 2 — good row (no warnings)
+    ws["A2"] = 1.0
+    ws["B2"] = "Painting works"
+    ws["C2"] = "Sqm"
+    ws["D2"] = 5.0    # Floor 1 qty
+    ws["E2"] = 3.0    # Floor 2 qty
+    ws["F2"] = 8.0    # Total Qty == sum
+    ws["G2"] = 100.0
+    ws["H2"] = 500.0  # Amt Floor 1
+    ws["I2"] = 300.0  # Amt Floor 2
+    ws["J2"] = 800.0  # Total Amt == sum
+
+    # Row 3 — qty mismatch: sum=8, total=10, diff=2 > ±1  → qty warning
+    ws["A3"] = 2.0
+    ws["B3"] = "Tiling works"
+    ws["C3"] = "Sqm"
+    ws["D3"] = 5.0    # Floor 1 qty
+    ws["E3"] = 3.0    # Floor 2 qty
+    ws["F3"] = 10.0   # Total Qty != sum (mismatch)
+    ws["G3"] = 200.0
+    ws["H3"] = 1000.0
+    ws["I3"] = 600.0
+    ws["J3"] = 1600.0  # amt sum=1600 == total → no amt warning
+
+    # Row 4 — blank totals: F=None, J=None → fallback (qty=10, amt=500, no warning)
+    ws["A4"] = 3.0
+    ws["B4"] = "Plumbing works"
+    ws["C4"] = "m"
+    ws["D4"] = 4.0    # Floor 1 qty
+    ws["E4"] = 6.0    # Floor 2 qty
+    # F4 intentionally blank — total blank triggers empty-total fallback
+    ws["G4"] = 50.0
+    ws["H4"] = 200.0
+    ws["I4"] = 300.0
+    # J4 intentionally blank — amount total also triggers fallback
+
+    path = _path("synthetic_multi_area.xlsx")
+    wb.save(str(path))
+    return path
+
+
+# ------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------
 
@@ -342,6 +415,7 @@ def generate_all() -> None:
     generate_empty()
     generate_sparse_header()
     generate_makelist_header()
+    generate_multi_area()
 
 
 if __name__ == "__main__":

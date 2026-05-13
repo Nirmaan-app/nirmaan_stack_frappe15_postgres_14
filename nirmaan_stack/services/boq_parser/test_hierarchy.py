@@ -871,5 +871,62 @@ class TestResolvedRowValidationWarnings(unittest.TestCase):
         self.assertEqual(len(rr.validation_warnings), 1)
 
 
+class TestResolvedRowMultiAreaFields(unittest.TestCase):
+    """Phase 2b.2 Part B2a — new per-area fields on ResolvedRow."""
+
+    def test_new_fields_default_to_empty_and_none(self):
+        """Fresh ResolvedRow has all new multi-area fields at their defaults."""
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        rr = ResolvedRow(classified_row=_make_line_item(0))
+        self.assertEqual(rr.qty_by_area_raw, {})
+        self.assertEqual(rr.amount_by_area_raw, {})
+        self.assertIsNone(rr.qty_total)
+        self.assertIsNone(rr.amount_total)
+        self.assertEqual(rr.qty_by_area, {})
+        self.assertEqual(rr.amount_by_area, {})
+
+    def test_resolver_carries_forward_raw_dicts_and_totals_for_line_items(self):
+        """
+        After resolve_hierarchy(), a LINE_ITEM ResolvedRow carries forward
+        qty_by_area_raw, amount_by_area_raw from its ClassifiedRow, and
+        qty_total from qty_total_raw, amount_total from amount_total.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow, resolve_hierarchy
+
+        # Construct a ClassifiedRow with per-area data
+        raw_row = RawRow(row_number=1, cells={})
+        classified = ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.LINE_ITEM,
+            sl_no_value="a.",
+            description="Item",
+            qty=8.0,
+            qty_total_raw=10.0,  # deliberately different from qty to verify field selection
+            amount_total=800.0,
+            qty_by_area_raw={"Floor 1": 5.0, "Floor 2": 3.0},
+            amount_by_area_raw={"Floor 1": 500.0, "Floor 2": 300.0},
+        )
+
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+            },
+        )
+        result = resolve_hierarchy([classified], config, GlobalSettings())
+
+        line_item_row = next(
+            rr for rr in result.rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+        )
+        self.assertEqual(line_item_row.qty_by_area_raw, {"Floor 1": 5.0, "Floor 2": 3.0})
+        self.assertEqual(line_item_row.amount_by_area_raw, {"Floor 1": 500.0, "Floor 2": 300.0})
+        self.assertEqual(line_item_row.qty_total, 10.0)   # from qty_total_raw, not qty
+        self.assertEqual(line_item_row.amount_total, 800.0)
+
+
 if __name__ == "__main__":
     unittest.main()

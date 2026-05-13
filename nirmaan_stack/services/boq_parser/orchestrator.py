@@ -6,10 +6,7 @@ parse_boq() wires all parser stages in the correct order:
   reader → classifier → populate_preamble_candidate_scores
   → resolve_hierarchy → detect_multi_area_pattern
 
-Out of scope in B1 (deferred to B2):
-  - Multi-area splitting post-pass
-  - Sum validation against TOTAL QTY
-  - Populating any validation_warnings
+Out of scope in B2a (deferred to later phases):
   - DB writes (Phase 2c)
 """
 from __future__ import annotations
@@ -18,7 +15,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from nirmaan_stack.services.boq_parser.classifier import classify_row, populate_preamble_candidate_scores
+from nirmaan_stack.services.boq_parser.classifier import (
+    RowClassification,
+    classify_row,
+    populate_preamble_candidate_scores,
+)
 from nirmaan_stack.services.boq_parser.config import MappingConfig
 from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow, resolve_hierarchy
 from nirmaan_stack.services.boq_parser.multi_area_detection import MultiAreaPattern, detect_multi_area_pattern
@@ -47,6 +48,59 @@ class ParsedBoq(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+# ------------------------------------------------------------------
+# Multi-area post-pass
+# ------------------------------------------------------------------
+
+def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
+    """
+    Mutate LINE_ITEM ResolvedRows in place to populate resolved per-area dicts,
+    apply empty-total fallback (§7.24 amendment), and append sum-validation
+    warnings (§7.24).
+
+    Policy X (§7.25): zeros are preserved in per-area dicts — a key with 0.0
+    means "explicitly zero in this area", distinct from a missing key.
+
+    Empty-total fallback: when qty_total or amount_total is None and the
+    corresponding per-area dict is populated, compute the total from the
+    per-area sum. No warning is emitted for the fallback case.
+
+    Sum validation: soft warning at ±1 absolute tolerance, appended to
+    ResolvedRow.validation_warnings.
+    """
+    for row in resolved_rows:
+        if row.classified_row.classification != RowClassification.LINE_ITEM:
+            continue
+
+        # Policy X: straight copy, zeros preserved
+        row.qty_by_area = dict(row.qty_by_area_raw)
+        row.amount_by_area = dict(row.amount_by_area_raw)
+
+        # Empty-total fallback (no warning)
+        if row.qty_total is None and row.qty_by_area:
+            row.qty_total = sum(row.qty_by_area.values())
+        if row.amount_total is None and row.amount_by_area:
+            row.amount_total = sum(row.amount_by_area.values())
+
+        # Sum validation — qty
+        if row.qty_by_area and row.qty_total is not None:
+            per_area_sum = sum(row.qty_by_area.values())
+            if abs(per_area_sum - row.qty_total) > 1.0:
+                row.validation_warnings.append(
+                    f"qty per-area sum {per_area_sum:.2f} differs from "
+                    f"qty_total {row.qty_total:.2f} (outside ±1 tolerance)"
+                )
+
+        # Sum validation — amount
+        if row.amount_by_area and row.amount_total is not None:
+            per_area_sum = sum(row.amount_by_area.values())
+            if abs(per_area_sum - row.amount_total) > 1.0:
+                row.validation_warnings.append(
+                    f"amount per-area sum {per_area_sum:.2f} differs from "
+                    f"amount_total {row.amount_total:.2f} (outside ±1 tolerance)"
+                )
 
 
 # ------------------------------------------------------------------
@@ -110,6 +164,9 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
         # Step 4: Hierarchy resolution
         resolved_sheet = resolve_hierarchy(classified_rows, sheet_config, global_settings)
+
+        # Step 4b: Multi-area post-pass — Policy X copy + sum validation + fallback
+        _apply_multi_area_post_pass(resolved_sheet.rows)
 
         # Step 5: Multi-area pattern detection from header row(s)
         multi_area_pattern: MultiAreaPattern | None = None

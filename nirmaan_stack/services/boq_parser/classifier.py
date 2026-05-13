@@ -43,6 +43,10 @@ class ClassifiedRow:
     description: str | None = None
     unit: str | None = None
     qty: float | None = None
+    # Raw value from the qty_total column cell specifically (None if blank/absent).
+    # Separate from `qty` because classify_row() may override `qty` from per-area sum.
+    # ResolvedRow.qty_total is initialized from this so post-pass fallback logic works.
+    qty_total_raw: float | None = None
     is_rate_only: bool = False
     rate_supply: float | None = None
     rate_install: float | None = None
@@ -363,6 +367,7 @@ def classify_row(
     warnings: list[str] = []
     qty_by_area_raw: dict[str, float] = {}
     amount_by_area_raw: dict[str, float] = {}
+    qty_total_raw: float | None = None
     is_rate_only = False
 
     ro_markers = (
@@ -432,7 +437,7 @@ def classify_row(
             warnings.extend(area_warns)
             if area_ro:
                 is_rate_only = True
-            if area_qty is not None and area_qty != 0:
+            if area_qty is not None:  # Policy X: preserve explicit zeros
                 qty_by_area_raw[area_name] = area_qty
         qty = sum(qty_by_area_raw.values()) if qty_by_area_raw else None
 
@@ -451,7 +456,7 @@ def classify_row(
 
     for col_letter, area_name in amount_area_cols:
         amt_val = _to_float(raw_row.get_cell(col_letter).value if raw_row.get_cell(col_letter) else None)
-        if amt_val is not None and amt_val != 0:
+        if amt_val is not None:  # Policy X: preserve explicit zeros
             amount_by_area_raw[area_name] = amt_val
 
     # qty_total column overrides if it has a valid value
@@ -461,6 +466,7 @@ def classify_row(
             tv = _to_float(tc.value)
             if tv is not None:
                 qty = tv
+                qty_total_raw = tv  # Policy X: record separately for ResolvedRow
 
     # Blank-qty rule: blank qty + non-zero rate → rate-only line item
     if qty is None and has_nonzero_rate:
@@ -542,6 +548,7 @@ def classify_row(
         description=desc_text or None,
         unit=unit,
         qty=qty,
+        qty_total_raw=qty_total_raw,
         is_rate_only=is_rate_only,
         rate_supply=rate_supply,
         rate_install=rate_install,

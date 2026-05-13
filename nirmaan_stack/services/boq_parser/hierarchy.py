@@ -40,6 +40,19 @@ class ResolvedRow:
     # Per-row validation warnings populated by the sum-validation post-pass (B2).
     # Parser never sets a non-empty value in B1.
     validation_warnings: list[str] = field(default_factory=list)
+    # Per-area raw data passed through from ClassifiedRow for LINE_ITEM rows.
+    # Populated by resolve_hierarchy(); defaults {} for all other row types.
+    qty_by_area_raw: dict[str, float] = field(default_factory=dict)
+    amount_by_area_raw: dict[str, float] = field(default_factory=dict)
+    # File-declared totals from ClassifiedRow (LINE_ITEM rows only).
+    # qty_total comes from qty_total_raw (the qty_total column cell specifically).
+    # amount_total comes from classified_row.amount_total.
+    # Both may be None; post-pass computes from per-area sum when None (fallback).
+    qty_total: float | None = None
+    amount_total: float | None = None
+    # Post-pass resolved per-area dicts (populated by _apply_multi_area_post_pass).
+    qty_by_area: dict[str, float] = field(default_factory=dict)
+    amount_by_area: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -446,6 +459,10 @@ def resolve_hierarchy(
                 classified_row=classified_row,
                 parent_index=parent_index,
                 path=path,
+                qty_by_area_raw=classified_row.qty_by_area_raw,
+                amount_by_area_raw=classified_row.amount_by_area_raw,
+                qty_total=classified_row.qty_total_raw,
+                amount_total=classified_row.amount_total,
             ))
             continue
 
