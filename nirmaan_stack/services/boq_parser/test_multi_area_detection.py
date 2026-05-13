@@ -126,5 +126,236 @@ class TestMultiAreaDetectionSmoke(unittest.TestCase):
         self.assertEqual(len(result.amount_columns), 2)
 
 
+# ------------------------------------------------------------------
+# Comprehensive tests — rejection, priority, fallback, edge cases
+# (Part A3b — 11 tests)
+# ------------------------------------------------------------------
+
+class TestMultiAreaDetectionComprehensive(unittest.TestCase):
+    """Group A3b: rejection cases, priority routing, fallback, and edge cases."""
+
+    # ------------------------------------------------------------------ #
+    # Pattern 1 additional cases                                           #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_1_liberal_no_terminator_still_detected(self):
+        """Three adjacent area names with no TOTAL QTY terminator → Pattern 1 (liberal mode)."""
+        row = _make_row(1, {
+            "A": {"value": "DESCRIPTION"},
+            "B": {"value": "UNIT"},
+            "C": {"value": "Office"},
+            "D": {"value": "Common Area"},
+            "E": {"value": "Lobby"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Common Area", "Lobby"])
+        self.assertEqual(len(result.qty_columns), 3)
+        self.assertIsNone(result.amount_columns)
+
+    def test_pattern_1_single_area_rejected(self):
+        """Only one non-reserved area candidate → minimum-2-areas threshold rejects it."""
+        row = _make_row(1, {
+            "A": {"value": "DESCRIPTION"},
+            "B": {"value": "UNIT"},
+            "C": {"value": "Office"},
+            "D": {"value": "TOTAL QTY"},
+            "E": {"value": "RATE"},
+            "F": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ #
+    # Pattern 2 additional cases                                           #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_2_three_merged_areas_detected(self):
+        """Three side-by-side 2-column merges each with QTY/AMOUNT in bottom row → Pattern 2."""
+        top_row = _make_row(1, {
+            "C": {"value": "Office",      "is_merged_origin": True,  "merged_range": "C1:D1"},
+            "D": {"value": "Office",      "is_merged_origin": False, "merged_range": "C1:D1"},
+            "E": {"value": "Common Area", "is_merged_origin": True,  "merged_range": "E1:F1"},
+            "F": {"value": "Common Area", "is_merged_origin": False, "merged_range": "E1:F1"},
+            "G": {"value": "Lobby",       "is_merged_origin": True,  "merged_range": "G1:H1"},
+            "H": {"value": "Lobby",       "is_merged_origin": False, "merged_range": "G1:H1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "QTY"},
+            "D": {"value": "AMOUNT"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+            "G": {"value": "QTY"},
+            "H": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 2)
+        self.assertEqual(result.areas, ["Office", "Common Area", "Lobby"])
+        self.assertEqual(len(result.qty_columns), 3)
+        self.assertIsNotNone(result.amount_columns)
+        self.assertEqual(len(result.amount_columns), 3)
+
+    def test_pattern_2_qty_amount_pairing_required(self):
+        """Pattern 2 rejected when bottom row under first merge has QTY+QTY (not QTY+AMOUNT).
+
+        Covered cells use value=None to isolate the P2 pairing test and prevent
+        the P1-on-top last-resort from collecting merge-origin duplicates.
+        """
+        top_row = _make_row(1, {
+            "D": {"value": "Office",      "is_merged_origin": True,  "merged_range": "D1:E1"},
+            "E": {"value": None,          "is_merged_origin": False, "merged_range": "D1:E1"},
+            "F": {"value": "Common Area", "is_merged_origin": True,  "merged_range": "F1:G1"},
+            "G": {"value": None,          "is_merged_origin": False, "merged_range": "F1:G1"},
+        })
+        bottom_row = _make_row(2, {
+            "D": {"value": "QTY"},
+            "E": {"value": "QTY"},     # breaks pairing — must be AMOUNT
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ #
+    # Pattern 3 additional cases                                           #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_3_two_pairs_canonical_detected(self):
+        """Canonical two-pair shape with three trailing summary columns → Pattern 3."""
+        row = _make_row(1, {
+            "A": {"value": "DESCRIPTION"},
+            "B": {"value": "UNIT"},
+            "C": {"value": "Block A"},
+            "D": {"value": "AMOUNT"},
+            "E": {"value": "Block B"},
+            "F": {"value": "AMOUNT"},
+            "G": {"value": "TOTAL QTY"},
+            "H": {"value": "RATE"},
+            "I": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 3)
+        self.assertEqual(result.areas, ["Block A", "Block B"])
+        self.assertEqual(len(result.qty_columns), 2)
+        self.assertIsNotNone(result.amount_columns)
+        self.assertEqual(len(result.amount_columns), 2)
+
+    # ------------------------------------------------------------------ #
+    # Priority routing                                                     #
+    # ------------------------------------------------------------------ #
+
+    def test_priority_pattern_2_beats_pattern_3(self):
+        """In 2-row mode, Pattern 2 is checked before Pattern 3; P2 wins on a P2-valid input."""
+        top_row = _make_row(1, {
+            "D": {"value": "Office",      "is_merged_origin": True,  "merged_range": "D1:E1"},
+            "E": {"value": "Office",      "is_merged_origin": False, "merged_range": "D1:E1"},
+            "F": {"value": "Common Area", "is_merged_origin": True,  "merged_range": "F1:G1"},
+            "G": {"value": "Common Area", "is_merged_origin": False, "merged_range": "F1:G1"},
+        })
+        bottom_row = _make_row(2, {
+            "D": {"value": "QTY"},
+            "E": {"value": "AMOUNT"},
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 2)
+
+    def test_priority_pattern_3_beats_pattern_1(self):
+        """In 1-row mode, Pattern 3 is checked before Pattern 1; P3 wins when pairs are found."""
+        row = _make_row(1, {
+            "A": {"value": "DESCRIPTION"},
+            "B": {"value": "UNIT"},
+            "C": {"value": "Office"},
+            "D": {"value": "AMOUNT"},
+            "E": {"value": "Common Area"},
+            "F": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 3)
+
+    # ------------------------------------------------------------------ #
+    # Pattern 1 top-row last-resort fallback (TS_T2_WEX shape)            #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_1_top_row_fallback_when_bottom_only_reinforces(self):
+        """In 2-row mode: P2/P3/P1-bottom all fail; P1 detects areas from top row (last resort)."""
+        top_row = _make_row(1, {
+            "C": {"value": "Office"},
+            "D": {"value": "Common Area"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "QTY"},
+            "D": {"value": "QTY"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Common Area"])
+        self.assertIsNone(result.amount_columns)
+        self.assertEqual(result.detected_on_row, top_row.row_number)
+
+    # ------------------------------------------------------------------ #
+    # Reserved-keyword rejection on top-row merges (Morgan Stanley shape) #
+    # ------------------------------------------------------------------ #
+
+    def test_reserved_keyword_top_row_merges_rejected_for_pattern_2(self):
+        """Top-row merges carrying reserved-keyword values (QUANTITY, RATE) are skipped by P2; P1 on bottom catches the real area names."""
+        top_row = _make_row(1, {
+            "D": {"value": "QUANTITY", "is_merged_origin": True,  "merged_range": "D1:E1"},
+            "E": {"value": "QUANTITY", "is_merged_origin": False, "merged_range": "D1:E1"},
+            "F": {"value": "RATE",     "is_merged_origin": True,  "merged_range": "F1:G1"},
+            "G": {"value": "RATE",     "is_merged_origin": False, "merged_range": "F1:G1"},
+        })
+        bottom_row = _make_row(2, {
+            "D": {"value": "Office"},
+            "E": {"value": "Common Area"},
+            "F": {"value": "RATE"},
+            "G": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Common Area"])
+        self.assertEqual(result.detected_on_row, bottom_row.row_number)
+
+    # ------------------------------------------------------------------ #
+    # Defensive cases                                                      #
+    # ------------------------------------------------------------------ #
+
+    def test_no_area_columns_returns_none(self):
+        """Row containing only reserved keywords has no area candidates → None."""
+        row = _make_row(1, {
+            "A": {"value": "DESCRIPTION"},
+            "B": {"value": "UNIT"},
+            "C": {"value": "QTY"},
+            "D": {"value": "RATE"},
+            "E": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+    def test_reserved_keywords_case_insensitive(self):
+        """Reserved-keyword matching and TOTAL_QTY_PATTERN are both case-insensitive."""
+        row = _make_row(1, {
+            "A": {"value": "description"},  # lowercase reserved keyword
+            "B": {"value": "Unit"},          # mixed-case reserved keyword
+            "C": {"value": "Office"},
+            "D": {"value": "Common Area"},
+            "E": {"value": "total qty"},     # lowercase terminator
+            "F": {"value": "rate"},
+            "G": {"value": "Amount"},        # mixed-case reserved keyword
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Common Area"])
+
+
 if __name__ == "__main__":
     unittest.main()
