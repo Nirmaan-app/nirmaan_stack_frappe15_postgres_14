@@ -56,6 +56,7 @@ export interface SidebarCountsData {
     pay: {
         all: number;
         requested: number;
+        "ceo pending": number;
         approved: number;
         rejected: number;
         paid: number;
@@ -130,6 +131,7 @@ export const useDocCountStore = create<Store>()(
         pay: {
             all: 0,
             requested: 0,
+            "ceo pending": 0,
             approved: 0,
             rejected: 0,
             paid: 0,

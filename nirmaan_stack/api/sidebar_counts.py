@@ -145,7 +145,7 @@ def sidebar_counts(user: str) -> str:
     pay_filters = {} if is_full_access else {"project": ["in", user_projects]}
     pay_counts = {
         s.lower(): simple("Project Payments", {**pay_filters, "status": s})
-        for s in ("Requested", "Approved", "Rejected", "Paid")
+        for s in ("Requested", "CEO Pending", "Approved", "Rejected", "Paid")
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}

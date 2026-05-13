@@ -215,7 +215,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
-    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [projectPayments]);
+    const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
 
     useEffect(() => {
         if (service_request) {

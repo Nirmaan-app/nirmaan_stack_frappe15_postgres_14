@@ -5,6 +5,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate, getdate, today
 
+from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 
@@ -29,8 +31,10 @@ def create_payment_request_for_service(data: str) -> str:
     if doctype not in ALLOWED_DOCS:
         frappe.throw(_("Not allowed for doctype {0}").format(doctype))
 
-    if amount <= 0:
-        frappe.throw(_("Amount must be greater than zero"))
+    # Allow negative amounts (refunds / credits issued after a negative-rate amend).
+    # Zero is still rejected — it has no business meaning.
+    if amount == 0:
+        frappe.throw(_("Amount cannot be zero"))
 
     # ── fetch source document inside the txn ───────────────────────
     src = frappe.get_doc(doctype, docname)
@@ -175,6 +179,28 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
 
 
 @frappe.whitelist()
+def ceo_approve_payment(payment_id: str) -> dict:
+    """
+    Promotes a "CEO Pending" payment to "Approved".
+    Only the hardcoded CEO user (see authorized_users.CEO_AUTHORIZED_USER) may call this.
+    The on_update hook handles notifying accountants and syncing the PO term.
+    """
+    if frappe.session.user != CEO_AUTHORIZED_USER:
+        frappe.throw(_("Only the authorised CEO user can perform this action."), frappe.PermissionError)
+
+    pay = frappe.get_doc("Project Payments", payment_id)
+
+    if pay.status != "CEO Pending":
+        frappe.throw(_("Payment is not awaiting CEO approval (current status: {0})").format(pay.status))
+
+    pay.status = "Approved"
+    pay.ceo_approval_date = nowdate()
+    pay.save()
+
+    return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
+
+
+@frappe.whitelist()
 def update_payment_request(data: str) -> str:
     """
     Fulfil or delete a Project Payments document.
@@ -210,7 +236,7 @@ def _delete_payment(pay):
 def _fulfil_payment(pay, args):
     """ Helper to fulfil a payment. The on_update hook will sync the 'Paid' status. """
     if pay.status != "Approved":
-        frappe.throw(_("Payment is already processed or not approved"))
+        frappe.throw(_("Payment is not yet CEO-approved or has already been processed"))
 
     utr = (args.get("utr") or "").strip()
     if not utr:

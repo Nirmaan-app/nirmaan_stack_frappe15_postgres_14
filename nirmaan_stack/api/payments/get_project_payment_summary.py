@@ -29,15 +29,23 @@ def get_payment_dashboard_stats():
         # Pending
         'total_pending_payment_count': 0,
         'total_pending_payment_amount': 0.0,
-        # Requested
+        # Requested (L1 Pending)
         'total_requested_payment_count': 0,
         'total_requested_payment_amount': 0.0,
+        # CEO Pending
+        'total_ceo_pending_count': 0,
+        'total_ceo_pending_amount': 0.0,
 
         # Approved
         'total_approval_done_today': 0,
         'total_approval_done_today_amount': 0.0,
         'total_approval_done_7_days': 0,
         'total_approval_done_7_days_amount': 0.0,
+        # CEO Approved
+        'total_ceo_approval_done_today': 0,
+        'total_ceo_approval_done_today_amount': 0.0,
+        'total_ceo_approval_done_7_days': 0,
+        'total_ceo_approval_done_7_days_amount': 0.0,
         # Paid
         'payment_done_today': 0,
         'payment_done_today_amount': 0.0,
@@ -49,8 +57,8 @@ def get_payment_dashboard_stats():
         # 1. Fetch ALL necessary documents
         all_payments = frappe.get_all(
             doctype,
-            fields=['name', 'status', 'amount', 'approval_date', 'payment_date'],
-            limit_page_length=None 
+            fields=['name', 'status', 'amount', 'approval_date', 'ceo_approval_date', 'payment_date'],
+            limit_page_length=None
         )
         
         # 2. Python Aggregation (Manual Calculation)
@@ -68,6 +76,9 @@ def get_payment_dashboard_stats():
             if status == 'Requested':
                 stats['total_requested_payment_count'] += 1
                 stats['total_requested_payment_amount'] += amount
+            if status == 'CEO Pending':
+                stats['total_ceo_pending_count'] += 1
+                stats['total_ceo_pending_amount'] += amount
             if status == 'Approved':
                 stats['total_pending_payment_count'] += 1
                 stats['total_pending_payment_amount'] += amount
@@ -84,7 +95,19 @@ def get_payment_dashboard_stats():
                 if approval_date >= seven_days_ago and approval_date <= today_date:
                     stats['total_approval_done_7_days'] += 1
                     stats['total_approval_done_7_days_amount'] += amount
-                
+
+            # --- 2c2. CEO APPROVED Check ---
+            if doc.ceo_approval_date:
+                ceo_approval_date = doc.ceo_approval_date
+
+                if ceo_approval_date == today_date:
+                    stats['total_ceo_approval_done_today'] += 1
+                    stats['total_ceo_approval_done_today_amount'] += amount
+
+                if ceo_approval_date >= seven_days_ago and ceo_approval_date <= today_date:
+                    stats['total_ceo_approval_done_7_days'] += 1
+                    stats['total_ceo_approval_done_7_days_amount'] += amount
+
 
             # --- 2d & 2e. PAID Check ---
             if doc.payment_date:

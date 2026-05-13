@@ -9,6 +9,7 @@ export const DOC_TYPES = {
 
 export const PAYMENT_STATUS = {
   REQUESTED: "Requested" as const,
+  CEO_PENDING: "CEO Pending" as const,
   APPROVED: "Approved" as const,
   REJECTED: "Rejected" as const,
   SCHEDULED: "Scheduled" as const,
