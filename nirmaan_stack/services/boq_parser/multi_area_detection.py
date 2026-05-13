@@ -158,6 +158,9 @@ def _try_pattern_1(row: RawRow, kw_set: set[str]) -> MultiAreaPattern | None:
         val = cell.value
         text = str(val or "").strip()
 
+        if cell.merged_range is not None and not cell.is_merged_origin:
+            continue  # covered cell — value propagated from origin by reader (Part A1), not an area name
+
         if TOTAL_QTY_PATTERN.match(text):
             break
 

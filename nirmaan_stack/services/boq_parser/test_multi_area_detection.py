@@ -198,16 +198,14 @@ class TestMultiAreaDetectionComprehensive(unittest.TestCase):
         self.assertEqual(len(result.amount_columns), 3)
 
     def test_pattern_2_qty_amount_pairing_required(self):
-        """Pattern 2 rejected when bottom row under first merge has QTY+QTY (not QTY+AMOUNT).
-
-        Covered cells use value=None to isolate the P2 pairing test and prevent
-        the P1-on-top last-resort from collecting merge-origin duplicates.
+        """Pattern 2 rejected when bottom row under first merge has QTY+QTY (not QTY+AMOUNT);
+        P1 on top falls back successfully and returns the two areas via merge origins.
         """
         top_row = _make_row(1, {
             "D": {"value": "Office",      "is_merged_origin": True,  "merged_range": "D1:E1"},
-            "E": {"value": None,          "is_merged_origin": False, "merged_range": "D1:E1"},
+            "E": {"value": "Office",      "is_merged_origin": False, "merged_range": "D1:E1"},
             "F": {"value": "Common Area", "is_merged_origin": True,  "merged_range": "F1:G1"},
-            "G": {"value": None,          "is_merged_origin": False, "merged_range": "F1:G1"},
+            "G": {"value": "Common Area", "is_merged_origin": False, "merged_range": "F1:G1"},
         })
         bottom_row = _make_row(2, {
             "D": {"value": "QTY"},
@@ -216,7 +214,11 @@ class TestMultiAreaDetectionComprehensive(unittest.TestCase):
             "G": {"value": "AMOUNT"},
         })
         result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Common Area"])
+        self.assertIsNone(result.amount_columns)
+        self.assertEqual(result.detected_on_row, top_row.row_number)
 
     # ------------------------------------------------------------------ #
     # Pattern 3 additional cases                                           #
@@ -355,6 +357,51 @@ class TestMultiAreaDetectionComprehensive(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.pattern, 1)
         self.assertEqual(result.areas, ["Office", "Common Area"])
+
+    # ------------------------------------------------------------------ #
+    # Covered-cell skip regression tests (A3c)                            #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_1_skips_merge_covered_cells_on_top_row(self):
+        """P1 top-row fallback skips covered cells; only merge origins contribute area names.
+
+        Regression for the A3b latent bug where _try_pattern_1 would collect
+        N x merge_width copies of each area name from a propagated top row.
+        """
+        top_row = _make_row(1, {
+            "C": {"value": "Office",      "is_merged_origin": True,  "merged_range": "C1:D1"},
+            "D": {"value": "Office",      "is_merged_origin": False, "merged_range": "C1:D1"},
+            "E": {"value": "Common Area", "is_merged_origin": True,  "merged_range": "E1:F1"},
+            "F": {"value": "Common Area", "is_merged_origin": False, "merged_range": "E1:F1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "QTY"},
+            "D": {"value": "QTY"},
+            "E": {"value": "QTY"},
+            "F": {"value": "QTY"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Common Area"])
+        self.assertEqual(len(result.qty_columns), 2)
+        self.assertIsNone(result.amount_columns)
+        self.assertEqual(result.detected_on_row, top_row.row_number)
+
+    def test_pattern_1_treats_origin_cells_normally(self):
+        """Origin cells and regular non-merged cells are both collected; only covered cells skipped."""
+        row = _make_row(1, {
+            "A": {"value": "DESCRIPTION"},
+            "B": {"value": "UNIT"},
+            "C": {"value": "Office", "is_merged_origin": True, "merged_range": "C1:C1"},
+            "D": {"value": "Lobby"},
+            "E": {"value": "TOTAL QTY"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.areas, ["Office", "Lobby"])
+        self.assertEqual(len(result.qty_columns), 2)
 
 
 if __name__ == "__main__":
