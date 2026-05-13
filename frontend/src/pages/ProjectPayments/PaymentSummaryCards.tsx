@@ -395,7 +395,7 @@ const PendingApprovalTile: React.FC<{
     ceoAmount, ceoCount,
     totalDueAmount, totalDueCount,
 }) => (
-        <TileShell type="pending" label="Summary" count={totalCount + totalDueCount}>
+        <TileShell type="pending" label="Pending Payment Summary" count={totalCount + totalDueCount}>
             <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
                 <BreakdownRow tone="red" label="Total Pending" labelLong="Pending Payment Approval" amount={totalAmount} count={totalCount} />
                 <BreakdownRow tone="amber" label="L1 Pending" labelLong="L1 Pending Approval" amount={l1Amount} count={l1Count} />
@@ -430,12 +430,12 @@ const RecentActivityTile: React.FC<{
     paid7dAmount, paid7dCount,
 }) => (
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
-            <div className="w-1 shrink-0 bg-amber-500 dark:bg-amber-600" />
+            <div className="w-1 shrink-0 bg-emerald-500 dark:bg-emerald-600" />
             <div className="flex-1 p-3 min-w-0">
                 <div className="flex items-center gap-2 group">
-                    <Clock className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+                    <Clock className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
                     <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
-                        Payments Statics
+                        Approved &amp; Paid Summary
                     </span>
                     <HoverCard>
                         <HoverCardTrigger asChild>
@@ -621,8 +621,8 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                     </div>
                 </CardHeader>
                 <CardContent className="px-5 pb-4 pt-0">
-                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                        <div className="sm:col-span-2">
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                        <div className="lg:col-span-2">
                             <PendingApprovalTile
                                 totalAmount={pendingApprovalAmount}
                                 totalCount={pendingApprovalCount}
@@ -634,7 +634,7 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 totalDueCount={stats.total_pending_payment_count}
                             />
                         </div>
-                        <div className="sm:col-span-3">
+                        <div className="lg:col-span-3">
                             <RecentActivityTile
                                 l1TodayAmount={stats.total_approval_done_today_amount}
                                 l1TodayCount={stats.total_approval_done_today}
