@@ -86,9 +86,10 @@ interface ApprovePaymentsProps {
   readOnly?: boolean;
   /**
    * "lead" (default): Project Lead approving "Requested" payments → "CEO Pending".
-   *                   Uses generic doctype PATCH; reject button visible.
+   *                   Approve uses generic doctype PATCH; Reject sets status = "Rejected".
    * "ceo":            CEO promoting "CEO Pending" payments → "Approved".
-   *                   Uses ceo_approve_payment whitelisted API; no reject button.
+   *                   Approve uses ceo_approve_payment whitelisted API (stamps
+   *                   ceo_approval_date). Reject sets status = "Rejected" via PATCH.
    */
   mode?: ApprovePaymentsMode;
 }
@@ -510,25 +511,23 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
                 {isCEOMode ? "CEO Approve" : "Approve"}
               </HoverCardContent>
             </HoverCard>
-            {!isCEOMode && (
-              <HoverCard>
-                <HoverCardTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-red-600 hover:text-red-700"
-                    onClick={() =>
-                      openDialog(row.original, DIALOG_ACTION_TYPES.REJECT)
-                    }
-                  >
-                    <CircleX className="h-5 w-5" />
-                  </Button>
-                </HoverCardTrigger>
-                <HoverCardContent className="text-xs w-auto p-1.5">
-                  Reject
-                </HoverCardContent>
-              </HoverCard>
-            )}
+            <HoverCard>
+              <HoverCardTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-red-600 hover:text-red-700"
+                  onClick={() =>
+                    openDialog(row.original, DIALOG_ACTION_TYPES.REJECT)
+                  }
+                >
+                  <CircleX className="h-5 w-5" />
+                </Button>
+              </HoverCardTrigger>
+              <HoverCardContent className="text-xs w-auto p-1.5">
+                Reject
+              </HoverCardContent>
+            </HoverCard>
           </div>
         ),
         size: 120,
@@ -642,9 +641,16 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       }
       try {
         if (isCEOMode) {
-          // CEO step: only Approve is permitted, no field edits — call the whitelisted API
-          // so the backend can enforce the single-user permission gate.
-          await ceoApproveCall({ payment_id: selectedPayment.name });
+          if (actionType === DIALOG_ACTION_TYPES.REJECT) {
+            // CEO rejection: no amount edits — flip status to Rejected.
+            await updateDoc(DOCTYPE, selectedPayment.name, {
+              status: PAYMENT_STATUS.REJECTED,
+            });
+          } else {
+            // CEO approval: call the whitelisted API so the backend can enforce
+            // the single-user permission gate (Approved + ceo_approval_date stamp).
+            await ceoApproveCall({ payment_id: selectedPayment.name });
+          }
         } else {
           const newStatus =
             actionType === DIALOG_ACTION_TYPES.APPROVE ||
@@ -666,9 +672,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
 
         toast({
           title: "Success!",
-          description: isCEOMode
-            ? "Payment forwarded for fulfilment."
-            : `Payment ${actionType} successfully!`,
+          description:
+            isCEOMode && actionType !== DIALOG_ACTION_TYPES.REJECT
+              ? "Payment forwarded for fulfilment."
+              : `Payment ${actionType} successfully!`,
           variant: "success",
         });
       } catch (error: any) {

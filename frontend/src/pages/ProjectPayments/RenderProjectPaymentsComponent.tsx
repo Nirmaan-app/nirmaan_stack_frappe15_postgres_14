@@ -88,7 +88,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         {
             label: "Payments Pending",
             value: PP_TABS.PAYMENTS_PENDING,
-            countValue: parseNumber(counts.pay.requested) + parseNumber(counts.pay["ceo pending"]) + parseNumber(counts.pay.approved)
+            countValue: parseNumber(counts.pay.requested) + parseNumber(counts.pay.ceopending) + parseNumber(counts.pay.approved)
         }
     ], [counts]);
 

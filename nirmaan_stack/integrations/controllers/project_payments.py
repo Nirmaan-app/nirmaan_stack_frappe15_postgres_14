@@ -10,15 +10,9 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
 from .procurement_requests import get_user_name
 
-
-# PO term mirrors payment status. The intermediate "CEO Pending" state is hidden from
-# the PO child table — it shows up as "Approved" there since the PO view doesn't expose
-# the internal CEO gate.
-_PO_TERM_STATUS_MAP = {"CEO Pending": "Approved"}
-
-
 # --- HELPER FUNCTION FOR HOOKS ---
-# This helper function uses the "search" method to find the related PO term.
+# PO term status mirrors Project Payment status 1:1 (Requested / CEO Pending /
+# Approved / Paid / Rejected). On payment delete, the linked term reverts to Created.
 def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
     """
     Finds the corresponding PO term by searching through the child table
@@ -27,8 +21,6 @@ def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
     if payment_doc.document_type != "Procurement Orders":
         return
 
-    mapped_status = _PO_TERM_STATUS_MAP.get(new_status, new_status)
-
     try:
         # Load the entire parent PO document to access its child table
         po_doc = frappe.get_doc("Procurement Orders", payment_doc.document_name)
@@ -36,7 +28,7 @@ def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
         for term in po_doc.get("payment_terms"):
             # The search condition: find the term linking to this payment
             if term.project_payment == payment_doc.name:
-                term.term_status = mapped_status
+                term.term_status = new_status
                 if clear_link:
                     term.project_payment = "" # Clear the link on deletion
 

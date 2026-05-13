@@ -261,7 +261,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   const { totals: creditTotals } = useProjectAllCredits(projectId);
 
   const TotalPurchaseOverCredit = creditTotals.totalPurchase;
-  const CreditDueAmount = creditTotals.due;
   const CreditPaidAmount = creditTotals.paid;
 
   // --- Memoized Lookups ---
@@ -1204,23 +1203,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                               )}
                             </span>
                           </p>
-
-                          {/* <p className="flex justify-between w-full">
-                                                        <span className="font-medium inline-flex items-center gap-1 group"> Due Amount<HoverCard>
-                                                            <HoverCardTrigger asChild>
-                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
-                                                            </HoverCardTrigger>
-                                                            <HoverCardContent className="text-xs w-auto p-1.5">
-                                                                Total value of credit POs scheduled for future payment.
-                                                            </HoverCardContent>
-                                                        </HoverCard>
-                                                        </span>{" "}
-                                                        <span className="text-red-600 font-semibold">
-                                                            {formatToRoundedIndianRupee(
-                                                                CreditDueAmount
-                                                            )}
-                                                        </span>
-                                                    </p> */}
 
                           {/* Total Due Not Paid */}
                           <p className="flex justify-between w-full">

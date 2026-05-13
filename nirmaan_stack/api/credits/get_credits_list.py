@@ -89,10 +89,12 @@ def get_credits_list(
         # "Due" tab shows:
         # - Created terms with due_date <= today (these are overdue/due for payment)
         # - Requested terms (payment has been requested)
-        # - Approved terms (payment is approved, pending disbursement)
+        # - CEO Pending terms (L1 approved, awaiting CEO)
+        # - Approved terms (CEO approved, pending disbursement)
         conditions.append('''(
             (pt.term_status = 'Created' AND pt.due_date <= %(today)s)
             OR pt.term_status = 'Requested'
+            OR pt.term_status = 'CEO Pending'
             OR pt.term_status = 'Approved'
         )''')
     elif status_filter != "All":
@@ -455,13 +457,23 @@ def get_credits_facets(
         'project_name': 'po.project_name',
         'vendor_name': 'po.vendor_name',
         'project': 'po.project',
-        'vendor': 'po.vendor'
+        'vendor': 'po.vendor',
+        # display_status is computed (Created+past due_date -> 'Due'), handled below
+        'display_status': None,
     }
-    
+
     if facet_field not in valid_facet_fields:
         return {"values": []}
-        
-    sql_facet_field = valid_facet_fields[facet_field]
+
+    is_display_status_facet = (facet_field == 'display_status')
+    if is_display_status_facet:
+        # Computed value: 'Due' for Created+past due_date, otherwise the raw term_status
+        sql_facet_field = (
+            "CASE WHEN pt.term_status = 'Created' AND pt.due_date <= %(today)s "
+            "THEN 'Due' ELSE pt.term_status END"
+        )
+    else:
+        sql_facet_field = valid_facet_fields[facet_field]
 
     # Get user's allowed projects
     user = frappe.session.user
@@ -474,7 +486,10 @@ def get_credits_facets(
     # Base conditions
     conditions.append('po.status NOT IN (\'Merged\', \'Inactive\', \'PO Amendment\')')
     conditions.append('pt.payment_type = \'Credit\'')
-    conditions.append(f'{sql_facet_field} IS NOT NULL AND {sql_facet_field} != \'\'')
+    # display_status is a CASE expression that always resolves to a non-empty string,
+    # so the IS NOT NULL guard only applies to real columns.
+    if not is_display_status_facet:
+        conditions.append(f'{sql_facet_field} IS NOT NULL AND {sql_facet_field} != \'\'')
 
     # Project permission filter
     if allowed_projects is not None:
@@ -486,11 +501,12 @@ def get_credits_facets(
     today_date = today()
     values['today'] = today_date
 
-    # Status filter
+    # Status filter (keep in sync with the same branch in get_credits_list above)
     if status_filter == "Due":
         conditions.append('''(
             (pt.term_status = 'Created' AND pt.due_date <= %(today)s)
             OR pt.term_status = 'Requested'
+            OR pt.term_status = 'CEO Pending'
             OR pt.term_status = 'Approved'
         )''')
     elif status_filter != "All":
@@ -502,8 +518,13 @@ def get_credits_facets(
         parsed_filters = _parse_tanstack_filters(filters)
         for filter_condition, filter_value_key, filter_value in parsed_filters:
             # Skip the filter that matches the field we are faceting on
-            # so the user can still see other options with their counts
+            # so the user can still see other options with their counts.
+            # display_status is a special case: its filter is rewritten to a
+            # pt.term_status condition (see _parse_tanstack_filters), so detect
+            # that and skip it as well.
             if facet_field in filter_condition:
+                continue
+            if is_display_status_facet and 'pt.term_status' in filter_condition:
                 continue
             conditions.append(filter_condition)
             # Add to values only if it's not a generic 'today' mapping without a fresh value

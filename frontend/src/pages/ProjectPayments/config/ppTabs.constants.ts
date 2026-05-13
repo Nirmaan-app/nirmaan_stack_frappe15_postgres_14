@@ -27,7 +27,7 @@ export const PP_ADMIN_TAB_OPTIONS: PPTabOption[] = [
 ];
 
 export const PP_CEO_TAB_OPTIONS: PPTabOption[] = [
-    { label: "CEO Pending", value: PP_TABS.CEO_PENDING, countKey: "pay.ceo pending" },
+    { label: "CEO Pending", value: PP_TABS.CEO_PENDING, countKey: "pay.ceopending" },
 ];
 
 export const PP_NEW_PAYMENTS_TAB_OPTIONS: PPTabOption[] = [
