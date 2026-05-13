@@ -97,22 +97,37 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 // Make Pill Component
 const MakePill = ({ make }: { make: string }) => (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 whitespace-normal break-words max-w-full">
         {make}
     </span>
 );
 
-// New Item Badge — for "New" requests that link to an existing TDS Repository entry
-const NewItemBadge = () => (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-tight mb-1">
-        New Item
-    </span>
-);
+// Unified Item Status used by the Pending Review table column. Each request
+// row maps to exactly one of these; derivation order is fixed.
+type ItemStatusKind = "Custom Item" | "New Item" | "Verified" | "Not Verified";
 
-// Custom Item Badge — for project-only customs (no tds_item_id, no master entry)
-const CustomItemBadge = () => (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 uppercase tracking-tight mb-1">
-        Custom Item
+const ITEM_STATUS_KINDS: ItemStatusKind[] = ["Custom Item", "New Item", "Verified", "Not Verified"];
+
+const ITEM_STATUS_STYLES: Record<ItemStatusKind, { badge: string; text: string }> = {
+    "Custom Item":  { badge: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20",   text: "text-amber-800" },
+    "New Item":     { badge: "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20",         text: "text-sky-800" },
+    "Verified":     { badge: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20", text: "text-emerald-800" },
+    "Not Verified": { badge: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",      text: "text-rose-800" },
+};
+
+const getItemStatusKind = (
+    item: { tds_status?: string; tds_item_id?: string; tds_work_package?: string; tds_category?: string; tds_item_name?: string; tds_make?: string },
+    repoStatusByKey: Map<string, string>
+): ItemStatusKind => {
+    if (item.tds_status === "New" && !item.tds_item_id) return "Custom Item";
+    if (item.tds_status === "New") return "New Item";
+    const key = `${item.tds_work_package}|${item.tds_category}|${(item.tds_item_name || "").trim().toLowerCase()}|${(item.tds_make || "").trim().toLowerCase()}`;
+    return repoStatusByKey.get(key) === "Verified" ? "Verified" : "Not Verified";
+};
+
+const ItemStatusBadge: React.FC<{ kind: ItemStatusKind }> = ({ kind }) => (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-tight ${ITEM_STATUS_STYLES[kind].badge}`}>
+        {kind}
     </span>
 );
 
@@ -517,18 +532,47 @@ export const TDSApprovalDetail: React.FC = () => {
     const [selectedWorkPackages, setSelectedWorkPackages] = useState<string[]>([]);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [selectedMakes, setSelectedMakes] = useState<string[]>([]);
+    const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
+    const [selectedItemStatuses, setSelectedItemStatuses] = useState<string[]>([]);
     const [searchText, setSearchText] = useState("");
 
     // Facet options derived from the full item set (not the filtered set),
     // so narrowing one dimension doesn't hide values in others
     const facetOptions = useMemo(() => {
+        // Union sets — used by the mobile filter bar (page-level, all sections)
         const wp = new Set<string>();
         const cat = new Set<string>();
         const mk = new Set<string>();
+        // Per-table sets — column-header dropdowns list only values present in
+        // that section so users don't see "X" in the Approved Make dropdown if
+        // no approved row has Make = X.
+        const wpPending = new Set<string>(), wpApproved = new Set<string>(), wpRejected = new Set<string>();
+        const catPending = new Set<string>(), catApproved = new Set<string>(), catRejected = new Set<string>();
+        const mkPending = new Set<string>(), mkApproved = new Set<string>(), mkRejected = new Set<string>();
+        const itemNamePending = new Set<string>(), itemNameApproved = new Set<string>(), itemNameRejected = new Set<string>();
+        const presentItemStatus = new Set<ItemStatusKind>();
         (allItems || []).forEach(i => {
             if (i.tds_work_package) wp.add(i.tds_work_package);
             if (i.tds_category) cat.add(i.tds_category);
             if (i.tds_make) mk.add(i.tds_make);
+            const isPending = !i.tds_status || i.tds_status === "Pending" || i.tds_status === "New";
+            if (isPending) {
+                if (i.tds_work_package) wpPending.add(i.tds_work_package);
+                if (i.tds_category) catPending.add(i.tds_category);
+                if (i.tds_make) mkPending.add(i.tds_make);
+                if (i.tds_item_name) itemNamePending.add(i.tds_item_name);
+                presentItemStatus.add(getItemStatusKind(i as any, repoStatusByKey));
+            } else if (i.tds_status === "Approved") {
+                if (i.tds_work_package) wpApproved.add(i.tds_work_package);
+                if (i.tds_category) catApproved.add(i.tds_category);
+                if (i.tds_make) mkApproved.add(i.tds_make);
+                if (i.tds_item_name) itemNameApproved.add(i.tds_item_name);
+            } else if (i.tds_status === "Rejected") {
+                if (i.tds_work_package) wpRejected.add(i.tds_work_package);
+                if (i.tds_category) catRejected.add(i.tds_category);
+                if (i.tds_make) mkRejected.add(i.tds_make);
+                if (i.tds_item_name) itemNameRejected.add(i.tds_item_name);
+            }
         });
         const toOpt = (s: Set<string>) =>
             Array.from(s).sort().map(v => ({ label: v, value: v }));
@@ -536,13 +580,28 @@ export const TDSApprovalDetail: React.FC = () => {
             workPackage: toOpt(wp),
             category: toOpt(cat),
             make: toOpt(mk),
+            workPackagePending: toOpt(wpPending),
+            workPackageApproved: toOpt(wpApproved),
+            workPackageRejected: toOpt(wpRejected),
+            categoryPending: toOpt(catPending),
+            categoryApproved: toOpt(catApproved),
+            categoryRejected: toOpt(catRejected),
+            makePending: toOpt(mkPending),
+            makeApproved: toOpt(mkApproved),
+            makeRejected: toOpt(mkRejected),
+            itemNamePending: toOpt(itemNamePending),
+            itemNameApproved: toOpt(itemNameApproved),
+            itemNameRejected: toOpt(itemNameRejected),
+            itemStatus: ITEM_STATUS_KINDS.filter(k => presentItemStatus.has(k)).map(k => ({ label: k, value: k })),
         };
-    }, [allItems]);
+    }, [allItems, repoStatusByKey]);
 
+    // Filters shared across Pending / Approved / Rejected (WP / Category / Make / Item Name / search).
     const matchesFilters = (item: TDSItem) => {
         if (selectedWorkPackages.length && !selectedWorkPackages.includes(item.tds_work_package)) return false;
         if (selectedCategories.length && !selectedCategories.includes(item.tds_category)) return false;
         if (selectedMakes.length && !selectedMakes.includes(item.tds_make)) return false;
+        if (selectedItemNames.length && !selectedItemNames.includes(item.tds_item_name)) return false;
         const q = searchText.trim().toLowerCase();
         if (q) {
             const hay = `${item.tds_item_name ?? ""} ${item.tds_description ?? ""}`.toLowerCase();
@@ -551,16 +610,27 @@ export const TDSApprovalDetail: React.FC = () => {
         return true;
     };
 
+    // Pending-only facets — Item Status column lives only on the Pending Review
+    // table, so it must not be applied to Approved/Rejected in the All view.
+    const matchesPendingFacets = (item: TDSItem) => {
+        if (selectedItemStatuses.length && !selectedItemStatuses.includes(getItemStatusKind(item as any, repoStatusByKey))) return false;
+        return true;
+    };
+
     const hasActiveFilters =
         selectedWorkPackages.length > 0 ||
         selectedCategories.length > 0 ||
         selectedMakes.length > 0 ||
+        selectedItemNames.length > 0 ||
+        selectedItemStatuses.length > 0 ||
         searchText.trim().length > 0;
 
     const clearAllFilters = () => {
         setSelectedWorkPackages([]);
         setSelectedCategories([]);
         setSelectedMakes([]);
+        setSelectedItemNames([]);
+        setSelectedItemStatuses([]);
         setSearchText("");
     };
 
@@ -581,16 +651,16 @@ export const TDSApprovalDetail: React.FC = () => {
 
     // Filtered splits — what the UI renders
     const pendingItems = useMemo(() =>
-        allPendingItems.filter(matchesFilters),
-        [allPendingItems, selectedWorkPackages, selectedCategories, selectedMakes, searchText]);
+        allPendingItems.filter(i => matchesFilters(i) && matchesPendingFacets(i)),
+        [allPendingItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, searchText, repoStatusByKey]);
 
     const approvedItems = useMemo(() =>
         allApprovedItems.filter(matchesFilters),
-        [allApprovedItems, selectedWorkPackages, selectedCategories, selectedMakes, searchText]);
+        [allApprovedItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, searchText]);
 
     const rejectedItems = useMemo(() =>
         allRejectedItems.filter(matchesFilters),
-        [allRejectedItems, selectedWorkPackages, selectedCategories, selectedMakes, searchText]);
+        [allRejectedItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, searchText]);
 
     const filteredTotal = pendingItems.length + approvedItems.length + rejectedItems.length;
 
@@ -729,7 +799,7 @@ export const TDSApprovalDetail: React.FC = () => {
                 header: () => (
                     <FilterableHeader
                         title="Work Package"
-                        options={facetOptions.workPackage}
+                        options={facetOptions.workPackagePending}
                         selected={selectedWorkPackages}
                         onChange={setSelectedWorkPackages}
                     />
@@ -746,7 +816,7 @@ export const TDSApprovalDetail: React.FC = () => {
                 header: () => (
                     <FilterableHeader
                         title="Category"
-                        options={facetOptions.category}
+                        options={facetOptions.categoryPending}
                         selected={selectedCategories}
                         onChange={setSelectedCategories}
                     />
@@ -756,31 +826,36 @@ export const TDSApprovalDetail: React.FC = () => {
             },
             {
                 accessorKey: "tds_item_name",
-                header: "Item Name",
+                header: () => (
+                    <FilterableHeader
+                        title="Item Name"
+                        options={facetOptions.itemNamePending}
+                        selected={selectedItemNames}
+                        onChange={setSelectedItemNames}
+                    />
+                ),
                 cell: ({ row }) => {
-                    const isNewCustom = row.original.tds_status === "New" && !row.original.tds_item_id;
-                    const key = `${row.original.tds_work_package}|${row.original.tds_category}|${(row.original.tds_item_name || "").trim().toLowerCase()}|${(row.original.tds_make || "").trim().toLowerCase()}`;
-                    const repoStatus = isNewCustom ? undefined : repoStatusByKey.get(key);
+                    const kind = getItemStatusKind(row.original as any, repoStatusByKey);
                     return (
-                        <div className="flex flex-col items-start gap-1 whitespace-normal break-words">
-                            {isNewCustom
-                                ? <CustomItemBadge />
-                                : (row.original.tds_status === "New" && <NewItemBadge />)}
-                            {repoStatus && (
-                                <span
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${repoStatus === "Verified"
-                                        ? "bg-emerald-100 text-emerald-700"
-                                        : "bg-rose-100 text-rose-700"
-                                        }`}
-                                >
-                                    {repoStatus}
-                                </span>
-                            )}
-                            <span>{row.getValue("tds_item_name")}</span>
-                        </div>
+                        <span className={`whitespace-normal break-words font-medium ${ITEM_STATUS_STYLES[kind].text}`}>
+                            {row.getValue("tds_item_name")}
+                        </span>
                     );
                 },
                 size: 180,
+            },
+            {
+                id: "item_status",
+                header: () => (
+                    <FilterableHeader
+                        title="Item Status"
+                        options={facetOptions.itemStatus}
+                        selected={selectedItemStatuses}
+                        onChange={setSelectedItemStatuses}
+                    />
+                ),
+                cell: ({ row }) => <ItemStatusBadge kind={getItemStatusKind(row.original as any, repoStatusByKey)} />,
+                size: 130,
             },
             {
                 accessorKey: "tds_description",
@@ -800,7 +875,7 @@ export const TDSApprovalDetail: React.FC = () => {
                 header: () => (
                     <FilterableHeader
                         title="Make"
-                        options={facetOptions.make}
+                        options={facetOptions.makePending}
                         selected={selectedMakes}
                         onChange={setSelectedMakes}
                     />
@@ -813,29 +888,17 @@ export const TDSApprovalDetail: React.FC = () => {
                 header: "BOQ Ref",
                 cell: ({ row }) => {
                     const text = row.original.tds_boq_line_item;
-
+                    if (!text) return <span className="text-gray-300">-</span>;
                     return (
-                        <div className="flex justify-start items-center">
-                            {text ? (
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
-                                                <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
-                                            </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent className="max-w-[400px] whitespace-normal break-words z-50">
-                                            <p>{text}</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            ) : (
-                                <span className="text-gray-300 ml-2">-</span>
-                            )}
-                        </div>
+                        <span
+                            className="block max-w-[180px] truncate text-slate-700"
+                            title={text}
+                        >
+                            {text}
+                        </span>
                     );
                 },
-                size: 100,
+                size: 140,
             },
             {
                 id: "doc",
@@ -882,7 +945,7 @@ export const TDSApprovalDetail: React.FC = () => {
         }
 
         return cols;
-    }, [rowSelection, canApprove, facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, repoStatusByKey]);
+    }, [rowSelection, canApprove, facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, repoStatusByKey]);
 
     // Read-only columns for Approved/Rejected sections
     const readOnlyColumns = useMemo<ColumnDef<TDSItem>[]>(() => [
@@ -891,7 +954,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: () => (
                 <FilterableHeader
                     title="Work Package"
-                    options={facetOptions.workPackage}
+                    options={facetOptions.workPackageApproved}
                     selected={selectedWorkPackages}
                     onChange={setSelectedWorkPackages}
                 />
@@ -904,7 +967,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: () => (
                 <FilterableHeader
                     title="Category"
-                    options={facetOptions.category}
+                    options={facetOptions.categoryApproved}
                     selected={selectedCategories}
                     onChange={setSelectedCategories}
                 />
@@ -914,7 +977,14 @@ export const TDSApprovalDetail: React.FC = () => {
         },
         {
             accessorKey: "tds_item_name",
-            header: "Item Name",
+            header: () => (
+                <FilterableHeader
+                    title="Item Name"
+                    options={facetOptions.itemNameApproved}
+                    selected={selectedItemNames}
+                    onChange={setSelectedItemNames}
+                />
+            ),
             cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_item_name")}</span>,
             size: 180,
         },
@@ -936,7 +1006,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: () => (
                 <FilterableHeader
                     title="Make"
-                    options={facetOptions.make}
+                    options={facetOptions.makeApproved}
                     selected={selectedMakes}
                     onChange={setSelectedMakes}
                 />
@@ -994,7 +1064,7 @@ export const TDSApprovalDetail: React.FC = () => {
             ),
             size: 60,
         },
-    ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes]);
+    ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames]);
 
     // Rejected items columns (includes Reject Reason)
     const rejectedColumns = useMemo<ColumnDef<TDSItem>[]>(() => [
@@ -1003,7 +1073,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: () => (
                 <FilterableHeader
                     title="Work Package"
-                    options={facetOptions.workPackage}
+                    options={facetOptions.workPackageRejected}
                     selected={selectedWorkPackages}
                     onChange={setSelectedWorkPackages}
                 />
@@ -1016,7 +1086,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: () => (
                 <FilterableHeader
                     title="Category"
-                    options={facetOptions.category}
+                    options={facetOptions.categoryRejected}
                     selected={selectedCategories}
                     onChange={setSelectedCategories}
                 />
@@ -1026,7 +1096,14 @@ export const TDSApprovalDetail: React.FC = () => {
         },
         {
             accessorKey: "tds_item_name",
-            header: "Item Name",
+            header: () => (
+                <FilterableHeader
+                    title="Item Name"
+                    options={facetOptions.itemNameRejected}
+                    selected={selectedItemNames}
+                    onChange={setSelectedItemNames}
+                />
+            ),
             cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_item_name")}</span>,
             size: 180,
         },
@@ -1048,7 +1125,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: () => (
                 <FilterableHeader
                     title="Make"
-                    options={facetOptions.make}
+                    options={facetOptions.makeRejected}
                     selected={selectedMakes}
                     onChange={setSelectedMakes}
                 />
@@ -1132,7 +1209,7 @@ export const TDSApprovalDetail: React.FC = () => {
             ),
             size: 60,
         },
-    ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes]);
+    ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames]);
 
     const handleApprove = async () => {
         const selectedItems = allPendingItems.filter(item => rowSelection[item.name]);
@@ -1296,6 +1373,7 @@ export const TDSApprovalDetail: React.FC = () => {
                 navigate("/tds-approval");
             } else {
                 setRowSelection({});
+                clearAllFilters();
                 mutate();
                 mutateRepo();
             }

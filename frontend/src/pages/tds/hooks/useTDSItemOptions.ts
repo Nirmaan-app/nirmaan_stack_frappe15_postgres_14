@@ -7,14 +7,17 @@ interface UseTDSItemOptionsProps {
     selectedCategory?: string;
     watchedTdsItemId?: string;
     currentItem?: TDSItem | null; // For Edit mode preservation
+    // When true, restrict standard item options to Items where billing_category = "Billable".
+    // Custom items (CUS-*) are unaffected — they are tracked separately in TDS Repository.
+    billableOnly?: boolean;
 }
 
-export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItemId, currentItem }: UseTDSItemOptionsProps) => {
-    
+export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItemId, currentItem, billableOnly = false }: UseTDSItemOptionsProps) => {
+
     // Fetch Data
     const { data: wpList } = useFrappeGetDocList("Work Packages", { fields: ["name", "work_package_name"], limit: 0 });
     const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 0 });
-    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 0 });
+    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category", "billing_category"], limit: 0 });
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
     const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 0 });
 
@@ -67,25 +70,28 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
     // 3. Standard Item Options filtered by WP (NEW: for the new flow)
     const itemOptionsForWP = useMemo(() => {
         if (!selectedWP || !itemList || !catList) return [];
-        
+
         // Get categories for this WP
         const wpCategories = new Set(
             catList.filter(c => c.work_package === selectedWP).map(c => c.name)
         );
-        
-        // Get items belonging to those categories
+
+        // Get items belonging to those categories. When the form has Category
+        // chosen before Item Name (new field order), narrow further to that category.
         return itemList
             .filter(d => wpCategories.has(d.category))
+            .filter(d => !selectedCategory || d.category === selectedCategory)
+            .filter(d => !billableOnly || d.billing_category === "Billable")
             .map(d => {
                 const category = catList.find(c => c.name === d.category);
-                return { 
-                    label: d.item_name, 
+                return {
+                    label: d.item_name,
                     value: d.name,
                     category: d.category,
                     categoryName: category?.category_name || d.category
                 };
             });
-    }, [itemList, catList, selectedWP]);
+    }, [itemList, catList, selectedWP, selectedCategory, billableOnly]);
 
     // 4. Item Options filtered by Category (OLD: for backwards compatibility)
     const itemOptions = useMemo(() => {

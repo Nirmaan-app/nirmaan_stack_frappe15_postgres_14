@@ -16,6 +16,7 @@ import { useFrappeGetDoc } from "frappe-react-sdk";
 import { CheckCircle2, XCircle, Sparkles } from "lucide-react";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "date-fns";
@@ -113,6 +114,8 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
     vendorDisplayName,
 }) => {
     const isPO = invoice.document_type === "Procurement Orders";
+    const isSR = invoice.document_type === "Service Requests";
+    const parentLabel = isSR ? "SR" : "PO";
 
     // Fetch PO doc only when this is a PO — gives us project_gst and vendor link.
     const { data: poDoc } = useFrappeGetDoc<ProcurementOrder>(
@@ -121,8 +124,15 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
         isPO && invoice.document_name ? `Approve-Compare-PO-${invoice.document_name}` : null
     );
 
+    // Fetch SR doc when this is a Service Request — same fields (project_gst + vendor).
+    const { data: srDoc } = useFrappeGetDoc<ServiceRequests>(
+        "Service Requests",
+        invoice.document_name,
+        isSR && invoice.document_name ? `Approve-Compare-SR-${invoice.document_name}` : null
+    );
+
     // Fetch the vendor master to read vendor_gst.
-    const vendorId = invoice.vendor || poDoc?.vendor;
+    const vendorId = invoice.vendor || poDoc?.vendor || srDoc?.vendor;
     const { data: vendorDoc } = useFrappeGetDoc<Vendors>(
         "Vendors",
         vendorId,
@@ -156,7 +166,8 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
     const systemPoId = invoice.document_name;
     const systemVendorName = vendorDisplayName || vendorDoc?.vendor_name || invoice.vendor || "";
     const systemVendorGst = (vendorDoc?.vendor_gst || "").toString().trim();
-    const systemPoGst = (poDoc?.project_gst || "").toString().trim();
+    // Receiver GSTIN from whichever parent doc loaded (PO or SR — same field name).
+    const systemReceiverGst = (poDoc?.project_gst || srDoc?.project_gst || "").toString().trim();
     const systemPoTotal = poTotalIncGst ?? 0;
 
     // Match logic
@@ -165,8 +176,8 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
     const vendorGstMatch = aiSupplierGstin && systemVendorGst
         ? systemVendorGst.toUpperCase() === aiSupplierGstin.toUpperCase()
         : null;
-    const poGstMatch = aiReceiverGstin && systemPoGst
-        ? systemPoGst.toUpperCase() === aiReceiverGstin.toUpperCase()
+    const poGstMatch = aiReceiverGstin && systemReceiverGst
+        ? systemReceiverGst.toUpperCase() === aiReceiverGstin.toUpperCase()
         : null;
     // Amount: not a strict match (partial invoices are normal). Just show both;
     // mark mismatch only if the AI total exceeds PO total.
@@ -189,7 +200,7 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
     return (
         <div className="space-y-3 pt-2">
             <div className="grid grid-cols-[1fr_1fr] gap-3 px-3 py-1.5 bg-gray-50 rounded-t-md border border-gray-200">
-                <div className="text-xs font-semibold text-gray-700">PO Details (System)</div>
+                <div className="text-xs font-semibold text-gray-700">{parentLabel} Details (System)</div>
                 <div className="text-xs font-semibold text-amber-800 flex items-center gap-1">
                     <Sparkles className="h-3 w-3" />
                     Invoice Details (AI Extracted)
@@ -198,7 +209,7 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
 
             <div className="border border-gray-200 rounded-md -mt-3">
                 <ComparisonRow
-                    label="PO ID"
+                    label={`${parentLabel} ID`}
                     systemValue={systemPoId}
                     aiValue={
                         usedAutofill ? (
@@ -234,8 +245,8 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
                     match={usedAutofill ? vendorGstMatch : null}
                 />
                 <ComparisonRow
-                    label="PO GSTIN (Receiver)"
-                    systemValue={systemPoGst || <span className="text-gray-400 italic">not set</span>}
+                    label={`${parentLabel} GSTIN (Receiver)`}
+                    systemValue={systemReceiverGst || <span className="text-gray-400 italic">not set</span>}
                     aiValue={
                         usedAutofill ? (
                             aiReceiverGstin || <span className="text-gray-400 italic">not extracted</span>

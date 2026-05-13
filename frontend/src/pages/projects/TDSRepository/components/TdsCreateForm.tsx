@@ -646,6 +646,27 @@ if (selectedBoqLineItem.length > 300) {
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => window.open(item.tds_attachment, '_blank')}>
                                                 <FileText className="h-4 w-4" />
                                             </Button>
+                                        ) : item.attachmentFile ? (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-blue-600 hover:bg-blue-50"
+                                                            onClick={() => {
+                                                                const url = URL.createObjectURL(item.attachmentFile!);
+                                                                window.open(url, '_blank');
+                                                            }}
+                                                        >
+                                                            <FileText className="h-4 w-4" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent className="max-w-[300px] whitespace-normal break-words">
+                                                        <p>{item.attachmentFile.name} (uploads on submit)</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
                                         ) : (
                                             <span className="text-gray-300">-</span>
                                         )}

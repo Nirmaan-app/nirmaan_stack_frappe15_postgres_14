@@ -143,13 +143,7 @@ export const TDSRepositoryMaster: React.FC = () => {
     const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
     const { role } = useUserData();
 
-    // isPermission = true only for Admin and Estimates Executive
-    const isPermission = ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile",
-        "Nirmaan PMO Executive Profile",].includes(role);
-
     const isAdmin = role === "Nirmaan Admin Profile";
-
-    //  console.log("role",isPermission,role)
 
 
 
@@ -272,7 +266,7 @@ export const TDSRepositoryMaster: React.FC = () => {
                 );
             },
         },
-        ...(isPermission ? [
+        ...(isAdmin ? [
             {
                 id: "actions",
                 size: 90,
@@ -307,7 +301,7 @@ export const TDSRepositoryMaster: React.FC = () => {
                 )
             }
         ] : [])
-    ], [isPermission]);
+    ], [isAdmin]);
 
     const searchableFields = [
         { label: "Item Name", value: "tds_item_name" },

@@ -23,6 +23,34 @@ import RSelect, { components as RSComponents, MenuListProps } from "react-select
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useTDSItemOptions } from "@/pages/tds/hooks/useTDSItemOptions";
 import { CustomItemDialog } from "@/pages/tds/components/AddTDSItemDialog";
+import { useUserData } from "@/hooks/useUserData";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+
+// Custom MenuList for the Item Name dropdown — renders the standard react-select
+// MenuList followed by an optional "+ Custom Item" footer (admin-only). Passed via
+// FuzzySearchSelect's customMenuListProps to keep the component itself stateless.
+const RequestItemMenuList = (props: MenuListProps<any, false>) => {
+    const canCreate = (props as any).canCreate;
+    const onAdd = (props as any).onAdd;
+    return (
+        <div>
+            <RSComponents.MenuList {...props}>{props.children}</RSComponents.MenuList>
+            {canCreate && (
+                <button
+                    type="button"
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onAdd?.();
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border-t border-gray-200 sticky bottom-0"
+                >
+                    + Custom Item
+                </button>
+            )}
+        </div>
+    );
+};
 
 const formSchema = z.object({
     work_package: z.string().min(1, "Work Package is required"),
@@ -42,12 +70,13 @@ interface RequestTdsItemDialogProps {
 }
 
 export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open, onOpenChange, onAddItem }) => {
-    const [isCustomMake, setIsCustomMake] = useState(false);
-    const [customMake, setCustomMake] = useState("");
+    const { role } = useUserData();
+    const canCreateCustomItem = role === "Nirmaan Admin Profile";
     const [customItemDialogOpen, setCustomItemDialogOpen] = useState(false);
     const [isCustomItem, setIsCustomItem] = useState(false);
     const [customItemName, setCustomItemName] = useState("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -67,9 +96,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     const selectedCategory = useWatch({ control: form.control, name: "category" });
     const watchedTdsItemId = useWatch({ control: form.control, name: "tds_item_id" });
 
-    const { 
-        wpOptions, 
-        catOptions, 
+    const {
+        wpOptions,
+        catOptions,
         itemOptionsForWP,
         makeOptions,
         allCustomItems,
@@ -78,7 +107,8 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     } = useTDSItemOptions({
         selectedWP,
         selectedCategory,
-        watchedTdsItemId
+        watchedTdsItemId,
+        billableOnly: true,
     });
 
     const itemOptionsWithCustom = useMemo(() => {
@@ -135,8 +165,8 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         if (itemInfo) {
             form.setValue("category", itemInfo.category);
             if (itemInfo.workPackage && itemInfo.workPackage !== form.getValues("work_package")) {
-                 prevWPRef.current = itemInfo.workPackage;
-                 form.setValue("work_package", itemInfo.workPackage);
+                prevWPRef.current = itemInfo.workPackage;
+                form.setValue("work_package", itemInfo.workPackage);
             }
         }
 
@@ -162,7 +192,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
             form.setValue("tds_item_name", item.name);
             form.setValue("is_custom_item", item.id.startsWith("CUS-"));
             form.setValue("category", item.category);
-            
+
             if (item.workPackage) {
                 if (item.workPackage !== form.getValues("work_package")) {
                     prevWPRef.current = item.workPackage;
@@ -184,6 +214,10 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     };
 
     const onSubmit = (values: z.infer<typeof formSchema>) => {
+        if (!selectedFile) {
+            setFileError("Attachment is required");
+            return;
+        }
         onAddItem({
             tds_item_name: values.tds_item_name,
             tds_item_id: values.tds_item_id,
@@ -197,21 +231,19 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         });
         onOpenChange(false);
         form.reset();
-        setIsCustomMake(false);
-        setCustomMake("");
         setIsCustomItem(false);
         setCustomItemName("");
         setSelectedFile(null);
+        setFileError(null);
     };
 
     const handleCancel = () => {
         onOpenChange(false);
         form.reset();
-        setIsCustomMake(false);
-        setCustomMake("");
         setIsCustomItem(false);
         setCustomItemName("");
         setSelectedFile(null);
+        setFileError(null);
     };
 
     return (
@@ -248,11 +280,36 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                 )}
                             />
 
+                            {/* Category */}
+                            <FormField
+                                control={form.control}
+                                name="category"
+                                render={({ field }) => (
+                                    <FormItem className="space-y-1">
+                                        <FormLabel className="text-sm font-bold text-gray-700">Category<span className="text-red-500 ml-0.5">*</span></FormLabel>
+                                        <FormControl>
+                                            <RSelect
+                                                options={catOptions}
+                                                value={catOptions.find(opt => opt.value === field.value) || null}
+                                                onChange={(opt) => field.onChange(opt?.value || "")}
+                                                placeholder="Select Category"
+                                                isDisabled={!selectedWP || (!isCustomItem && !!watchedTdsItemId)}
+                                                classNamePrefix="react-select"
+                                                styles={{
+                                                    control: (base) => ({ ...base, minHeight: '44px', borderRadius: '8px', borderColor: '#e5e7eb' })
+                                                }}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
                             {/* Item Name */}
                             <FormField
                                 control={form.control}
                                 name="tds_item_id"
-                                render={({ field }) => (
+                                render={() => (
                                     <FormItem className="space-y-1">
                                         <FormLabel className="text-sm font-bold text-gray-700">Item Name<span className="text-red-500 ml-0.5">*</span></FormLabel>
                                         <FormControl>
@@ -273,32 +330,26 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     </Button>
                                                 </div>
                                             ) : (
-                                                <RSelect
-                                                    options={itemOptionsWithCustom}
+                                                <FuzzySearchSelect
+                                                    allOptions={itemOptionsWithCustom}
+                                                    tokenSearchConfig={{
+                                                        searchFields: ['label', 'value', 'categoryName'],
+                                                        minSearchLength: 1,
+                                                        partialMatch: true,
+                                                        minTokenLength: 1,
+                                                        fieldWeights: { label: 2.0, value: 1.5, categoryName: 1.0 },
+                                                        minTokenMatches: 1,
+                                                    }}
                                                     value={getItemDisplayValue()}
-                                                    onChange={handleItemChange}
-                                                    placeholder="Select Item"
+                                                    onChange={handleItemChange as any}
+                                                    placeholder="Search Item Name..."
                                                     classNamePrefix="react-select"
                                                     isDisabled={!selectedWP}
-                                                    components={{
-                                                        MenuList: (props: MenuListProps<any, false>) => (
-                                                            <div>
-                                                                <RSComponents.MenuList {...props}>
-                                                                    {props.children}
-                                                                </RSComponents.MenuList>
-                                                                <button
-                                                                    type="button"
-                                                                    onMouseDown={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleItemChange({ value: "__custom__" });
-                                                                    }}
-                                                                    className="w-full text-left px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border-t border-gray-200 sticky bottom-0"
-                                                                >
-                                                                    + Custom Item
-                                                                </button>
-                                                            </div>
-                                                        ),
+                                                    isClearable
+                                                    customMenuListComponent={RequestItemMenuList as any}
+                                                    customMenuListProps={{
+                                                        canCreate: canCreateCustomItem,
+                                                        onAdd: () => handleItemChange({ value: "__custom__" }),
                                                     }}
                                                     formatOptionLabel={(option: any) => (
                                                         <span>
@@ -319,106 +370,32 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                 )}
                             />
 
-                            {/* Category */}
-                            <FormField
-                                control={form.control}
-                                name="category"
-                                render={({ field }) => (
-                                    <FormItem className="space-y-1">
-                                        <FormLabel className="text-sm font-bold text-gray-700">Category<span className="text-red-500 ml-0.5">*</span></FormLabel>
-                                        <FormControl>
-                                            <RSelect
-                                                options={catOptions}
-                                                value={catOptions.find(opt => opt.value === field.value) || null}
-                                                onChange={(opt) => field.onChange(opt?.value || "")}
-                                                placeholder={isCustomItem ? "Select category" : "Auto-filled from item"}
-                                                isDisabled={!isCustomItem && !!selectedCategory}
-                                                classNamePrefix="react-select"
-                                                styles={{
-                                                    control: (base) => ({ ...base, minHeight: '44px', borderRadius: '8px', borderColor: '#e5e7eb' })
-                                                }}
-                                            />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-
                             {/* Make */}
                             <FormField
                                 control={form.control}
                                 name="make"
-                                render={({ field }) => (
-                                    <FormItem className="space-y-1">
-                                        <FormLabel className="text-sm font-bold text-gray-700">Make<span className="text-red-500 ml-0.5">*</span></FormLabel>
-                                        <FormControl>
-                                            {isCustomMake ? (
-                                                <div className="space-y-2">
-                                                    <Input
-                                                        placeholder="Enter custom make name"
-                                                        value={customMake}
-                                                        onChange={(e) => {
-                                                            setCustomMake(e.target.value);
-                                                            field.onChange(e.target.value);
-                                                        }}
-                                                        className="h-11 border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-100 transition-all font-medium"
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => {
-                                                            setIsCustomMake(false);
-                                                            setCustomMake("");
-                                                            field.onChange("");
-                                                        }}
-                                                        className="text-xs text-blue-600 hover:text-blue-700 h-6 px-2 font-black tracking-tight"
-                                                    >
-                                                        ← BACK TO LIST
-                                                    </Button>
-                                                </div>
-                                            ) : (
+                                render={({ field }) => {
+                                    const selectableMakes = makeOptions.filter(opt => opt.value !== "__others__");
+                                    return (
+                                        <FormItem className="space-y-1">
+                                            <FormLabel className="text-sm font-bold text-gray-700">Make<span className="text-red-500 ml-0.5">*</span></FormLabel>
+                                            <FormControl>
                                                 <RSelect
-                                                    options={makeOptions}
-                                                    value={makeOptions.find(opt => opt.value === field.value) || null}
-                                                    onChange={(opt) => {
-                                                        if (opt?.value === "__others__") {
-                                                            setIsCustomMake(true);
-                                                            setCustomMake("");
-                                                            field.onChange("");
-                                                        } else {
-                                                            field.onChange(opt?.value || "");
-                                                        }
-                                                    }}
+                                                    options={selectableMakes}
+                                                    value={selectableMakes.find(opt => opt.value === field.value) || null}
+                                                    onChange={(opt) => field.onChange(opt?.value || "")}
                                                     placeholder="Select Make"
                                                     isDisabled={!selectedCategory}
                                                     classNamePrefix="react-select"
                                                     styles={{
                                                         control: (base) => ({ ...base, minHeight: '44px', borderRadius: '8px', borderColor: '#e5e7eb' }),
-                                                        option: (base, state: any) => ({
-                                                            ...base,
-                                                            ...(state.data.value === "__others__" ? {
-                                                                backgroundColor: state.isFocused ? '#eff6ff' : '#f8fafc',
-                                                                color: '#2563eb',
-                                                                fontWeight: 800,
-                                                                borderTop: '1px solid #f1f5f9',
-                                                                letterSpacing: '-0.025em'
-                                                            } : {})
-                                                        }),
                                                     }}
-                                                    formatOptionLabel={(option) => (
-                                                        option.value === "__others__" ? (
-                                                            <span className="flex items-center gap-1 uppercase text-xs font-black">
-                                                                <span>+ OTHERS</span>
-                                                            </span>
-                                                        ) : option.label
-                                                    )}
                                                 />
-                                            )}
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    );
+                                }}
                             />
 
                             {/* TDS BOQ Line Item */}
@@ -453,15 +430,21 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
 
                             {/* Attach Document */}
                             <div className="space-y-1.5 mt-2">
-                                <FormLabel className="text-sm font-bold text-gray-700 tracking-tight">Attach Document <span className="text-gray-400 font-normal ml-0.5">(Optional)</span></FormLabel>
+                                <FormLabel className="text-sm font-bold text-gray-700 tracking-tight">Attach Document<span className="text-red-500 ml-0.5">*</span></FormLabel>
                                 <CustomAttachment
                                     selectedFile={selectedFile}
-                                    onFileSelect={setSelectedFile}
+                                    onFileSelect={(file) => {
+                                        setSelectedFile(file);
+                                        if (file) setFileError(null);
+                                    }}
                                     acceptedTypes="application/pdf"
                                     label="Upload PDF Document"
                                     maxFileSize={50 * 1024 * 1024}
                                     className="w-full"
                                 />
+                                {fileError && (
+                                    <p className="text-xs font-medium text-red-500">{fileError}</p>
+                                )}
                             </div>
 
                             <div className="flex bg-gray-50 -mx-6 -mb-6 p-4 px-6 border-t border-gray-100 gap-3 justify-end items-center mt-6">
@@ -477,15 +460,17 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                 </div>
             </DialogContent>
 
-            <CustomItemDialog
-                open={customItemDialogOpen}
-                onClose={() => setCustomItemDialogOpen(false)}
-                onSelect={handleCustomItemSelect}
-                allCustomItems={allCustomItems}
-                standardItems={itemOptionsForWP}
-                catList={catList || []}
-                hideMatches
-            />
+            {canCreateCustomItem && (
+                <CustomItemDialog
+                    open={customItemDialogOpen}
+                    onClose={() => setCustomItemDialogOpen(false)}
+                    onSelect={handleCustomItemSelect}
+                    allCustomItems={allCustomItems}
+                    standardItems={itemOptionsForWP}
+                    catList={catList || []}
+                    hideMatches
+                />
+            )}
         </Dialog>
     );
 };
