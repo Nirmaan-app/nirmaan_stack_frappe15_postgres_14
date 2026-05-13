@@ -59,6 +59,10 @@ class ClassifiedRow:
     # (splitting is deferred to Phase 2b.2).  Keys = area_name, values = float.
     qty_by_area_raw: dict[str, float] = field(default_factory=dict)
 
+    # Per-area raw amount captured from amount_by_area ColumnRoles.
+    # Parallel structure to qty_by_area_raw.  Keys = area_name, values = float.
+    amount_by_area_raw: dict[str, float] = field(default_factory=dict)
+
     # Preamble candidate metadata — populated by populate_preamble_candidate_scores()
     # (a separate post-classification pass, not by classify_row). Always 0 / []
     # when rows are classified individually. Phase 3 wizard reads these to surface
@@ -358,6 +362,7 @@ def classify_row(
     # ---------------------------------------------------------------- #
     warnings: list[str] = []
     qty_by_area_raw: dict[str, float] = {}
+    amount_by_area_raw: dict[str, float] = {}
     is_rate_only = False
 
     ro_markers = (
@@ -437,6 +442,17 @@ def classify_row(
         if ro_flag:
             is_rate_only = True
         qty = raw_qty  # may still be None for a blank cell
+
+    # Per-area amount extraction — parallel to qty_by_area_raw
+    amount_area_cols: list[tuple[str, str]] = []  # (col_letter, area_name)
+    for col_letter, col_role in col_map.items():
+        if col_role.role == "amount_by_area" and col_role.area:
+            amount_area_cols.append((col_letter, col_role.area))
+
+    for col_letter, area_name in amount_area_cols:
+        amt_val = _to_float(raw_row.get_cell(col_letter).value if raw_row.get_cell(col_letter) else None)
+        if amt_val is not None and amt_val != 0:
+            amount_by_area_raw[area_name] = amt_val
 
     # qty_total column overrides if it has a valid value
     if qty_total_col:
@@ -537,4 +553,5 @@ def classify_row(
         row_notes=row_notes,
         warnings=warnings,
         qty_by_area_raw=qty_by_area_raw,
+        amount_by_area_raw=amount_by_area_raw,
     )

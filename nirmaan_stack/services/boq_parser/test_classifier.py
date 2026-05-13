@@ -624,5 +624,142 @@ class TestPreambleCandidateScoring(unittest.TestCase):
         self.assertEqual(classified.preamble_candidate_signals, [])
 
 
+class TestAmountByAreaRaw(unittest.TestCase):
+    """Phase 2b.2 Part B1 — amount_by_area_raw field on ClassifiedRow."""
+
+    def _make_area_config(
+        self,
+        areas: list[str],
+        include_qty_areas: bool = False,
+    ) -> SheetConfig:
+        """
+        Build a SheetConfig with amount_by_area columns for each area.
+
+        Columns layout:
+          A → sl_no, B → description, C → unit
+          D, E, F, ... → amount_by_area for each area in order
+          If include_qty_areas: parallel qty columns start after amount cols
+        """
+        col_map: dict[str, ColumnRole] = {
+            "A": ColumnRole(role="sl_no"),
+            "B": ColumnRole(role="description"),
+            "C": ColumnRole(role="unit"),
+        }
+        # Amount-by-area columns: D, E, F, ...
+        amt_letters = [chr(ord("D") + i) for i in range(len(areas))]
+        for letter, area in zip(amt_letters, areas):
+            col_map[letter] = ColumnRole(role="amount_by_area", area=area)
+
+        if include_qty_areas:
+            # Qty-by-area (role="qty" with area): after amount cols
+            qty_letters = [chr(ord("D") + len(areas) + i) for i in range(len(areas))]
+            for letter, area in zip(qty_letters, areas):
+                col_map[letter] = ColumnRole(role="qty", area=area)
+
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map=col_map,
+            area_dimensions=areas,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — single area amount_by_area_raw captured                  #
+    # ---------------------------------------------------------------- #
+
+    def test_amount_by_area_raw_single_area(self):
+        """amount_by_area column for one area → amount_by_area_raw has that area's value."""
+        config = self._make_area_config(["Block A"])
+        row = _make_row(1, {
+            "A": {"value": "a."},
+            "B": {"value": "Plaster"},
+            "C": {"value": "Sqm"},
+            "D": {"value": 1500.0},  # amount for Block A
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_by_area_raw, {"Block A": 1500.0})
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — multiple areas (Pattern 3 shape: 3 areas)                #
+    # ---------------------------------------------------------------- #
+
+    def test_amount_by_area_raw_multiple_areas(self):
+        """amount_by_area columns for 3 areas → dict keyed by all area names."""
+        config = self._make_area_config(["North Wing", "South Wing", "Terrace"])
+        row = _make_row(2, {
+            "A": {"value": "b."},
+            "B": {"value": "Tiling"},
+            "C": {"value": "Sqm"},
+            "D": {"value": 2000.0},   # North Wing
+            "E": {"value": 1800.0},   # South Wing
+            "F": {"value": 500.0},    # Terrace
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_by_area_raw, {
+            "North Wing": 2000.0,
+            "South Wing": 1800.0,
+            "Terrace": 500.0,
+        })
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — no amount_by_area ColumnRoles → empty dict               #
+    # ---------------------------------------------------------------- #
+
+    def test_amount_by_area_raw_empty_when_not_configured(self):
+        """Sheet with no amount_by_area columns → amount_by_area_raw defaults to {}."""
+        row = _make_row(3, {
+            "A": {"value": "1."},
+            "B": {"value": "Earthwork"},
+            "D": {"value": 10.0},
+            "E": {"value": 500.0},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.amount_by_area_raw, {})
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — qty_by_area_raw and amount_by_area_raw populated together #
+    # ---------------------------------------------------------------- #
+
+    def test_qty_and_amount_by_area_raw_populated_together(self):
+        """Pattern 3 shape: per-area qty cols + per-area amount cols → both dicts populated."""
+        areas = ["Zone 1", "Zone 2"]
+        config = self._make_area_config(areas, include_qty_areas=True)
+        # Columns: D=amount Zone 1, E=amount Zone 2, F=qty Zone 1, G=qty Zone 2
+        row = _make_row(4, {
+            "A": {"value": "c."},
+            "B": {"value": "Electrical conduit"},
+            "C": {"value": "Rmt"},
+            "D": {"value": 3500.0},  # amount Zone 1
+            "E": {"value": 2800.0},  # amount Zone 2
+            "F": {"value": 120.0},   # qty Zone 1
+            "G": {"value": 95.0},    # qty Zone 2
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_by_area_raw, {"Zone 1": 3500.0, "Zone 2": 2800.0})
+        self.assertEqual(result.qty_by_area_raw, {"Zone 1": 120.0, "Zone 2": 95.0})
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — SPACER row does not get amount_by_area_raw populated     #
+    # ---------------------------------------------------------------- #
+
+    def test_non_line_item_rows_do_not_get_amount_by_area_raw(self):
+        """
+        SPACER rows return early before extraction — amount_by_area_raw stays {}.
+        NOTE rows with blank amount cells also produce {}.
+        """
+        config = self._make_area_config(["Wing A", "Wing B"])
+        # SPACER: blank row
+        spacer = _make_row(5, {})
+        spacer_result = classify_row(spacer, config, _GS)
+        self.assertEqual(spacer_result.classification, RowClassification.SPACER)
+        self.assertEqual(spacer_result.amount_by_area_raw, {})
+
+        # NOTE: description only, no amount cells
+        note = _make_row(6, {"B": {"value": "Note: coordinate with contractor"}})
+        note_result = classify_row(note, config, _GS)
+        self.assertEqual(note_result.classification, RowClassification.NOTE)
+        self.assertEqual(note_result.amount_by_area_raw, {})
+
+
 if __name__ == "__main__":
     unittest.main()

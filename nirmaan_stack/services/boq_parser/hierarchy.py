@@ -37,6 +37,9 @@ class ResolvedRow:
     # Reserved for Phase 3 wizard: True on preambles created by the user with
     # no source row in the BoQ file. Parser never sets this to True.
     is_synthetic: bool = False
+    # Per-row validation warnings populated by the sum-validation post-pass (B2).
+    # Parser never sets a non-empty value in B1.
+    validation_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
