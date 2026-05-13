@@ -280,6 +280,41 @@ class TestMappingConfig(unittest.TestCase):
         for word in ("QTY", "AMOUNT", "TOTAL", "DESCRIPTION", "RATE"):
             self.assertIn(word, keywords)
 
+    # ------------------------------------------------------------------ #
+    # Test 21 — Pattern-4 full mapping (integration)                       #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_4_full_mapping_validates_successfully(self):
+        """Pattern-4 shape — per-area qty/amount + split supply/install rate + split supply/install total — validates without error."""
+        config = MappingConfig(
+            project="TEST-PROJECT",
+            master_boq=_master_boq(),
+            sheets=[
+                SheetConfig(
+                    sheet_name="PATTERN_4_TEST",
+                    header_row=1,
+                    header_row_count=1,
+                    area_dimensions=["Office", "Common Area"],
+                    column_role_map={
+                        "A": ColumnRole(role="description"),
+                        "B": ColumnRole(role="unit"),
+                        "C": ColumnRole(role="qty_by_area", area="Office"),
+                        "D": ColumnRole(role="amount_by_area", area="Office"),
+                        "E": ColumnRole(role="qty_by_area", area="Common Area"),
+                        "F": ColumnRole(role="amount_by_area", area="Common Area"),
+                        "G": ColumnRole(role="rate_supply"),
+                        "H": ColumnRole(role="rate_install"),
+                        "I": ColumnRole(role="amount_supply"),
+                        "J": ColumnRole(role="amount_install"),
+                    },
+                )
+            ],
+        )
+        self.assertIsNotNone(config)
+        sheet = config.sheets[0]
+        qty_areas = sorted(cr.area for cr in sheet.column_role_map.values() if cr.role == "qty_by_area")
+        self.assertEqual(qty_areas, ["Common Area", "Office"])
+
 
 if __name__ == "__main__":
     unittest.main()
