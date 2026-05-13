@@ -4,7 +4,7 @@
 **Owner:** Internal team.
 **Last updated:** 2026-05-13 (after Session 1 — Pattern-4 integration test; 21 config tests, 111 parser tests, 188 total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Session 1 feat+docs commits (`e150d1f0`, docs TBD).
+**Latest commit:** Session 1 docs commit (`1d46c8f4`). Session 1 feat commit: `e150d1f0`.
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
