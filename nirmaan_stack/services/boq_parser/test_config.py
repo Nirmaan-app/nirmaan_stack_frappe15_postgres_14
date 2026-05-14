@@ -273,11 +273,12 @@ class TestMappingConfig(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_global_settings_default_reserved_keywords(self):
-        """Default GlobalSettings has multi_area_reserved_keywords with all 22 locked entries."""
+        """Default GlobalSettings has multi_area_reserved_keywords with baseline entries plus B2b-keywords expansion."""
         gs = GlobalSettings()
         keywords = gs.multi_area_reserved_keywords
-        self.assertEqual(len(keywords), 22)
-        for word in ("QTY", "AMOUNT", "TOTAL", "DESCRIPTION", "RATE"):
+        self.assertEqual(len(keywords), 49)
+        for word in ("QTY", "AMOUNT", "TOTAL", "DESCRIPTION", "RATE",
+                     "ITEM", "S NO.", "SL.NO.", "SR NO.", "SERIAL NUMBER"):
             self.assertIn(word, keywords)
 
     # ------------------------------------------------------------------ #

@@ -404,5 +404,106 @@ class TestMultiAreaDetectionComprehensive(unittest.TestCase):
         self.assertEqual(len(result.qty_columns), 2)
 
 
+# ------------------------------------------------------------------
+# Reserved-keyword expansion tests (Part B2b-keywords)
+# Regression tests for the Snitch Light Fixtures false-positive and
+# common Sl.No. / Item header variants.
+# ------------------------------------------------------------------
+
+class TestReservedKeywordExpansion(unittest.TestCase):
+    """Part B2b-keywords: expanded keyword list — false-positive regression tests."""
+
+    # ------------------------------------------------------------------ #
+    # Test 1 — Snitch Light Fixtures regression                            #
+    # The B2c verification session found that '7. Light Fixtures' row 2   #
+    # triggered a false Pattern 1 match on 'S No.' + 'ITEM'.              #
+    # ------------------------------------------------------------------ #
+
+    def test_snitch_light_fixtures_header_no_false_positive(self):
+        """Snitch '7. Light Fixtures' row 2 header → None (was false Pattern 1 before fix)."""
+        row = _make_row(2, {
+            "A": {"value": "S No."},
+            "B": {"value": "ITEM"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Supply Rate"},
+            "F": {"value": "Installation Rate"},
+            "G": {"value": "Total Rate (Rs.)"},
+            "H": {"value": "As per SNITCH Approved RC Rates"},
+            "I": {"value": "AMOUNT"},
+            "J": {"value": "Remarks"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ #
+    # Test 2 — 'Sl.No.' variant                                           #
+    # ------------------------------------------------------------------ #
+
+    def test_sl_no_dot_variant_not_detected_as_area(self):
+        """Header with 'Sl.No.' as first column → None (reserved, not an area name)."""
+        row = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "QTY"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ #
+    # Test 3 — 'Sr No.' variant                                           #
+    # ------------------------------------------------------------------ #
+
+    def test_sr_no_variant_not_detected_as_area(self):
+        """Header with 'Sr No.' as first column → None (reserved, not an area name)."""
+        row = _make_row(1, {
+            "A": {"value": "Sr No."},
+            "B": {"value": "Description"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "QTY"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ #
+    # Test 4 — 'Item Description' variant                                  #
+    # ------------------------------------------------------------------ #
+
+    def test_item_description_variant_not_detected_as_area(self):
+        """'S.No.' + 'Item Description' header → None (both reserved, no area candidates)."""
+        row = _make_row(1, {
+            "A": {"value": "S.No."},
+            "B": {"value": "Item Description"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "QTY"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ #
+    # Test 5 — Case-insensitivity smoke for new keywords                   #
+    # ------------------------------------------------------------------ #
+
+    def test_new_keywords_case_insensitive(self):
+        """Lowercase 'item' and 's no' are also reserved (case-insensitive match)."""
+        row = _make_row(1, {
+            "A": {"value": "s no"},
+            "B": {"value": "item"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "QTY"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

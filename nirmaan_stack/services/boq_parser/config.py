@@ -139,13 +139,28 @@ class GlobalSettings(BaseModel):
     rate_only_markers: list[str] = ["RO", "ro", "R/O", "RATE ONLY"]
     multi_area_reserved_keywords: list[str] = Field(
         default_factory=lambda: [
+            # Quantity / unit columns
             "UNIT", "UOM", "MEASURE",
             "QTY", "QUANTITY", "NOS",
-            "RATE", "SUPPLY RATE", "INSTALL RATE", "COMBINED RATE",
+            # Rate columns
+            "RATE", "SUPPLY RATE", "INSTALL RATE", "INSTALLATION RATE", "COMBINED RATE",
+            "TOTAL RATE",
+            # Amount columns
             "AMOUNT", "SUPPLY AMOUNT", "INSTALL AMOUNT",
+            # Totals / summary
             "TOTAL", "TOTAL QTY", "TOTAL AMOUNT",
-            "DRAWING QTY", "DESCRIPTION", "REMARKS",
-            "PART", "BOQ", "RATE/SFT",
+            "DRAWING QTY", "REMARKS",
+            # Metadata / structural
+            "DESCRIPTION", "PART", "BOQ", "RATE/SFT",
+            # Sl.No. / Serial Number variants (fixes false-positive on S No. / Sl.No. headers)
+            "SL.NO", "SL.NO.", "SL NO", "SL NO.", "SLNO",
+            "S NO", "S NO.", "S.NO", "S.NO.", "SNO", "S/N",
+            "SR NO", "SR NO.", "SR.NO", "SR.NO.",
+            "SERIAL NO", "SERIAL NO.", "SERIAL NUMBER",
+            # Item variants
+            "ITEM", "ITEMS", "ITEM DESCRIPTION", "ITEM NO", "ITEM NO.",
+            # Description shorthand variants
+            "DESC", "DESC.",
         ],
         description="Words to exclude when auto-detecting area names. User-extensible."
     )
