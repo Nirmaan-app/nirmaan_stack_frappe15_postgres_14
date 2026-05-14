@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** Part B2b (Snitch real fixture + integration) next. Phase 2c follows.
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** Part B2c (Snitch real fixture + integration) next. Phase 2c follows.
 **Owner:** Internal team.
-**Last updated:** 2026-05-14 (Part B2a complete — Policy X zeros preserved in qty/amount raw dicts, `qty_total_raw` on ClassifiedRow, 6 new ResolvedRow fields, `_apply_multi_area_post_pass` in orchestrator, synthetic_multi_area fixture, 156 tests total).
+**Last updated:** 2026-05-14 (Part B2b-keywords complete — `multi_area_reserved_keywords` expanded 22→49 entries, Snitch Light Fixtures false positive fixed, 5 new regression tests, 161 tests total).
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Part B2a feat commit `546dfd48`.
+**Latest commit:** Part B2b-keywords feat commit `d02b212f`.
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -423,7 +423,7 @@ Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 
 **Third follow-up addition (preamble candidate scoring + `is_synthetic` field for Phase 3 wizard):** Manual verification on real Inovalon HVAC BoQ revealed BoQ authors sometimes use unnumbered text-only rows as section headers (example: row 36 "Central Air Cleaner for AHUs" introduces line items 41-42 but has no sl_no). The classifier correctly labels these as NOTE since they have no sl_no, but Phase 3 wizard needs metadata to surface promotion candidates. Added `preamble_candidate_score: int` (0-5) and `preamble_candidate_signals: list[str]` to `ClassifiedRow` (both default to 0/[] — rows classified individually are unaffected). Score breakdown: bold +2, first-note-in-block-ending-at-line-item +2, short description (<80 chars) +1. Computed by new function `populate_preamble_candidate_scores(classified_rows, sheet_config)` called as a separate post-pass after individual row classification (Phase 2b.2's `parse_boq()` orchestrator will call it). Also added `is_synthetic: bool = False` field to `ResolvedRow` (parser never sets True) reserved for Phase 3 wizard's "create new preamble from scratch" action. Classifier classification and tree logic unchanged — this is data preparation only. Test count: classifier 18 → 26, hierarchy 36 → 37; total parser tests 98 (14 config + 21 reader + 26 classifier + 37 hierarchy). Commit: `481035ba`.
 
-### Phase 2b.2 — Multi-area + first end-to-end fixture 🔧 IN PROGRESS (Part A1 ✅, Part A2 ✅ complete)
+### Phase 2b.2 — Multi-area + first end-to-end fixture 🔧 IN PROGRESS (Parts A1–A3c ✅, B1 ✅, B2a ✅, B2b-keywords ✅ complete; Part B2c next)
 
 - Multi-area qty processing — populates qty_by_area per row from the qty_by_area_raw dict the classifier already captures
 - First end-to-end test fixture using real Snitch BoQ (small, 4-sheet file, simple structure)
@@ -453,7 +453,9 @@ Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 
 **Part B1 complete (2026-05-14):** `ClassifiedRow.amount_by_area_raw: dict[str, float]` field added (parallel to `qty_by_area_raw`; `field(default_factory=dict)`). `classify_row()` captures `amount_by_area_raw` from columns with `role == "amount_by_area"` — mirrors `qty_by_area_raw` capture logic exactly (same dict shape, same area-name keying, same early-return gating for SPACER/HEADER_REPEAT/SUBTOTAL_MARKER). `ResolvedRow.validation_warnings: list[str] = []` field added — parser never sets a non-empty value in B1; B2's sum-validation post-pass will. `ParsedBoq` + `ParsedSheet` Pydantic models created in new `nirmaan_stack/services/boq_parser/orchestrator.py` module (not `config.py` — keeps input config separate from output result models). `parse_boq(file_path, config) -> ParsedBoq` orchestrator wires reader → `classify_row()` → `populate_preamble_candidate_scores` → `resolve_hierarchy` → `detect_multi_area_pattern` per non-skipped data sheet; `master_preamble` extracted from `treat_as="master_preamble"` sheets. NO multi-area splitting; NO sum validation; NO fixtures committed — all B2 scope. 12 new unit tests (5 classifier for `amount_by_area_raw`, 2 for `ResolvedRow.validation_warnings`, 5 orchestrator). Test count: parser 127 → 139. Feat commit: `9c2275ae`.
 
-**Part B2 remaining:** multi-area splitting post-pass (expand `qty_by_area_raw` + `amount_by_area_raw` into per-area child rows); sum validation (sum per-area qty ≈ TOTAL QTY, populate `validation_warnings`); Snitch fixture (hand-written JSON + xlsx); 1 integration test against Snitch.
+**Part B2b-keywords complete (2026-05-14):** Prerequisite sub-phase to fix a multi-area detection false positive discovered during the B2b (Snitch) session. Root cause: `'S No.'` and `'ITEM'` in the Snitch `'7. Light Fixtures'` header row were not in `multi_area_reserved_keywords`, so `_try_pattern_1` collected them as area names. Fix: expanded `GlobalSettings.multi_area_reserved_keywords` in `config.py` from 22 to 49 entries — adding "INSTALLATION RATE", "TOTAL RATE" (rate variants), 11 Sl.No./S No. variants ("SL.NO", "SL.NO.", "SL NO", "SL NO.", "SLNO", "S NO", "S NO.", "S.NO", "S.NO.", "SNO", "S/N"), 4 Sr No. variants ("SR NO", "SR NO.", "SR.NO", "SR.NO."), 3 Serial No. variants ("SERIAL NO", "SERIAL NO.", "SERIAL NUMBER"), 5 Item variants ("ITEM", "ITEMS", "ITEM DESCRIPTION", "ITEM NO", "ITEM NO."), 2 Desc shorthand variants ("DESC", "DESC."). Code-trace verification confirmed fix eliminates false positive: col A='S No.' → reserved skip; col B='ITEM' → reserved skip; col C='UNIT' → reserved skip; col D='Qty' → TOTAL_QTY_PATTERN match → break; zero areas collected → None. 5 new regression tests in new class `TestReservedKeywordExpansion` in `test_multi_area_detection.py` (Snitch LF header no-false-positive, Sl.No. variant, Sr No. variant, Item Description variant, case-insensitive). Also updated `test_config.py` count assertion 22→49 (outside stated in-scope list — minimal fix to prevent failing test, noted as deviation). Test count: 156 → 161. `snitch_electrical.xlsx` stays untracked in `tests/fixtures/` (B2c will commit it). Feat commit: `d02b212f`.
+
+**Part B2c (next):** Snitch real fixture — commit `snitch_electrical.xlsx`, hand-write expected-output JSON for `'6. Electrical'` and `'7. Light Fixtures'` sheets, write `MappingConfig` for the 5-sheet workbook (2 boq + 3 skip), 1 integration test in `test_orchestrator.py`. Sum validation (`validation_warnings`) may also land in B2c if scope allows.
 
 ### Phase 2c — DB commit + version cascade + 4 more fixtures ⏳ FUTURE
 
@@ -637,7 +639,7 @@ A `Get-ChildItem -Recurse -Filter "*JSW*"` across the entire `nirmaan_stack` rep
 
 **Files to commit at Phase 2c kickoff:** at minimum `JSW MEP Priced` and `Snitch`. Additional fixtures (Raheja, TableSpace, DhashTech, Société Générale, etc.) can land in batches as Phase 2c progresses.
 
-**Status:** Open. Blocking Phase 2c. Not blocking Part B (Part B's Snitch fixture work is in scope for Part B itself, which will commit the Snitch xlsx as part of its deliverable).
+**Status (updated 2026-05-14):** Open. Blocking Phase 2c full fixture suite. `snitch_electrical.xlsx` has been physically copied to `tests/fixtures/` (5 sheets confirmed: OVERALL SUMMARY, SUMMARY MEP, 6. Electrical, 7. Light Fixtures, MAKE LIST; 138,066 bytes) but remains untracked — Part B2c will commit it. Other real fixtures (JSW MEP Priced, etc.) still only on local disk.
 
 ### 17.7 docker cp temp-file cleanup requires `-u root` flag
 
@@ -652,6 +654,16 @@ docker exec -u root frappe_docker_devcontainer-frappe-1 rm /tmp/<temp_file>.xlsx
 **Standing rule for future docker-cp-based verifications:** include `-u root` in any `rm`/cleanup commands targeting files placed by `docker cp`. Verified and applied 2026-05-13 during Session 4 cleanup of `/tmp/jsw_test.xlsx`.
 
 **Worst case if `-u root` is forgotten:** the temp file persists in `/tmp/` until container restart. Harmless (just untidy) since `/tmp/` is volatile.
+
+### 17.8 Multi-area reserved keyword list — thorough survey deferred to Phase 2c
+
+**Issue:** The `GlobalSettings.multi_area_reserved_keywords` list was initially set to 22 entries (Part A2) and expanded to 49 entries during Part B2b-keywords (triggered by the Snitch Light Fixtures false positive). The expansion was reactive — driven by one specific false positive, not a systematic survey of all header-word variants across the real-BoQ corpus.
+
+**Known gaps:** No cross-file keyword analysis has been performed. Additional header words from JSW, Raheja, Paytm, Inovalon, HYBE, and other fixtures may still produce false positives in Pattern 1 detection when those files are parsed in Phase 2c.
+
+**Disposition:** Defer systematic survey to Phase 2c. At Phase 2c kickoff, run `detect_multi_area_pattern()` against all committed real fixtures and inspect the output for false-positive areas. Any false-positive area name → add the offending header word to the reserved list. Working agreement: Phase 2c first-run verification step explicitly includes a keyword sweep before authoring any expected-output JSON.
+
+**Status:** Open. Not blocking Part B2c (Snitch is clean after B2b-keywords fix). Potentially blocking accurate parsing of other real fixtures committed in Phase 2c.
 
 ---
 
