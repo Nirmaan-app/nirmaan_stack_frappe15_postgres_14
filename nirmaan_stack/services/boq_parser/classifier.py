@@ -247,6 +247,42 @@ def populate_preamble_candidate_scores(
 
 
 # ------------------------------------------------------------------
+# Unit-based PREAMBLE demotion (separate post-classification pass)
+# ------------------------------------------------------------------
+
+def _apply_unit_based_demotion_post_pass(classified_rows: list[ClassifiedRow]) -> None:
+    """
+    Demote PREAMBLE rows that carry a unit value matching any LINE_ITEM unit
+    on the same sheet.
+
+    Real preambles never have a unit; a unit on a blank-qty row means the row is
+    a rate-only line item whose qty was left blank. Root cause in real BoQs:
+    deeply-nested lowercase-letter sl_no sequences increment hierarchy stack depth
+    on every letter transition, mislabelling the deepest rows as PREAMBLEs.
+
+    Match is case-sensitive. Must be called BEFORE populate_preamble_candidate_scores().
+    Demoted rows: classification → LINE_ITEM, qty → 0.0, is_rate_only → True.
+    """
+    line_item_units: set[str] = {
+        row.unit
+        for row in classified_rows
+        if row.classification == RowClassification.LINE_ITEM
+        and row.unit is not None
+    }
+
+    for row in classified_rows:
+        if (
+            row.classification == RowClassification.PREAMBLE
+            and row.qty is None
+            and row.unit is not None
+            and row.unit in line_item_units
+        ):
+            row.classification = RowClassification.LINE_ITEM
+            row.qty = 0.0
+            row.is_rate_only = True
+
+
+# ------------------------------------------------------------------
 # classify_row()
 # ------------------------------------------------------------------
 

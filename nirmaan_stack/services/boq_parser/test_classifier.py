@@ -895,5 +895,196 @@ class TestPolicyX(unittest.TestCase):
         self.assertIsNone(result_blank.qty_total_raw)
 
 
+class TestUnitBasedDemotion(unittest.TestCase):
+    """Phase 2b.2 Part B2d — _apply_unit_based_demotion_post_pass tests."""
+
+    def _run(self, rows: list) -> None:
+        from nirmaan_stack.services.boq_parser.classifier import _apply_unit_based_demotion_post_pass
+        _apply_unit_based_demotion_post_pass(rows)
+
+    def _make_preamble(self, idx: int, unit=None, qty=None) -> ClassifiedRow:
+        raw_row = RawRow(row_number=idx + 1, cells={})
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.PREAMBLE,
+            sl_no_value="1.",
+            description="Section header",
+            unit=unit,
+            qty=qty,
+        )
+
+    def _make_line_item(self, idx: int, unit: str = "Nos.") -> ClassifiedRow:
+        raw_row = RawRow(row_number=idx + 1, cells={})
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.LINE_ITEM,
+            sl_no_value="a.",
+            description="Item",
+            unit=unit,
+            qty=5.0,
+        )
+
+    def _make_note(self, idx: int, unit: str = "Nos.") -> ClassifiedRow:
+        raw_row = RawRow(row_number=idx + 1, cells={})
+        return ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.NOTE,
+            description="Note text",
+            unit=unit,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — blank-qty preamble with matching unit is demoted         #
+    # ---------------------------------------------------------------- #
+
+    def test_blank_qty_preamble_with_matching_unit_demoted(self):
+        """PREAMBLE with qty=None and unit='Nos.' matching a LINE_ITEM → LINE_ITEM."""
+        rows = [
+            self._make_preamble(0, unit="Nos."),
+            self._make_line_item(1, unit="Nos."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.LINE_ITEM)
+        self.assertEqual(rows[0].qty, 0.0)
+        self.assertTrue(rows[0].is_rate_only)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — RM unit variant demoted                                  #
+    # ---------------------------------------------------------------- #
+
+    def test_rm_unit_variant_demoted(self):
+        """PREAMBLE with unit='Rmt' matching a LINE_ITEM unit → demoted."""
+        rows = [
+            self._make_preamble(0, unit="Rmt"),
+            self._make_line_item(1, unit="Rmt"),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.LINE_ITEM)
+        self.assertEqual(rows[0].qty, 0.0)
+        self.assertTrue(rows[0].is_rate_only)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — unique unit stays PREAMBLE                               #
+    # ---------------------------------------------------------------- #
+
+    def test_unique_unit_stays_preamble(self):
+        """PREAMBLE with unit='kg' when no LINE_ITEM has 'kg' → stays PREAMBLE."""
+        rows = [
+            self._make_preamble(0, unit="kg"),
+            self._make_line_item(1, unit="Nos."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.PREAMBLE)
+        self.assertIsNone(rows[0].qty)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — None unit stays PREAMBLE                                 #
+    # ---------------------------------------------------------------- #
+
+    def test_empty_unit_stays_preamble(self):
+        """PREAMBLE with unit=None → no unit to match → stays PREAMBLE."""
+        rows = [
+            self._make_preamble(0, unit=None),
+            self._make_line_item(1, unit="Nos."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.PREAMBLE)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — LINE_ITEM rows untouched                                 #
+    # ---------------------------------------------------------------- #
+
+    def test_line_item_unchanged(self):
+        """LINE_ITEM rows are not affected — only PREAMBLE rows are demotion targets."""
+        rows = [
+            self._make_line_item(0, unit="Nos."),
+            self._make_line_item(1, unit="Rmt"),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.LINE_ITEM)
+        self.assertEqual(rows[1].classification, RowClassification.LINE_ITEM)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — PREAMBLE with qty present is not a demotion target       #
+    # ---------------------------------------------------------------- #
+
+    def test_preamble_with_qty_present_unchanged(self):
+        """PREAMBLE with qty=5.0 (has a qty value) → condition qty is None fails → unchanged."""
+        rows = [
+            self._make_preamble(0, unit="Nos.", qty=5.0),
+            self._make_line_item(1, unit="Nos."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.PREAMBLE)
+        self.assertEqual(rows[0].qty, 5.0)
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — NOTE row is not a demotion target                        #
+    # ---------------------------------------------------------------- #
+
+    def test_note_unit_does_not_trigger_demotion(self):
+        """NOTE rows with a matching unit are not examined as demotion targets."""
+        rows = [
+            self._make_note(0, unit="Nos."),
+            self._make_line_item(1, unit="Nos."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.NOTE)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — case-sensitive match                                     #
+    # ---------------------------------------------------------------- #
+
+    def test_case_sensitive_comparison(self):
+        """Unit match is case-sensitive: PREAMBLE unit='nos.' != LINE_ITEM unit='Nos.' → no demotion."""
+        rows = [
+            self._make_preamble(0, unit="nos."),
+            self._make_line_item(1, unit="Nos."),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classification, RowClassification.PREAMBLE)
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — smoke: no-op on synthetic_simple.xlsx                    #
+    # ---------------------------------------------------------------- #
+
+    def test_smoke_no_demotion_on_synthetic_simple(self):
+        """
+        synthetic_simple.xlsx has no blank-qty PREAMBLE rows with units
+        matching LINE_ITEMs — the pass is a no-op and PREAMBLE count stays 0.
+        """
+        from pathlib import Path
+        from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import generate_all
+        from nirmaan_stack.services.boq_parser.orchestrator import parse_boq
+        from nirmaan_stack.services.boq_parser.config import (
+            ColumnRole, MappingConfig, MasterBoqMetadata, SheetConfig,
+        )
+
+        generate_all()
+        fixture = str(Path(__file__).parent / "tests" / "fixtures" / "synthetic_simple.xlsx")
+        config = MappingConfig(
+            project="test",
+            master_boq=MasterBoqMetadata(boq_name="test_boq"),
+            sheets=[SheetConfig(
+                sheet_name="Sheet1",
+                header_row=1,
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="description"),
+                    "C": ColumnRole(role="unit"),
+                    "D": ColumnRole(role="qty"),
+                    "E": ColumnRole(role="rate_supply"),
+                    "F": ColumnRole(role="amount_supply"),
+                },
+            )],
+        )
+        result = parse_boq(fixture, config)
+        preamble_count = sum(
+            1 for rr in result.sheets[0].resolved_rows
+            if rr.classified_row.classification == RowClassification.PREAMBLE
+        )
+        self.assertEqual(preamble_count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

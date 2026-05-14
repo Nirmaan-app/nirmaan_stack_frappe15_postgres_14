@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from nirmaan_stack.services.boq_parser.classifier import (
     RowClassification,
+    _apply_unit_based_demotion_post_pass,
     classify_row,
     populate_preamble_candidate_scores,
 )
@@ -114,6 +115,7 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
     Per-sheet pipeline:
       1. iter_rows() → RawRow list
       2. classify_row() per row → ClassifiedRow list
+      2b. _apply_unit_based_demotion_post_pass() (mutates in place)
       3. populate_preamble_candidate_scores() post-pass (mutates in place)
       4. resolve_hierarchy() → ResolvedSheet
       5. detect_multi_area_pattern() on header row(s)
@@ -158,6 +160,9 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
             classify_row(rr, sheet_config, global_settings)
             for rr in raw_rows
         ]
+
+        # Step 2b: Unit-based PREAMBLE demotion post-pass (must precede scoring)
+        _apply_unit_based_demotion_post_pass(classified_rows)
 
         # Step 3: Preamble candidate scoring post-pass (mutates in place)
         populate_preamble_candidate_scores(classified_rows, sheet_config)
