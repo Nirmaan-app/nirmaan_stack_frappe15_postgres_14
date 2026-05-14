@@ -88,10 +88,14 @@ interface AssetMaster {
     asset_email: string;
     asset_email_password: string;
     asset_pin: string;
+    asset_invoice_attachment: string;
+    asset_certificate_attachment: string;
     current_assignee: string;
     creation: string;
     modified: string;
 }
+
+type ProjectAttachmentField = 'asset_invoice_attachment' | 'asset_certificate_attachment';
 
 interface AssetAssignment {
     name: string;
@@ -149,6 +153,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Upload declaration state
     const [declarationFile, setDeclarationFile] = useState<File | null>(null);
     const [isUploadingDeclaration, setIsUploadingDeclaration] = useState(false);
+
+    // Project-asset attachment upload state
+    const [projectAttachmentField, setProjectAttachmentField] = useState<ProjectAttachmentField | null>(null);
+    const [projectAttachmentFile, setProjectAttachmentFile] = useState<File | null>(null);
+    const [isUploadingProjectAttachment, setIsUploadingProjectAttachment] = useState(false);
 
     // Print state
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
@@ -385,6 +394,44 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         mutate();
     };
 
+    const projectAttachmentLabel: Record<ProjectAttachmentField, string> = {
+        asset_invoice_attachment: 'Invoice',
+        asset_certificate_attachment: 'Certificate',
+    };
+
+    const handleUploadProjectAttachment = async () => {
+        if (!projectAttachmentField || !projectAttachmentFile) return;
+
+        setIsUploadingProjectAttachment(true);
+        try {
+            const uploaded = await upload(projectAttachmentFile, {
+                doctype: ASSET_MASTER_DOCTYPE,
+                docname: assetId,
+                fieldname: projectAttachmentField,
+                isPrivate: true,
+            });
+            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
+                [projectAttachmentField]: uploaded.file_url,
+            });
+            toast({
+                title: `${projectAttachmentLabel[projectAttachmentField]} Uploaded`,
+                description: 'The attachment has been saved.',
+                variant: 'success',
+            });
+            setProjectAttachmentField(null);
+            setProjectAttachmentFile(null);
+            mutate();
+        } catch (err: any) {
+            toast({
+                title: 'Upload Failed',
+                description: err?.message || 'Failed to upload attachment.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUploadingProjectAttachment(false);
+        }
+    };
+
     // Handle declaration upload
     const handleUploadDeclaration = async () => {
         if (!declarationFile || !currentAssignment) return;
@@ -538,8 +585,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 </div>
             ) : (
                 <div className="grid gap-6 md:grid-cols-2">
-                    {/* Asset Details Card - spans full row for Project assets (no IT card) */}
-                    <Card className={showITCredentialsCard ? undefined : 'md:col-span-2'}>
+                    {/* Asset Details Card */}
+                    <Card>
                         <CardHeader className="pb-4">
                             <CardTitle className="text-base font-medium">Asset Details</CardTitle>
                         </CardHeader>
@@ -709,6 +756,39 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             </div>
                         </CardContent>
                     </Card>
+                    )}
+
+                    {/* Project Attachments Card - Project-type only (sits in the slot
+                        where IT Credentials would be for IT assets) */}
+                    {currentCategoryType === 'Project' && (
+                        <Card>
+                            <CardHeader className="pb-4">
+                                <CardTitle className="text-base font-medium">Project Attachments</CardTitle>
+                                <CardDescription>
+                                    Invoice and certificate documents for this asset
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                <ProjectAttachmentRow
+                                    label="Invoice"
+                                    fileUrl={asset?.asset_invoice_attachment}
+                                    canManage={canManageAssets}
+                                    onUploadClick={() => {
+                                        setProjectAttachmentFile(null);
+                                        setProjectAttachmentField('asset_invoice_attachment');
+                                    }}
+                                />
+                                <ProjectAttachmentRow
+                                    label="Certificate"
+                                    fileUrl={asset?.asset_certificate_attachment}
+                                    canManage={canManageAssets}
+                                    onUploadClick={() => {
+                                        setProjectAttachmentFile(null);
+                                        setProjectAttachmentField('asset_certificate_attachment');
+                                    }}
+                                />
+                            </CardContent>
+                        </Card>
                     )}
 
                     {/* Assignment Card - Full Width */}
@@ -977,6 +1057,72 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 onUnassigned={handleAssignmentChange}
             />
 
+            {/* Upload / Replace Project Attachment Dialog */}
+            <Dialog
+                open={projectAttachmentField !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setProjectAttachmentField(null);
+                        setProjectAttachmentFile(null);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
+                            <FileText className="h-6 w-6 text-emerald-600" />
+                        </div>
+                        <DialogTitle className="text-center text-lg font-semibold">
+                            {projectAttachmentField
+                                ? `Upload ${projectAttachmentLabel[projectAttachmentField]}`
+                                : 'Upload Attachment'}
+                        </DialogTitle>
+                        <DialogDescription className="text-center text-sm text-gray-500">
+                            Attach a document for{' '}
+                            <span className="font-medium text-gray-700">{asset?.asset_name}</span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <CustomAttachment
+                            selectedFile={projectAttachmentFile}
+                            onFileSelect={setProjectAttachmentFile}
+                            acceptedTypes={["image/*", "application/pdf"]}
+                            label="Select File"
+                            maxFileSize={10 * 1024 * 1024}
+                            onError={(err) =>
+                                toast({
+                                    title: 'File Error',
+                                    description: err.message,
+                                    variant: 'destructive',
+                                })
+                            }
+                        />
+                    </div>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setProjectAttachmentField(null);
+                                setProjectAttachmentFile(null);
+                            }}
+                            disabled={isUploadingProjectAttachment}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleUploadProjectAttachment}
+                            disabled={isUploadingProjectAttachment || !projectAttachmentFile}
+                            className="gap-2"
+                        >
+                            {isUploadingProjectAttachment ? 'Uploading...' : 'Upload'}
+                            <Upload className="h-4 w-4" />
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Upload Declaration Dialog */}
             <Dialog open={uploadDeclarationDialogOpen} onOpenChange={setUploadDeclarationDialogOpen}>
                 <DialogContent className="sm:max-w-md">
@@ -1030,6 +1176,47 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         </div>
     );
 };
+
+// Helper component for the Project-asset Invoice/Certificate attachment row
+const ProjectAttachmentRow: React.FC<{
+    label: string;
+    fileUrl?: string;
+    canManage: boolean;
+    onUploadClick: () => void;
+}> = ({ label, fileUrl, canManage, onUploadClick }) => (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/50 p-3">
+        <div className="flex items-center gap-2 min-w-0">
+            <FileText className="h-4 w-4 text-gray-400 shrink-0" />
+            <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-700">{label}</p>
+                {fileUrl ? (
+                    <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 truncate"
+                    >
+                        View attachment
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                ) : (
+                    <p className="text-xs text-gray-400">Not uploaded</p>
+                )}
+            </div>
+        </div>
+        {canManage && (
+            <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 shrink-0"
+                onClick={onUploadClick}
+            >
+                <Upload className="h-3.5 w-3.5" />
+                {fileUrl ? 'Replace' : 'Upload'}
+            </Button>
+        )}
+    </div>
+);
 
 // Helper component for detail rows
 const DetailRow: React.FC<{

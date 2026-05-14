@@ -179,6 +179,63 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         return map;
     }, [usersList]);
 
+    // Source for facets — distinct `asset` + `asset_assigned_to` from Asset
+    // Management rows that are pending a declaration upload (scoped to the
+    // current asset type). `is not set` catches both NULL and '' — `= ''`
+    // alone misses NULL-valued rows.
+    const facetSourceFilters = useMemo(() => {
+        const filters: any[] = [['asset_declaration_attachment', 'is', 'not set']];
+        if (assetType) {
+            filters.push(['asset', 'in', masterNames.length ? masterNames : ['__none__']]);
+        }
+        return filters;
+    }, [assetType, masterNames]);
+
+    const { data: facetSource } = useFrappeGetDocList<{
+        name: string;
+        asset: string;
+        asset_assigned_to: string;
+    }>(
+        ASSET_MANAGEMENT_DOCTYPE,
+        {
+            fields: ['name', 'asset', 'asset_assigned_to'],
+            filters: facetSourceFilters,
+            limit: 0,
+        },
+        assetType ? `pending_facet_source_${assetType}` : 'pending_facet_source'
+    );
+
+    // Count occurrences for the "(N)" suffix on each facet option.
+    const facetCounts = useMemo(() => {
+        const counts = {
+            asset: new Map<string, number>(),
+            asset_assigned_to: new Map<string, number>(),
+        };
+        (facetSource ?? []).forEach((row) => {
+            if (row.asset) counts.asset.set(row.asset, (counts.asset.get(row.asset) ?? 0) + 1);
+            if (row.asset_assigned_to) counts.asset_assigned_to.set(row.asset_assigned_to, (counts.asset_assigned_to.get(row.asset_assigned_to) ?? 0) + 1);
+        });
+        return counts;
+    }, [facetSource]);
+
+    const assetNameOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.asset.forEach((count, id) => {
+            const name = assetsMap[id]?.asset_name || id;
+            opts.push({ label: `${name} (${count})`, value: id });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts, assetsMap]);
+
+    const assigneeOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.asset_assigned_to.forEach((count, userId) => {
+            const name = usersMap[userId] || userId;
+            opts.push({ label: `${name} (${count})`, value: userId });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts, usersMap]);
+
     const handleUploadClick = (assignment: AssetManagement) => {
         setSelectedAssignment(assignment);
         setDeclarationFile(null);
@@ -229,7 +286,7 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
 
     const columns = useMemo<ColumnDef<AssetManagement>[]>(() => [
         {
-            accessorKey: 'asset',
+            id: 'asset_id_display',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Asset ID" />,
             cell: ({ row }) => (
                 <Link
@@ -237,13 +294,16 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
                     className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-800 hover:underline font-medium"
                 >
                     <Hash className="h-3 w-3" />
-                    <span className="tabular-nums">{row.getValue<string>('asset').slice(-6)}</span>
+                    <span className="tabular-nums">{row.original.asset.slice(-6)}</span>
                 </Link>
             ),
             size: 100,
         },
         {
-            id: 'asset_name',
+            // `accessorKey: 'asset'` (column id `asset`) lives on the Asset Name
+            // column so the facet's funnel icon renders here and filters
+            // resolve to ["asset", "in", [...ids]].
+            accessorKey: 'asset',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Asset Name" />,
             cell: ({ row }) => {
                 const assetData = assetsMap[row.original.asset];
@@ -350,7 +410,7 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
     ], [assetsMap, usersMap, downloadingAssetId, handleDownloadDeclaration]);
 
     const additionalFilters = useMemo(() => {
-        const filters: any[] = [['asset_declaration_attachment', '=', '']];
+        const filters: any[] = [['asset_declaration_attachment', 'is', 'not set']];
         if (assetType) {
             if (masterNames.length === 0) {
                 filters.push(['asset', 'in', ['__none__']]);
@@ -382,6 +442,17 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         additionalFilters,
     });
 
+    const facetFilterOptions = useMemo(() => ({
+        asset: {
+            title: 'Asset Name',
+            options: assetNameOptions,
+        },
+        asset_assigned_to: {
+            title: 'Assignee',
+            options: assigneeOptions,
+        },
+    }), [assetNameOptions, assigneeOptions]);
+
     return (
         <>
             <DataTable<AssetManagement>
@@ -395,6 +466,7 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
                 dateFilterColumns={ASSET_MANAGEMENT_DATE_COLUMNS}
                 showExportButton={false}
                 showRowSelection={false}
