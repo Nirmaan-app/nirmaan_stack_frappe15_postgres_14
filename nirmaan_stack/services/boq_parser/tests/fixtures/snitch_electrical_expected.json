@@ -1,4 +1,9 @@
 {
+  "_notes": {
+    "preamble_level_transitions_definition": "First preamble at each distinct level (Option alpha — all 7 levels present after B2d demotion)",
+    "regenerated_after": "B2d-classifier unit-based PREAMBLE demotion (§7.28)",
+    "regenerated_date": "2026-05-14"
+  },
   "workbook_assertions": {
     "parsed_sheet_count_after_skip_filter": 2,
     "master_preamble_is_empty": true,
@@ -13,8 +18,8 @@
     "6. Electrical": {
       "total_resolved_row_count": 521,
       "count_by_classification": {
-        "LINE_ITEM": 93,
-        "PREAMBLE": 126,
+        "LINE_ITEM": 175,
+        "PREAMBLE": 44,
         "NOTE": 287,
         "SPACER": 6,
         "SUBTOTAL_MARKER": 9
@@ -31,13 +36,23 @@
           "level": null
         },
         {
+          "resolved_idx": 25,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "b.",
+          "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+          "unit": "Nos.",
+          "qty": 0.0,
+          "path": "12/22/25",
+          "level": null
+        },
+        {
           "resolved_idx": 27,
           "classification": "LINE_ITEM",
           "sl_no_value": "2.0",
           "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS PVC insulated copper conductor wire in concealed/exposed PVC conduit and earthing",
           "unit": "Nos.",
           "qty": 350.0,
-          "path": "12/22/25/27",
+          "path": "12/22/27",
           "level": null
         },
         {
@@ -58,16 +73,6 @@
           "unit": "Nos.",
           "qty": 40.0,
           "path": "12/29/32",
-          "level": null
-        },
-        {
-          "resolved_idx": 36,
-          "classification": "LINE_ITEM",
-          "sl_no_value": "5.0",
-          "description": "Wiring for 6/16 amps light plug outlets with 3 X 2.5 sq.mm FRLS PVC insulated copper conductor wires in PVC Conduits in ceiling/walls/floor as direc­ted incl­u­ding providing and fixing of 6/13 amps flush type 5 pin socket and 16 amps switch with cover plate, 5 sided G.I boxes for housing switches, sockets and earthi­ng complete as required. (for general areas)",
-          "unit": "Nos.",
-          "qty": 40.0,
-          "path": "12/34/36",
           "level": null
         }
       ],
@@ -152,11 +157,39 @@
           "path": "12/22"
         },
         {
-          "resolved_idx": 25,
-          "sl_no_value": "b.",
-          "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+          "resolved_idx": 350,
+          "sl_no_value": "a",
+          "description": "Light & Power Distribution Board",
           "level": 3,
-          "path": "12/22/25"
+          "path": "345/347/350"
+        },
+        {
+          "resolved_idx": 433,
+          "sl_no_value": "a",
+          "description": "The SDB-1 Light & power 32nd Floor shall consists of :",
+          "level": 4,
+          "path": "394/396/406/433"
+        },
+        {
+          "resolved_idx": 456,
+          "sl_no_value": "b",
+          "description": "THE UPS Output Panel shall consists of :",
+          "level": 5,
+          "path": "394/396/406/433/456"
+        },
+        {
+          "resolved_idx": 473,
+          "sl_no_value": "c",
+          "description": "THE UPS PDU-01 Panel shall consists of :",
+          "level": 6,
+          "path": "394/396/406/433/456/473"
+        },
+        {
+          "resolved_idx": 489,
+          "sl_no_value": "d",
+          "description": "The Fabricated VTPN DB shall consists of :",
+          "level": 7,
+          "path": "394/396/406/433/456/473/489"
         }
       ]
     },
