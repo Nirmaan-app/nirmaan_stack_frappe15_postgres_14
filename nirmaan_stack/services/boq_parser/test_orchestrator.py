@@ -404,5 +404,282 @@ class TestMultiAreaIntegration(unittest.TestCase):
         self.assertEqual(plumbing.validation_warnings, [])
 
 
+# ================================================================ #
+# Phase 2b.2 Part B2c — Snitch real-fixture integration tests      #
+# ================================================================ #
+
+_SNITCH_FIXTURE = _FIXTURES / "snitch_electrical.xlsx"
+_SNITCH_EXPECTED = _FIXTURES / "snitch_electrical_expected.json"
+
+
+def _snitch_config() -> MappingConfig:
+    """MappingConfig for the Snitch Electrical workbook (5 sheets, 2 active BoQ sheets)."""
+    _elec_cols = {
+        "A": ColumnRole(role="sl_no"),
+        "B": ColumnRole(role="description"),
+        "C": ColumnRole(role="unit"),
+        "D": ColumnRole(role="qty"),
+        "E": ColumnRole(role="rate_supply"),
+        "F": ColumnRole(role="rate_install"),
+        "G": ColumnRole(role="rate_combined"),
+        "I": ColumnRole(role="amount_total"),
+    }
+    return MappingConfig(
+        project="snitch",
+        master_boq=MasterBoqMetadata(boq_name="Snitch Electrical"),
+        sheets=[
+            SheetConfig(sheet_name="OVERALL SUMMARY", skip=True, column_role_map={}),
+            SheetConfig(sheet_name="SUMMARY MEP", skip=True, column_role_map={}),
+            SheetConfig(
+                sheet_name="6. Electrical",
+                header_row=1,
+                column_role_map=_elec_cols,
+            ),
+            SheetConfig(
+                sheet_name="7. Light Fixtures",
+                header_row=2,
+                column_role_map=_elec_cols,
+            ),
+            SheetConfig(
+                sheet_name="MAKE LIST (to be updated)",
+                skip=True,
+                column_role_map={},
+            ),
+        ],
+    )
+
+
+class TestSnitchIntegration(unittest.TestCase):
+    """
+    Phase 2b.2 Part B2c — integration tests against the real Snitch Electrical workbook.
+
+    parse_boq() is called ONCE in setUpClass; the result is shared across all test methods.
+    Expected values are loaded from snitch_electrical_expected.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        super().setUpClass()
+        cls.result = parse_boq(str(_SNITCH_FIXTURE), _snitch_config())
+        with open(_SNITCH_EXPECTED, encoding="utf-8") as f:
+            cls.expected = json.load(f)
+        cls.elec_sheet = next(
+            s for s in cls.result.sheets if s.sheet_name == "6. Electrical"
+        )
+        cls.lf_sheet = next(
+            s for s in cls.result.sheets if s.sheet_name == "7. Light Fixtures"
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — skip sheets absent from output                          #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_skip_sheets_filtered_out(self):
+        """OVERALL SUMMARY, SUMMARY MEP, MAKE LIST (to be updated) must not appear in sheets."""
+        sheet_names = {s.sheet_name for s in self.result.sheets}
+        for absent in self.expected["skip_sheets_expected_absent_from_output"]:
+            self.assertNotIn(absent, sheet_names, f"skip sheet {absent!r} should be absent")
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — workbook parsed sheet count                             #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_workbook_parsed_sheet_count(self):
+        """After skip-filter exactly 2 sheets remain in result.sheets."""
+        self.assertEqual(
+            len(self.result.sheets),
+            self.expected["workbook_assertions"]["parsed_sheet_count_after_skip_filter"],
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — master_preamble is empty                                #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_workbook_master_preamble_empty(self):
+        """No master_preamble sheet configured; result.master_preamble must be None."""
+        self.assertIsNone(self.result.master_preamble)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — no validation warnings anywhere                         #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_workbook_no_validation_warnings(self):
+        """
+        Snitch has no per-area qty columns; the sum-validation post-pass cannot fire.
+        Every resolved row must have an empty validation_warnings list.
+        """
+        self.assertEqual(self.result.validation_warnings, [])
+        for sheet in self.result.sheets:
+            self.assertEqual(sheet.validation_warnings, [], f"sheet={sheet.sheet_name}")
+            for i, row in enumerate(sheet.resolved_rows):
+                self.assertEqual(
+                    row.validation_warnings,
+                    [],
+                    f"sheet={sheet.sheet_name} resolved_idx={i}",
+                )
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — Electrical total resolved row count + classification    #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_electrical_total_resolved_row_count(self):
+        """6. Electrical resolves to 521 rows with correct per-classification breakdown."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.elec_sheet.resolved_rows
+        self.assertEqual(len(rows), 521)
+        counts = {}
+        for r in rows:
+            cls = r.classified_row.classification
+            counts[cls] = counts.get(cls, 0) + 1
+        exp = self.expected["sheets"]["6. Electrical"]["count_by_classification"]
+        self.assertEqual(counts.get(RowClassification.LINE_ITEM, 0), exp["LINE_ITEM"])
+        self.assertEqual(counts.get(RowClassification.PREAMBLE, 0), exp["PREAMBLE"])
+        self.assertEqual(counts.get(RowClassification.NOTE, 0), exp["NOTE"])
+        self.assertEqual(counts.get(RowClassification.SPACER, 0), exp["SPACER"])
+        self.assertEqual(counts.get(RowClassification.SUBTOTAL_MARKER, 0), exp["SUBTOTAL_MARKER"])
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — Electrical first 5 line items                          #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_electrical_first_5_line_items(self):
+        """First 5 LINE_ITEM rows in 6. Electrical match expected sl_no/desc/unit/qty/path."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.elec_sheet.resolved_rows
+        for exp in self.expected["sheets"]["6. Electrical"]["first_5_line_items"]:
+            idx = exp["resolved_idx"]
+            row = rows[idx]
+            cr = row.classified_row
+            self.assertEqual(cr.classification, RowClassification.LINE_ITEM, f"idx={idx}")
+            self.assertEqual(cr.sl_no_value, exp["sl_no_value"], f"idx={idx} sl_no_value")
+            self.assertEqual(cr.description, exp["description"], f"idx={idx} description")
+            self.assertEqual(cr.unit, exp["unit"], f"idx={idx} unit")
+            self.assertEqual(cr.qty, exp["qty"], f"idx={idx} qty")
+            self.assertEqual(row.path, exp["path"], f"idx={idx} path")
+            self.assertIsNone(row.level, f"idx={idx} level")
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — Electrical subtotal markers                             #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_electrical_subtotal_markers(self):
+        """6. Electrical has 9 SUBTOTAL_MARKER rows at the expected resolved indices."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.elec_sheet.resolved_rows
+        actual_subtotals = [
+            i for i, r in enumerate(rows)
+            if r.classified_row.classification == RowClassification.SUBTOTAL_MARKER
+        ]
+        self.assertEqual(len(actual_subtotals), 9)
+        for exp in self.expected["sheets"]["6. Electrical"]["subtotal_markers"]:
+            idx = exp["resolved_idx"]
+            row = rows[idx]
+            cr = row.classified_row
+            self.assertEqual(cr.classification, RowClassification.SUBTOTAL_MARKER, f"idx={idx}")
+            self.assertEqual(cr.sl_no_value, exp["sl_no_value"], f"idx={idx} sl_no_value")
+            self.assertEqual(cr.description, exp["description"], f"idx={idx} description")
+            self.assertIsNone(row.path, f"idx={idx} path")
+            self.assertIsNone(row.level, f"idx={idx} level")
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — Electrical preamble level transitions                  #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_electrical_preamble_level_transitions(self):
+        """First preambles at levels 1, 2, 3 in 6. Electrical have expected sl_no/level/path."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.elec_sheet.resolved_rows
+        for exp in self.expected["sheets"]["6. Electrical"]["preamble_level_transitions"]:
+            idx = exp["resolved_idx"]
+            row = rows[idx]
+            cr = row.classified_row
+            self.assertEqual(cr.classification, RowClassification.PREAMBLE, f"idx={idx}")
+            self.assertEqual(cr.sl_no_value, exp["sl_no_value"], f"idx={idx} sl_no_value")
+            self.assertEqual(row.level, exp["level"], f"idx={idx} level")
+            self.assertEqual(row.path, exp["path"], f"idx={idx} path")
+            if "description" in exp:
+                self.assertEqual(cr.description, exp["description"], f"idx={idx} description")
+            elif "description_contains_substring" in exp:
+                self.assertIn(
+                    exp["description_contains_substring"],
+                    cr.description or "",
+                    f"idx={idx} description_contains_substring",
+                )
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — Light Fixtures total resolved row count                 #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_light_fixtures_total_resolved_row_count(self):
+        """7. Light Fixtures resolves to exactly 16 rows."""
+        self.assertEqual(len(self.lf_sheet.resolved_rows), 16)
+
+    # ---------------------------------------------------------------- #
+    # Test 10 — Light Fixtures first 5 line items                     #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_light_fixtures_first_5_line_items(self):
+        """First 5 LINE_ITEM rows in 7. Light Fixtures match expected sl_no/desc/unit/qty/path."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.lf_sheet.resolved_rows
+        for exp in self.expected["sheets"]["7. Light Fixtures"]["first_5_line_items"]:
+            idx = exp["resolved_idx"]
+            row = rows[idx]
+            cr = row.classified_row
+            self.assertEqual(cr.classification, RowClassification.LINE_ITEM, f"idx={idx}")
+            self.assertEqual(cr.sl_no_value, exp["sl_no_value"], f"idx={idx} sl_no_value")
+            self.assertEqual(cr.description, exp["description"], f"idx={idx} description")
+            self.assertEqual(cr.unit, exp["unit"], f"idx={idx} unit")
+            self.assertEqual(cr.qty, exp["qty"], f"idx={idx} qty")
+            self.assertEqual(row.path, exp["path"], f"idx={idx} path")
+            self.assertIsNone(row.level, f"idx={idx} level")
+
+    # ---------------------------------------------------------------- #
+    # Test 11 — Light Fixtures subtotal marker                         #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_light_fixtures_subtotal_marker(self):
+        """7. Light Fixtures has exactly 1 SUBTOTAL_MARKER: 'TOTAL - SUPPLY OF LIGHTS'."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.lf_sheet.resolved_rows
+        for exp in self.expected["sheets"]["7. Light Fixtures"]["subtotal_markers"]:
+            idx = exp["resolved_idx"]
+            row = rows[idx]
+            cr = row.classified_row
+            self.assertEqual(cr.classification, RowClassification.SUBTOTAL_MARKER, f"idx={idx}")
+            self.assertEqual(cr.sl_no_value, exp["sl_no_value"], f"idx={idx} sl_no_value")
+            self.assertEqual(cr.description, exp["description"], f"idx={idx} description")
+            self.assertIsNone(row.path, f"idx={idx} path")
+            self.assertIsNone(row.level, f"idx={idx} level")
+
+    # ---------------------------------------------------------------- #
+    # Test 12 — Light Fixtures row 16 PREAMBLE anomaly                 #
+    # ---------------------------------------------------------------- #
+
+    def test_snitch_light_fixtures_row_16_preamble_anomaly(self):
+        """
+        PIR sensor row (resolved_idx=14) is PREAMBLE because col D qty is absent
+        (blank-qty-no-rate classifier rule). Level=1, path='14', unit='NOS', qty=None.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows = self.lf_sheet.resolved_rows
+        exp = self.expected["sheets"]["7. Light Fixtures"]["row_16_preamble_anomaly"]
+        idx = exp["row_index_in_resolved"]
+        row = rows[idx]
+        cr = row.classified_row
+        self.assertEqual(cr.classification, RowClassification.PREAMBLE, "PIR row must be PREAMBLE")
+        self.assertEqual(cr.sl_no_value, exp["sl_no_value"], "PIR sl_no_value")
+        self.assertEqual(cr.unit, exp["unit"], "PIR unit")
+        self.assertIsNone(cr.qty, "PIR qty must be None (blank col D)")
+        self.assertEqual(row.level, exp["level"], "PIR level")
+        self.assertEqual(row.path, exp["path"], "PIR path")
+        self.assertIn(
+            "Silver Series Digital PIR",
+            cr.description or "",
+            "PIR description must contain expected prefix",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

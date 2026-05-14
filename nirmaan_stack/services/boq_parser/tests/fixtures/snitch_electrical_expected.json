@@ -1,0 +1,245 @@
+{
+  "workbook_assertions": {
+    "parsed_sheet_count_after_skip_filter": 2,
+    "master_preamble_is_empty": true,
+    "no_validation_warnings_anywhere": true
+  },
+  "skip_sheets_expected_absent_from_output": [
+    "OVERALL SUMMARY",
+    "SUMMARY MEP",
+    "MAKE LIST (to be updated)"
+  ],
+  "sheets": {
+    "6. Electrical": {
+      "total_resolved_row_count": 521,
+      "count_by_classification": {
+        "LINE_ITEM": 93,
+        "PREAMBLE": 126,
+        "NOTE": 287,
+        "SPACER": 6,
+        "SUBTOTAL_MARKER": 9
+      },
+      "first_5_line_items": [
+        {
+          "resolved_idx": 24,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "a.",
+          "description": "First point controlled by one no. 6 amp switch.",
+          "unit": "Nos.",
+          "qty": 45.0,
+          "path": "12/22/24",
+          "level": null
+        },
+        {
+          "resolved_idx": 27,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "2.0",
+          "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS PVC insulated copper conductor wire in concealed/exposed PVC conduit and earthing",
+          "unit": "Nos.",
+          "qty": 350.0,
+          "path": "12/22/25/27",
+          "level": null
+        },
+        {
+          "resolved_idx": 31,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "a.",
+          "description": "First point controlled by existing MCB in D.B. To first light",
+          "unit": "Nos.",
+          "qty": 20.0,
+          "path": "12/29/31",
+          "level": null
+        },
+        {
+          "resolved_idx": 32,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "b.",
+          "description": "First point controlled by existing MCB in D.B. For Emergency Light",
+          "unit": "Nos.",
+          "qty": 40.0,
+          "path": "12/29/32",
+          "level": null
+        },
+        {
+          "resolved_idx": 36,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "5.0",
+          "description": "Wiring for 6/16 amps light plug outlets with 3 X 2.5 sq.mm FRLS PVC insulated copper conductor wires in PVC Conduits in ceiling/walls/floor as direc­ted incl­u­ding providing and fixing of 6/13 amps flush type 5 pin socket and 16 amps switch with cover plate, 5 sided G.I boxes for housing switches, sockets and earthi­ng complete as required. (for general areas)",
+          "unit": "Nos.",
+          "qty": 40.0,
+          "path": "12/34/36",
+          "level": null
+        }
+      ],
+      "subtotal_markers": [
+        {
+          "resolved_idx": 9,
+          "sl_no_value": "",
+          "description": "TOTAL - ELECTRICAL WORKS",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 109,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 121,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 181,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 303,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 343,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 392,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 513,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 520,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        }
+      ],
+      "preamble_level_transitions": [
+        {
+          "resolved_idx": 1,
+          "sl_no_value": "A.",
+          "description": "POINT WIRING",
+          "level": 1,
+          "path": "1"
+        },
+        {
+          "resolved_idx": 22,
+          "sl_no_value": "1.0",
+          "description_contains_substring": "Wiring for the following light points",
+          "level": 2,
+          "path": "12/22"
+        },
+        {
+          "resolved_idx": 25,
+          "sl_no_value": "b.",
+          "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+          "level": 3,
+          "path": "12/22/25"
+        }
+      ]
+    },
+    "7. Light Fixtures": {
+      "total_resolved_row_count": 16,
+      "count_by_classification": {
+        "LINE_ITEM": 13,
+        "PREAMBLE": 1,
+        "NOTE": 1,
+        "SUBTOTAL_MARKER": 1
+      },
+      "first_5_line_items": [
+        {
+          "resolved_idx": 1,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "1.0",
+          "description": "Suspended LED Linear Light with electronic ballast.",
+          "unit": "Nos",
+          "qty": 120.0,
+          "path": "1",
+          "level": null
+        },
+        {
+          "resolved_idx": 2,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "2.0",
+          "description": "Recessed LED Linear Light with electronic ballast.",
+          "unit": "Nos",
+          "qty": 30.0,
+          "path": "2",
+          "level": null
+        },
+        {
+          "resolved_idx": 3,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "3.0",
+          "description": "Suspended Decorative Gloves light:Dia 350mm With electronic ballast.",
+          "unit": "Nos",
+          "qty": 4.0,
+          "path": "3",
+          "level": null
+        },
+        {
+          "resolved_idx": 4,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "4.0",
+          "description": "Recessed & Suspended light fixture (600x600) with electronic ballast.",
+          "unit": "Nos",
+          "qty": 20.0,
+          "path": "4",
+          "level": null
+        },
+        {
+          "resolved_idx": 5,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "5.0",
+          "description": "Downlight fixture Type -01",
+          "unit": "Nos",
+          "qty": 300.0,
+          "path": "5",
+          "level": null
+        }
+      ],
+      "subtotal_markers": [
+        {
+          "resolved_idx": 15,
+          "sl_no_value": "",
+          "description": "TOTAL - SUPPLY OF LIGHTS",
+          "path": null,
+          "level": null
+        }
+      ],
+      "preamble_level_transitions": [],
+      "row_16_preamble_anomaly": {
+        "row_index_in_resolved": 14,
+        "sl_no_value": "14.0",
+        "description": "Silver Series Digital PIR presence detection sensor of range 6.0 m Dia coverage recessed mounting at height of 2.4-3 meter to control 6A lighting load with 0.4 meter four core power cable. To be commissioned by hand held programmer with programmable features of delay time 10 Sec - 96 Hours, photocell and power up (status of luminaires when power is applied). It shall have provision to manually override luminary ON/OFF status using hand held remote control",
+        "unit": "NOS",
+        "classification": "PREAMBLE",
+        "level": 1,
+        "path": "14",
+        "anomaly_reason": "column D qty absent; blank-qty-no-rate classifier rule applies"
+      }
+    }
+  }
+}
