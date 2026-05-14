@@ -928,5 +928,120 @@ class TestResolvedRowMultiAreaFields(unittest.TestCase):
         self.assertEqual(line_item_row.amount_total, 800.0)
 
 
+class TestZeroChildrenPreambleDemotion(unittest.TestCase):
+    """Phase 2b.2 Part B2f — _apply_zero_children_preamble_demotion_post_pass."""
+
+    def _run(self, resolved_rows):
+        from nirmaan_stack.services.boq_parser.hierarchy import _apply_zero_children_preamble_demotion_post_pass
+        _apply_zero_children_preamble_demotion_post_pass(resolved_rows)
+
+    def _rp(self, idx, path, unit=None, rate_supply=None, rate_combined=None):
+        """Make a ResolvedRow wrapping a PREAMBLE ClassifiedRow."""
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        cr = _make_preamble(idx, str(idx))
+        cr.unit = unit
+        cr.rate_supply = rate_supply
+        cr.rate_combined = rate_combined
+        return ResolvedRow(classified_row=cr, path=path)
+
+    def _rl(self, idx, path):
+        """Make a ResolvedRow wrapping a LINE_ITEM ClassifiedRow."""
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        return ResolvedRow(classified_row=_make_line_item(idx), path=path)
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — leaf PREAMBLE with unit is demoted                      #
+    # ---------------------------------------------------------------- #
+
+    def test_leaf_preamble_with_unit_is_demoted(self):
+        rows = [self._rp(0, "1", unit="Kg")]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.LINE_ITEM)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — leaf PREAMBLE with rate_supply is demoted               #
+    # ---------------------------------------------------------------- #
+
+    def test_leaf_preamble_with_rate_supply_is_demoted(self):
+        rows = [self._rp(0, "2", rate_supply=1500.0)]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.LINE_ITEM)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — leaf PREAMBLE with rate_combined is demoted             #
+    # ---------------------------------------------------------------- #
+
+    def test_leaf_preamble_with_rate_combined_is_demoted(self):
+        rows = [self._rp(0, "3", rate_combined=800.0)]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.LINE_ITEM)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — PREAMBLE with children is NOT demoted (even with unit)  #
+    # ---------------------------------------------------------------- #
+
+    def test_preamble_with_children_not_demoted(self):
+        rows = [
+            self._rp(0, "1", unit="Kg"),
+            self._rl(1, "1/2"),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.PREAMBLE)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — leaf PREAMBLE with no unit and no rate is NOT demoted   #
+    # ---------------------------------------------------------------- #
+
+    def test_leaf_preamble_no_unit_no_rate_not_demoted(self):
+        rows = [self._rp(0, "1")]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.PREAMBLE)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — demotion sets qty=0.0 and is_rate_only=True             #
+    # ---------------------------------------------------------------- #
+
+    def test_demotion_sets_qty_zero_is_rate_only_and_clears_level(self):
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        cr = _make_preamble(0, "1")
+        cr.unit = "LS"
+        row = ResolvedRow(classified_row=cr, path="1", level=1)
+        self._run([row])
+        self.assertEqual(row.classified_row.classification, RowClassification.LINE_ITEM)
+        self.assertEqual(row.classified_row.qty, 0.0)
+        self.assertTrue(row.classified_row.is_rate_only)
+        self.assertIsNone(row.level)
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — non-PREAMBLE rows are not modified                      #
+    # ---------------------------------------------------------------- #
+
+    def test_non_preamble_rows_not_modified(self):
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        rows = [
+            ResolvedRow(classified_row=_make_line_item(0), path="1"),
+            ResolvedRow(classified_row=_make_note(1, "a note"), path=None),
+            ResolvedRow(classified_row=_make_spacer(2), path=None),
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.LINE_ITEM)
+        self.assertEqual(rows[1].classified_row.classification, RowClassification.NOTE)
+        self.assertEqual(rows[2].classified_row.classification, RowClassification.SPACER)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — mixed sheet: leaf demoted, PREAMBLE with child kept     #
+    # ---------------------------------------------------------------- #
+
+    def test_mixed_sheet_leaf_demoted_parent_kept(self):
+        rows = [
+            self._rp(0, "1", unit="Kg"),    # leaf with unit → demote
+            self._rp(1, "2", unit="LS"),    # has child → keep
+            self._rl(2, "2/3"),             # child of row at path "2"
+        ]
+        self._run(rows)
+        self.assertEqual(rows[0].classified_row.classification, RowClassification.LINE_ITEM)
+        self.assertEqual(rows[1].classified_row.classification, RowClassification.PREAMBLE)
+
+
 if __name__ == "__main__":
     unittest.main()

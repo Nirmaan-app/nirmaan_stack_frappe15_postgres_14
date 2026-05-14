@@ -659,8 +659,9 @@ class TestSnitchIntegration(unittest.TestCase):
 
     def test_snitch_light_fixtures_row_16_preamble_anomaly(self):
         """
-        PIR sensor row (resolved_idx=14) is PREAMBLE because col D qty is absent
-        (blank-qty-no-rate classifier rule). Level=1, path='14', unit='NOS', qty=None.
+        PIR sensor row (resolved_idx=14): classifier set PREAMBLE (blank col D qty);
+        B2f zero-children demotion then promotes it to LINE_ITEM(qty=0.0, is_rate_only=True)
+        because it is a leaf node with unit='NOS'.
         """
         from nirmaan_stack.services.boq_parser.classifier import RowClassification
         rows = self.lf_sheet.resolved_rows
@@ -668,11 +669,12 @@ class TestSnitchIntegration(unittest.TestCase):
         idx = exp["row_index_in_resolved"]
         row = rows[idx]
         cr = row.classified_row
-        self.assertEqual(cr.classification, RowClassification.PREAMBLE, "PIR row must be PREAMBLE")
+        self.assertEqual(cr.classification, RowClassification.LINE_ITEM, "PIR row must be LINE_ITEM after B2f demotion")
         self.assertEqual(cr.sl_no_value, exp["sl_no_value"], "PIR sl_no_value")
         self.assertEqual(cr.unit, exp["unit"], "PIR unit")
-        self.assertIsNone(cr.qty, "PIR qty must be None (blank col D)")
-        self.assertEqual(row.level, exp["level"], "PIR level")
+        self.assertEqual(cr.qty, exp["qty"], "PIR qty must be 0.0 after B2f demotion")
+        self.assertTrue(cr.is_rate_only, "PIR is_rate_only must be True after B2f demotion")
+        self.assertIsNone(row.level, "PIR level must be None (LINE_ITEM)")
         self.assertEqual(row.path, exp["path"], "PIR path")
         self.assertIn(
             "Silver Series Digital PIR",

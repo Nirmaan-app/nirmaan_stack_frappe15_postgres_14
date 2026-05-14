@@ -1,7 +1,7 @@
 {
   "_notes": {
     "preamble_level_transitions_definition": "First preamble at each distinct level (Option alpha — all 7 levels present after B2d demotion)",
-    "regenerated_after": "B2d-classifier unit-based PREAMBLE demotion (§7.28)",
+    "regenerated_after": "B2f-hierarchy zero-children PREAMBLE demotion (§7.29)",
     "regenerated_date": "2026-05-14"
   },
   "workbook_assertions": {
@@ -18,8 +18,8 @@
     "6. Electrical": {
       "total_resolved_row_count": 521,
       "count_by_classification": {
-        "LINE_ITEM": 175,
-        "PREAMBLE": 44,
+        "LINE_ITEM": 176,
+        "PREAMBLE": 43,
         "NOTE": 287,
         "SPACER": 6,
         "SUBTOTAL_MARKER": 9
@@ -196,8 +196,8 @@
     "7. Light Fixtures": {
       "total_resolved_row_count": 16,
       "count_by_classification": {
-        "LINE_ITEM": 13,
-        "PREAMBLE": 1,
+        "LINE_ITEM": 14,
+        "PREAMBLE": 0,
         "NOTE": 1,
         "SUBTOTAL_MARKER": 1
       },
@@ -266,12 +266,14 @@
       "row_16_preamble_anomaly": {
         "row_index_in_resolved": 14,
         "sl_no_value": "14.0",
-        "description": "Silver Series Digital PIR presence detection sensor of range 6.0 m Dia coverage recessed mounting at height of 2.4-3 meter to control 6A lighting load with 0.4 meter four core power cable. To be commissioned by hand held programmer with programmable features of delay time 10 Sec - 96 Hours, photocell and power up (status of luminaires when power is applied). It shall have provision to manually override luminary ON/OFF status using hand held remote control",
+        "description_contains": "Silver Series Digital PIR",
         "unit": "NOS",
-        "classification": "PREAMBLE",
-        "level": 1,
+        "classification": "LINE_ITEM",
+        "qty": 0.0,
+        "is_rate_only": true,
+        "level": null,
         "path": "14",
-        "anomaly_reason": "column D qty absent; blank-qty-no-rate classifier rule applies"
+        "anomaly_reason": "B2f zero-children demotion: classifier set PREAMBLE (blank col D qty); B2f demotes leaf PREAMBLE with unit='NOS' to LINE_ITEM(qty=0.0, is_rate_only=True)"
       }
     }
   }

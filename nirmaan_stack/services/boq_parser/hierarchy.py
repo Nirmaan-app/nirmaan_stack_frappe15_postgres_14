@@ -496,3 +496,44 @@ def resolve_hierarchy(
         master_preamble_notes=master_preamble_notes,
         warnings=sheet_warnings,
     )
+
+
+def _apply_zero_children_preamble_demotion_post_pass(resolved_rows: list[ResolvedRow]) -> None:
+    """
+    Demote PREAMBLE rows that have zero tree children AND carry a unit or rate.
+    Real section-header preambles never have a unit or rate; if one does and it is
+    a leaf node in the resolved tree it was mis-classified and belongs as a
+    rate-only line item.
+    Must be called AFTER resolve_hierarchy() (needs path data) and BEFORE
+    _apply_multi_area_post_pass().
+    Demoted rows: classification → LINE_ITEM, qty → 0.0, is_rate_only → True.
+    """
+    # Step A: collect every path that is an ancestor of at least one other row
+    paths_with_descendants: set[str] = set()
+    for row in resolved_rows:
+        p = row.path
+        if not p:
+            continue
+        segments = p.split("/")
+        for i in range(1, len(segments)):
+            paths_with_descendants.add("/".join(segments[:i]))
+
+    # Step B: demote leaf PREAMBLEs that have a unit or non-zero rate
+    for row in resolved_rows:
+        cr = row.classified_row
+        if cr.classification != RowClassification.PREAMBLE:
+            continue
+        if row.path in paths_with_descendants:
+            continue
+        has_unit = cr.unit is not None and cr.unit.strip() != ""
+        has_rate = (
+            (cr.rate_supply is not None and cr.rate_supply > 0)
+            or (cr.rate_install is not None and cr.rate_install > 0)
+            or (cr.rate_combined is not None and cr.rate_combined > 0)
+        )
+        if not (has_unit or has_rate):
+            continue
+        cr.classification = RowClassification.LINE_ITEM
+        cr.qty = 0.0
+        cr.is_rate_only = True
+        row.level = None

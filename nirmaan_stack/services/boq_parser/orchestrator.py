@@ -22,7 +22,11 @@ from nirmaan_stack.services.boq_parser.classifier import (
     populate_preamble_candidate_scores,
 )
 from nirmaan_stack.services.boq_parser.config import MappingConfig
-from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow, resolve_hierarchy
+from nirmaan_stack.services.boq_parser.hierarchy import (
+    ResolvedRow,
+    _apply_zero_children_preamble_demotion_post_pass,
+    resolve_hierarchy,
+)
 from nirmaan_stack.services.boq_parser.multi_area_detection import MultiAreaPattern, detect_multi_area_pattern
 from nirmaan_stack.services.boq_parser.reader import BoqReader
 
@@ -169,6 +173,9 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
         # Step 4: Hierarchy resolution
         resolved_sheet = resolve_hierarchy(classified_rows, sheet_config, global_settings)
+
+        # Step 4a: Zero-children PREAMBLE demotion post-pass (needs tree data, before multi-area)
+        _apply_zero_children_preamble_demotion_post_pass(resolved_sheet.rows)
 
         # Step 4b: Multi-area post-pass — Policy X copy + sum validation + fallback
         _apply_multi_area_post_pass(resolved_sheet.rows)
