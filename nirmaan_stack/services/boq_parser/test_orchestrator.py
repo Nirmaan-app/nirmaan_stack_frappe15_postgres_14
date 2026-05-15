@@ -724,6 +724,18 @@ class TestSnitchIntegration(unittest.TestCase):
     # Test 12 — Light Fixtures row 16 PREAMBLE anomaly                 #
     # ---------------------------------------------------------------- #
 
+    def test_snitch_row_500_flagged_for_priced_preamble_with_children_review(self):
+        """§9 #45: Snitch Electrical row 500 (sl_no=2.0, unit=LS, 5 children)
+        must be flagged for wizard review by the §9 #45 post-pass."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        row = self.elec_sheet.resolved_rows[500]
+        self.assertEqual(row.classified_row.classification, RowClassification.PREAMBLE,
+                         "row 500 must remain PREAMBLE — not demoted")
+        self.assertTrue(row.needs_classification_review,
+                        "row 500 must have needs_classification_review=True")
+        self.assertEqual(row.review_reason, "priced_preamble_with_children",
+                         "review_reason must be 'priced_preamble_with_children'")
+
     def test_snitch_light_fixtures_row_16_preamble_anomaly(self):
         """
         PIR sensor row (resolved_idx=14): classifier set PREAMBLE (blank col D qty);

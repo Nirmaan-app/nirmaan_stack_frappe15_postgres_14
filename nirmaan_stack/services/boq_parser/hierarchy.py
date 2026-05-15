@@ -53,6 +53,11 @@ class ResolvedRow:
     # Post-pass resolved per-area dicts (populated by _apply_multi_area_post_pass).
     qty_by_area: dict[str, float] = field(default_factory=dict)
     amount_by_area: dict[str, float] = field(default_factory=dict)
+    # §9 #45 review flag — set by _apply_priced_preamble_with_children_review_flag_post_pass.
+    # True when a PREAMBLE has tree children AND carries a price signal (unit or rate).
+    # Phase 3 wizard reads review_reason to select the re-classification UI flow.
+    needs_classification_review: bool = False
+    review_reason: str = ""
 
 
 @dataclass
@@ -83,6 +88,7 @@ _RE_MULTI2  = re.compile(r"^\d+\.\d+$")             # e.g. "1.1"
 _RE_NUMERIC = re.compile(r"^\d+(\.0)?$")             # e.g. "1", "1.0", "30"
 
 _L1_STYLES = frozenset(("letter", "roman", "numeric", "part"))
+_ALPHANUMERIC_RE = re.compile(r"[A-Za-z0-9]")
 
 
 # ------------------------------------------------------------------
@@ -537,3 +543,49 @@ def _apply_zero_children_preamble_demotion_post_pass(resolved_rows: list[Resolve
         cr.qty = 0.0
         cr.is_rate_only = True
         row.level = None
+
+
+def _is_priced_for_review(
+    unit: str | None,
+    rate_combined: float | None,
+    rate_supply: float | None,
+    rate_install: float | None,
+) -> bool:
+    if unit is not None and _ALPHANUMERIC_RE.search(unit.strip()):
+        return True
+    if rate_combined is not None and rate_combined > 0:
+        return True
+    if rate_supply is not None and rate_supply > 0:
+        return True
+    if rate_install is not None and rate_install > 0:
+        return True
+    return False
+
+
+def _apply_priced_preamble_with_children_review_flag_post_pass(resolved_rows: list[ResolvedRow]) -> None:
+    """
+    Flag PREAMBLE rows that have tree children AND carry a price signal.
+    Flagged rows: needs_classification_review=True, review_reason="priced_preamble_with_children".
+    Must run AFTER _apply_zero_children_preamble_demotion_post_pass() so demoted leaf
+    PREAMBLEs are already LINE_ITEMs and cannot be double-flagged.
+    Must run BEFORE _apply_multi_area_post_pass().
+    The Phase 3 wizard uses review_reason to select the re-classification UI flow.
+    """
+    paths_with_descendants: set[str] = set()
+    for row in resolved_rows:
+        if not row.path:
+            continue
+        segments = row.path.split("/")
+        for i in range(1, len(segments)):
+            paths_with_descendants.add("/".join(segments[:i]))
+
+    for row in resolved_rows:
+        cr = row.classified_row
+        if cr.classification != RowClassification.PREAMBLE:
+            continue
+        if row.path not in paths_with_descendants:
+            continue
+        if not _is_priced_for_review(cr.unit, cr.rate_combined, cr.rate_supply, cr.rate_install):
+            continue
+        row.needs_classification_review = True
+        row.review_reason = "priced_preamble_with_children"

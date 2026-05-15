@@ -24,6 +24,7 @@ from nirmaan_stack.services.boq_parser.classifier import (
 from nirmaan_stack.services.boq_parser.config import MappingConfig
 from nirmaan_stack.services.boq_parser.hierarchy import (
     ResolvedRow,
+    _apply_priced_preamble_with_children_review_flag_post_pass,
     _apply_zero_children_preamble_demotion_post_pass,
     resolve_hierarchy,
 )
@@ -176,6 +177,9 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
         # Step 4a: Zero-children PREAMBLE demotion post-pass (needs tree data, before multi-area)
         _apply_zero_children_preamble_demotion_post_pass(resolved_sheet.rows)
+
+        # Step 4a.5: Priced-PREAMBLE-with-children review-flag post-pass (§9 #45)
+        _apply_priced_preamble_with_children_review_flag_post_pass(resolved_sheet.rows)
 
         # Step 4b: Multi-area post-pass — Policy X copy + sum validation + fallback
         _apply_multi_area_post_pass(resolved_sheet.rows)

@@ -1043,5 +1043,143 @@ class TestZeroChildrenPreambleDemotion(unittest.TestCase):
         self.assertEqual(rows[1].classified_row.classification, RowClassification.PREAMBLE)
 
 
+class TestPricedPreambleWithChildrenReviewFlag(unittest.TestCase):
+    """Phase 2c §9 #45 — _apply_priced_preamble_with_children_review_flag_post_pass."""
+
+    def _run(self, resolved_rows):
+        from nirmaan_stack.services.boq_parser.hierarchy import (
+            _apply_priced_preamble_with_children_review_flag_post_pass,
+        )
+        _apply_priced_preamble_with_children_review_flag_post_pass(resolved_rows)
+
+    def _rp(self, idx, path, unit=None, rate_supply=None, rate_install=None, rate_combined=None):
+        """Make a ResolvedRow wrapping a PREAMBLE ClassifiedRow."""
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        cr = _make_preamble(idx, str(idx))
+        cr.unit = unit
+        cr.rate_supply = rate_supply
+        cr.rate_install = rate_install
+        cr.rate_combined = rate_combined
+        return ResolvedRow(classified_row=cr, path=path)
+
+    def _rl(self, idx, path):
+        """Make a ResolvedRow wrapping a LINE_ITEM ClassifiedRow."""
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        return ResolvedRow(classified_row=_make_line_item(idx), path=path)
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — default field values on bare ResolvedRow                #
+    # ---------------------------------------------------------------- #
+
+    def test_default_field_values(self):
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        row = ResolvedRow(classified_row=_make_preamble(0, "A"))
+        self.assertFalse(row.needs_classification_review)
+        self.assertEqual(row.review_reason, "")
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — priced PREAMBLE with unit and children is flagged        #
+    # ---------------------------------------------------------------- #
+
+    def test_priced_preamble_with_children_flagged(self):
+        rows = [
+            self._rp(0, "0/1", unit="LS"),
+            self._rl(1, "0/1/2"),
+            self._rl(2, "0/1/3"),
+        ]
+        self._run(rows)
+        self.assertTrue(rows[0].needs_classification_review)
+        self.assertEqual(rows[0].review_reason, "priced_preamble_with_children")
+        self.assertFalse(rows[1].needs_classification_review)
+        self.assertFalse(rows[2].needs_classification_review)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — PREAMBLE with rate_combined and children is flagged      #
+    # ---------------------------------------------------------------- #
+
+    def test_preamble_with_rate_combined_flagged(self):
+        rows = [
+            self._rp(0, "0/1", rate_combined=100.0),
+            self._rl(1, "0/1/2"),
+        ]
+        self._run(rows)
+        self.assertTrue(rows[0].needs_classification_review)
+        self.assertEqual(rows[0].review_reason, "priced_preamble_with_children")
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — PREAMBLE with rate_supply and children is flagged        #
+    # ---------------------------------------------------------------- #
+
+    def test_preamble_with_rate_supply_flagged(self):
+        rows = [
+            self._rp(0, "0/1", rate_supply=50.0),
+            self._rl(1, "0/1/2"),
+        ]
+        self._run(rows)
+        self.assertTrue(rows[0].needs_classification_review)
+        self.assertEqual(rows[0].review_reason, "priced_preamble_with_children")
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — PREAMBLE with rate_install and children is flagged       #
+    # ---------------------------------------------------------------- #
+
+    def test_preamble_with_rate_install_flagged(self):
+        rows = [
+            self._rp(0, "0/1", rate_install=50.0),
+            self._rl(1, "0/1/2"),
+        ]
+        self._run(rows)
+        self.assertTrue(rows[0].needs_classification_review)
+        self.assertEqual(rows[0].review_reason, "priced_preamble_with_children")
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — whitespace-only unit is NOT priced → not flagged         #
+    # ---------------------------------------------------------------- #
+
+    def test_whitespace_only_unit_not_flagged(self):
+        rows = [
+            self._rp(0, "0/1", unit="   "),
+            self._rl(1, "0/1/2"),
+        ]
+        self._run(rows)
+        self.assertFalse(rows[0].needs_classification_review)
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — punctuation-only unit is NOT priced → not flagged        #
+    # ---------------------------------------------------------------- #
+
+    def test_punctuation_only_unit_not_flagged(self):
+        rows = [
+            self._rp(0, "0/1", unit="—"),
+            self._rl(1, "0/1/2"),
+        ]
+        self._run(rows)
+        self.assertFalse(rows[0].needs_classification_review)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — leaf PREAMBLE with unit but NO children is not flagged   #
+    # ---------------------------------------------------------------- #
+
+    def test_leaf_preamble_with_unit_not_flagged_here(self):
+        # Leaf PREAMBLE: path "1" appears in resolved_rows but no row has "1/" prefix.
+        # In a real parse_boq run §7.29 would already demote this to LINE_ITEM before
+        # this post-pass runs. We test the post-pass's own gate directly.
+        rows = [self._rp(0, "1", unit="LS")]
+        self._run(rows)
+        self.assertFalse(rows[0].needs_classification_review)
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — non-PREAMBLE row with children is not flagged            #
+    # ---------------------------------------------------------------- #
+
+    def test_non_preamble_with_children_not_flagged(self):
+        rows = [
+            self._rl(0, "0/1"),
+            self._rl(1, "0/1/2"),
+        ]
+        self._run(rows)
+        self.assertFalse(rows[0].needs_classification_review)
+
+
 if __name__ == "__main__":
     unittest.main()
