@@ -706,11 +706,11 @@ Full template JSON for the canonical Sprinkler Pressure Test Report (decoded fro
 
 ## Templates and their tasks
 
-A single `templateId` is shared across many `Commission Report Tasks` master rows — one source_format powers every task that uses it.
+A single `templateId` is shared across many `Commission Report Tasks` master rows — one source_format powers every task that uses it. Source of truth: `nirmaan_stack/fixtures/commission_report_tasks.json`.
 
-### `demo-training-certificate`
+### Shared templates (one source_format → many task masters)
 
-Used by these task masters:
+#### `demo-training-certificate` (9 tasks)
 
 - Electrical System Training Report
 - HVAC VRF/DX Training Report
@@ -722,9 +722,7 @@ Used by these task masters:
 - Access Control Training Report
 - Critical Room ELV System Training Report
 
-### `common-template-1`
-
-Used by these task masters:
+#### `common-template-1` (5 tasks)
 
 - CCTV Commissioning Report
 - FA Commissioning Report
@@ -732,6 +730,46 @@ Used by these task masters:
 - ACS Commissioning Report
 - RR Commissioning Report
 - VESDA Commissioning Report
+
+### Single-task templates (one source_format → one task master)
+
+| `templateId` | Task master |
+|---|---|
+| `access-control-commissioning` | Access Control Commissioning Report |
+| `db-commissioning-report` | DB Commissioning Report |
+| `duct-cfm-report` | CFM/Air Balance Report |
+| `duct-pressure-testing-report` | Duct Pressure Testing Report |
+| `earth-pit-resistance-report` | Earthing Test Report |
+| `lt-panel-commission-report` | LT Panel Commissioning Report |
+| `lux-level-report` | LUX Level Report |
+| `socket-testing-report` | Socket Testing Report |
+| `sprinkler-pressure-test` | Sprinkler Pressure Test Report |
+
+### Task masters without a `source_format` yet
+
+These rows exist in the fixture but have no template authored — Fill Report is hidden until an admin pastes a valid template into `source_format`.
+
+- AHU/CSU Commissioning Report
+- AHU/CSU Factory Test Report
+- Auto Sequencing Functional Testing Report
+- BMS System Functionality Test Report
+- Drain Slope Test Report
+- Fire Damper Functionality Test Report
+- Flow Switch Testing Report
+- Fluke Testing Report
+- LT Cable Megger Test Report
+- LT Panel Factory Test Report
+- Network Continuity Test Report
+- Nitrogen Pressure Testing Report
+- PA Commissioning Report
+- Pipe Pressure Testing Report
+- Sensor Calibration Report
+- Smoke Test Report
+- UPS Factory Test Report
+- UPS Site Test Report
+- VAV Commissioning Report
+- VRF/DX Commissioning Report
+- Wifi Heat Map Report
 
 
 ---
