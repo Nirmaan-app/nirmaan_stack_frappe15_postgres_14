@@ -112,6 +112,19 @@ class BoqReader:
         """Return sheet names exactly as openpyxl reports them."""
         return list(self._wb_values.sheetnames)
 
+    def list_sheet_states(self) -> dict[str, str]:
+        """
+        Return a mapping from sheet name to sheet visibility state.
+
+        Sheet visibility values come straight from openpyxl's `Worksheet.sheet_state`:
+        one of 'visible', 'hidden', or 'veryHidden'. Sheet names preserve exact
+        whitespace and casing, matching `list_sheets()`.
+
+        Used by the Phase 3 wizard to default hidden / veryHidden sheets to the
+        'skip' disposition. Pure pass-through — no caching, no transformation.
+        """
+        return {ws.title: ws.sheet_state for ws in self._wb_values.worksheets}
+
     def get_sheet_dimensions(self, sheet_name: str) -> tuple[int, int]:
         """
         Return (last_row, last_col) — 1-indexed, content-based.

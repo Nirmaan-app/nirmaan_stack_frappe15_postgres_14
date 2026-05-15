@@ -445,5 +445,121 @@ class TestMergedCellPropagation(unittest.TestCase):
             )
 
 
+class TestSheetStateExposure(unittest.TestCase):
+    """Phase 2c §9 #49: list_sheet_states() exposes openpyxl Worksheet.sheet_state."""
+
+    # ------------------------------------------------------------------ #
+    # Test 26 — all visible sheets                                         #
+    # ------------------------------------------------------------------ #
+
+    def test_all_visible_sheets_return_visible(self):
+        """Two default sheets (never had sheet_state set) must both report 'visible'."""
+        import os
+        import tempfile
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "two_visible.xlsx")
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active)
+            wb.create_sheet("Sheet One")
+            wb.create_sheet("Sheet Two")
+            wb.save(path)
+
+            reader = BoqReader(path)
+            states = reader.list_sheet_states()
+            self.assertEqual(states, {"Sheet One": "visible", "Sheet Two": "visible"})
+
+    # ------------------------------------------------------------------ #
+    # Test 27 — hidden sheet surfaced                                      #
+    # ------------------------------------------------------------------ #
+
+    def test_hidden_sheet_state_surfaced(self):
+        """Second of three sheets marked hidden must report sheet_state='hidden'."""
+        import os
+        import tempfile
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "one_hidden.xlsx")
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active)
+            wb.create_sheet("Alpha")
+            wb.create_sheet("Beta")
+            wb.create_sheet("Gamma")
+            wb["Beta"].sheet_state = "hidden"
+            wb.save(path)
+
+            reader = BoqReader(path)
+            states = reader.list_sheet_states()
+            self.assertEqual(set(states.keys()), {"Alpha", "Beta", "Gamma"})
+            self.assertEqual(states["Beta"], "hidden")
+            self.assertEqual(states["Alpha"], "visible")
+            self.assertEqual(states["Gamma"], "visible")
+
+    # ------------------------------------------------------------------ #
+    # Test 28 — veryHidden sheet surfaced                                  #
+    # ------------------------------------------------------------------ #
+
+    def test_very_hidden_sheet_state_surfaced(self):
+        """Sheet with sheet_state='veryHidden' must report exactly 'veryHidden' (camelCase)."""
+        import os
+        import tempfile
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "very_hidden.xlsx")
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active)
+            wb.create_sheet("Visible")
+            wb.create_sheet("Secret")
+            wb["Secret"].sheet_state = "veryHidden"
+            wb.save(path)
+
+            reader = BoqReader(path)
+            states = reader.list_sheet_states()
+            self.assertEqual(states["Secret"], "veryHidden")
+            self.assertEqual(states["Visible"], "visible")
+
+    # ------------------------------------------------------------------ #
+    # Test 29 — whitespace and order preserved                             #
+    # ------------------------------------------------------------------ #
+
+    def test_sheet_names_preserve_whitespace_and_order(self):
+        """
+        Sheet names with leading/trailing/internal whitespace are preserved exactly,
+        and dict iteration order matches workbook sheet order.
+        """
+        import os
+        import tempfile
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "whitespace.xlsx")
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active)
+            wb.create_sheet(" Leading")
+            wb.create_sheet("Trailing ")
+            wb.create_sheet("Mid  Double")
+            wb[" Leading"].sheet_state = "hidden"
+            wb.save(path)
+
+            reader = BoqReader(path)
+            states = reader.list_sheet_states()
+
+            # Exact keys (whitespace preserved)
+            self.assertIn(" Leading", states)
+            self.assertIn("Trailing ", states)
+            self.assertIn("Mid  Double", states)
+
+            # Order matches workbook order
+            self.assertEqual(list(states.keys()), [" Leading", "Trailing ", "Mid  Double"])
+
+            # Visibility
+            self.assertEqual(states[" Leading"], "hidden")
+            self.assertEqual(states["Trailing "], "visible")
+            self.assertEqual(states["Mid  Double"], "visible")
+
+
 if __name__ == "__main__":
     unittest.main()
