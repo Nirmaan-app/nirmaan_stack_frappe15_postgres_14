@@ -161,6 +161,29 @@ class GlobalSettings(BaseModel):
             "ITEM", "ITEMS", "ITEM DESCRIPTION", "ITEM NO", "ITEM NO.",
             # Description shorthand variants
             "DESC", "DESC.",
+            # --- Phase 2c expansion: 71 new entries across 6 buckets ---
+            # Bucket 1 — Quantity / measurement extended variants
+            "NO", "NOS.", "NO.", "NUMBER", "QTY.", "QUANTITIES",
+            "SQ FT", "SQ.FT", "SQ.FT.", "SQFT", "SQ MT", "SQ.MT", "SQ.MT.", "SQMT",
+            "RFT", "RMT", "RUN FT", "RUNNING FT", "RUNNING MT",
+            # Bucket 2 — Rate extended variants
+            "RATE (RS)", "RATE (INR)", "UNIT RATE", "BASIC RATE", "BASIC RATE (INR)",
+            "LABOUR RATE", "MATERIAL RATE", "SUPPLY & FIX RATE",
+            # Bucket 3 — Amount extended variants
+            "AMOUNT (RS)", "AMOUNT (INR)", "TOTAL AMOUNT (RS)", "TOTAL AMOUNT (INR)",
+            "SUPPLY TOTAL", "INSTALL TOTAL", "INSTALLATION TOTAL", "LABOUR AMOUNT",
+            "MATERIAL AMOUNT", "SUPPLY & FIX AMOUNT",
+            # Bucket 4 — Structural / specification columns
+            "MAKE", "MAKE & MODEL", "BRAND", "SPECIFICATION", "SPECIFICATIONS",
+            "SPEC", "SPECS", "REFERENCE", "REF", "REF.", "DRAWING REF",
+            "SUBJECT", "PARTICULAR", "PARTICULARS", "WORK", "WORKS",
+            "FLOOR", "LOCATION", "SCOPE",
+            # Bucket 5 — Cost-code / estimation columns
+            "DSR", "DSR RATE", "MARKET RATE", "QUOTED RATE", "AGREED RATE",
+            "SCHEDULE OF RATE", "SOR", "BOQ RATE", "CONTRACT RATE",
+            # Bucket 6 — Summary / structural sheet keywords
+            "SUMMARY", "GRAND TOTAL", "SUB TOTAL", "SUBTOTAL", "NET AMOUNT",
+            "NET TOTAL",
         ],
         description="Words to exclude when auto-detecting area names. User-extensible."
     )

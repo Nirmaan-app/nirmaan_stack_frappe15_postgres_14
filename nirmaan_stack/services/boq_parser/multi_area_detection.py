@@ -135,11 +135,29 @@ def _sorted_cols(row: RawRow) -> list[tuple[int, str]]:
 
 
 def _is_reserved(value: object, kw_set: set[str]) -> bool:
-    """Return True if value is None, empty, or matches a reserved keyword."""
+    """Check if a cell value is a reserved keyword (or empty).
+
+    Empty and None cells are always reserved so patterns skip them.
+    Normalizes whitespace (collapsing newlines/tabs/multiple spaces to single
+    spaces) before comparison. Also tries the form with a trailing parenthetical
+    stripped (e.g., 'AMOUNT (INR)' → 'AMOUNT') to handle currency-suffix
+    compound variants without enumerating each one.
+    """
     if value is None:
         return True
-    text = str(value).strip()
-    return not text or text.upper() in kw_set
+    text = str(value).upper()
+    # Whitespace normalization: collapse any whitespace sequence to single space
+    text = " ".join(text.split())
+    if not text:
+        return True
+    if text in kw_set:
+        return True
+    # Trailing-parenthetical strip: e.g. "AMOUNT (INR)" → "AMOUNT"
+    if text.endswith(")") and "(" in text:
+        stripped = text[:text.rindex("(")].strip()
+        if stripped and stripped in kw_set:
+            return True
+    return False
 
 
 def _try_pattern_1(row: RawRow, kw_set: set[str]) -> MultiAreaPattern | None:

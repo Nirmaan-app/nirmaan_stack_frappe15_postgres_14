@@ -505,5 +505,236 @@ class TestReservedKeywordExpansion(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestReservedKeywordExpansionPhase2c(unittest.TestCase):
+    """Phase 2c expansion: 71 new keywords (49→120) + _is_reserved normalization."""
+
+    # ---------------------------------------------------------------------- #
+    # Tests 1-2: Bucket 1 — quantity/measurement variants                     #
+    # ---------------------------------------------------------------------- #
+
+    def test_sqft_and_running_mt_not_detected_as_areas(self):
+        """SQFT and RUNNING MT are reserved after expansion; false positive suppressed."""
+        row = _make_row(1, {
+            "A": {"value": "SL.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "SQFT"},
+            "E": {"value": "RUNNING MT"},
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    def test_sq_ft_space_variant_not_detected_as_area(self):
+        """'SQ FT' (with space) is reserved after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "SQ FT"},
+            "D": {"value": "RUNNING FT"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------------- #
+    # Tests 3-4: Bucket 4 — structural / specification columns                #
+    # ---------------------------------------------------------------------- #
+
+    def test_make_and_brand_not_detected_as_areas(self):
+        """MAKE and BRAND are reserved after expansion; false positive suppressed."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "MAKE"},
+            "E": {"value": "BRAND"},
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    def test_specification_variants_not_detected_as_areas(self):
+        """SPECIFICATION and SPECS are reserved after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "SPECIFICATION"},
+            "D": {"value": "SPECS"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------------- #
+    # Tests 5-6: Bucket 4 — structural (FLOOR, SUBJECT, PARTICULARS)         #
+    # ---------------------------------------------------------------------- #
+
+    def test_floor_and_location_not_detected_as_areas(self):
+        """FLOOR and LOCATION are reserved after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "SL.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "FLOOR"},
+            "D": {"value": "LOCATION"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    def test_subject_and_particulars_not_detected_as_areas(self):
+        """SUBJECT and PARTICULARS are reserved after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "SUBJECT"},
+            "C": {"value": "PARTICULARS"},
+            "D": {"value": "UNIT"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------------- #
+    # Tests 7-8: Bucket 5 + 6 — DSR/SOR and SUMMARY/GRAND TOTAL              #
+    # ---------------------------------------------------------------------- #
+
+    def test_dsr_and_sor_not_detected_as_areas(self):
+        """DSR and SOR are reserved after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "SL.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "DSR"},
+            "E": {"value": "SOR"},
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    def test_summary_and_grand_total_not_detected_as_areas(self):
+        """SUMMARY and GRAND TOTAL are reserved after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "SL.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "SUMMARY"},
+            "E": {"value": "GRAND TOTAL"},
+            "F": {"value": "QTY"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------------- #
+    # Tests 9-11: _is_reserved normalization                                  #
+    # ---------------------------------------------------------------------- #
+
+    def test_parenthetical_amount_inr_is_reserved(self):
+        """'AMOUNT (INR)' is reserved via trailing-parenthetical strip to 'AMOUNT'."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "AMOUNT (INR)"},
+            "E": {"value": "RATE (RS)"},
+            "F": {"value": "QTY"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    def test_whitespace_normalization_double_space(self):
+        """'GRAND  TOTAL' (double space) normalizes to 'GRAND TOTAL' and is reserved."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "GRAND  TOTAL"},
+            "D": {"value": "NET  TOTAL"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    def test_whitespace_normalization_with_newline(self):
+        """Embedded newline in 'GRAND\\nTOTAL' normalizes to 'GRAND TOTAL' and is reserved."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "GRAND\nTOTAL"},
+            "D": {"value": "NET\nAMOUNT"},
+            "E": {"value": "QTY"},
+            "F": {"value": "AMOUNT"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------------- #
+    # Tests 12-15: Legitimate area names preserved                            #
+    # ---------------------------------------------------------------------- #
+
+    def test_kitchen_and_master_bedroom_detected_as_areas(self):
+        """Room names KITCHEN and MASTER BEDROOM are not reserved and are detected."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "KITCHEN"},
+            "E": {"value": "MASTER BEDROOM"},
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertIn("KITCHEN", result.areas)
+        self.assertIn("MASTER BEDROOM", result.areas)
+
+    def test_ground_floor_and_first_floor_detected_as_areas(self):
+        """'GROUND FLOOR' and 'FIRST FLOOR' are not reserved (only bare 'FLOOR' is)."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "GROUND FLOOR"},
+            "E": {"value": "FIRST FLOOR"},
+            "F": {"value": "QTY"},
+            "G": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertIn("GROUND FLOOR", result.areas)
+        self.assertIn("FIRST FLOOR", result.areas)
+
+    def test_jsw_mep_summary_excluded_legitimate_areas_preserved(self):
+        """SUMMARY is reserved (Bucket 6) but B1/B2/B3/B6/CONTROL/LAB are not; 6 areas detected."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "SUMMARY"},
+            "E": {"value": "B1"},
+            "F": {"value": "B2"},
+            "G": {"value": "B3"},
+            "H": {"value": "B6"},
+            "I": {"value": "CONTROL"},
+            "J": {"value": "LAB"},
+            "K": {"value": "QTY"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertEqual(sorted(result.areas), ["B1", "B2", "B3", "B6", "CONTROL", "LAB"])
+
+    def test_zone_names_detected_as_areas(self):
+        """ZONE A, ZONE B, ZONE C are not reserved and are detected as legitimate areas."""
+        row = _make_row(1, {
+            "A": {"value": "S.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "UNIT"},
+            "D": {"value": "ZONE A"},
+            "E": {"value": "ZONE B"},
+            "F": {"value": "ZONE C"},
+            "G": {"value": "QTY"},
+            "H": {"value": "AMOUNT"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertIn("ZONE A", result.areas)
+        self.assertIn("ZONE B", result.areas)
+
+
 if __name__ == "__main__":
     unittest.main()
