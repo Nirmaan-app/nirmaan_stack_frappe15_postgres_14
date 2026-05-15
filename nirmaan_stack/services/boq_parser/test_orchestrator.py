@@ -4,7 +4,10 @@
 import unittest
 from pathlib import Path
 
-from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import generate_all
+from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import (
+    generate_all,
+    generate_multi_area_2row,
+)
 from nirmaan_stack.services.boq_parser.config import (
     ColumnRole,
     GlobalSettings,
@@ -180,6 +183,30 @@ def _multi_area_config() -> MappingConfig:
                 "H": ColumnRole(role="amount_by_area", area="Floor 1"),
                 "I": ColumnRole(role="amount_by_area", area="Floor 2"),
                 "J": ColumnRole(role="amount_total"),
+            },
+        )],
+    )
+
+
+def _multi_area_2row_config() -> MappingConfig:
+    """MappingConfig for synthetic_multi_area_2row.xlsx (2-row header, Pattern 2: Block A/B)."""
+    return MappingConfig(
+        project="test",
+        master_boq=MasterBoqMetadata(boq_name="test_boq"),
+        sheets=[SheetConfig(
+            sheet_name="Multi Area 2Row",
+            header_row=2,
+            header_row_count=2,
+            area_dimensions=["Block A", "Block B"],
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="qty", area="Block A"),
+                "D": ColumnRole(role="amount_by_area", area="Block A"),
+                "E": ColumnRole(role="qty", area="Block B"),
+                "F": ColumnRole(role="amount_by_area", area="Block B"),
+                "G": ColumnRole(role="rate_supply"),
+                "H": ColumnRole(role="amount_total"),
             },
         )],
     )
@@ -376,6 +403,11 @@ class TestMultiAreaIntegration(unittest.TestCase):
         self.assertEqual(len(result.sheets), 1)
         sheet = result.sheets[0]
 
+        # Pattern 1 detected end-to-end (locks in now-passing behaviour per §9 #43 correction)
+        self.assertIsNotNone(sheet.multi_area_pattern)
+        self.assertEqual(sheet.multi_area_pattern.pattern, 1)
+        self.assertEqual(sheet.multi_area_pattern.areas, ["Floor 1", "Floor 2"])
+
         line_items = [
             rr for rr in sheet.resolved_rows
             if rr.classified_row.classification == RowClassification.LINE_ITEM
@@ -402,6 +434,41 @@ class TestMultiAreaIntegration(unittest.TestCase):
         self.assertEqual(plumbing.qty_total, 10.0)   # fallback: 4+6
         self.assertEqual(plumbing.amount_total, 500.0)  # fallback: 200+300
         self.assertEqual(plumbing.validation_warnings, [])
+
+
+# ================================================================ #
+# Phase 2c caveats cleanup — 2-row Pattern 2 integration test      #
+# ================================================================ #
+
+class TestMultiAreaDetectionIntegration(unittest.TestCase):
+    """Phase 2c §9 #43 — Pattern 2 end-to-end via parse_boq() on 2-row merged header fixture."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        generate_multi_area_2row()
+        cls._result = parse_boq(_p("synthetic_multi_area_2row.xlsx"), _multi_area_2row_config())
+
+    def test_pattern_2_detected_via_parse_boq_2row_fixture(self):
+        """
+        Pattern 2 detected end-to-end via parse_boq() with header_row_count=2.
+        Verifies the orchestrator's 2-row routing path (never exercised before §9 #43).
+        Also checks per-area qty_by_area populated for first LINE_ITEM row.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        sheet = self._result.sheets[0]
+        self.assertIsNotNone(sheet.multi_area_pattern)
+        self.assertEqual(sheet.multi_area_pattern.pattern, 2)
+        self.assertEqual(sheet.multi_area_pattern.areas, ["Block A", "Block B"])
+
+        line_items = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+        ]
+        self.assertGreater(len(line_items), 0)
+        first = line_items[0]
+        self.assertIn("Block A", first.qty_by_area)
+        self.assertIn("Block B", first.qty_by_area)
 
 
 # ================================================================ #

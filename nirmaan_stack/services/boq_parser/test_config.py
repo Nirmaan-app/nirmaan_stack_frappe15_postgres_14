@@ -223,7 +223,7 @@ class TestMappingConfig(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_qty_by_area_requires_area(self):
-        """ColumnRole with role='qty_by_area' and no area raises ValidationError."""
+        """qty_by_area removed from Literal in §9 #42; raises ValidationError (invalid role)."""
         with self.assertRaises(ValidationError):
             ColumnRole(role="qty_by_area")
 
@@ -237,12 +237,12 @@ class TestMappingConfig(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_qty_by_area_with_area_succeeds_in_full_sheetconfig(self):
-        """SheetConfig with qty_by_area column referencing a declared area succeeds."""
+        """SheetConfig with qty column (per-area) referencing a declared area succeeds."""
         s = SheetConfig(
             sheet_name="MultiArea",
             header_row=1,
             area_dimensions=["B1", "B3", "B6"],
-            column_role_map={"D": ColumnRole(role="qty_by_area", area="B1")},
+            column_role_map={"D": ColumnRole(role="qty", area="B1")},
         )
         self.assertEqual(s.column_role_map["D"].area, "B1")
 
@@ -301,9 +301,9 @@ class TestMappingConfig(unittest.TestCase):
                     column_role_map={
                         "A": ColumnRole(role="description"),
                         "B": ColumnRole(role="unit"),
-                        "C": ColumnRole(role="qty_by_area", area="Office"),
+                        "C": ColumnRole(role="qty", area="Office"),
                         "D": ColumnRole(role="amount_by_area", area="Office"),
-                        "E": ColumnRole(role="qty_by_area", area="Common Area"),
+                        "E": ColumnRole(role="qty", area="Common Area"),
                         "F": ColumnRole(role="amount_by_area", area="Common Area"),
                         "G": ColumnRole(role="rate_supply"),
                         "H": ColumnRole(role="rate_install"),
@@ -315,8 +315,18 @@ class TestMappingConfig(unittest.TestCase):
         )
         self.assertIsNotNone(config)
         sheet = config.sheets[0]
-        qty_areas = sorted(cr.area for cr in sheet.column_role_map.values() if cr.role == "qty_by_area")
+        qty_areas = sorted(cr.area for cr in sheet.column_role_map.values() if cr.role == "qty")
         self.assertEqual(qty_areas, ["Common Area", "Office"])
+
+
+    # ------------------------------------------------------------------ #
+    # Test 22 — qty_by_area deprecated (§9 #42 / caveat #2)              #
+    # ------------------------------------------------------------------ #
+
+    def test_qty_by_area_role_rejected_after_deprecation(self):
+        """qty_by_area removed from ColumnRole.role Literal (Phase 2c §9 #42 / caveat #2) — raises ValidationError even with area set."""
+        with self.assertRaises(ValidationError):
+            ColumnRole(role="qty_by_area", area="Floor 1")
 
 
 if __name__ == "__main__":

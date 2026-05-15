@@ -1,5 +1,5 @@
 """
-Generates synthetic .xlsx fixtures used by test_reader.py.
+Generates synthetic .xlsx fixtures used by test_reader.py and test_orchestrator.py.
 
 Run once (or call generate_all() from test setUpClass) to produce:
   - synthetic_simple.xlsx
@@ -9,6 +9,7 @@ Run once (or call generate_all() from test setUpClass) to produce:
   - synthetic_empty.xlsx            (for empty-file edge case)
   - synthetic_sparse_header.xlsx    (HVAC-style sparse multi-area header)
   - synthetic_makelist_header.xlsx  (domain-vocab header: "Details of Materials")
+  - synthetic_multi_area_2row.xlsx  (Pattern 2 two-row merged header, §9 #43)
 
 All files are written into this same directory so tests can find them
 via: Path(__file__).parent / "<name>.xlsx"
@@ -404,6 +405,85 @@ def generate_multi_area() -> Path:
 
 
 # ------------------------------------------------------------------
+# synthetic_multi_area_2row.xlsx  (Pattern 2 — two-row merged header)
+# ------------------------------------------------------------------
+
+def generate_multi_area_2row() -> Path:
+    """
+    Two-row merged header sheet — exercises Pattern 2 detection via parse_boq()
+    (header_row_count=2 routing, §9 #43 coverage gap).
+
+    Row 1 (top header): area labels merged across pairs of columns.
+      A1="Sl.No."  B1="Description"  C1:D1="Block A"  E1:F1="Block B"
+      G1="Rate"  H1="Total"
+    Row 2 (bottom header, header_row=2): column sub-labels.
+      A2="Sl.No."  B2="Description"  C2="Qty"  D2="Amount"
+      E2="Qty"  F2="Amount"  G2="Rate"  H2="Total"
+    Row 3: empty (skipped as header_row+1 by orchestrator)
+    Rows 4–6: three LINE_ITEM data rows.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Multi Area 2Row"
+
+    # Row 1 — top header: area labels, two merged pairs
+    ws["A1"] = "Sl.No."
+    ws["B1"] = "Description"
+    ws["C1"] = "Block A"
+    ws.merge_cells("C1:D1")
+    ws["E1"] = "Block B"
+    ws.merge_cells("E1:F1")
+    ws["G1"] = "Rate"
+    ws["H1"] = "Total"
+
+    # Row 2 — bottom header: qty/amount sub-labels (= header_row)
+    ws["A2"] = "Sl.No."
+    ws["B2"] = "Description"
+    ws["C2"] = "Qty"
+    ws["D2"] = "Amount"
+    ws["E2"] = "Qty"
+    ws["F2"] = "Amount"
+    ws["G2"] = "Rate"
+    ws["H2"] = "Total"
+
+    # Row 3 — empty (skipped by orchestrator as header_row+1)
+
+    # Row 4 — first data row
+    ws["A4"] = 1.0
+    ws["B4"] = "Electrical works"
+    ws["C4"] = 5.0    # Block A qty
+    ws["D4"] = 500.0  # Block A amount
+    ws["E4"] = 3.0    # Block B qty
+    ws["F4"] = 300.0  # Block B amount
+    ws["G4"] = 100.0
+    ws["H4"] = 800.0
+
+    # Row 5
+    ws["A5"] = 2.0
+    ws["B5"] = "Civil works"
+    ws["C5"] = 10.0
+    ws["D5"] = 1000.0
+    ws["E5"] = 7.0
+    ws["F5"] = 700.0
+    ws["G5"] = 120.0
+    ws["H5"] = 1700.0
+
+    # Row 6
+    ws["A6"] = 3.0
+    ws["B6"] = "HVAC works"
+    ws["C6"] = 2.0
+    ws["D6"] = 200.0
+    ws["E6"] = 1.0
+    ws["F6"] = 100.0
+    ws["G6"] = 150.0
+    ws["H6"] = 300.0
+
+    path = _path("synthetic_multi_area_2row.xlsx")
+    wb.save(str(path))
+    return path
+
+
+# ------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------
 
@@ -416,6 +496,7 @@ def generate_all() -> None:
     generate_sparse_header()
     generate_makelist_header()
     generate_multi_area()
+    generate_multi_area_2row()
 
 
 if __name__ == "__main__":
