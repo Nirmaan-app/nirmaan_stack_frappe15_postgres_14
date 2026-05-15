@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-15 00:32 IST (commit cfeaad1c, Phase 2c kickoff — fixture commits)
+**Last updated:** 2026-05-15 13:52 IST (commit da105976, Phase 2c — reserved keyword survey audit)
 
 ## Overview
 
@@ -143,7 +143,7 @@ docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-fr
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 2c kickoff — 24 real fixtures committed (§9 #40 closed); 190 tests passing; reserved keyword survey next |
+| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 2c — reserved keyword survey audit complete (§9 #44 audit half); 190 tests passing; keyword expansion sub-phase to follow if findings warrant |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
