@@ -273,13 +273,14 @@ class TestMappingConfig(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_global_settings_default_reserved_keywords(self):
-        """Default GlobalSettings has multi_area_reserved_keywords with baseline + Phase 2c expansion (120 entries)."""
+        """Default GlobalSettings has multi_area_reserved_keywords with baseline + Phase 2c expansion (191 entries)."""
         gs = GlobalSettings()
         keywords = gs.multi_area_reserved_keywords
-        self.assertEqual(len(keywords), 120)
+        self.assertEqual(len(keywords), 191)
         for word in ("QTY", "AMOUNT", "TOTAL", "DESCRIPTION", "RATE",
                      "ITEM", "S NO.", "SL.NO.", "SR NO.", "SERIAL NUMBER",
-                     "SUBJECT", "FLOOR", "DSR", "MAKE", "SUMMARY"):
+                     "SUBJECT", "FLOOR", "DSR", "MAKE", "SUMMARY",
+                     "AREA", "ACTIVITY", "WORKITEM", "VERSION", "DSR / NDSR (MR)"):
             self.assertIn(word, keywords)
 
     # ------------------------------------------------------------------ #

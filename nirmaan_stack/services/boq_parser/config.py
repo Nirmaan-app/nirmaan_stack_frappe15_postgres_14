@@ -184,6 +184,33 @@ class GlobalSettings(BaseModel):
             # Bucket 6 — Summary / structural sheet keywords
             "SUMMARY", "GRAND TOTAL", "SUB TOTAL", "SUBTOTAL", "NET AMOUNT",
             "NET TOTAL",
+            # --- Phase 2c follow-on: 71 targeted entries from §9 #44 audit ---
+            # Metadata top-row labels (15)
+            "SUBJECT:", "VERSION", "VERSION:", "PROJECT", "PROJECT:",
+            "TITLE", "TITLE:", "REV", "REV:", "REV :",
+            "DATE / R. NO", "NAME OF WORK", "RO", "R0", "SUB",
+            # Sl.No / Description variants with space, typos, plurals (22)
+            "SL. NO", "SL. NO.", "S. NO", "S. NO.", "SR. NO",
+            "SR. NO.", "SI NO", "SI NO.", "SI.NO", "SI.NO.",
+            "S.L", "#",
+            "DESCRIPTION OF ITEMS", "DESCRIPTION OF ITEM", "DESCRIPTION OF WORK",
+            "DESCRIPTION OF THE ITEM", "DESCRIPTIONS",
+            "PRODUCT / ITEM DESCRIPTION", "DISCRIPTION", "DESCIRPTION",
+            "ITEM DESCRIPTIONS", "PARTICULARS.",
+            # Per-row-attribution columns (8)
+            "AREA", "AREA OF USE", "ACTIVITY", "WORKITEM",
+            "LOCATIONS", "TAG NO", "CODE", "UNIT.",
+            # Bare column-role labels (9)
+            "SUPPLY", "INSTALLATION", "PACKAGE", "REMARK",
+            "SUPPLY AMOUNT", "INSTALLATION AMOUNT", "TOTAL AMOUNT",
+            "SUPPLY RATE", "AMOUNT - INR",
+            # DSR full variants (5)
+            "NDSR", "DSR / NDSR", "DSR / NDSR (MR)", "DSR/ MR", "DSR / MR",
+            # Make / Materials / Reference full variants (12)
+            "MANUFACTURERS NAME", "DETAILS OF MATERIALS",
+            "MAKE/MANUFACTURERS NAME", "PART CODE", "MODEL NO",
+            "IMAGE", "REFERENCE IMAGE", "REF IMAGE",
+            "MATERIAL CODE", "SIZE/MAKE", "SIZE/MAKE.", "TYPE",
         ],
         description="Words to exclude when auto-detecting area names. User-extensible."
     )
