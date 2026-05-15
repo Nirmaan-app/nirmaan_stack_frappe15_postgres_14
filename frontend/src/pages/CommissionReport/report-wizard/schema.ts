@@ -10,6 +10,7 @@ import type {
     FieldsSection,
     HeaderSection,
     ImageAttachmentsSection,
+    MeasurementMatrixSection,
     ReportTemplate,
     Section,
     WizardStepDef,
@@ -119,6 +120,18 @@ const buildTraineesDataTableSchema = (section: TraineesDataTableSection): ZodTyp
         .max(maxRows, `No more than ${maxRows} rows allowed`);
 };
 
+const buildMeasurementMatrixSchema = (section: MeasurementMatrixSection): ZodTypeAny => {
+    const rowShape: Record<string, ZodTypeAny> = {
+        id: z.string(),
+    };
+    for (const col of section.columns) {
+        rowShape[col.key] = buildFieldSchema({ ...col, bind: undefined } as Field);
+    }
+    const rowSchema = z.object(rowShape);
+    const rowCount = section.rows.length;
+    return z.array(rowSchema).length(rowCount, `Expected ${rowCount} row(s)`);
+};
+
 const buildImageSectionSchema = (section: ImageAttachmentsSection): ZodTypeAny => {
     const shape: Record<string, ZodTypeAny> = {};
     for (const slot of section.slots) {
@@ -152,6 +165,9 @@ export const buildSchemaForSections = (sections: Section[]): z.ZodObject<any> =>
                 break;
             case 'trainees_data_table':
                 shape[s.id] = buildTraineesDataTableSchema(s);
+                break;
+            case 'measurement_matrix':
+                shape[s.id] = buildMeasurementMatrixSchema(s);
                 break;
             case 'process':
             case 'signatures':
@@ -220,6 +236,24 @@ export const validateStep = (
                     if (f.readonly) continue;
                     runField(f, sectionValues[f.key], `responses.${sid}.${f.key}`);
                 }
+                for (const f of section.fields) {
+                    if (f.type !== 'date') continue;
+                    const m = /^(.*)_start_date$/.exec(f.key);
+                    if (!m) continue;
+                    const endKey = `${m[1]}_end_date`;
+                    const endField = section.fields.find((x) => x.key === endKey && x.type === 'date');
+                    if (!endField) continue;
+                    const start = sectionValues[f.key];
+                    const end = sectionValues[endKey];
+                    if (typeof start !== 'string' || typeof end !== 'string') continue;
+                    if (!start || !end) continue;
+                    if (start > end) {
+                        errors.push({
+                            path: `responses.${sid}.${endKey}`,
+                            message: `${endField.label} must be on or after ${f.label}`,
+                        });
+                    }
+                }
                 break;
             }
             case 'checklist': {
@@ -283,6 +317,23 @@ export const validateStep = (
                 });
                 break;
             }
+            case 'measurement_matrix': {
+                const rows = (responses[sid] || []) as unknown[];
+                section.rows.forEach((rowDef, idx) => {
+                    const row = (Array.isArray(rows) ? rows[idx] : undefined) as
+                        | Record<string, unknown>
+                        | undefined;
+                    for (const col of section.columns) {
+                        const fieldDef = {
+                            ...col,
+                            bind: undefined,
+                            label: rowDef.labels[col.key] || col.label,
+                        } as Field;
+                        runField(fieldDef, row?.[col.key], `responses.${sid}.${idx}.${col.key}`);
+                    }
+                });
+                break;
+            }
             case 'process':
             case 'signatures':
                 break;
@@ -328,6 +379,10 @@ export const getRhfKeysForStep = (template: ReportTemplate, step: WizardStepDef)
                 break;
             case 'trainees_data_table':
                 // The whole array is validated as one path; per-row keys are dynamic.
+                out.push(`responses.${s.id}`);
+                break;
+            case 'measurement_matrix':
+                // Same array-path strategy as trainees_data_table.
                 out.push(`responses.${s.id}`);
                 break;
             case 'process':
