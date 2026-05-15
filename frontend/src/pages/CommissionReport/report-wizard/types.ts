@@ -148,6 +148,8 @@ export interface TraineesDataTableSection {
     maxRows?: number;
     /** Button text when adding another row. Default "Add another trainee". */
     addRowLabel?: string;
+    /** Optional prefix for the row-number column (e.g. "Loop " → "Loop 1", "Loop 2"). */
+    rowLabelPrefix?: string;
 }
 
 /** Column-group in a `measurement_matrix` section. Like a `Field` (sans `bind`)
