@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-16 IST (commit 3e9eafe0, Phase 2c — §9 #49 reader sheet_state exposure §17.11.D CLOSED)
+**Last updated:** 2026-05-16 IST (commit a0d2b4a5, Phase 2c — §9 #48 classifier-dictionary + keyword expansion §17.11.F CLOSED)
 
 ## Overview
 
@@ -143,7 +143,7 @@ docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-fr
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 2c — keyword targeted additions complete (49→191 entries, §9 #44 / §17.10 CLOSED); caveats #2 + #4 cleanup complete (qty_by_area deprecated + 2-row P2 coverage, §9 #42 + #43 / §17.11 CLOSED); §9 #45 review flag wired (needs_classification_review + review_reason on ResolvedRow, §17.11.C CLOSED); §9 #49 complete (sheet_state exposed via list_sheet_states(), §17.11.D CLOSED); 221 tests passing; §9 #48 next (Classifier-dictionary audit) |
+| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 2c — §9 #48 expansion complete (_HEADER_KW 5→14 keys, reserved keywords 191→224, audit re-run classified 1770→3255, §17.11.F CLOSED); 237 tests passing; DB commit + version cascade next |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
