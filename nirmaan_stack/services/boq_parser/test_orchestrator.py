@@ -918,5 +918,286 @@ class TestPattern2RateIntegration(unittest.TestCase):
         self.assertEqual(row.validation_warnings, [])
 
 
+# ================================================================ #
+# Phase 1.9c — Real-fixture integration tests (Raheja + D-Tech)   #
+# ================================================================ #
+
+_RAHEJA_FIXTURE = _FIXTURES / "RAHEJA Commerzone  Chennai BOQ.xlsx"
+_DTECH_FIXTURE = _FIXTURES / "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx"
+
+
+class TestPhase19cRealFixturesRaheja(unittest.TestCase):
+    """
+    Phase 1.9c — Pattern 2-rate end-to-end against Raheja Commerzone Chennai
+    'Electrical ' sheet (trailing space in sheet name preserved exactly).
+
+    Sheet structure:
+      Row 2: D2:F2 merged = 'PHASE-1 ' (strips to 'PHASE-1'), G2:I2 = 'PHASE-2'
+      Row 3: bottom header — SLNO, DESCRIPTION, UNIT, QTY, RATES, AMOUNT, QTY, RATES, AMOUNT
+      header_row=3, header_row_count=2
+
+    This is an unpriced BOQ — all rate cells (E, H) are blank/None.
+    Tests verify qty_by_area population rather than rate_by_area.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        config = MappingConfig(
+            project="raheja_electrical_test",
+            master_boq=MasterBoqMetadata(boq_name="Raheja Commerzone Electrical"),
+            sheets=[SheetConfig(
+                sheet_name="Electrical ",
+                header_row=3,
+                header_row_count=2,
+                area_dimensions=["PHASE-1", "PHASE-2"],
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="description"),
+                    "C": ColumnRole(role="unit"),
+                    "D": ColumnRole(role="qty", area="PHASE-1"),
+                    "E": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
+                    "F": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                    "G": ColumnRole(role="qty", area="PHASE-2"),
+                    "H": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
+                    "I": ColumnRole(role="amount_by_area", area="PHASE-2"),
+                },
+            )],
+        )
+        cls.result = parse_boq(str(_RAHEJA_FIXTURE), config)
+        cls.sheet = cls.result.sheets[0]
+
+    @unittest.expectedFailure
+    def test_electrical_pattern_2_rate_detected(self):
+        """
+        F3b: Pattern 2-rate detection fails on real Raheja Electrical because the
+        sheet uses "RATES" (plural) in the bottom header row, but _RATE_CELL_PATTERN
+        in multi_area_detection.py only matches "RATE" (singular, regex ^\\s*rate\\s*$).
+        Result: 3-col-per-area merge rejected, falls through to Pattern 1.
+        Synthetic fixture used "RATE" singular, so this wasn't caught at Phase 1.9a.
+        Phase 1.9d candidate: extend regex to ^\\s*rates?\\s*$ + audit-script regression
+        check against 24 real fixtures + new synthetic with RATES-plural shape.
+        Surfaced 2026-05-17 in Phase 1.9c.
+        """
+        self.assertIsNotNone(self.sheet.multi_area_pattern)
+        self.assertEqual(self.sheet.multi_area_pattern.pattern, "pattern_2_rate")
+        self.assertIsNotNone(self.sheet.multi_area_pattern.rate_columns)
+        self.assertEqual(len(self.sheet.multi_area_pattern.rate_columns), 2)
+
+    def test_electrical_areas_captured(self):
+        """Area names from merged cells: ['PHASE-1', 'PHASE-2'] — trailing space on 'PHASE-1 ' stripped."""
+        self.assertEqual(self.sheet.multi_area_pattern.areas, ["PHASE-1", "PHASE-2"])
+
+    def test_electrical_qty_by_area_populated_on_3_plus_rows(self):
+        """At least 3 LINE_ITEM rows carry non-empty qty_by_area (unpriced BOQ; rate cells absent)."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows_with_qty = [
+            rr for rr in self.sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+            and bool(rr.qty_by_area)
+        ]
+        self.assertGreaterEqual(len(rows_with_qty), 3)
+
+    def test_electrical_hand_computed_cross_check_row_40(self):
+        """
+        Xlsx row 40 (sl_no='1.1.7', '4C x 25sqmm Al Ar cable'):
+          D=180 → PHASE-1 qty, G=450 → PHASE-2 qty.
+        Verifies end-to-end qty_by_area extraction for a row with both areas populated.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        matches = [
+            rr for rr in self.sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+            and rr.classified_row.sl_no_value == "1.1.7"
+            and rr.classified_row.description is not None
+            and "4C x 25sqmm Al Ar cable" in rr.classified_row.description
+        ]
+        self.assertEqual(
+            len(matches), 1,
+            "Expected exactly one row with sl_no='1.1.7' / '4C x 25sqmm Al Ar cable'",
+        )
+        row = matches[0]
+        self.assertAlmostEqual(row.qty_by_area.get("PHASE-1"), 180.0)
+        self.assertAlmostEqual(row.qty_by_area.get("PHASE-2"), 450.0)
+
+
+class TestPhase19cRealFixturesRahejaHVAC(unittest.TestCase):
+    """
+    Phase 1.9c — Deliberate stress test: Raheja HVAC sheet has merged area-name row (row 2)
+    separated from bottom header row (row 15) by a 13-row summary table gap.
+    Current SheetConfig (header_row + header_row_count) assumes the top area-name row is
+    always header_row - 1. With that gap the orchestrator reads row 14 (a blank intermediate
+    row) as the top header — no merged area names found, pattern detection returns None.
+
+    Test is marked @unittest.expectedFailure (Finding F5). Phase 1.9d candidate.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        config = MappingConfig(
+            project="raheja_hvac_test",
+            master_boq=MasterBoqMetadata(boq_name="Raheja Commerzone HVAC"),
+            sheets=[SheetConfig(
+                sheet_name="HVAC ",
+                header_row=15,
+                header_row_count=2,
+                area_dimensions=["PHASE-1", "PHASE-2"],
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="description"),
+                    "C": ColumnRole(role="unit"),
+                    "D": ColumnRole(role="qty", area="PHASE-1"),
+                    "E": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
+                    "F": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                    "G": ColumnRole(role="qty", area="PHASE-2"),
+                    "H": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
+                    "I": ColumnRole(role="amount_by_area", area="PHASE-2"),
+                },
+            )],
+        )
+        cls.result = parse_boq(str(_RAHEJA_FIXTURE), config)
+        cls.sheet = cls.result.sheets[0]
+
+    @unittest.expectedFailure
+    def test_hvac_pattern_2_rate_with_header_gap(self):
+        """
+        F5: Pattern 2-rate detection cannot bridge the 13-row gap between the merged-area-name
+        top row (row 2) and the bottom header row (row 15). The orchestrator reads row 14
+        (blank summary boundary) as the top header — no merged area names found → pattern None.
+
+        Current SheetConfig lacks a top_header_row_override field. Phase 1.9d candidate to
+        add gap support. Surfaced 2026-05-17 in Phase 1.9c real-fixture testing.
+        """
+        self.assertIsNotNone(self.sheet.multi_area_pattern)
+        self.assertEqual(self.sheet.multi_area_pattern.pattern, "pattern_2_rate")
+
+
+class TestPhase19cRealFixturesDTechCivilWorks(unittest.TestCase):
+    """
+    Phase 1.9c — append_to_notes end-to-end against D-Tech 'CIVIL WORKS' sheet.
+
+    Header at row 2: B=Floor, C=Area, D=Activity, E=Workitem, F=Description,
+    G=Specs, H=Qty, I=Unit, J=Rate, K=Amount.
+
+    Design notes:
+      - Specs (G) is always blank in this fixture → Policy-X empty-cell-skip
+        verified by asserting 'Specs'/'G' absent from every append_notes_raw.
+      - Workitem (E) deliberately omitted from column_headers → its key falls
+        back to the column letter 'E' (not 'Workitem').
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        config = MappingConfig(
+            project="dtech_civil_works_test",
+            master_boq=MasterBoqMetadata(boq_name="D-Tech CIVIL WORKS"),
+            sheets=[SheetConfig(
+                sheet_name="CIVIL WORKS",
+                header_row=2,
+                skip_top_rows_after_header=[1],
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="append_to_notes"),
+                    "C": ColumnRole(role="append_to_notes"),
+                    "D": ColumnRole(role="append_to_notes"),
+                    "E": ColumnRole(role="append_to_notes"),
+                    "F": ColumnRole(role="description"),
+                    "G": ColumnRole(role="append_to_notes"),
+                    "H": ColumnRole(role="qty"),
+                    "I": ColumnRole(role="unit"),
+                    "J": ColumnRole(role="rate_combined"),
+                    "K": ColumnRole(role="amount_total"),
+                },
+                # E (Workitem) deliberately omitted to test column-letter fallback
+                column_headers={
+                    "B": "Floor",
+                    "C": "Area",
+                    "D": "Activity",
+                    "G": "Specs",
+                },
+            )],
+        )
+        cls.result = parse_boq(str(_DTECH_FIXTURE), config)
+        cls.sheet = cls.result.sheets[0]
+
+    def test_dtech_civil_works_sheet_found(self):
+        """CIVIL WORKS sheet present in parse output with resolved rows populated."""
+        self.assertEqual(self.sheet.sheet_name, "CIVIL WORKS")
+        self.assertGreater(len(self.sheet.resolved_rows), 0)
+
+    def test_dtech_append_notes_raw_populated_on_3_plus_rows(self):
+        """At least 3 LINE_ITEM rows carry non-empty append_notes_raw (Floor/Area/Activity)."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        rows_with_notes = [
+            rr for rr in self.sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+            and bool(rr.classified_row.append_notes_raw)
+        ]
+        self.assertGreaterEqual(len(rows_with_notes), 3)
+
+    def test_dtech_four_columns_captured_when_four_populated(self):
+        """
+        Xlsx row 3: Floor='Fourth Floor', Area='CFO Cabin', Activity='Paint Work',
+        Workitem (as 'E')='POP Punning', Specs=''.
+        Asserts Floor, Area, Activity present; Specs absent (always blank in fixture).
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        matches = [
+            rr for rr in self.sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+            and rr.classified_row.append_notes_raw.get("Floor") == "Fourth Floor"
+            and rr.classified_row.append_notes_raw.get("Area") == "CFO Cabin"
+        ]
+        self.assertGreaterEqual(
+            len(matches), 1,
+            "Expected at least one row with Floor='Fourth Floor', Area='CFO Cabin'",
+        )
+        row = matches[0]
+        notes = row.classified_row.append_notes_raw
+        self.assertEqual(notes.get("Floor"), "Fourth Floor")
+        self.assertEqual(notes.get("Area"), "CFO Cabin")
+        self.assertEqual(notes.get("Activity"), "Paint Work")
+        self.assertNotIn("Specs", notes)
+        self.assertNotIn("G", notes)
+
+    def test_dtech_policy_x_empty_cell_skip_specs_absent(self):
+        """
+        Specs (G) is always blank in this fixture. Policy-X: blank/empty-string cells
+        produce no key in append_notes_raw. Asserts no LINE_ITEM row ever has 'Specs'
+        or 'G' in append_notes_raw.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        for rr in self.sheet.resolved_rows:
+            if rr.classified_row.classification != RowClassification.LINE_ITEM:
+                continue
+            notes = rr.classified_row.append_notes_raw
+            self.assertNotIn("Specs", notes, f"'Specs' should never appear (blank cell): {notes}")
+            self.assertNotIn("G", notes, f"'G' should never appear (Specs blank): {notes}")
+
+    def test_dtech_column_headers_fallback_to_column_letter(self):
+        """
+        Workitem (E) was omitted from column_headers. Its key in append_notes_raw
+        must be the column letter 'E', not 'Workitem'.
+        Xlsx row 3: E='POP Punning' → append_notes_raw['E'] == 'POP Punning'.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        matches = [
+            rr for rr in self.sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+            and rr.classified_row.append_notes_raw.get("E") == "POP Punning"
+        ]
+        self.assertGreaterEqual(
+            len(matches), 1,
+            "Expected rows with append_notes_raw['E']='POP Punning' (column-letter fallback)",
+        )
+        row = matches[0]
+        notes = row.classified_row.append_notes_raw
+        self.assertIn("E", notes)
+        self.assertEqual(notes["E"], "POP Punning")
+        self.assertNotIn("Workitem", notes)
+
+
 if __name__ == "__main__":
     unittest.main()
