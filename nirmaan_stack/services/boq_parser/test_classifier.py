@@ -1369,5 +1369,129 @@ class TestRateByAreaRaw(unittest.TestCase):
         self.assertEqual(result.rate_by_area_raw, {})
 
 
+class TestAppendNotesRaw(unittest.TestCase):
+    """Phase 1.9b — append_notes_raw field on ClassifiedRow."""
+
+    def _append_config(
+        self,
+        cols: dict[str, str],  # col_letter → header_label
+    ) -> SheetConfig:
+        """
+        Build a SheetConfig with the given columns mapped to append_to_notes.
+        cols maps column letter → human header label stored in column_headers.
+        Standard base columns A=sl_no, B=description, D=qty are always present.
+        """
+        col_map: dict[str, ColumnRole] = {
+            "A": ColumnRole(role="sl_no"),
+            "B": ColumnRole(role="description"),
+            "D": ColumnRole(role="qty"),
+        }
+        for col_letter in cols:
+            col_map[col_letter] = ColumnRole(role="append_to_notes")
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map=col_map,
+            column_headers=cols,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — single column populated                                   #
+    # ---------------------------------------------------------------- #
+
+    def test_append_notes_raw_populated_single_column(self):
+        """Single append_to_notes column (D=Floor) with value → key present in append_notes_raw."""
+        config = self._append_config({"G": "Floor"})
+        row = _make_row(1, {
+            "A": {"value": "1."},
+            "B": {"value": "Wall plastering"},
+            "D": {"value": 50.0},
+            "G": {"value": "Ground Floor"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.append_notes_raw, {"Floor": "Ground Floor"})
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — multiple columns populated                                #
+    # ---------------------------------------------------------------- #
+
+    def test_append_notes_raw_populated_multiple_columns(self):
+        """Three append_to_notes columns all populated → all three keys in append_notes_raw."""
+        config = self._append_config({"G": "Floor", "H": "Area", "I": "Workitem"})
+        row = _make_row(2, {
+            "A": {"value": "a."},
+            "B": {"value": "Electrical conduit"},
+            "D": {"value": 10.0},
+            "G": {"value": "Ground Floor"},
+            "H": {"value": "Lobby"},
+            "I": {"value": "Wall plastering 12mm thick"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.append_notes_raw, {
+            "Floor": "Ground Floor",
+            "Area": "Lobby",
+            "Workitem": "Wall plastering 12mm thick",
+        })
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — empty cell produces no key                               #
+    # ---------------------------------------------------------------- #
+
+    def test_append_notes_raw_empty_cell_produces_no_key(self):
+        """append_to_notes column with None or empty-string cell → no key in append_notes_raw."""
+        config = self._append_config({"G": "Floor"})
+
+        # None cell value
+        row_none = _make_row(3, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 5.0},
+            "G": {"value": None},
+        })
+        result_none = classify_row(row_none, config, _GS)
+        self.assertEqual(result_none.append_notes_raw, {})
+
+        # Empty string cell value
+        row_empty = _make_row(4, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 5.0},
+            "G": {"value": "   "},
+        })
+        result_empty = classify_row(row_empty, config, _GS)
+        self.assertEqual(result_empty.append_notes_raw, {})
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — non-string value coerced to string                       #
+    # ---------------------------------------------------------------- #
+
+    def test_append_notes_raw_coerces_non_string_values_to_string(self):
+        """Float cell value in append_to_notes column → str() coercion applied."""
+        config = self._append_config({"G": "HSN Code"})
+        row = _make_row(5, {
+            "A": {"value": "2."},
+            "B": {"value": "Cable tray"},
+            "D": {"value": 5.0},
+            "G": {"value": 1234.0},  # numeric HSN code stored as float
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.append_notes_raw, {"HSN Code": str(1234.0)})
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — no append_to_notes column mapped → empty dict            #
+    # ---------------------------------------------------------------- #
+
+    def test_append_notes_raw_empty_when_no_role_mapped(self):
+        """SheetConfig with no append_to_notes columns → append_notes_raw == {}."""
+        row = _make_row(6, {
+            "A": {"value": "3."},
+            "B": {"value": "Earthwork"},
+            "D": {"value": 20.0},
+            "E": {"value": 500.0},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.append_notes_raw, {})
+
+
 if __name__ == "__main__":
     unittest.main()

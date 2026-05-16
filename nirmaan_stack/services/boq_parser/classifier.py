@@ -72,6 +72,11 @@ class ClassifiedRow:
     # "combined_rate"). Policy X: explicit 0.0 preserved; blank produces no inner key.
     rate_by_area_raw: dict[str, dict[str, float | None]] = field(default_factory=dict)
 
+    # Per-column notes to be appended (Phase 1.9b). Keys are source column header
+    # strings (from SheetConfig.column_headers, else column letter). Values are
+    # cell text coerced to str. Empty cells produce no key.
+    append_notes_raw: dict[str, str] = field(default_factory=dict)
+
     # Preamble candidate metadata — populated by populate_preamble_candidate_scores()
     # (a separate post-classification pass, not by classify_row). Always 0 / []
     # when rows are classified individually. Phase 3 wizard reads these to surface
@@ -591,6 +596,20 @@ def classify_row(
         if rate_val is not None:  # Policy X: explicit 0.0 preserved
             rate_by_area_raw.setdefault(area_name, {})[kind] = rate_val
 
+    # Per-column notes extraction (append_to_notes role, Phase 1.9b)
+    append_notes_raw: dict[str, str] = {}
+    for col_letter, col_role in col_map.items():
+        if col_role.role != "append_to_notes":
+            continue
+        cell = raw_row.get_cell(col_letter)
+        if cell is None or cell.value is None:
+            continue
+        value_str = str(cell.value).strip()
+        if not value_str:
+            continue
+        header_label = sheet_config.column_headers.get(col_letter, col_letter)
+        append_notes_raw[header_label] = value_str
+
     # qty_total column overrides if it has a valid value
     if qty_total_col:
         tc = _cell(qty_total_col)
@@ -694,4 +713,5 @@ def classify_row(
         qty_by_area_raw=qty_by_area_raw,
         amount_by_area_raw=amount_by_area_raw,
         rate_by_area_raw=rate_by_area_raw,
+        append_notes_raw=append_notes_raw,
     )

@@ -38,7 +38,8 @@ class ColumnRole(BaseModel):
         "amount_by_area",
         # per-area rate roles (Phase 1.9a); always require area= to be set
         "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
-        "make_model", "row_notes", "reference_images", "ignore",
+        # notes-field family
+        "make_model", "row_notes", "append_to_notes", "reference_images", "ignore",
     ]
     area: str | None = None
 
@@ -77,6 +78,7 @@ class SheetConfig(BaseModel):
     header_row_count: Literal[1, 2] = 1
     skip_top_rows_after_header: list[int] = []
     column_role_map: dict[str, ColumnRole] = {}
+    column_headers: dict[str, str] = {}
     area_dimensions: list[str] = []
     rate_only_markers_override: list[str] | None = None
     level_1_style_override: Optional[Literal["letter", "roman", "numeric", "part"]] = None

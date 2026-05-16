@@ -352,6 +352,42 @@ class TestMappingConfig(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ColumnRole(role="rate_supply_by_area")
 
+    # ------------------------------------------------------------------ #
+    # Tests 25-27 — Phase 1.9b: append_to_notes role + column_headers     #
+    # ------------------------------------------------------------------ #
+
+    def test_append_to_notes_role_accepted_in_column_role_literal(self):
+        """SheetConfig with a column mapped to append_to_notes validates cleanly (with or without area)."""
+        s = SheetConfig(
+            sheet_name="NotesTest",
+            header_row=1,
+            column_role_map={"D": ColumnRole(role="append_to_notes")},
+        )
+        self.assertEqual(s.column_role_map["D"].role, "append_to_notes")
+        self.assertIsNone(s.column_role_map["D"].area)
+
+    def test_multiple_append_to_notes_columns_allowed_on_same_sheet(self):
+        """Two columns both mapped to append_to_notes validate cleanly (NOT singleton)."""
+        s = SheetConfig(
+            sheet_name="MultiNotesTest",
+            header_row=1,
+            column_role_map={
+                "D": ColumnRole(role="append_to_notes"),
+                "E": ColumnRole(role="append_to_notes"),
+            },
+        )
+        roles = [cr.role for cr in s.column_role_map.values()]
+        self.assertEqual(roles.count("append_to_notes"), 2)
+
+    def test_column_headers_field_accepts_string_dict(self):
+        """SheetConfig with column_headers={'D': 'Floor', 'E': 'Area'} validates and round-trips."""
+        s = SheetConfig(
+            sheet_name="HeadersTest",
+            header_row=1,
+            column_headers={"D": "Floor", "E": "Area"},
+        )
+        self.assertEqual(s.column_headers, {"D": "Floor", "E": "Area"})
+
 
 if __name__ == "__main__":
     unittest.main()
