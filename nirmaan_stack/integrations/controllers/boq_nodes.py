@@ -1,6 +1,7 @@
 import json
 import frappe
 from frappe import _
+from nirmaan_stack.integrations.controllers import boq_node_qty_by_area as _area_ctrl
 
 
 def validate(doc, method):
@@ -71,6 +72,8 @@ def validate(doc, method):
 
 def before_save(doc, method):
     _compute_path(doc)
+    _process_qty_by_area_rows(doc)
+    _recompute_parent_rates_from_areas(doc)
     _compute_amounts(doc)
 
 
@@ -187,10 +190,45 @@ def _validate_qty_by_area(doc):
                             alert=True,
                         )
 
+    # D. Per-child combined_rate consistency — blocking
+    for row in rows:
+        _area_ctrl.validate_child(row)
+
+
+def _process_qty_by_area_rows(doc):
+    rows = doc.get("qty_by_area") or []
+    for row in rows:
+        _area_ctrl.apply_before_save(row, doc)
+
+
+def _recompute_parent_rates_from_areas(doc):
+    rows = doc.get("qty_by_area") or []
+    if not rows:
+        return
+
+    for rate_field in ("supply_rate", "install_rate", "combined_rate"):
+        relevant = [
+            (r.qty or 0, r.get(rate_field))
+            for r in rows
+            if r.get(rate_field) is not None and (r.qty or 0) > 0
+        ]
+        if len(relevant) < 2:
+            continue
+
+        rates = [entry[1] for entry in relevant]
+        if len(set(rates)) <= 1:
+            continue  # all per-area rates are uniform — leave parent untouched
+
+        total_qty = sum(entry[0] for entry in relevant)
+        if total_qty == 0:
+            continue
+
+        doc.set(rate_field, sum(entry[0] * entry[1] for entry in relevant) / total_qty)
+
 
 def _write_audit(doc, old_doc):
     tracked_fields = [
-        "description", "qty", "unit", "supply_rate", "install_rate", "combined_rate",
+        "description", "qty", "unit", "make_model", "supply_rate", "install_rate", "combined_rate",
         "supply_amount", "install_amount", "total_amount", "code", "level", "node_type",
         "parent_node", "notes",
     ]

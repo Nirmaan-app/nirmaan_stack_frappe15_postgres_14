@@ -756,3 +756,192 @@ class TestBOQNodes(FrappeTestCase):
         node.make_model = "Updated Brand / Model"
         node.save(ignore_permissions=True)
         self.assertEqual(node.make_model, "Updated Brand / Model")
+
+    # ------------------------------------------------------------------ #
+    # Group F — Phase 1.8: qty_by_area rates, amounts, audit (11 tests)  #
+    # ------------------------------------------------------------------ #
+
+    def test_qty_by_area_supply_rate_fallback_from_parent(self):
+        """Child row with no supply_rate set inherits parent supply_rate on save."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Supply rate fallback test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.supply_rate = 100
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10})
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.qty_by_area[0].supply_rate, 100.0)
+
+    def test_qty_by_area_install_rate_fallback_from_parent(self):
+        """Child row with no install_rate set inherits parent install_rate on save."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Install rate fallback test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.install_rate = 50
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10})
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.qty_by_area[0].install_rate, 50.0)
+
+    def test_qty_by_area_combined_rate_fallback_from_parent(self):
+        """Child row with no combined_rate set inherits parent combined_rate on save."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Combined rate fallback test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.combined_rate = 150
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10})
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.qty_by_area[0].combined_rate, 150.0)
+
+    def test_parent_supply_rate_weighted_average_when_per_area_diverges(self):
+        """When per-area supply_rates diverge, parent supply_rate becomes weighted average."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Supply rate weighted avg test"
+        node.parent_node = self.default_preamble
+        node.qty = 30
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10, "supply_rate": 100})
+        node.append("qty_by_area", {"area_name": "B2", "qty": 20, "supply_rate": 200})
+        node.insert(ignore_permissions=True)
+        # Expected: (10*100 + 20*200) / 30 = 5000/30 = 166.666...
+        self.assertAlmostEqual(node.supply_rate, (10 * 100 + 20 * 200) / 30, places=2)
+
+    def test_parent_install_rate_weighted_average_independent_of_supply(self):
+        """install_rate weighted-avg fires for divergent per-area values; uniform supply_rate unchanged."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Install rate independent weighted avg test"
+        node.parent_node = self.default_preamble
+        node.qty = 30
+        node.supply_rate = 100  # uniform — child rows get this via fallback → no weighted avg
+        node.install_rate = 50  # diverges across areas → becomes weighted avg
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10, "install_rate": 40})
+        node.append("qty_by_area", {"area_name": "B2", "qty": 20, "install_rate": 70})
+        node.insert(ignore_permissions=True)
+        # install_rate weighted avg: (10*40 + 20*70) / 30 = 1800/30 = 60.0
+        self.assertAlmostEqual(node.install_rate, 60.0, places=2)
+        # supply_rate: both child rows get 100 via fallback (uniform) → parent unchanged
+        self.assertAlmostEqual(node.supply_rate, 100.0, places=2)
+
+    def test_parent_combined_rate_weighted_average_independent(self):
+        """combined_rate weighted-avg runs independently of supply/install rates."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Combined rate independent weighted avg test"
+        node.parent_node = self.default_preamble
+        node.qty = 30
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10, "combined_rate": 100})
+        node.append("qty_by_area", {"area_name": "B2", "qty": 20, "combined_rate": 200})
+        node.insert(ignore_permissions=True)
+        # Expected: (10*100 + 20*200) / 30 = 5000/30 = 166.666...
+        self.assertAlmostEqual(node.combined_rate, (10 * 100 + 20 * 200) / 30, places=2)
+
+    def test_child_combined_rate_consistency_rule_accepted_when_correct_sum(self):
+        """Child row with combined_rate == supply_rate + install_rate saves without error."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Combined rate consistency valid test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {
+            "area_name": "B1", "qty": 10,
+            "supply_rate": 50, "install_rate": 30, "combined_rate": 80,
+        })
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+
+    def test_child_combined_rate_consistency_rule_rejected_when_wrong_sum(self):
+        """Child row with combined_rate != supply_rate + install_rate raises ValidationError."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Combined rate consistency invalid test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {
+            "area_name": "B1", "qty": 10,
+            "supply_rate": 50, "install_rate": 30, "combined_rate": 100,
+        })
+        with self.assertRaises(frappe.ValidationError):
+            node.insert(ignore_permissions=True)
+
+    def test_child_zero_cost_row_allowed_when_all_rates_none(self):
+        """Child row with no rates saves without error; rates remain None when parent also has none."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Zero cost child row test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10})
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        row = node.qty_by_area[0]
+        self.assertIsNone(row.supply_rate)
+        self.assertIsNone(row.install_rate)
+        self.assertIsNone(row.combined_rate)
+
+    def test_child_amount_override_skips_auto_compute(self):
+        """Child row with amount_override=1 keeps manually set supply_amount unchanged."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Child amount override test"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.supply_rate = 100
+        node.append("qty_by_area", {
+            "area_name": "B1", "qty": 10,
+            "supply_rate": 100, "supply_amount": 999, "amount_override": 1,
+        })
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.qty_by_area[0].supply_amount, 999)
+
+    def test_make_model_edit_generates_nirmaan_versions_audit_entry(self):
+        """Editing make_model with edit_reason creates a Nirmaan Versions audit entry with the diff."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Make model audit test"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.supply_rate = 100
+        node.make_model = "Brand X"
+        node.insert(ignore_permissions=True)
+        node_name = node.name
+
+        node.make_model = "Brand Y"
+        node.edit_reason = "Updating brand specification"
+        node.save(ignore_permissions=True)
+
+        audit_entries = frappe.get_all(
+            "Nirmaan Versions",
+            filters={"ref_doctype": "BOQ Nodes", "docname": node_name},
+            fields=["name", "data"],
+        )
+
+        try:
+            self.assertEqual(len(audit_entries), 1)
+            diff = json.loads(audit_entries[0].data) if isinstance(audit_entries[0].data, str) else audit_entries[0].data
+            changed_by_field = {c[0]: c for c in diff["changed"]}
+            self.assertIn("make_model", changed_by_field)
+            self.assertEqual(changed_by_field["make_model"][1], "Brand X")
+            self.assertEqual(changed_by_field["make_model"][2], "Brand Y")
+        finally:
+            frappe.db.delete(
+                "Nirmaan Versions",
+                {"ref_doctype": "BOQ Nodes", "docname": node_name},
+            )
+            frappe.db.delete("BOQ Nodes", {"name": node_name})
+            frappe.db.commit()
