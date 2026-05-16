@@ -95,7 +95,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const handleDialogClose = () => setNewProjectExpenseDialog(false);
 
     // --- Validation and Submission ---
-    const validateForm = useCallback((): boolean => {
+    const validateForm = useCallback((): Partial<FormState> => {
         const errors: Partial<FormState> = {};
         if (!formState.projects) errors.projects = "Project is required.";
         if (!formState.type) errors.type = "Expense Type is required.";
@@ -112,7 +112,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
         }
 
         setFormErrors(errors);
-        return Object.keys(errors).length === 0;
+        return errors;
     }, [formState]);
 
     const handleSubmit = async () => {
@@ -120,8 +120,18 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
             showBlockedToast();
             return;
         }
-        if (!validateForm()) {
-            toast({ title: "Validation Error", description: "Please fill all required fields correctly.", variant: "destructive" });
+        const errors = validateForm();
+        const errorMessages = Object.values(errors).filter(Boolean) as string[];
+        if (errorMessages.length > 0) {
+            toast({
+                title: `Validation Error — ${errorMessages.length} ${errorMessages.length === 1 ? "issue" : "issues"}`,
+                description: (
+                    <ul className="mt-1 list-disc list-inside space-y-0.5">
+                        {errorMessages.map((msg, idx) => <li key={idx}>{msg}</li>)}
+                    </ul>
+                ),
+                variant: "destructive",
+            });
             return;
         }
         try {
@@ -171,6 +181,16 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
             <AlertDialogContent className="sm:max-w-lg">
                 <AlertDialogHeader><AlertDialogTitle className="text-center">Add New Project Expense</AlertDialogTitle></AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
+                    {/* {Object.values(formErrors).some(Boolean) && (
+                        <div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm">
+                            <p className="font-medium text-destructive mb-1">Please fix the following:</p>
+                            <ul className="list-disc list-inside text-destructive space-y-0.5">
+                                {Object.entries(formErrors).map(([fieldName, message]) => (
+                                    message ? <li key={fieldName}>{message}</li> : null
+                                ))}
+                            </ul>
+                        </div>
+                    )} */}
                     {!projectId && (
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="project" className="text-right">Project <sup className="text-destructive">*</sup></Label>
@@ -251,7 +271,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                 <AlertDialogFooter>
                     {isLoadingOverall ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleSubmit} disabled={isSubmitDisabled}>Save Expense</AlertDialogAction>
+                        <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>Save Expense</AlertDialogAction>
                     </>}
                 </AlertDialogFooter>
             </AlertDialogContent>
