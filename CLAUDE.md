@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-17 IST (commit df431fb3, Phase 1.9c — real-fixture integration tests)
+**Last updated:** 2026-05-17 IST (commit 4c6b81e6, Phase 1.8.1 — F1 + F2 cleanup)
 
 ## Overview
 
@@ -143,7 +143,7 @@ docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-fr
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 1.8 ✅ COMPLETE (88 Phase 1.x Frappe tests; 237 parser tests unchanged). Phase 1.9a ✅ COMPLETE (249 parser tests). Phase 1.9b ✅ COMPLETE (257 parser tests; append_to_notes ColumnRole + append_notes_raw on ClassifiedRow + column_headers on SheetConfig). Phase 1.9c ✅ COMPLETE (267 parser tests; 2 expectedFailure: F3b RATES-plural + F5 HVAC header gap; D-Tech PHASE-0 banner resolved via skip_top_rows_after_header=[1]). Phase 2c next (unblocked). §7.34 append_to_notes ColumnRole parser-wired (commit merge in 2c, UX in Phase 3). DB commit + version cascade is post-1.9 task. |
+| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 1.8 ✅ COMPLETE (88 Phase 1.x Frappe tests; 237 parser tests unchanged). Phase 1.9a ✅ COMPLETE (249 parser tests). Phase 1.9b ✅ COMPLETE (257 parser tests; append_to_notes ColumnRole + append_notes_raw on ClassifiedRow + column_headers on SheetConfig). Phase 1.9c ✅ COMPLETE (267 parser tests; 2 expectedFailure: F3b RATES-plural + F5 HVAC header gap; D-Tech PHASE-0 banner resolved via skip_top_rows_after_header=[1]). Phase 1.8.1 ✅ COMPLETE (91 Phase 1.x Frappe tests; F1 partial-rate guard tests added; F2 Desk-save audit fixed — edit_reason gate removed, defaults to "Desk edit", _NULLABLE_NUMERIC_FIELDS normalization added). Phase 2c next (unblocked). §7.34 append_to_notes ColumnRole parser-wired (commit merge in 2c, UX in Phase 3). DB commit + version cascade is post-1.9 task. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
