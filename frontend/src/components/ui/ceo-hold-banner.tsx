@@ -1,10 +1,12 @@
 import { Hand } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 
 interface CEOHoldBannerProps {
   className?: string;
   compact?: boolean;  // For inline usage in cards/tables
-  heldBy?: string;    // Email of user who set CEO Hold
+  heldBy?: string;    // Value of Projects.ceo_hold_by — shown verbatim so users see
+  // who/what placed the hold.
 }
 
 export function CEOHoldBanner({ className, compact = false, heldBy }: CEOHoldBannerProps) {
@@ -68,8 +70,8 @@ export function CEOHoldBanner({ className, compact = false, heldBy }: CEOHoldBan
             Some procurement, payment, and expense operations are restricted.
             <span className="block mt-1 text-amber-600 font-medium">
               {heldBy
-                ? `Set by ${heldBy}. Only they can remove this hold.`
-                : "Contact Admin to resume full operations."}
+                ? `Set by ${heldBy}. Only ${CEO_HOLD_AUTHORIZED_USER} can change the CEO Hold status.`
+                : `Only Admin can change the CEO Hold status.`}
             </span>
           </p>
         </div>
