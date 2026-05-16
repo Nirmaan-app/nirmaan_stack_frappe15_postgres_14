@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-16 IST (commit <DOCS HASH>, docs supplement — append_to_notes ColumnRole §7.34)
+**Last updated:** 2026-05-16 IST (commit 7d5fbc4e, Phase 1.8 — per-area rate + amount schema extension)
 
 ## Overview
 
@@ -143,7 +143,7 @@ docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-fr
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 2c — §9 #48 expansion complete (237 tests passing); BLOCKED on Phase 1.8 + 1.9 (per-area rate+amount schema extension) PLANNED before 2c resumes; DB commit + version cascade is post-1.8/1.9 task; make_model confirmed already present on BOQ Nodes (Phase 1.8 scope reduced); audit-tracking gap flagged (make_model absent from _write_audit); §7.34 append_to_notes ColumnRole designed (parser wiring in 1.9 expanded scope, commit merge in 2c, UX in Phase 3) |
+| BoQ Upload & Management | `feature/boq-phase-2` | `frontend/.claude/plans/boq-upload-plan.md` | Phase 1.8 ✅ COMPLETE (88 Phase 1.x Frappe tests; 237 parser tests unchanged). Phase 2c BLOCKED on Phase 1.9 (per-area rate+amount parser support) next. §7.34 append_to_notes ColumnRole designed (parser wiring in 1.9 expanded scope, commit merge in 2c, UX in Phase 3). DB commit + version cascade is post-1.9 task. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
