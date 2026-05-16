@@ -109,7 +109,7 @@ export interface Projects {
 	project_value_gst?: string
 
 	/**	Cashflow Gap Limit : Float	*/
-	cashflow_gap_limited?: number
+	cashflow_gap_limit?: number
 
 	// NEW Child Table field
 	project_wp_category_makes?: ProjectWPCategoryMake[]; // Array of child table rows
