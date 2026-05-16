@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-17 IST (commit 4c6b81e6, Phase 1.8.1 — F1 + F2 cleanup)
+**Last updated:** 2026-05-17 IST (commit 241988d9, Phase 1.8.1 — F1 + F2 cleanup)
 
 ## Overview
 
