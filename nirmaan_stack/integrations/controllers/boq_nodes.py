@@ -84,10 +84,8 @@ def after_insert(doc, method):
 
 def on_update(doc, method):
     old_doc = doc.get_doc_before_save()
-    # Skip on first insert; only write audit when a user edit supplies a reason
-    if old_doc is None or not doc.edit_reason:
+    if old_doc is None:
         return
-
     _write_audit(doc, old_doc)
     # Clear the transient field so it does not carry over to the next save
     frappe.db.set_value("BOQ Nodes", doc.name, "edit_reason", None, update_modified=False)
@@ -226,6 +224,13 @@ def _recompute_parent_rates_from_areas(doc):
         doc.set(rate_field, sum(entry[0] * entry[1] for entry in relevant) / total_qty)
 
 
+_NULLABLE_NUMERIC_FIELDS = frozenset({
+    "qty", "level",
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+})
+
+
 def _write_audit(doc, old_doc):
     tracked_fields = [
         "description", "qty", "unit", "make_model", "supply_rate", "install_rate", "combined_rate",
@@ -234,10 +239,16 @@ def _write_audit(doc, old_doc):
     ]
     changed = []
     for field in tracked_fields:
-        old_val = old_doc.get(field)
-        new_val = doc.get(field)
-        if old_val != new_val:
-            changed.append([field, old_val, new_val])
+        raw_old = old_doc.get(field)
+        raw_new = doc.get(field)
+        # Frappe stores Currency/Int None as 0 in DB; normalize for comparison only
+        cmp_old = (raw_old or 0) if field in _NULLABLE_NUMERIC_FIELDS else raw_old
+        cmp_new = (raw_new or 0) if field in _NULLABLE_NUMERIC_FIELDS else raw_new
+        if cmp_old != cmp_new:
+            changed.append([field, raw_old, raw_new])
+
+    if not changed:
+        return
 
     data = {
         "added": [],
@@ -254,6 +265,6 @@ def _write_audit(doc, old_doc):
     nv.data = json.dumps(data)
     nv.previous_state = "Active"
     nv.new_state = "Edited"
-    nv.reason = doc.edit_reason
+    nv.reason = doc.edit_reason or "Desk edit"
     nv.insert(ignore_permissions=True)
     frappe.db.commit()

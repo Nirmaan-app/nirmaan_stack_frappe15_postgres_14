@@ -515,30 +515,31 @@ class TestBOQNodes(FrappeTestCase):
             frappe.db.delete("BOQ Nodes", {"name": node_name})
             frappe.db.commit()
 
-    def test_audit_entry_not_written_without_reason(self):
-        """
-        Saving without edit_reason must not create any audit entry.
-
-        This test relies on the fact that _write_audit calls
-        frappe.db.commit() — so if the audit incorrectly fired, the row
-        would be persisted and visible to get_all even within the current
-        transaction. The current controller does commit. If that ever
-        changes, this test needs revisiting.
-        """
+    def test_audit_entry_without_reason_defaults_to_desk_edit(self):
+        """Saving with a tracked-field change but no edit_reason creates an audit entry with reason 'Desk edit'."""
         node = self._make_line_item(qty=5, supply_rate=100,
-                                    description="No audit test")
+                                    description="No reason test")
         node_name = node.name
 
-        node.description = "No audit updated"
-        # edit_reason intentionally not set
+        node.description = "No reason updated"
+        # edit_reason intentionally not set — must default to "Desk edit"
         node.save(ignore_permissions=True)
 
         audit_entries = frappe.get_all(
             "Nirmaan Versions",
             filters={"ref_doctype": "BOQ Nodes", "docname": node_name},
-            fields=["name"],
+            fields=["name", "reason"],
         )
-        self.assertEqual(len(audit_entries), 0)
+        try:
+            self.assertEqual(len(audit_entries), 1)
+            self.assertEqual(audit_entries[0].reason, "Desk edit")
+        finally:
+            frappe.db.delete(
+                "Nirmaan Versions",
+                {"ref_doctype": "BOQ Nodes", "docname": node_name},
+            )
+            frappe.db.delete("BOQ Nodes", {"name": node_name})
+            frappe.db.commit()
 
     def test_audit_entry_not_written_on_initial_insert(self):
         """
@@ -945,3 +946,51 @@ class TestBOQNodes(FrappeTestCase):
             )
             frappe.db.delete("BOQ Nodes", {"name": node_name})
             frappe.db.commit()
+
+    def test_audit_entry_not_written_when_no_fields_change(self):
+        """Saving a node without changing any tracked field must not create an audit entry."""
+        node = self._make_line_item(qty=5, supply_rate=100,
+                                    description="No change audit test")
+        node_name = node.name
+
+        # Save with no tracked-field changes — _write_audit returns early on empty diff
+        node.save(ignore_permissions=True)
+
+        audit_entries = frappe.get_all(
+            "Nirmaan Versions",
+            filters={"ref_doctype": "BOQ Nodes", "docname": node_name},
+            fields=["name"],
+        )
+        self.assertEqual(len(audit_entries), 0)
+
+    # ------------------------------------------------------------------ #
+    # Group G — Phase 1.8.1: F1 per-child partial-rate guard (2 tests)   #
+    # ------------------------------------------------------------------ #
+
+    def test_child_supply_only_no_consistency_error(self):
+        """Child row with supply_rate set but install_rate=None, combined_rate=None saves without error."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Supply only partial rate"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10, "supply_rate": 100})
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        self.assertIsNone(node.qty_by_area[0].install_rate)
+        self.assertIsNone(node.qty_by_area[0].combined_rate)
+
+    def test_child_install_only_no_consistency_error(self):
+        """Child row with install_rate set but supply_rate=None, combined_rate=None saves without error."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.boq = self.boq_name
+        node.node_type = "Line Item"
+        node.description = "Install only partial rate"
+        node.parent_node = self.default_preamble
+        node.qty = 10
+        node.append("qty_by_area", {"area_name": "B1", "qty": 10, "install_rate": 50})
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        self.assertIsNone(node.qty_by_area[0].supply_rate)
+        self.assertIsNone(node.qty_by_area[0].combined_rate)
