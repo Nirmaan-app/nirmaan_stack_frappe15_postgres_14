@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.**
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.**
 **Owner:** Internal team.
-**Last updated:** 2026-05-16 15:06 IST (commit a0d2b4a5, Phase 2c — §9 #48 classifier-dictionary + keyword expansion §17.11.F CLOSED)
+**Last updated:** 2026-05-16 10:14 IST (commit <DOCS HASH>, docs lock Phase 1.8/1.9 sequencing)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2c §9 #48 expansion — feat `a0d2b4a5` + docs (see git log).
+**Latest commit:** Docs lock per-area schema extension (Phase 1.8/1.9 sequencing) — docs `<DOCS HASH>` (see git log).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -154,6 +154,30 @@ Indexes: `boq`, `parent_node`, `path` (for prefix queries).
 ### 6.4 Audit
 
 Use **Nirmaan Versions** pattern. Phase 1 task: confirm Nirmaan Versions schema; if it lacks a `reason` field, add one. Every BOQ Node update from a user (post-initial-import) writes a Nirmaan Versions entry with the change diff and reason.
+
+## 6.5 BOQ Node Qty By Area — child table for per-area breakdown (EXTENDED Phase 1.8)
+
+Phase 1.8 extends this from 2 fields to 9 fields:
+
+| Field | Type | Reqd | Default | Rule |
+|---|---|---|---|---|
+| area_name | Data | yes | — | existing |
+| qty | Float | yes | — | existing |
+| supply_rate | Float | no | None | fallback from parent BOQ Node `supply_rate` if source file doesn't provide |
+| install_rate | Float | no | None | fallback from parent `install_rate` |
+| combined_rate | Float | no | None | fallback from parent `combined_rate` |
+| supply_amount | Float | no | None | from file when given; else `qty × supply_rate` (auto-compute in `before_save`) |
+| install_amount | Float | no | None | from file when given; else `qty × install_rate` |
+| total_amount | Float | no | None | from file when given; else `qty × combined_rate` OR `supply_amount + install_amount` (mirrors parent §7.14 rule) |
+| amount_override | Check | no | 0 | when set, `before_save` skips auto-compute of amounts (parallel to parent's `amount_override`) |
+
+**Fallback semantic:** Every child row always has populated rate and amount fields after `before_save` runs — no nulls for downstream code to branch on.
+
+**Validation:** Per-child-row, `combined_rate == supply_rate + install_rate` when all three set (mirrors parent `BOQ Nodes` validation at controllers/boq_nodes.py:40-46). Zero-cost rows (all three rates None) allowed.
+
+**Weighted-average precedence:** Parent BOQ Node `supply_rate` / `install_rate` / `combined_rate` auto-recompute in `before_save` as `Σ(area_qty × area_rate) ÷ Σ(area_qty)` when any per-area rate diverges from the universal. Computed independently for supply / install / combined.
+
+**Migration:** Phase 1.8 ships a patch that back-populates every existing child-row's per-area rate from the parent line-item's universal rate, and computes amount as `area_qty × that_rate`. Same fallback rule applied retroactively.
 
 ## 7. Parsing pipeline
 
@@ -373,6 +397,12 @@ Each phase = one feature branch (`feature/boq-phase-<N>`) → review → merge b
 - Permissions: match Procurement Requests / Procurement Orders conventions.
 - **Exit:** can manually create a BoQ tree via Frappe Desk; tests pass.
 
+### Phase 1.8 — Per-area rate + amount schema extension ⏳ PLANNED
+Extends `BOQ Node Qty By Area` from 2 fields to 9 fields: adds `supply_rate`, `install_rate`, `combined_rate`, `supply_amount`, `install_amount`, `total_amount`, `amount_override`. Adds controller logic with: (a) universal-rate fallback semantics — when source file doesn't provide per-area rate, populate from parent line-item rate; (b) auto-computed per-area amounts as `area_qty × area_rate` unless source file provides them; (c) `amount_override` Check field parallel to parent — when set, suppress auto-compute; (d) weighted-average precedence on parent — when per-area rates set, parent universal rate auto-recomputes as `Σ(area_qty × area_rate) ÷ Σ(area_qty)` in `before_save`; (e) consistency validation on child rows — `combined_rate == supply_rate + install_rate` when all three set (mirrors parent-row rule). Migration patch back-populates existing child-table rows with parent's universal rate and computes amount. Phase 2c cannot resume until 1.8 + 1.9 complete.
+
+### Phase 1.9 — Parser support for per-area rate ⏳ PLANNED
+Extends `ClassifiedRow` with `rate_by_area_raw: dict[str, float]` (parallel to existing `qty_by_area_raw` / `amount_by_area_raw` — completes the §7.22 parallel-field pattern). Adds three new ColumnRoles: `rate_supply_by_area`, `rate_install_by_area`, `rate_combined_by_area`. Extends `multi_area_detection.py` to recognize the 3-col-per-area Raheja "Pattern 2-rate" shape (`[Area merge][Qty][Rate][Amount]` vs textbook 2-col `[Area merge][Qty][Amount]`) — re-opens §17.5 / handover §9 #39. Extends `_apply_multi_area_post_pass` to populate `rate_by_area` and per-area amounts via Policy X semantics. Phase 2c's DB writer (in 2c body) will consume this output and write to the 1.8 schema. Phase 2c cannot resume until 1.9 complete.
+
 ### Phase 2a — Reader + Mapping Config schema ✅ COMPLETE & MANUALLY VERIFIED
 
 **What it built:**
@@ -464,6 +494,8 @@ Branch: `feature/boq-phase-2`. Commit: `fdb6eb64`.
 **Part B2c complete (2026-05-14):** Committed `snitch_electrical.xlsx` (138,066 bytes, 5 sheets: OVERALL SUMMARY, SUMMARY MEP, 6. Electrical, 7. Light Fixtures, MAKE LIST). Wrote `snitch_electrical_expected.json` with narrow expected-output spec covering: workbook-level assertions (sheet count=2, master_preamble=None, no validation warnings), skip-sheet assertions, first 5 LINE_ITEMs per sheet, all 9 SUBTOTAL_MARKERs in Electrical + 1 in Light Fixtures, preamble level transitions (levels 1/2/3 for Electrical), Light Fixtures PIR PREAMBLE anomaly, per-classification counts. Added `TestSnitchIntegration` class (12 test methods) in `test_orchestrator.py` — setUpClass calls `parse_boq()` once and caches result. §7.25 decision log wording corrected from "by mistake" framing to deliberate policy-reversal framing. Snitch fixture partially closes §9 #40 (JSW MEP Priced still on local disk only). Known issue §17.8 (reserved keyword gap survey) deferred to Phase 2c. Test count: 161 → 173. Feat commit: see git log. Docs commit: see git log.
 
 ### Phase 2c — DB commit + version cascade + 4 more fixtures ⏳ FUTURE
+
+**Blocked on Phase 1.8 + 1.9.** Per-area rate+amount schema extension must land BEFORE Phase 2c DB-commit work begins. Rationale: no real BoQ data is committed to the DB yet (only test fixtures); this is the cheapest possible moment to extend the schema. Once Phase 2c starts writing real parsed BoQ data, every subsequent schema extension carries a migration, writer-rewrite, and data-correctness audit. Phase 1.8 (schema + controller + migration) and Phase 1.9 (parser support including 3-col-per-area Pattern 2-rate detection) sequence first.
 
 - commit_parsed_boq(parsed_output) writes master + sub-BoQs + nodes + qty_by_area to DB
 - Version cascade (deferred from Phase 1.7) — re-upload triggers cascade: old master + old children → Superseded; new master + new children at v+1; missing-sheet handling per Q-Cascade-Missing decision (drop, not carry-forward)
@@ -621,6 +653,8 @@ Both checks fail on Raheja sheets. Detection priority falls through P2 → P3 (b
 **Disposition:** Defer to **Part D** (which already holds Pattern 4 + Pattern 6 candidate work) OR create a new dedicated sub-phase **Part D2 — Pattern 2-rate extension**. Likely scope: a new pattern designation (e.g., `pattern=4` if not already taken, or extending `MultiAreaPattern` with an optional `rate_columns` field), an extended detection algorithm accepting 3-col merges with `[QTY][RATE][AMOUNT]` pairing, ~3-5 new tests, and real-data re-verification on Raheja. Schema-side support already exists in Part A2 (`qty_by_area`, `amount_by_area`, and per-sheet `rate_combined` ColumnRoles are sufficient to represent the shape without new schema work).
 
 **Status:** Open. Not blocking Part B or Phase 2c. Blocking only Raheja-specific parsing.
+
+**Status updated 2026-05-16:** Re-opened. Absorbed into Phase 1.9 parser support scope. The 3-col-per-area shape detection lands as part of the per-area rate+amount schema extension work (see §7.32). No standalone follow-on sub-phase.
 
 ### 17.6 Fixtures folder contains only synthetic files; v5.3 "locked fixtures" claim was aspirational
 
@@ -781,6 +815,31 @@ cd /workspace/development/frappe-bench/apps/nirmaan_stack
 ## Decisions log
 
 Newest at the top.
+
+### 2026-05-16 — §7.32 Per-area rate + amount schema extension (decided 2026-05-16, Phase 1.8 implements)
+
+**Decision:** Extend `BOQ Node Qty By Area` from 2 fields to 9 fields with per-area rate (supply/install/combined), per-area amount (supply/install/total), and `amount_override`. Universal-rate fallback semantics. Phase 1.8 implements schema + controller + migration; Phase 1.9 implements parser support. Both sequence BEFORE Phase 2c.
+
+**Why now:**
+1. Retrofit tax grows monotonically once Phase 2c starts writing real BoQ data to the DB. Currently no real parsed data is committed (only test fixtures) — this is the cheapest possible moment.
+2. A significant minority of real BoQs capture per-area rate in the source file (Raheja Pattern 2-rate shape). Wizard overrides can absorb one-off edge cases; recurring structural shapes belong in the schema.
+3. The 3-col-per-area Raheja shape (handover §17.5, §9 #39) gets absorbed into the baseline schema instead of leaving as a permanent retrofit candidate.
+
+**Locked field naming.** Follows actual `BOQ Nodes` JSON convention: prefix-first for rates (`supply_rate`, `install_rate`, `combined_rate`), prefix-last for amounts (`supply_amount`, `install_amount`, `total_amount`). NO `combined_amount` field — `total_amount` serves both the combined-amount and total-amount roles per existing §7.14 rule.
+
+**Fallback semantic.** When source file doesn't provide per-area rate, populate from parent universal rate. Compute amount as `area_qty × area_rate`. Every child row always has populated rate and amount after `before_save`.
+
+**Weighted-average precedence.** When user (or parser) sets per-area rates that diverge across areas, parent universal rate auto-recomputes as `Σ(area_qty × area_rate) ÷ Σ(area_qty)` in `before_save`. Computed independently per rate kind. UI in Phase 5 will show parent universal as read-only with tooltip when per-area rates set.
+
+**`is_rate_only` semantics.** Existing controller logic at boq_nodes.py:147-150 checks only main-row rates. NOT extended — the weighted-average rule keeps parent universal in sync, so existing `is_rate_only` logic remains correct without modification.
+
+**Combined-rate consistency.** Same `combined == supply + install` rule applied per child row. Same error-message style. Zero-cost rows (all three None) allowed.
+
+**`amount_override` parallel.** Same Check field on child table. When set, child's `before_save` skips amount auto-compute. Enables Phase 6 round-trip integrity (rounding-faithful preservation of source-file per-area amounts).
+
+**§9 #50 standing decision REVISED.** v5.8's "auto-detection at natural floor" standing decision specifically deferred the 3-col-per-area Raheja detection work to "future caveat if blocking." Phase 1.9 re-opens it. Not because keyword precision was wrong — that decision still stands for the 191-entry keyword list — but because the 3-col Pattern 2-rate work is now bundled into the schema-extension scope where it has natural leverage.
+
+**Estimated scope.** Phase 1.8: ~8-12 new Frappe tests, all 77 existing Frappe tests still pass. Phase 1.9: ~15-20 new parser tests, all 237 existing parser tests still pass.
 
 ### 2026-05-16 — §7.31 BoqReader.list_sheet_states() — sheet visibility pass-through
 
