@@ -1,10 +1,10 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.**
+**Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.**
 **Owner:** Internal team.
-**Last updated:** 2026-05-16 IST (commit 3e9eafe0, Phase 2c — §9 #49 reader sheet_state exposure §17.11.D CLOSED)
+**Last updated:** 2026-05-16 13:13 IST (commit f89e2478, Phase 2c — §9 #48 classifier-dictionary audit half §17.11.E CLOSED)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Phase 2c §9 #49 reader sheet_state exposure — feat `3e9eafe0` + docs (see git log).
+**Latest commit:** Phase 2c §9 #48 classifier-dictionary audit half — chore `f89e2478` + docs (see git log).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -707,7 +707,40 @@ docker exec -u root frappe_docker_devcontainer-frappe-1 rm /tmp/<temp_file>.xlsx
 
 **Non-breaking:** Additive only. No existing method changed. No existing test modified.
 
-**Status (2026-05-16): CLOSED.** feat commit `3e9eafe0`. Next: Classifier-dictionary audit (§9 #48).
+**Status (2026-05-16): CLOSED.** feat commit `3e9eafe0`. Next: §9 #48 classifier-dictionary audit half (see §17.11.E).
+
+### 17.11.E Phase 2c §9 #48 classifier-dictionary audit
+
+**What the script does:** Walks all 25 non-synthetic fixtures in `tests/fixtures/`, scans the first 15 rows of every sheet, and for each row with ≥ 3 non-empty cells tests every cell value against the classifier's `_HEADER_KW` dictionary. Records every string that no role's keyword set matches as "unclassified". Emits a JSON report with per-row detail, an unclassified-string frequency rollup, and summary counts.
+
+**Script:** `nirmaan_stack/services/boq_parser/classifier_audit.py`
+
+**Output JSON:** `nirmaan_stack/services/boq_parser/classifier_audit_output.json` (~5.4 MB)
+
+**Run command (inside container):**
+```bash
+cd /workspace/development/frappe-bench/apps/nirmaan_stack
+/workspace/development/frappe-bench/env/bin/python -m nirmaan_stack.services.boq_parser.classifier_audit
+```
+
+**Audit summary (from output JSON):**
+- Fixtures attempted: 25 (24 scanned; 1 failed — `R0_CIVIL INTERIOR & MEP_TABLESPACE_PUNETH WORKING FILE_06.05.2026 (2).xlsx` contains invalid XML)
+- Sheets scanned: 283
+- Rows scanned (≥ 3 non-empty cells): 2,187
+- Total cells scanned: 14,679
+- Total classified: 1,770 | Total unclassified: 12,909
+- Unique unclassified strings: 2,999
+
+**Top 5 unclassified header strings by frequency (headers only — numerics dominate the raw rollup):**
+1. `AMOUNT` (100 occurrences) — amount_total synonym family
+2. `Sq.ft` (91) — unit/measurement column
+3. `Amount` (71) — amount_total synonym (case variant)
+4. `Rate` (67) — rate_combined synonym family
+5. `Remarks` (64) — row_notes synonym family
+
+**Note on rollup composition:** The raw top-frequency unclassified strings are dominated by numeric cell values (`0`: 2243, `1.0`: 295, etc.) because the first 15 rows of many fixtures include data rows that pass the ≥3 filter. These are expected junk that the expansion-half reviewer must filter. True column-header synonyms include: `Supply & Installation` (40), `SUPPLY & INSTALLATION` (20), `INSTALLATION` (29), `SUPPLY` (29), `Total Amount` (32), `Installation Rate` (25), `Supply Rate` (22), `SL. NO.` (17), `UOM` (11), `DSR` (12), `Make` (12).
+
+**Status: CLOSED.** chore commit `f89e2478`. Next: §9 #48 classifier-dictionary expansion half (expansion-half sub-phase adds synonyms to `_HEADER_KW` in `classifier.py`).
 
 ### 17.9 Preamble stack-depth cascade in hierarchy resolver — parked
 
