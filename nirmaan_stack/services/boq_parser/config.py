@@ -212,6 +212,56 @@ class GlobalSettings(BaseModel):
             "MAKE/MANUFACTURERS NAME", "PART CODE", "MODEL NO",
             "IMAGE", "REFERENCE IMAGE", "REF IMAGE",
             "MATERIAL CODE", "SIZE/MAKE", "SIZE/MAKE.", "TYPE",
+            # ===== Phase 2c §9 #48 expansion (added 2026-05-16) =====
+
+            # SITC / S&I family — combined-role labels and merged-header labels
+            "SITC",
+            "S&I",
+            "S+I",
+            "SITC RATE",
+            "SITC AMOUNT",
+            "S&I RATE",
+            "S&I AMOUNT",
+            "S+I RATE",
+            "S+I AMOUNT",
+            "SUPPLY & INSTALLATION",
+            "SUPPLY & INSTALLATION RATE",
+            "SUPPLY & INSTALLATION AMOUNT",
+            "SUPPLY AND INSTALLATION",
+            "SUPPLY AND INSTALLATION RATE",
+            "SUPPLY AND INSTALLATION AMOUNT",
+            "SUPPLY, INSTALL & COMMISSIONING RATE",
+
+            # Unit column header label
+            "U.O.M",
+
+            # "IN INR/RS" variants (trailing-paren strip doesn't catch these)
+            "RATE IN INR",
+            "RATE IN RS",
+            "RATE IN RS.",
+            "AMOUNT IN INR",
+            "AMOUNT IN RS",
+            "AMOUNT IN RS.",
+
+            # DSR additional variants
+            "NDSR (MR)",
+
+            # Combined / Total labels
+            "COMBINED AMOUNT",
+
+            # "AS PER BOQ" compound variants
+            "AS PER BOQ TOTAL AMOUNT",
+            "AS PER BOQ TOTAL SUPPLY",
+            "AS PER BOQ TOTAL SUPPLY AMOUNT",
+            "AS PER BOQ TOTAL INSTALLATION",
+            "AS PER BOQ TOTAL ERECTION AMOUNT",
+            "AS PER BNOQ TOTAL AMOUNT",  # typo variant — real BoQs have this
+
+            # Sl_No standalone variants
+            "SR.",
+
+            # Per-row attribution
+            "AREA OF WORK",
         ],
         description="Words to exclude when auto-detecting area names. User-extensible."
     )

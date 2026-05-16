@@ -37,16 +37,84 @@ _MIN_NON_EMPTY = 3
 # Source of truth: nirmaan_stack/services/boq_parser/classifier.py :: _HEADER_KW
 # Normalization: str(value).strip().lower()  (no internal whitespace collapse).
 # Matching: substring — any(kw in cell_text for kw in kws).
-# This replica is intentionally frozen at audit time; the expansion-half sub-phase
-# will add synonyms to the real _HEADER_KW, not to this replica.
+# Synced with classifier.py as of Phase 2c §9 #48 expansion (14 role keys).
+# Update this replica whenever _HEADER_KW in classifier.py changes.
 # ------------------------------------------------------------------
 
 _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
-    "sl_no":       frozenset({"sl.no", "s.no", "sno", "sr.no"}),
-    "description": frozenset({"description"}),
-    "unit":        frozenset({"unit"}),
-    "qty":         frozenset({"qty", "quantity", "nos"}),
-    "qty_total":   frozenset({"qty", "quantity", "nos"}),
+    "sl_no": frozenset({
+        "sl.no", "s.no", "sno", "sr.no",
+        "sl. no", "s. no", "sr. no", "si no", "si.no",
+        "serial no", "item no", "s.l",
+    }),
+    "description": frozenset({
+        "description",
+        "particulars", "item description", "discription", "desciption",
+        "description of item", "description of work",
+        "specs", "specifications",
+    }),
+    "unit": frozenset({
+        "unit",
+        "uom", "u.o.m",
+    }),
+    "qty": frozenset({
+        "qty", "quantity", "nos",
+        "qnty", "boq qty", "boq quantity",
+    }),
+    "qty_total": frozenset({
+        "qty", "quantity", "nos",
+        "total qty", "total quantity",
+    }),
+    "rate_combined": frozenset({
+        "rate", "rates", "rate in", "rate (",
+        "sitc rate", "sitc",
+        "s&i rate", "s+i rate",
+        "supply & installation rate", "supply and installation rate",
+        "supply, install & commissioning rate",
+        "combined rate", "total rate",
+    }),
+    "rate_supply": frozenset({
+        "supply rate", "material rate", "dsr rate",
+        "rate (supply)",
+    }),
+    "rate_install": frozenset({
+        "installation rate", "install rate", "erection rate",
+        "labour rate", "labor rate",
+        "ndsr rate", "non-dsr rate", "non dsr rate",
+        "rate (install)", "rate (installation)",
+    }),
+    "amount_total": frozenset({
+        "amount", "total amount", "amount in", "amount (", "amt",
+        "as per boq total amount",
+    }),
+    "amount_combined": frozenset({
+        "sitc amount",
+        "s&i amount", "s+i amount",
+        "supply & installation amount", "supply and installation amount",
+        "combined amount",
+    }),
+    "amount_supply": frozenset({
+        "supply amount", "material amount", "dsr amount",
+        "amount (supply)", "as per boq total supply",
+    }),
+    "amount_install": frozenset({
+        "installation amount", "install amount", "erection amount",
+        "labour amount", "labor amount",
+        "non-dsr amount", "non dsr amount",
+        "amount (install)", "amount (installation)",
+        "as per boq total erection", "as per boq total installation",
+    }),
+    "make_model": frozenset({
+        "make", "model", "brand", "manufacturer", "manufacturers",
+        "approved make", "approved makes",
+        "make/model", "make/manufacturer",
+        "details of materials", "material code", "part code",
+        "model no",
+    }),
+    "row_notes": frozenset({
+        "remark", "remarks", "note", "notes",
+        "comment", "comments",
+    }),
 }
 
 

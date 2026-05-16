@@ -1086,5 +1086,218 @@ class TestUnitBasedDemotion(unittest.TestCase):
         self.assertEqual(preamble_count, 0)
 
 
+class TestHeaderKwExpansionPhase2c(unittest.TestCase):
+    """Phase 2c §9 #48 — _HEADER_KW expanded from 5 to 14 role keys."""
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — new rate_combined key detected                           #
+    # ---------------------------------------------------------------- #
+
+    def test_header_repeat_via_new_rate_combined_keys(self):
+        """'SITC Rate' in rate_combined col + sl_no + description → HEADER_REPEAT."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="rate_combined"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "sl.no"},
+            "B": {"value": "description"},
+            "C": {"value": "sitc rate"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — amount_supply / amount_install split detected            #
+    # ---------------------------------------------------------------- #
+
+    def test_header_repeat_via_amount_supply_install_split(self):
+        """4 header matches (sl_no, desc, supply amount, install amount) → HEADER_REPEAT."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="amount_supply"),
+                "D": ColumnRole(role="amount_install"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Supply Amount"},
+            "D": {"value": "Installation Amount"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — SITC Amount synonym for amount_combined                  #
+    # ---------------------------------------------------------------- #
+
+    def test_sitc_amount_synonym_matches_amount_combined(self):
+        """'SITC Amount' in amount_combined col triggers HEADER_REPEAT."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="amount_combined"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "SITC Amount"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — make_model keyword recognized                            #
+    # ---------------------------------------------------------------- #
+
+    def test_make_model_header_keyword_recognized(self):
+        """'Make' in make_model col + sl_no + description → HEADER_REPEAT."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="make_model"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Make"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — row_notes keyword recognized                             #
+    # ---------------------------------------------------------------- #
+
+    def test_row_notes_header_keyword_recognized(self):
+        """'Remarks' in row_notes col + sl_no + description → HEADER_REPEAT."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="row_notes"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Remarks"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — case insensitivity smoke                                 #
+    # ---------------------------------------------------------------- #
+
+    def test_case_insensitivity_smoke(self):
+        """All-UPPERCASE header values still trigger HEADER_REPEAT via case folding."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="rate_combined"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "SL.NO"},
+            "B": {"value": "DESCRIPTION"},
+            "C": {"value": "SITC RATE"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — data row does NOT falsely trigger HEADER_REPEAT          #
+    # ---------------------------------------------------------------- #
+
+    def test_new_synonyms_do_not_falsely_trigger_on_data_row(self):
+        """Numeric data values in new-role columns → NOT HEADER_REPEAT."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="qty"),
+                "D": ColumnRole(role="rate_combined"),
+            },
+        )
+        row = _make_row(2, {
+            "A": {"value": "1.1"},
+            "B": {"value": "Carpet flooring item"},
+            "C": {"value": "100"},
+            "D": {"value": "150.50"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertNotEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — UOM recognized for unit role                             #
+    # ---------------------------------------------------------------- #
+
+    def test_uom_recognized_for_unit_role(self):
+        """'UOM' in unit col + sl_no + description → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "UOM"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — 'particulars' synonym for description role               #
+    # ---------------------------------------------------------------- #
+
+    def test_particulars_synonym_for_description_role(self):
+        """'Particulars' in description col triggers HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Particulars"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 10 — 'BOQ Qty' synonym for qty role                          #
+    # ---------------------------------------------------------------- #
+
+    def test_boq_qty_synonym_for_qty_role(self):
+        """'BOQ Qty' in qty col triggers HEADER_REPEAT (new synonym)."""
+        row = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "BOQ Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+
 if __name__ == "__main__":
     unittest.main()

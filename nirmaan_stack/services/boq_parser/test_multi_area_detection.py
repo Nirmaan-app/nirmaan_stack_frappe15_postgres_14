@@ -736,5 +736,108 @@ class TestReservedKeywordExpansionPhase2c(unittest.TestCase):
         self.assertIn("ZONE B", result.areas)
 
 
+class TestReservedKeywordExpansionPhase2cSitcAndCombinedRoles(unittest.TestCase):
+    """Phase 2c §9 #48 expansion — SITC/S&I, combined-role labels, IN INR variants."""
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — SITC Rate / SITC Amount reserved                         #
+    # ---------------------------------------------------------------- #
+
+    def test_sitc_rate_amount_header_no_false_positive(self):
+        """SITC Rate and SITC Amount are now reserved; no false-positive area detection."""
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "SITC Rate"},
+            "F": {"value": "SITC Amount"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — Supply & Installation labels reserved                    #
+    # ---------------------------------------------------------------- #
+
+    def test_supply_and_installation_merged_header_no_false_positive(self):
+        """'Supply & Installation Rate/Amount' are now reserved."""
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Supply & Installation Rate"},
+            "F": {"value": "Supply & Installation Amount"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — UOM header label reserved (pre-existing, regression)     #
+    # ---------------------------------------------------------------- #
+
+    def test_uom_header_label_reserved(self):
+        """UOM column header is reserved; not detected as a candidate area."""
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "UOM"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — Rate in INR / Amount in INR reserved                     #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_in_inr_amount_in_inr_no_false_positive(self):
+        """'Rate in INR' and 'Amount in INR' are now reserved."""
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Rate in INR"},
+            "F": {"value": "Amount in INR"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — AS PER BOQ TOTAL AMOUNT reserved                         #
+    # ---------------------------------------------------------------- #
+
+    def test_as_per_boq_total_amount_reserved(self):
+        """'As Per BOQ Total Amount' compound is now reserved."""
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Rate"},
+            "F": {"value": "As Per BOQ Total Amount"},
+        })
+        self.assertIsNone(detect_multi_area_pattern(row, _KWS))
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — Legitimate multi-area still detected (smoke)             #
+    # ---------------------------------------------------------------- #
+
+    def test_existing_legitimate_multi_area_still_detected(self):
+        """Pattern 1 with non-reserved area names still detected after expansion."""
+        row = _make_row(1, {
+            "A": {"value": "Sl.No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Floor 1"},
+            "E": {"value": "Floor 2"},
+            "F": {"value": "Qty"},
+        })
+        result = detect_multi_area_pattern(row, _KWS)
+        self.assertIsNotNone(result)
+        self.assertIn("Floor 1", result.areas)
+        self.assertIn("Floor 2", result.areas)
+
+
 if __name__ == "__main__":
     unittest.main()
