@@ -484,6 +484,72 @@ def generate_multi_area_2row() -> Path:
 
 
 # ------------------------------------------------------------------
+# synthetic_pattern_2_rate.xlsx  (Pattern 2-rate — 3-col-per-area merged header)
+# ------------------------------------------------------------------
+
+def generate_pattern_2_rate() -> Path:
+    """
+    Pattern 2-rate: two-row merged header with 3-col clusters [Qty | Rate | Amount].
+
+    Row 1 (top header): area labels merged across 3 columns each.
+      A1="Sl.No."  B1="Description"  C1:E1="PHASE-1"  F1:H1="PHASE-2"
+    Row 2 (bottom header, header_row=2): column sub-labels.
+      A2="Sl.No."  B2="Description"
+      C2="Qty"  D2="Rate"  E2="Amount"
+      F2="Qty"  G2="Rate"  H2="Amount"
+    Row 3 — data: qty/rate/amount diverge across phases to exercise per-area rate logic.
+      PHASE-1: qty=10, rate=100, amt=1000
+      PHASE-2: qty=20, rate=110, amt=2200
+    Row 4 — second data row for completeness.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pattern 2 Rate"
+
+    # Row 1 — top header: 3-col merges for each area
+    ws["A1"] = "Sl.No."
+    ws["B1"] = "Description"
+    ws["C1"] = "PHASE-1"
+    ws.merge_cells("C1:E1")
+    ws["F1"] = "PHASE-2"
+    ws.merge_cells("F1:H1")
+
+    # Row 2 — bottom header (= header_row): qty/rate/amount sub-labels
+    ws["A2"] = "Sl.No."
+    ws["B2"] = "Description"
+    ws["C2"] = "Qty"
+    ws["D2"] = "Rate"
+    ws["E2"] = "Amount"
+    ws["F2"] = "Qty"
+    ws["G2"] = "Rate"
+    ws["H2"] = "Amount"
+
+    # Row 3 — first data row
+    ws["A3"] = 1.0
+    ws["B3"] = "Electrical works"
+    ws["C3"] = 10.0    # PHASE-1 qty
+    ws["D3"] = 100.0   # PHASE-1 rate
+    ws["E3"] = 1000.0  # PHASE-1 amount (10 × 100)
+    ws["F3"] = 20.0    # PHASE-2 qty
+    ws["G3"] = 110.0   # PHASE-2 rate
+    ws["H3"] = 2200.0  # PHASE-2 amount (20 × 110)
+
+    # Row 4 — second data row
+    ws["A4"] = 2.0
+    ws["B4"] = "Civil works"
+    ws["C4"] = 5.0
+    ws["D4"] = 200.0
+    ws["E4"] = 1000.0
+    ws["F4"] = 8.0
+    ws["G4"] = 200.0
+    ws["H4"] = 1600.0
+
+    path = _path("synthetic_pattern_2_rate.xlsx")
+    wb.save(str(path))
+    return path
+
+
+# ------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------
 
@@ -497,6 +563,7 @@ def generate_all() -> None:
     generate_makelist_header()
     generate_multi_area()
     generate_multi_area_2row()
+    generate_pattern_2_rate()
 
 
 if __name__ == "__main__":

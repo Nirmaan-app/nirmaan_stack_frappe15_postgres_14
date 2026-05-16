@@ -839,5 +839,138 @@ class TestReservedKeywordExpansionPhase2cSitcAndCombinedRoles(unittest.TestCase)
         self.assertIn("Floor 2", result.areas)
 
 
+class TestPattern2Rate(unittest.TestCase):
+    """Phase 1.9a — Pattern 2-rate: 3-col-per-area merged header [Qty | Rate | Amount]."""
+
+    # ------------------------------------------------------------------ #
+    # Test 1 — 2-area cluster detected                                    #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_2_rate_2_area_cluster_detected(self):
+        """Two 3-col merges with [Qty|Rate|Amount] bottom labels → pattern_2_rate; rate_columns populated."""
+        top_row = _make_row(1, {
+            "C": {"value": "PHASE-1", "is_merged_origin": True,  "merged_range": "C1:E1"},
+            "D": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "F": {"value": "PHASE-2", "is_merged_origin": True,  "merged_range": "F1:H1"},
+            "G": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+            "H": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "Rate"},
+            "E": {"value": "Amount"},
+            "F": {"value": "Qty"},
+            "G": {"value": "Rate"},
+            "H": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "pattern_2_rate")
+        self.assertEqual(result.areas, ["PHASE-1", "PHASE-2"])
+        self.assertIsNotNone(result.rate_columns)
+        self.assertEqual(len(result.qty_columns), 2)
+        self.assertEqual(len(result.rate_columns), 2)
+        self.assertIsNotNone(result.amount_columns)
+        self.assertEqual(len(result.amount_columns), 2)
+        # Column index assertions (C=3, D=4, E=5, F=6, G=7, H=8)
+        self.assertEqual(result.qty_columns[0], 3)
+        self.assertEqual(result.rate_columns[0], 4)
+        self.assertEqual(result.amount_columns[0], 5)
+        self.assertEqual(result.qty_columns[1], 6)
+        self.assertEqual(result.rate_columns[1], 7)
+        self.assertEqual(result.amount_columns[1], 8)
+
+    # ------------------------------------------------------------------ #
+    # Test 2 — 3-area cluster detected, left-to-right order              #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_2_rate_3_area_cluster_detected(self):
+        """Three 3-col merges → pattern_2_rate with all three areas in left-to-right order."""
+        top_row = _make_row(1, {
+            "C": {"value": "PHASE-1", "is_merged_origin": True,  "merged_range": "C1:E1"},
+            "D": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "F": {"value": "PHASE-2", "is_merged_origin": True,  "merged_range": "F1:H1"},
+            "G": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+            "H": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+            "I": {"value": "PHASE-3", "is_merged_origin": True,  "merged_range": "I1:K1"},
+            "J": {"value": "PHASE-3", "is_merged_origin": False, "merged_range": "I1:K1"},
+            "K": {"value": "PHASE-3", "is_merged_origin": False, "merged_range": "I1:K1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "Rate"},
+            "E": {"value": "Amount"},
+            "F": {"value": "Qty"},
+            "G": {"value": "Rate"},
+            "H": {"value": "Amount"},
+            "I": {"value": "Qty"},
+            "J": {"value": "Rate"},
+            "K": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "pattern_2_rate")
+        self.assertEqual(result.areas, ["PHASE-1", "PHASE-2", "PHASE-3"])
+        self.assertEqual(len(result.qty_columns), 3)
+        self.assertIsNotNone(result.rate_columns)
+        self.assertEqual(len(result.rate_columns), 3)
+        self.assertIsNotNone(result.amount_columns)
+        self.assertEqual(len(result.amount_columns), 3)
+
+    # ------------------------------------------------------------------ #
+    # Test 3 — textbook Pattern 2 not false-positive as pattern_2_rate   #
+    # ------------------------------------------------------------------ #
+
+    def test_textbook_pattern_2_does_not_false_positive_as_pattern_2_rate(self):
+        """Two 2-col merges with [Qty|Amount] only (not [Qty|Rate|Amount]) → Pattern 2, NOT pattern_2_rate."""
+        top_row = _make_row(1, {
+            "C": {"value": "PHASE-1", "is_merged_origin": True,  "merged_range": "C1:D1"},
+            "D": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:D1"},
+            "E": {"value": "PHASE-2", "is_merged_origin": True,  "merged_range": "E1:F1"},
+            "F": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "E1:F1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "Amount"},
+            "E": {"value": "Qty"},
+            "F": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, 2)   # classic Pattern 2, not "pattern_2_rate"
+        self.assertIsNone(result.rate_columns)
+
+    # ------------------------------------------------------------------ #
+    # Test 4 — reserved keyword blocks detection (insufficient areas)    #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_2_rate_reserved_keyword_blocks_detection(self):
+        """Top-row merge with reserved-keyword label ('AREA') skipped; only 1 valid area → None returned."""
+        top_row = _make_row(1, {
+            "C": {"value": "AREA",   "is_merged_origin": True,  "merged_range": "C1:E1"},
+            "D": {"value": "AREA",   "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "AREA",   "is_merged_origin": False, "merged_range": "C1:E1"},
+            "F": {"value": "PHASE-2","is_merged_origin": True,  "merged_range": "F1:H1"},
+            "G": {"value": "PHASE-2","is_merged_origin": False, "merged_range": "F1:H1"},
+            "H": {"value": "PHASE-2","is_merged_origin": False, "merged_range": "F1:H1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "Rate"},
+            "E": {"value": "Amount"},
+            "F": {"value": "Qty"},
+            "G": {"value": "Rate"},
+            "H": {"value": "Amount"},
+        })
+        # Pattern 2-rate: "AREA" is reserved → only PHASE-2 qualifies → 1 area < 2 → None.
+        # Pattern 2: same issue + 3-col merges fail the span==2 guard → None.
+        # Pattern 3/1 on bottom: all cells are reserved keywords → None.
+        # Pattern 1 on top: only PHASE-2 origin is non-reserved → 1 area < 2 → None.
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

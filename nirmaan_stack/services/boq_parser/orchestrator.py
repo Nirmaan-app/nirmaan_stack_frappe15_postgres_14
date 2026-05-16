@@ -84,6 +84,38 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
         row.qty_by_area = dict(row.qty_by_area_raw)
         row.amount_by_area = dict(row.amount_by_area_raw)
 
+        # Per-area rates (Phase 1.9a) — read from ClassifiedRow.rate_by_area_raw
+        rate_by_area_raw = row.classified_row.rate_by_area_raw
+        if rate_by_area_raw:
+            row.rate_by_area = {area: dict(rates) for area, rates in rate_by_area_raw.items()}
+
+            # Compute per-area amounts for areas that have a rate but no direct amount.
+            # Priority: combined_rate → supply_rate → install_rate.
+            for area, rates in row.rate_by_area.items():
+                if area not in row.amount_by_area:
+                    area_qty = row.qty_by_area.get(area)
+                    area_rate = rates.get("combined_rate")
+                    if area_rate is None:
+                        area_rate = rates.get("supply_rate")
+                    if area_rate is None:
+                        area_rate = rates.get("install_rate")
+                    if area_qty is not None and area_rate is not None:
+                        row.amount_by_area[area] = area_qty * area_rate
+
+            # Soft validation: combined_rate should equal supply_rate + install_rate.
+            for area, rates in row.rate_by_area.items():
+                supply = rates.get("supply_rate")
+                install = rates.get("install_rate")
+                combined = rates.get("combined_rate")
+                if supply is not None and install is not None and combined is not None:
+                    expected = supply + install
+                    if abs(combined - expected) > 0.01:
+                        row.validation_warnings.append(
+                            f"area '{area}': combined_rate {combined:.4g} != "
+                            f"supply_rate {supply:.4g} + install_rate {install:.4g} "
+                            f"({expected:.4g})"
+                        )
+
         # Empty-total fallback (no warning)
         if row.qty_total is None and row.qty_by_area:
             row.qty_total = sum(row.qty_by_area.values())

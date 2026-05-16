@@ -330,6 +330,28 @@ class TestMappingConfig(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ColumnRole(role="qty_by_area", area="Floor 1")
 
+    # ------------------------------------------------------------------ #
+    # Tests 23-24 — Phase 1.9a: per-area rate roles (rate_*_by_area)      #
+    # ------------------------------------------------------------------ #
+
+    def test_new_per_area_rate_roles_accepted_in_column_role_literal(self):
+        """SheetConfig with a column mapped to rate_supply_by_area with area='B1' validates cleanly."""
+        s = SheetConfig(
+            sheet_name="RateTest",
+            header_row=1,
+            area_dimensions=["B1"],
+            column_role_map={
+                "D": ColumnRole(role="rate_supply_by_area", area="B1"),
+            },
+        )
+        self.assertEqual(s.column_role_map["D"].role, "rate_supply_by_area")
+        self.assertEqual(s.column_role_map["D"].area, "B1")
+
+    def test_per_area_rate_roles_area_compatibility_enforced(self):
+        """ColumnRole with role='rate_supply_by_area' and no area raises ValidationError."""
+        with self.assertRaises(ValidationError):
+            ColumnRole(role="rate_supply_by_area")
+
 
 if __name__ == "__main__":
     unittest.main()

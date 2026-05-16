@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 _AREA_COMPATIBLE_ROLES = {
     "qty", "amount_supply", "amount_install", "amount_total",
     "amount_by_area",
+    "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 }
 
 _SINGLETON_ROLES = {
@@ -35,6 +36,8 @@ class ColumnRole(BaseModel):
         "amount_supply", "amount_install", "amount_total", "amount_combined",
         # qty_by_area deprecated Phase 2c §9 #42 — use role="qty" with area= instead
         "amount_by_area",
+        # per-area rate roles (Phase 1.9a); always require area= to be set
+        "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
         "make_model", "row_notes", "reference_images", "ignore",
     ]
     area: str | None = None
@@ -51,6 +54,12 @@ class ColumnRole(BaseModel):
     @model_validator(mode="after")
     def area_required_for_amount_by_area_role(self) -> "ColumnRole":
         if self.role == "amount_by_area" and not self.area:
+            raise ValueError(f"role {self.role} requires area")
+        return self
+
+    @model_validator(mode="after")
+    def area_required_for_rate_by_area_roles(self) -> "ColumnRole":
+        if self.role in {"rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area"} and not self.area:
             raise ValueError(f"role {self.role} requires area")
         return self
 

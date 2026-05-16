@@ -762,5 +762,161 @@ class TestSnitchIntegration(unittest.TestCase):
         )
 
 
+class TestRateByAreaPostPass(unittest.TestCase):
+    """Phase 1.9a — rate_by_area field on ResolvedRow, populated by _apply_multi_area_post_pass."""
+
+    @staticmethod
+    def _line_item_row_with_rate(
+        qty_by_area_raw=None,
+        rate_by_area_raw=None,
+        amount_by_area_raw=None,
+        qty_total=None,
+        amount_total=None,
+    ):
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+        classified = ClassifiedRow(
+            raw_row=RawRow(row_number=1, cells={}),
+            classification=RowClassification.LINE_ITEM,
+            qty_by_area_raw=qty_by_area_raw or {},
+            rate_by_area_raw=rate_by_area_raw or {},
+        )
+        return ResolvedRow(
+            classified_row=classified,
+            qty_by_area_raw=qty_by_area_raw or {},
+            amount_by_area_raw=amount_by_area_raw or {},
+            qty_total=qty_total,
+            amount_total=amount_total,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 10 — rate_by_area populated on ResolvedRow                  #
+    # ---------------------------------------------------------------- #
+
+    def test_per_area_rate_populated_on_resolved_row(self):
+        """rate_by_area_raw on ClassifiedRow → rate_by_area copied to ResolvedRow after post-pass."""
+        row = self._line_item_row_with_rate(
+            qty_by_area_raw={"B1": 10.0, "B2": 20.0},
+            rate_by_area_raw={
+                "B1": {"combined_rate": 100.0},
+                "B2": {"combined_rate": 110.0},
+            },
+            amount_by_area_raw={"B1": 1000.0, "B2": 2200.0},
+        )
+        _apply_multi_area_post_pass([row])
+        self.assertEqual(row.rate_by_area, {
+            "B1": {"combined_rate": 100.0},
+            "B2": {"combined_rate": 110.0},
+        })
+
+    # ---------------------------------------------------------------- #
+    # Test 11 — per-area amount auto-computed from qty × rate           #
+    # ---------------------------------------------------------------- #
+
+    def test_per_area_amount_auto_computed_from_qty_and_rate(self):
+        """amount_by_area_raw empty + rate_by_area_raw present → amount_by_area auto-computed (qty×rate)."""
+        row = self._line_item_row_with_rate(
+            qty_by_area_raw={"B1": 10.0, "B2": 20.0},
+            rate_by_area_raw={
+                "B1": {"combined_rate": 100.0},
+                "B2": {"combined_rate": 110.0},
+            },
+            # amount_by_area_raw intentionally empty → auto-compute triggered
+        )
+        _apply_multi_area_post_pass([row])
+        self.assertAlmostEqual(row.amount_by_area.get("B1"), 1000.0)   # 10 × 100
+        self.assertAlmostEqual(row.amount_by_area.get("B2"), 2200.0)   # 20 × 110
+
+
+# ================================================================ #
+# Phase 1.9a — Pattern 2-rate end-to-end integration test          #
+# ================================================================ #
+
+def _pattern_2_rate_config() -> MappingConfig:
+    """MappingConfig for synthetic_pattern_2_rate.xlsx (2-row header, Pattern 2-rate: PHASE-1/PHASE-2)."""
+    return MappingConfig(
+        project="test",
+        master_boq=MasterBoqMetadata(boq_name="test_boq"),
+        sheets=[SheetConfig(
+            sheet_name="Pattern 2 Rate",
+            header_row=2,
+            header_row_count=2,
+            area_dimensions=["PHASE-1", "PHASE-2"],
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="qty", area="PHASE-1"),
+                "D": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
+                "E": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                "F": ColumnRole(role="qty", area="PHASE-2"),
+                "G": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
+                "H": ColumnRole(role="amount_by_area", area="PHASE-2"),
+            },
+        )],
+    )
+
+
+class TestPattern2RateIntegration(unittest.TestCase):
+    """Phase 1.9a — end-to-end parse_boq() on synthetic_pattern_2_rate.xlsx."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import generate_pattern_2_rate
+        generate_pattern_2_rate()
+        cls._result = parse_boq(_p("synthetic_pattern_2_rate.xlsx"), _pattern_2_rate_config())
+
+    # ---------------------------------------------------------------- #
+    # Test 12 — end-to-end: pattern detected + per-area data correct    #
+    # ---------------------------------------------------------------- #
+
+    def test_pattern_2_rate_end_to_end_synthetic_fixture(self):
+        """
+        parse_boq() on synthetic_pattern_2_rate.xlsx with header_row_count=2:
+          - multi_area_pattern.pattern == 'pattern_2_rate'
+          - areas == ['PHASE-1', 'PHASE-2']
+          - At least one LINE_ITEM has qty_by_area, rate_by_area, and amount_by_area
+            populated correctly for both areas (Civil works row: PHASE-1 qty=5,
+            rate=200, amt=1000; PHASE-2 qty=8, rate=200, amt=1600).
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+
+        sheet = self._result.sheets[0]
+
+        # Pattern detected
+        self.assertIsNotNone(sheet.multi_area_pattern)
+        self.assertEqual(sheet.multi_area_pattern.pattern, "pattern_2_rate")
+        self.assertEqual(sheet.multi_area_pattern.areas, ["PHASE-1", "PHASE-2"])
+        self.assertIsNotNone(sheet.multi_area_pattern.rate_columns)
+        self.assertEqual(len(sheet.multi_area_pattern.rate_columns), 2)
+
+        # Find the "Civil works" LINE_ITEM (row 4 in fixture, first real data row)
+        civil_items = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+            and rr.classified_row.description == "Civil works"
+        ]
+        self.assertEqual(len(civil_items), 1, "Expected exactly one 'Civil works' LINE_ITEM")
+        row = civil_items[0]
+
+        # Per-area qty
+        self.assertAlmostEqual(row.qty_by_area.get("PHASE-1"), 5.0)
+        self.assertAlmostEqual(row.qty_by_area.get("PHASE-2"), 8.0)
+
+        # Per-area rate (combined_rate)
+        self.assertIn("PHASE-1", row.rate_by_area)
+        self.assertIn("PHASE-2", row.rate_by_area)
+        self.assertAlmostEqual(row.rate_by_area["PHASE-1"].get("combined_rate"), 200.0)
+        self.assertAlmostEqual(row.rate_by_area["PHASE-2"].get("combined_rate"), 200.0)
+
+        # Per-area amount (directly stored in fixture: 1000.0 and 1600.0)
+        self.assertAlmostEqual(row.amount_by_area.get("PHASE-1"), 1000.0)
+        self.assertAlmostEqual(row.amount_by_area.get("PHASE-2"), 1600.0)
+
+        # No spurious combined!=supply+install warnings (only combined_rate present)
+        self.assertEqual(row.validation_warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

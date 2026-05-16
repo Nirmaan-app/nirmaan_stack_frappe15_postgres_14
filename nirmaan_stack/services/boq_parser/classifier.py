@@ -67,6 +67,11 @@ class ClassifiedRow:
     # Parallel structure to qty_by_area_raw.  Keys = area_name, values = float.
     amount_by_area_raw: dict[str, float] = field(default_factory=dict)
 
+    # Per-area raw rate captured from rate_*_by_area ColumnRoles (Phase 1.9a).
+    # Outer keys: area names. Inner keys: rate kind ("supply_rate", "install_rate",
+    # "combined_rate"). Policy X: explicit 0.0 preserved; blank produces no inner key.
+    rate_by_area_raw: dict[str, dict[str, float | None]] = field(default_factory=dict)
+
     # Preamble candidate metadata — populated by populate_preamble_candidate_scores()
     # (a separate post-classification pass, not by classify_row). Always 0 / []
     # when rows are classified individually. Phase 3 wizard reads these to surface
@@ -168,6 +173,13 @@ _SUBTOTAL_RE: list[re.Pattern] = [
 ]
 
 _AMOUNT_ROLES = frozenset({"amount_supply", "amount_install", "amount_total"})
+
+# Maps rate_*_by_area ColumnRole → inner dict key used in rate_by_area_raw
+_RATE_ROLE_TO_KIND: dict[str, str] = {
+    "rate_supply_by_area": "supply_rate",
+    "rate_install_by_area": "install_rate",
+    "rate_combined_by_area": "combined_rate",
+}
 
 
 # ------------------------------------------------------------------
@@ -565,6 +577,20 @@ def classify_row(
         if amt_val is not None:  # Policy X: preserve explicit zeros
             amount_by_area_raw[area_name] = amt_val
 
+    # Per-area rate extraction — parallel to amount_by_area_raw (Phase 1.9a)
+    rate_by_area_raw: dict[str, dict[str, float | None]] = {}
+    for col_letter, col_role in col_map.items():
+        kind = _RATE_ROLE_TO_KIND.get(col_role.role)
+        if kind is None or not col_role.area:
+            continue
+        area_name = col_role.area
+        cell = raw_row.get_cell(col_letter)
+        if cell is None or cell.value is None:
+            continue  # blank — Policy X: no entry
+        rate_val = _to_float(cell.value)
+        if rate_val is not None:  # Policy X: explicit 0.0 preserved
+            rate_by_area_raw.setdefault(area_name, {})[kind] = rate_val
+
     # qty_total column overrides if it has a valid value
     if qty_total_col:
         tc = _cell(qty_total_col)
@@ -667,4 +693,5 @@ def classify_row(
         warnings=warnings,
         qty_by_area_raw=qty_by_area_raw,
         amount_by_area_raw=amount_by_area_raw,
+        rate_by_area_raw=rate_by_area_raw,
     )

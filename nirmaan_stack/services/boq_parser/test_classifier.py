@@ -1299,5 +1299,75 @@ class TestHeaderKwExpansionPhase2c(unittest.TestCase):
         self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
 
 
+class TestRateByAreaRaw(unittest.TestCase):
+    """Phase 1.9a — rate_by_area_raw field on ClassifiedRow."""
+
+    def _rate_area_config(self, areas: list[str]) -> SheetConfig:
+        """Config with per-area qty + rate_combined_by_area columns for each area."""
+        col_map: dict[str, ColumnRole] = {
+            "A": ColumnRole(role="sl_no"),
+            "B": ColumnRole(role="description"),
+        }
+        # Per-area qty and rate columns: C/D for first area, E/F for second, etc.
+        for i, area in enumerate(areas):
+            qty_col = chr(ord("C") + i * 2)
+            rate_col = chr(ord("D") + i * 2)
+            col_map[qty_col] = ColumnRole(role="qty", area=area)
+            col_map[rate_col] = ColumnRole(role="rate_combined_by_area", area=area)
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map=col_map,
+            area_dimensions=areas,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — rate_combined_by_area populated                          #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_by_area_raw_populated_when_role_mapped(self):
+        """rate_combined_by_area column with value 100.0 → rate_by_area_raw={'B1': {'combined_rate': 100.0}}."""
+        config = self._rate_area_config(["B1"])
+        row = _make_row(1, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "C": {"value": 10.0},   # qty, area=B1
+            "D": {"value": 100.0},  # rate_combined_by_area, area=B1
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.rate_by_area_raw, {"B1": {"combined_rate": 100.0}})
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — Policy X: explicit 0.0 preserved                        #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_by_area_raw_policy_x_zero_preservation(self):
+        """Explicit 0.0 in rate_combined_by_area cell → preserved in rate_by_area_raw (Policy X)."""
+        config = self._rate_area_config(["B1"])
+        row = _make_row(1, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "C": {"value": 10.0},
+            "D": {"value": 0.0},  # explicit zero rate
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.rate_by_area_raw, {"B1": {"combined_rate": 0.0}})
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — not populated when no per-area-rate role mapped          #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_by_area_raw_not_populated_when_role_not_mapped(self):
+        """SheetConfig with no per-area-rate columns → rate_by_area_raw remains {}."""
+        row = _make_row(1, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 10.0},
+            "E": {"value": 100.0},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.rate_by_area_raw, {})
+
+
 if __name__ == "__main__":
     unittest.main()

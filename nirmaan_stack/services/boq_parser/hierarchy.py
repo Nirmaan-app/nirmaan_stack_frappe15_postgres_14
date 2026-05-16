@@ -53,6 +53,9 @@ class ResolvedRow:
     # Post-pass resolved per-area dicts (populated by _apply_multi_area_post_pass).
     qty_by_area: dict[str, float] = field(default_factory=dict)
     amount_by_area: dict[str, float] = field(default_factory=dict)
+    # Per-area rates (populated by _apply_multi_area_post_pass for Phase 1.9a rate columns).
+    # Outer keys: area names. Inner keys: rate kind ("supply_rate", "install_rate", "combined_rate").
+    rate_by_area: dict[str, dict[str, float | None]] = field(default_factory=dict)
     # §9 #45 review flag — set by _apply_priced_preamble_with_children_review_flag_post_pass.
     # True when a PREAMBLE has tree children AND carries a price signal (unit or rate).
     # Phase 3 wizard reads review_reason to select the re-classification UI flow.
