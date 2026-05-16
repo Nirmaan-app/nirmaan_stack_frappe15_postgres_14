@@ -188,10 +188,14 @@ doc_events = {
     "Procurement Orders": {
         "validate": "nirmaan_stack.integrations.controllers.procurement_orders.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_orders.after_insert",
-        "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_procurement_order",
+        ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_procurement_order",
         ]
     },
     "Sent Back Category": {
@@ -219,10 +223,14 @@ doc_events = {
     },
     "Project Payments": {
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
-        "on_update": "nirmaan_stack.integrations.controllers.project_payments.on_update",
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.project_payments.on_update",
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
+        ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
         ]
     },
      "Project Invoices": {
@@ -231,8 +239,21 @@ doc_events = {
     "Non Project Expenses": {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
+    "Project Expenses": {
+        "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+        "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+        ],
+    },
     "Project Inflows": {
-        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
+        "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
+        ],
     },
     "Delivery Notes": {
         "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
@@ -269,7 +290,7 @@ scheduler_events = {
 	"cron": {
 		"30 4 * * *": [
 			"nirmaan_stack.tasks.vendor_credit_update.update_all_vendor_credits",
-			"nirmaan_stack.tasks.project_cashflow_hold_update.update_projects_cashflow_hold"
+			# "nirmaan_stack.tasks.project_cashflow_hold_update.update_projects_cashflow_hold"
 		]
 	}
 }

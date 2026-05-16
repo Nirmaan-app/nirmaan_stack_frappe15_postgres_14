@@ -105,6 +105,11 @@ def on_update(doc, method=None):
 	if doc.has_value_changed('project_start_date') or doc.has_value_changed('project_end_date'):
 		sync_project_schedule(doc, method)
 
+	# Realtime CEO Hold re-check when the gap limit drops (or is first set).
+	if doc.has_value_changed('cashflow_gap_limit'):
+		from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import trigger_check
+		trigger_check(doc.name)
+
 
 def recalculate_critical_po_deadlines(project_name, project_start_date):
 	"""
