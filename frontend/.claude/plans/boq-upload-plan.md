@@ -927,6 +927,41 @@ Re-evaluation now unblocked — empirical data committed at 5cd4f580.
 
 Newest at the top.
 
+### Phase 1.9h complete (2026-05-18)
+
+**Auto-guess per-area column-role assignment + diagnostic script refactor.**
+
+- Feat commit: f9a3121e
+- Docs commit: see git log (paradox-free per §9 #69)
+- Root cause: 1.9e auto-guess skipped area-specific roles with an explicit
+  `if matched_role in {"amount_by_area", ...}: continue` guard. Raheja
+  Electrical at hrc=2 detected Pattern 2-rate correctly but per-area
+  qty/rate/amount came back all-None.
+- Fix: extracted auto-guess logic into a shared module
+  `nirmaan_stack/services/boq_parser/_auto_guess.py` with two-phase logic:
+  Phase 1 (universal roles — singleton-guarded keyword matching, identical
+  to prior inline logic); Phase 2 (per-area assignment when
+  `detect_multi_area_pattern()` returns non-None at hrc≥2, uses positional
+  parallel lists from MultiAreaPattern directly).
+- Phase 2 core: for each area in mp.areas, assign qty col → ColumnRole(role="qty",
+  area=...), amount col → role="amount_by_area", rate col →
+  role="rate_combined_by_area". Override semantics: Phase 2 writes over Phase 1
+  for columns inside area spans. area_dimensions set from list(mp.areas).
+- Singleton guard preserved: _SINGLETON_ROLES tracking moved into
+  `_auto_guess.py`, behavior identical. Verified by new test
+  `test_singleton_guard_prevents_duplicate_assignment`.
+- Diagnostic scripts refactored: `real_fixture_stress_test.py` and
+  `multi_area_triage_1_9f.py` now import from `_auto_guess` and have their
+  orphaned inline copies removed.
+- New module: `_auto_guess.py` (119 lines). New tests: `test_auto_guess.py`
+  (14 tests across 6 test classes).
+- Smoke result: 98/100 LINE_ITEMs in Raheja Electrical have non-None PHASE-1
+  qty at hrc=2; 51 have non-None PHASE-2 qty. rate=None expected (unpriced
+  BoQ). amount=0.0 (zero values in cells).
+- Parser tests: 291 passing, 0 failures (277 prior + 14 new).
+- Frappe tests: not run (no Frappe code touched, per agreement #20).
+- Next step: Phase 2c body (§17.13 wizard-load or next queued item).
+
 ### Phase 1.9g complete (2026-05-18)
 
 **Pre-header rows skip fix in orchestrator + 3 new tests + snitch_electrical_expected.json calibration.**
