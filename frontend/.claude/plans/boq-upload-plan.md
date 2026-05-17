@@ -927,6 +927,38 @@ Re-evaluation now unblocked — empirical data committed at 5cd4f580.
 
 Newest at the top.
 
+### Phase 1.9g complete (2026-05-18)
+
+**Pre-header rows skip fix in orchestrator + 3 new tests + snitch_electrical_expected.json calibration.**
+
+- Feat commit: 40fb555c
+- Docs commit: see git log (paradox-free per §9 #69)
+- Root cause: `raw_rows` list comprehension in `parse_boq()` only excluded
+  `header_row` and declared skip rows; rows before `header_row` (e.g. title
+  banners, disclaimer notes in Excel rows 1..header_row-1) were incorrectly
+  classified as data.
+- Fix: added `and (header_row is None or rr.row_number >= header_row)` guard
+  to the list comprehension in orchestrator.py.
+- New tests (3, class TestPreHeaderSkip): row 1 absent when header_row=2
+  (multi_area_2row fixture), row 1 absent for Pattern 2-rate fixture, no-op
+  confirmed when header_row=1 (simple fixture).
+- Test calibration: 7. Light Fixtures (snitch_electrical_expected.json) had
+  a bold disclaimer banner at Excel row 1 (pre-header). Calibration updates:
+  total_resolved_row_count 16→15; first_5_line_items, subtotal_markers, and
+  row_16_preamble_anomaly resolved_idx values all shift by -1; path strings
+  shift by -1 (path = str(resolved_list_append_idx)); row count in
+  test_snitch_light_fixtures_total_resolved_row_count updated 16→15.
+- Self-report item 26: Excel row 1 of "7. Light Fixtures" — sl_no=None,
+  A1="* QUANTITIES AND SPECS TO BE UPDATED LATER AS PER THE RCP LAYOUT.
+  CURRENT QTYS KEPT ARE ASSUMPTION BASED." (bold), G1="2) BUDGET SPECS"
+  (bold, yellow fill). No qty value. Pre-header content confirmed.
+- Parser tests: 277 passing, 0 failures (274 prior + 3 new).
+- Frappe tests: not run (no Frappe code touched, per agreement #20).
+- 4 new synthetic fixtures now tracked in git (previously untracked since
+  Phase 1.9d): synthetic_multi_area.xlsx, synthetic_multi_area_2row.xlsx,
+  synthetic_pattern_2_rate.xlsx, synthetic_pattern_2_rate_plural.xlsx.
+- Next step: Phase 2c body (§17.13 wizard-load or next queued item).
+
 ### Phase 1.9f Stage 1 complete (2026-05-17)
 
 **Multi-area triage diagnostic on 3 sheets at both header_row_count values.**
