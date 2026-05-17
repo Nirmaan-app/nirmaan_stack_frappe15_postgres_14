@@ -927,6 +927,25 @@ Re-evaluation now unblocked — empirical data committed at 5cd4f580.
 
 Newest at the top.
 
+### Phase 1.9f Stage 1 complete (2026-05-17)
+
+**Multi-area triage diagnostic on 3 sheets at both header_row_count values.**
+
+- Chore commit: c42eec9a
+- Docs commit: see git log (paradox-free per §9 #69)
+- Targets: Raheja Commerzone Chennai BOQ — Electrical + HVAC sheets;
+  Snitch fixture — Electrical sheet.
+- Per (sheet, header_row_count in [1, 2]) captured: classification,
+  pattern, areas, header_row, first 3 L1 preambles, first L2 preamble,
+  first 10 line items with parent + per-area + totals qty/rate/amount.
+- Parser tests: 274 passing (unchanged — no parser code touched).
+- Frappe tests: not run (no Frappe code touched, per agreement #20).
+- Output files: multi_area_triage_1_9f_output.json (machine-readable),
+  multi_area_triage_1_9f_output.txt (human-readable).
+- Next step: chat-Claude + Nitesh review the output and decide on
+  Stage 2 scope (None-case triage, additional targets, or proceed to
+  §17.13 design conversation).
+
 ### Phase 1.9e complete (2026-05-17)
 
 **Script committed, output JSON committed; 25 workbooks / 68 sheets parsed / 62 rate-synonym variations surfaced.**

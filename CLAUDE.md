@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-17 IST (commit 5cd4f580, Phase 1.9e — real-fixture stress test)
+**Last updated:** 2026-05-17 IST (commit c42eec9a, Phase 1.9f Stage 1 — multi-area triage diagnostic)
 
 ## Overview
 
