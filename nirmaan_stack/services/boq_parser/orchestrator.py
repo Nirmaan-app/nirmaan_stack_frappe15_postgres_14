@@ -224,7 +224,13 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
             top_header_row = None
             if sheet_config.header_row_count == 2:
-                top_rows = list(reader.iter_rows(sheet_name, start_row=header_row - 1, end_row=header_row - 1))
+                # F5-b (§9 #63): use sheet_config override when set, else fall back to header_row - 1.
+                # Phase 1.9d single-element list only; multi-element Pattern 6 case deferred.
+                if sheet_config.top_header_rows_override:
+                    top_row_idx = sheet_config.top_header_rows_override[0]
+                    top_rows = list(reader.iter_rows(sheet_name, start_row=top_row_idx, end_row=top_row_idx))
+                else:
+                    top_rows = list(reader.iter_rows(sheet_name, start_row=header_row - 1, end_row=header_row - 1))
                 top_header_row = top_rows[0] if top_rows else None
 
             if bottom_header_row is not None:

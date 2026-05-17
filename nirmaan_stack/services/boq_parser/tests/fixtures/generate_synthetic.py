@@ -550,6 +550,72 @@ def generate_pattern_2_rate() -> Path:
 
 
 # ------------------------------------------------------------------
+# synthetic_pattern_2_rate_plural.xlsx  (Pattern 2-rate — RATES plural in rate header)
+# ------------------------------------------------------------------
+
+def generate_pattern_2_rate_plural() -> Path:
+    """
+    Pattern 2-rate with "RATES" (plural) in the bottom header rate cells.
+
+    Identical to generate_pattern_2_rate() except D2 and G2 use "RATES" instead of "Rate".
+    Tests F3b (§9 #62): _RATE_CELL_PATTERN must accept RATES plural alongside RATE singular.
+
+    Row 1 (top header): area labels merged across 3 columns each.
+      A1="Sl.No."  B1="Description"  C1:E1="PHASE-1"  F1:H1="PHASE-2"
+    Row 2 (bottom header, header_row=2): column sub-labels — note "RATES" plural.
+      A2="Sl.No."  B2="Description"
+      C2="Qty"  D2="RATES"  E2="Amount"
+      F2="Qty"  G2="RATES"  H2="Amount"
+    Rows 3-4: same data rows as generate_pattern_2_rate().
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pattern 2 Rate Plural"
+
+    # Row 1 — top header: 3-col merges for each area
+    ws["A1"] = "Sl.No."
+    ws["B1"] = "Description"
+    ws["C1"] = "PHASE-1"
+    ws.merge_cells("C1:E1")
+    ws["F1"] = "PHASE-2"
+    ws.merge_cells("F1:H1")
+
+    # Row 2 — bottom header: qty/RATES/amount sub-labels (RATES plural)
+    ws["A2"] = "Sl.No."
+    ws["B2"] = "Description"
+    ws["C2"] = "Qty"
+    ws["D2"] = "RATES"   # plural — tests F3b regex widening
+    ws["E2"] = "Amount"
+    ws["F2"] = "Qty"
+    ws["G2"] = "RATES"   # plural — tests F3b regex widening
+    ws["H2"] = "Amount"
+
+    # Row 3 — first data row
+    ws["A3"] = 1.0
+    ws["B3"] = "Electrical works"
+    ws["C3"] = 10.0
+    ws["D3"] = 100.0
+    ws["E3"] = 1000.0
+    ws["F3"] = 20.0
+    ws["G3"] = 110.0
+    ws["H3"] = 2200.0
+
+    # Row 4 — second data row
+    ws["A4"] = 2.0
+    ws["B4"] = "Civil works"
+    ws["C4"] = 5.0
+    ws["D4"] = 200.0
+    ws["E4"] = 1000.0
+    ws["F4"] = 8.0
+    ws["G4"] = 200.0
+    ws["H4"] = 1600.0
+
+    path = _path("synthetic_pattern_2_rate_plural.xlsx")
+    wb.save(str(path))
+    return path
+
+
+# ------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------
 
@@ -564,6 +630,7 @@ def generate_all() -> None:
     generate_multi_area()
     generate_multi_area_2row()
     generate_pattern_2_rate()
+    generate_pattern_2_rate_plural()
 
 
 if __name__ == "__main__":

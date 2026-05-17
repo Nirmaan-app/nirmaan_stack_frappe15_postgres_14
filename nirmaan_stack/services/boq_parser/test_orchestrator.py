@@ -967,17 +967,12 @@ class TestPhase19cRealFixturesRaheja(unittest.TestCase):
         cls.result = parse_boq(str(_RAHEJA_FIXTURE), config)
         cls.sheet = cls.result.sheets[0]
 
-    @unittest.expectedFailure
     def test_electrical_pattern_2_rate_detected(self):
         """
-        F3b: Pattern 2-rate detection fails on real Raheja Electrical because the
-        sheet uses "RATES" (plural) in the bottom header row, but _RATE_CELL_PATTERN
-        in multi_area_detection.py only matches "RATE" (singular, regex ^\\s*rate\\s*$).
-        Result: 3-col-per-area merge rejected, falls through to Pattern 1.
-        Synthetic fixture used "RATE" singular, so this wasn't caught at Phase 1.9a.
-        Phase 1.9d candidate: extend regex to ^\\s*rates?\\s*$ + audit-script regression
-        check against 24 real fixtures + new synthetic with RATES-plural shape.
-        Surfaced 2026-05-17 in Phase 1.9c.
+        F3b CLOSED (§9 #62, Phase 1.9d 2026-05-17): _RATE_CELL_PATTERN widened from
+        ^\\s*rate\\s*$ to ^\\s*rates?\\s*$ to accept RATES plural alongside RATE singular.
+        Raheja Commerzone Electrical uses "RATES" in the bottom header row — now detects
+        Pattern 2-rate directly instead of falling through to Pattern 1.
         """
         self.assertIsNotNone(self.sheet.multi_area_pattern)
         self.assertEqual(self.sheet.multi_area_pattern.pattern, "pattern_2_rate")
@@ -1042,6 +1037,7 @@ class TestPhase19cRealFixturesRahejaHVAC(unittest.TestCase):
                 sheet_name="HVAC ",
                 header_row=15,
                 header_row_count=2,
+                top_header_rows_override=[2],
                 area_dimensions=["PHASE-1", "PHASE-2"],
                 column_role_map={
                     "A": ColumnRole(role="sl_no"),
@@ -1059,15 +1055,12 @@ class TestPhase19cRealFixturesRahejaHVAC(unittest.TestCase):
         cls.result = parse_boq(str(_RAHEJA_FIXTURE), config)
         cls.sheet = cls.result.sheets[0]
 
-    @unittest.expectedFailure
     def test_hvac_pattern_2_rate_with_header_gap(self):
         """
-        F5: Pattern 2-rate detection cannot bridge the 13-row gap between the merged-area-name
-        top row (row 2) and the bottom header row (row 15). The orchestrator reads row 14
-        (blank summary boundary) as the top header — no merged area names found → pattern None.
-
-        Current SheetConfig lacks a top_header_row_override field. Phase 1.9d candidate to
-        add gap support. Surfaced 2026-05-17 in Phase 1.9c real-fixture testing.
+        F5-b CLOSED (§9 #63, Phase 1.9d 2026-05-17): SheetConfig.top_header_rows_override=[2]
+        directs the orchestrator to read row 2 (merged area-name row) as the top header,
+        bridging the 13-row gap between area names (row 2) and bottom header (row 15).
+        Raheja HVAC now detects Pattern 2-rate and finds PHASE-1 / PHASE-2 areas.
         """
         self.assertIsNotNone(self.sheet.multi_area_pattern)
         self.assertEqual(self.sheet.multi_area_pattern.pattern, "pattern_2_rate")

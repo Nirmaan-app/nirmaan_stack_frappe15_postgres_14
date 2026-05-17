@@ -943,7 +943,36 @@ class TestPattern2Rate(unittest.TestCase):
         self.assertIsNone(result.rate_columns)
 
     # ------------------------------------------------------------------ #
-    # Test 4 — reserved keyword blocks detection (insufficient areas)    #
+    # Test 4 — RATES plural header accepted (F3b §9 #62 CLOSED)          #
+    # ------------------------------------------------------------------ #
+
+    def test_pattern_2_rate_detects_rates_plural_header(self):
+        """F3b CLOSED (§9 #62, Phase 1.9d): RATES plural in rate header cell now matches."""
+        top_row = _make_row(1, {
+            "C": {"value": "PHASE-1", "is_merged_origin": True,  "merged_range": "C1:E1"},
+            "D": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "F": {"value": "PHASE-2", "is_merged_origin": True,  "merged_range": "F1:H1"},
+            "G": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+            "H": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "RATES"},   # plural — was rejected before F3b fix
+            "E": {"value": "Amount"},
+            "F": {"value": "Qty"},
+            "G": {"value": "RATES"},   # plural — was rejected before F3b fix
+            "H": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "pattern_2_rate")
+        self.assertEqual(result.areas, ["PHASE-1", "PHASE-2"])
+        self.assertIsNotNone(result.rate_columns)
+        self.assertEqual(len(result.rate_columns), 2)
+
+    # ------------------------------------------------------------------ #
+    # Test 5 — reserved keyword blocks detection (insufficient areas)    #
     # ------------------------------------------------------------------ #
 
     def test_pattern_2_rate_reserved_keyword_blocks_detection(self):

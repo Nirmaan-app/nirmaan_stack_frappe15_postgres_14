@@ -77,11 +77,23 @@ class SheetConfig(BaseModel):
     header_row: int | None = None
     header_row_count: Literal[1, 2] = 1
     skip_top_rows_after_header: list[int] = []
+    top_header_rows_override: list[int] | None = None
     column_role_map: dict[str, ColumnRole] = {}
     column_headers: dict[str, str] = {}
     area_dimensions: list[str] = []
     rate_only_markers_override: list[str] | None = None
     level_1_style_override: Optional[Literal["letter", "roman", "numeric", "part"]] = None
+
+    @field_validator("top_header_rows_override")
+    @classmethod
+    def _validate_top_header_rows_override(cls, v: list[int] | None) -> list[int] | None:
+        if v is None or len(v) == 0:
+            return None  # normalize empty list to None for fallback simplicity
+        if len(v) != len(set(v)):
+            raise ValueError("top_header_rows_override entries must be unique")
+        if any(r < 1 for r in v):
+            raise ValueError("top_header_rows_override entries must be >= 1")
+        return v
 
     @field_validator("column_role_map", mode="before")
     @classmethod
@@ -139,6 +151,15 @@ class SheetConfig(BaseModel):
                     f"sheet '{self.sheet_name}': column '{col_letter}' references "
                     f"area '{cr.area}' which is not in area_dimensions {self.area_dimensions}"
                 )
+
+        # top_header_rows_override entries must be < header_row (cross-field check)
+        if self.top_header_rows_override is not None and self.header_row is not None:
+            for r in self.top_header_rows_override:
+                if r >= self.header_row:
+                    raise ValueError(
+                        f"sheet '{self.sheet_name}': top_header_rows_override entry {r} "
+                        f"must be less than header_row {self.header_row}"
+                    )
 
         return self
 

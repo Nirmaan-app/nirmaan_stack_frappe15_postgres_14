@@ -389,5 +389,80 @@ class TestMappingConfig(unittest.TestCase):
         self.assertEqual(s.column_headers, {"D": "Floor", "E": "Area"})
 
 
+class TestTopHeaderRowsOverride(unittest.TestCase):
+    """Phase 1.9d F5-b — validation tests for SheetConfig.top_header_rows_override."""
+
+    # ------------------------------------------------------------------ #
+    # Test 28 — defaults to None                                          #
+    # ------------------------------------------------------------------ #
+
+    def test_top_header_rows_override_none_default(self):
+        """Field defaults to None when not provided."""
+        s = SheetConfig(sheet_name="S", header_row=10, header_row_count=2)
+        self.assertIsNone(s.top_header_rows_override)
+
+    # ------------------------------------------------------------------ #
+    # Test 29 — valid single-element list accepted                        #
+    # ------------------------------------------------------------------ #
+
+    def test_top_header_rows_override_accepts_valid_single_element_list(self):
+        """[2] with header_row=15 validates successfully and round-trips."""
+        s = SheetConfig(
+            sheet_name="HVAC",
+            header_row=15,
+            header_row_count=2,
+            top_header_rows_override=[2],
+        )
+        self.assertEqual(s.top_header_rows_override, [2])
+
+    # ------------------------------------------------------------------ #
+    # Test 30 — empty list normalised to None                             #
+    # ------------------------------------------------------------------ #
+
+    def test_top_header_rows_override_empty_list_normalised_to_none(self):
+        """Empty list [] is normalised to None by the field validator."""
+        s = SheetConfig(sheet_name="S", header_row=10, top_header_rows_override=[])
+        self.assertIsNone(s.top_header_rows_override)
+
+    # ------------------------------------------------------------------ #
+    # Test 31 — duplicate entries rejected                                #
+    # ------------------------------------------------------------------ #
+
+    def test_top_header_rows_override_rejects_duplicates(self):
+        """[2, 2] raises ValidationError (entries must be unique)."""
+        with self.assertRaises(ValidationError):
+            SheetConfig(
+                sheet_name="S",
+                header_row=15,
+                top_header_rows_override=[2, 2],
+            )
+
+    # ------------------------------------------------------------------ #
+    # Test 32 — zero/negative entries rejected                            #
+    # ------------------------------------------------------------------ #
+
+    def test_top_header_rows_override_rejects_zero_or_negative(self):
+        """[0] raises ValidationError (entries must be >= 1)."""
+        with self.assertRaises(ValidationError):
+            SheetConfig(
+                sheet_name="S",
+                header_row=15,
+                top_header_rows_override=[0],
+            )
+
+    # ------------------------------------------------------------------ #
+    # Test 33 — entry at or above header_row rejected (cross-field)      #
+    # ------------------------------------------------------------------ #
+
+    def test_top_header_rows_override_rejects_entry_at_or_above_header_row(self):
+        """[15] with header_row=15 raises ValidationError (must be < header_row)."""
+        with self.assertRaises(ValidationError):
+            SheetConfig(
+                sheet_name="S",
+                header_row=15,
+                top_header_rows_override=[15],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

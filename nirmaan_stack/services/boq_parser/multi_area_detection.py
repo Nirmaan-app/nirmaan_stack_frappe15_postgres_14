@@ -57,8 +57,9 @@ _AMOUNT_CELL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Pattern 2-rate detection accepts "RATE" and "RATES" (plural) per §9 #62 F3b fix (Phase 1.9d 2026-05-17).
 _RATE_CELL_PATTERN = re.compile(
-    r"^\s*rate\s*$",
+    r"^\s*rates?\s*$",
     re.IGNORECASE,
 )
 
