@@ -22,14 +22,15 @@ from openpyxl.utils import column_index_from_string  # noqa: E402
 
 from nirmaan_stack.services.boq_parser.classifier import (  # noqa: E402
     RowClassification,
-    _HEADER_KW,
 )
 from nirmaan_stack.services.boq_parser.config import (  # noqa: E402
-    ColumnRole,
     GlobalSettings,
     MappingConfig,
     MasterBoqMetadata,
     SheetConfig,
+)
+from nirmaan_stack.services.boq_parser._auto_guess import (  # noqa: E402
+    auto_guess_sheet_config,
 )
 from nirmaan_stack.services.boq_parser.multi_area_detection import (  # noqa: E402
     MultiAreaPattern,
@@ -101,13 +102,6 @@ REAL_FIXTURE_NAMES: list[str] = [
 ]
 
 SNITCH_FIXTURE = "snitch_electrical.xlsx"
-
-# Singleton roles (must appear at most once in column_role_map per SheetConfig validator)
-_SINGLETON_ROLES = frozenset({
-    "sl_no", "description", "unit", "qty_total",
-    "rate_supply", "rate_install", "rate_combined",
-    "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
-})
 
 
 # ---------------------------------------------------------------------------
@@ -201,65 +195,17 @@ def select_sheets(reader: BoqReader) -> tuple[list[str], list[dict]]:
 # Step 2 — Auto-guess MappingConfig (zero user declaration)
 # ---------------------------------------------------------------------------
 
-def _auto_guess_sheet_config(reader: BoqReader, sheet_name: str) -> SheetConfig:
-    header_row = reader.detect_header_row(sheet_name, scan_top_n=50)
-    assert header_row is not None
-
-    header_rows = list(reader.iter_rows(sheet_name, start_row=header_row, end_row=header_row))
-    if not header_rows:
-        return SheetConfig(sheet_name=sheet_name, header_row=header_row)
-
-    header_raw = header_rows[0]
-    column_role_map: dict[str, ColumnRole] = {}
-    assigned_singletons: set[str] = set()
-
-    sorted_cells = sorted(
-        header_raw.cells.items(),
-        key=lambda kv: column_index_from_string(kv[0]),
-    )
-
-    for col_letter, ci in sorted_cells:
-        if ci.value is None:
-            continue
-        cell_text = _normalize(str(ci.value))
-        if not cell_text:
-            continue
-
-        # Substring match against _HEADER_KW (same logic as classifier.py)
-        matched_role: str | None = None
-        for role_key, kw_set in _HEADER_KW.items():
-            if any(kw in cell_text for kw in kw_set):
-                matched_role = role_key
-                break
-
-        if matched_role is None:
-            continue
-
-        # Skip if singleton already assigned (avoid MappingConfig validation error)
-        if matched_role in _SINGLETON_ROLES and matched_role in assigned_singletons:
-            continue
-
-        # amount_by_area requires area= — skip it (not in _HEADER_KW anyway, but guard)
-        if matched_role in {"amount_by_area", "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area"}:
-            continue
-
-        column_role_map[col_letter] = ColumnRole(role=matched_role)  # type: ignore[arg-type]
-        if matched_role in _SINGLETON_ROLES:
-            assigned_singletons.add(matched_role)
-
-    return SheetConfig(
-        sheet_name=sheet_name,
-        header_row=header_row,
-        column_role_map=column_role_map,
-    )
-
-
 def _build_mapping_config(reader: BoqReader, fixture_name: str, selected: list[str]) -> MappingConfig:
     """MappingConfig with zero user declaration — auto-guessed from header rows."""
-    sheet_configs = [_auto_guess_sheet_config(reader, s) for s in selected]
-    # MappingConfig requires project + master_boq fields (actual class shape).
-    # Adaptation from Step 2 spec: spec described a dict-based shape; actual shape is
-    # list[SheetConfig] with mandatory project + master_boq. See self-report item 16.
+    sheet_configs: list[SheetConfig] = []
+    for sheet_name in selected:
+        header_row = reader.detect_header_row(sheet_name, scan_top_n=50)
+        assert header_row is not None
+        sc = auto_guess_sheet_config(
+            reader, sheet_name, header_row, 1,
+            GlobalSettings().multi_area_reserved_keywords,
+        )
+        sheet_configs.append(sc)
     return MappingConfig(
         project="stress-test-auto",
         master_boq=MasterBoqMetadata(boq_name=fixture_name),

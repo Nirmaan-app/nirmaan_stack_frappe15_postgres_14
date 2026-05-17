@@ -42,14 +42,13 @@ _APP_ROOT = _SCRIPT_DIR.parent.parent.parent  # .../apps/nirmaan_stack/
 if str(_APP_ROOT) not in sys.path:
     sys.path.insert(0, str(_APP_ROOT))
 
-from openpyxl.utils import column_index_from_string  # noqa: E402
-
+from nirmaan_stack.services.boq_parser._auto_guess import (  # noqa: E402
+    auto_guess_sheet_config,
+)
 from nirmaan_stack.services.boq_parser.classifier import (  # noqa: E402
     RowClassification,
-    _HEADER_KW,
 )
 from nirmaan_stack.services.boq_parser.config import (  # noqa: E402
-    ColumnRole,
     GlobalSettings,
     MappingConfig,
     MasterBoqMetadata,
@@ -60,16 +59,6 @@ from nirmaan_stack.services.boq_parser.multi_area_detection import (  # noqa: E4
 )
 from nirmaan_stack.services.boq_parser.orchestrator import parse_boq  # noqa: E402
 from nirmaan_stack.services.boq_parser.reader import BoqReader  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Constants — mirrors 1.9e _SINGLETON_ROLES guard
-# ---------------------------------------------------------------------------
-
-_SINGLETON_ROLES = frozenset({
-    "sl_no", "description", "unit", "qty_total",
-    "rate_supply", "rate_install", "rate_combined",
-    "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
-})
 
 FIXTURES_DIR = _SCRIPT_DIR / "tests" / "fixtures"
 
@@ -101,73 +90,13 @@ TARGETS: list[dict] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Auto-guess column_role_map — mirrors _auto_guess_sheet_config from 1.9e
-# (header_row_count is the ONLY deliberate variable; everything else verbatim)
+# Build per-hrc SheetConfig via shared auto_guess_sheet_config module
 # ---------------------------------------------------------------------------
 
-def _normalize(s: str) -> str:
-    return " ".join(str(s).strip().lower().split())
-
-
-def _auto_guess_column_role_map(reader: BoqReader, sheet_name: str, header_row: int) -> dict[str, ColumnRole]:
-    """Read the bottom header row and assign roles — mirrors 1.9e logic exactly."""
-    header_rows = list(reader.iter_rows(sheet_name, start_row=header_row, end_row=header_row))
-    if not header_rows:
-        return {}
-
-    header_raw = header_rows[0]
-    column_role_map: dict[str, ColumnRole] = {}
-    assigned_singletons: set[str] = set()
-
-    sorted_cells = sorted(
-        header_raw.cells.items(),
-        key=lambda kv: column_index_from_string(kv[0]),
-    )
-
-    for col_letter, ci in sorted_cells:
-        if ci.value is None:
-            continue
-        cell_text = _normalize(str(ci.value))
-        if not cell_text:
-            continue
-
-        matched_role: str | None = None
-        for role_key, kw_set in _HEADER_KW.items():
-            if any(kw in cell_text for kw in kw_set):
-                matched_role = role_key
-                break
-
-        if matched_role is None:
-            continue
-        if matched_role in _SINGLETON_ROLES and matched_role in assigned_singletons:
-            continue
-        if matched_role in {"amount_by_area", "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area"}:
-            continue
-
-        column_role_map[col_letter] = ColumnRole(role=matched_role)  # type: ignore[arg-type]
-        if matched_role in _SINGLETON_ROLES:
-            assigned_singletons.add(matched_role)
-
-    return column_role_map
-
-
 def _build_sheet_config(reader: BoqReader, sheet_name: str, header_row: int, header_row_count: int) -> SheetConfig:
-    column_role_map = _auto_guess_column_role_map(reader, sheet_name, header_row)
-    return SheetConfig(
-        sheet_name=sheet_name,
-        header_row=header_row,
-        header_row_count=header_row_count,  # type: ignore[arg-type]
-        column_role_map=column_role_map,
-    )
-
-
-def _build_mapping_config(reader: BoqReader, workbook_path: Path, sheet_name: str, header_row: int, header_row_count: int) -> MappingConfig:
-    sc = _build_sheet_config(reader, sheet_name, header_row, header_row_count)
-    return MappingConfig(
-        project="triage-1-9f",
-        master_boq=MasterBoqMetadata(boq_name=workbook_path.name),
-        global_settings=GlobalSettings(),
-        sheets=[sc],
+    return auto_guess_sheet_config(
+        reader, sheet_name, header_row, header_row_count,
+        GlobalSettings().multi_area_reserved_keywords,
     )
 
 # ---------------------------------------------------------------------------
