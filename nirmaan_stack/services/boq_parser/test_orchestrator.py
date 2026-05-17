@@ -472,6 +472,65 @@ class TestMultiAreaDetectionIntegration(unittest.TestCase):
 
 
 # ================================================================ #
+# Phase 1.9g — Pre-header row skip guard                           #
+# ================================================================ #
+
+
+class TestPreHeaderSkip(unittest.TestCase):
+    """Phase 1.9g — rows with row_number < header_row must not appear in resolved_rows."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import (
+            generate_multi_area_2row,
+            generate_pattern_2_rate,
+            generate_simple,
+        )
+        generate_multi_area_2row()
+        generate_pattern_2_rate()
+        generate_simple()
+        cls._2row_result = parse_boq(_p("synthetic_multi_area_2row.xlsx"), _multi_area_2row_config())
+        cls._rate_result = parse_boq(_p("synthetic_pattern_2_rate.xlsx"), _pattern_2_rate_config())
+        cls._simple_result = parse_boq(_p("synthetic_simple.xlsx"), _simple_config())
+
+    def test_pre_header_row_absent_from_resolved_rows(self):
+        """
+        synthetic_multi_area_2row.xlsx: header_row=2, so row 1 (top area-label row)
+        is a pre-header row and must not appear in resolved_rows after the fix.
+        """
+        sheet = self._2row_result.sheets[0]
+        pre_header = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.raw_row.row_number < 2
+        ]
+        self.assertEqual(pre_header, [], "Row 1 must not be in resolved_rows when header_row=2")
+
+    def test_pre_header_row_absent_pattern_2_rate(self):
+        """
+        synthetic_pattern_2_rate.xlsx: header_row=2, so row 1 (PHASE-1/PHASE-2 merge row)
+        is a pre-header row and must not appear in resolved_rows after the fix.
+        """
+        sheet = self._rate_result.sheets[0]
+        pre_header = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.raw_row.row_number < 2
+        ]
+        self.assertEqual(pre_header, [], "Row 1 must not be in resolved_rows when header_row=2")
+
+    def test_pre_header_skip_is_noop_for_header_row_1(self):
+        """
+        synthetic_simple.xlsx: header_row=1, so the guard row_number >= 1 accepts all rows
+        and must not accidentally drop any data rows (rows 2, 3, 5).
+        """
+        sheet = self._simple_result.sheets[0]
+        row_numbers = {rr.classified_row.raw_row.row_number for rr in sheet.resolved_rows}
+        self.assertIn(2, row_numbers, "Row 2 (First item) must remain in resolved_rows")
+        self.assertIn(3, row_numbers, "Row 3 (Second item) must remain in resolved_rows")
+        self.assertIn(5, row_numbers, "Row 5 (Bold item) must remain in resolved_rows")
+
+
+# ================================================================ #
 # Phase 2b.2 Part B2c — Snitch real-fixture integration tests      #
 # ================================================================ #
 
@@ -679,8 +738,8 @@ class TestSnitchIntegration(unittest.TestCase):
     # ---------------------------------------------------------------- #
 
     def test_snitch_light_fixtures_total_resolved_row_count(self):
-        """7. Light Fixtures resolves to exactly 16 rows."""
-        self.assertEqual(len(self.lf_sheet.resolved_rows), 16)
+        """7. Light Fixtures resolves to exactly 15 rows (16 minus the pre-header disclaimer at Excel row 1)."""
+        self.assertEqual(len(self.lf_sheet.resolved_rows), 15)
 
     # ---------------------------------------------------------------- #
     # Test 10 — Light Fixtures first 5 line items                     #

@@ -190,6 +190,7 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
         raw_rows = [
             rr for rr in reader.iter_rows(sheet_name)
             if rr.row_number not in skip_rows
+            and (header_row is None or rr.row_number >= header_row)
         ]
 
         # Step 2: Classify each row

@@ -194,68 +194,68 @@
       ]
     },
     "7. Light Fixtures": {
-      "total_resolved_row_count": 16,
+      "total_resolved_row_count": 15,
       "count_by_classification": {
         "LINE_ITEM": 14,
         "PREAMBLE": 0,
-        "NOTE": 1,
+        "NOTE": 0,
         "SUBTOTAL_MARKER": 1
       },
       "first_5_line_items": [
         {
-          "resolved_idx": 1,
+          "resolved_idx": 0,
           "classification": "LINE_ITEM",
           "sl_no_value": "1.0",
           "description": "Suspended LED Linear Light with electronic ballast.",
           "unit": "Nos",
           "qty": 120.0,
+          "path": "0",
+          "level": null
+        },
+        {
+          "resolved_idx": 1,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "2.0",
+          "description": "Recessed LED Linear Light with electronic ballast.",
+          "unit": "Nos",
+          "qty": 30.0,
           "path": "1",
           "level": null
         },
         {
           "resolved_idx": 2,
           "classification": "LINE_ITEM",
-          "sl_no_value": "2.0",
-          "description": "Recessed LED Linear Light with electronic ballast.",
+          "sl_no_value": "3.0",
+          "description": "Suspended Decorative Gloves light:Dia 350mm With electronic ballast.",
           "unit": "Nos",
-          "qty": 30.0,
+          "qty": 4.0,
           "path": "2",
           "level": null
         },
         {
           "resolved_idx": 3,
           "classification": "LINE_ITEM",
-          "sl_no_value": "3.0",
-          "description": "Suspended Decorative Gloves light:Dia 350mm With electronic ballast.",
+          "sl_no_value": "4.0",
+          "description": "Recessed & Suspended light fixture (600x600) with electronic ballast.",
           "unit": "Nos",
-          "qty": 4.0,
+          "qty": 20.0,
           "path": "3",
           "level": null
         },
         {
           "resolved_idx": 4,
           "classification": "LINE_ITEM",
-          "sl_no_value": "4.0",
-          "description": "Recessed & Suspended light fixture (600x600) with electronic ballast.",
-          "unit": "Nos",
-          "qty": 20.0,
-          "path": "4",
-          "level": null
-        },
-        {
-          "resolved_idx": 5,
-          "classification": "LINE_ITEM",
           "sl_no_value": "5.0",
           "description": "Downlight fixture Type -01",
           "unit": "Nos",
           "qty": 300.0,
-          "path": "5",
+          "path": "4",
           "level": null
         }
       ],
       "subtotal_markers": [
         {
-          "resolved_idx": 15,
+          "resolved_idx": 14,
           "sl_no_value": "",
           "description": "TOTAL - SUPPLY OF LIGHTS",
           "path": null,
@@ -264,7 +264,7 @@
       ],
       "preamble_level_transitions": [],
       "row_16_preamble_anomaly": {
-        "row_index_in_resolved": 14,
+        "row_index_in_resolved": 13,
         "sl_no_value": "14.0",
         "description_contains": "Silver Series Digital PIR",
         "unit": "NOS",
@@ -272,7 +272,7 @@
         "qty": 0.0,
         "is_rate_only": true,
         "level": null,
-        "path": "14",
+        "path": "13",
         "anomaly_reason": "B2f zero-children demotion: classifier set PREAMBLE (blank col D qty); B2f demotes leaf PREAMBLE with unit='NOS' to LINE_ITEM(qty=0.0, is_rate_only=True)"
       }
     }
