@@ -181,8 +181,10 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
         : null;
     // Amount: not a strict match (partial invoices are normal). Just show both;
     // mark mismatch only if the AI total exceeds PO total.
+    // Tolerate up to ₹10 of rounding drift — must match the backend hard-block
+    // threshold in update_invoice_data._check_po_amount_overage.
     const aiTotalExceeds =
-        aiTotalAmount > 0 && systemPoTotal > 0 && aiTotalAmount > systemPoTotal + 0.01;
+        aiTotalAmount > 0 && systemPoTotal > 0 && aiTotalAmount > systemPoTotal + 10;
     const amountMatch: boolean | null = aiTotalAmount > 0 ? !aiTotalExceeds : null;
 
     const usedAutofill = !!invoice.autofill_used;

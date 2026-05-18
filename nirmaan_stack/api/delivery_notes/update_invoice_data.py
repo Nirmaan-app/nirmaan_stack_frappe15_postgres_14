@@ -14,6 +14,11 @@ from frappe.model.document import Document
 from typing import Optional
 import json
 
+from nirmaan_stack.api.invoices._auto_approve import (
+    apply_auto_approval,
+    evaluate_auto_approve_eligibility,
+)
+
 
 @frappe.whitelist()
 def update_invoice_data(
@@ -27,7 +32,10 @@ def update_invoice_data(
     autofill_extracted_invoice_no: str = None,
     autofill_extracted_invoice_date: str = None,
     autofill_extracted_amount: str = None,
+    autofill_extracted_supplier_gstin: str = None,
+    autofill_extracted_receiver_gstin: str = None,
     autofill_all_entities_json: str = None,
+    autofill_source_file_url: str = None,
 ):
     """
     Creates or updates an invoice entry for a document (PO or SR).
@@ -159,8 +167,32 @@ def update_invoice_data(
                     autofill_extracted_invoice_no=autofill_extracted_invoice_no,
                     autofill_extracted_invoice_date=autofill_extracted_invoice_date,
                     autofill_extracted_amount=autofill_extracted_amount,
+                    autofill_extracted_supplier_gstin=autofill_extracted_supplier_gstin,
+                    autofill_extracted_receiver_gstin=autofill_extracted_receiver_gstin,
                     autofill_all_entities_json=autofill_all_entities_json,
                 )
+
+                # Auto-approve evaluation. Fires inline on fresh inserts (never
+                # on edits — manual edit flow stays as-is). Runs in the same
+                # transaction so there's no Pending → Approved flicker.
+                try:
+                    eligible, fail_reasons = evaluate_auto_approve_eligibility(
+                        invoice_doc=vendor_invoice,
+                        parent_doc=doc,
+                        autofill_source_file_url=autofill_source_file_url,
+                    )
+                    if eligible:
+                        apply_auto_approval(vendor_invoice)
+                    else:
+                        apply_auto_approval(vendor_invoice, fail_reasons=fail_reasons)
+                    vendor_invoice.save(ignore_permissions=True)
+                except Exception:
+                    # Auto-approve failure must never block invoice creation —
+                    # invoice stays Pending and a human reviews it.
+                    frappe.log_error(
+                        title="Auto-approve evaluation failed",
+                        message=frappe.get_traceback(),
+                    )
         except Exception as invoice_err:
             frappe.log_error(
                 f"Failed to {'update' if invoice_id else 'create'} Vendor Invoice for {doctype} {docname}",
@@ -242,6 +274,8 @@ def create_vendor_invoice(
     autofill_extracted_invoice_no: Optional[str] = None,
     autofill_extracted_invoice_date: Optional[str] = None,
     autofill_extracted_amount: Optional[str] = None,
+    autofill_extracted_supplier_gstin: Optional[str] = None,
+    autofill_extracted_receiver_gstin: Optional[str] = None,
     autofill_all_entities_json: Optional[str] = None,
 ) -> Document:
     """
@@ -290,6 +324,8 @@ def create_vendor_invoice(
         "autofill_extracted_invoice_no": autofill_extracted_invoice_no if autofill_used else None,
         "autofill_extracted_invoice_date": autofill_extracted_invoice_date if autofill_used else None,
         "autofill_extracted_amount": autofill_extracted_amount if autofill_used else None,
+        "autofill_extracted_supplier_gstin": autofill_extracted_supplier_gstin if autofill_used else None,
+        "autofill_extracted_receiver_gstin": autofill_extracted_receiver_gstin if autofill_used else None,
         "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
     })
     invoice.insert(ignore_permissions=True)
@@ -452,7 +488,10 @@ def _check_po_amount_overage(po_name: str, new_amount, exclude_invoice_id: Optio
     existing = float(rows[0].get("total") or 0) if rows else 0.0
 
     would_be_total = existing + new_amount_float
-    if would_be_total > po_total + 0.01:  # tolerate float fuzz
+    # Tolerate up to ₹10 of rounding drift (GST/freight rounding on real invoices
+    # commonly differ from PO totals by a few rupees). Tighter than this triggered
+    # spurious blocks on legitimate ₹0.10–₹5 deltas.
+    if would_be_total > po_total + 10:
         frappe.throw(
             f"Total invoiced amount would be ₹{would_be_total:,.2f}, which exceeds "
             f"the PO total of ₹{po_total:,.2f}. Already invoiced ₹{existing:,.2f}. "

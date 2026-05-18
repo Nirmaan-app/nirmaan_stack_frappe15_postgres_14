@@ -64,6 +64,7 @@ interface NewProjectInvoiceDialogProps {
 interface InvoiceFormState {
     invoice_no: string;
     amount: string;
+    amount_excl_gst: string;
     date: string;
     project: string;
     project_name: string;
@@ -75,6 +76,7 @@ interface InvoiceFormState {
 const INITIAL_FORM_STATE: InvoiceFormState = {
     invoice_no: "",
     amount: "",
+    amount_excl_gst: "",
     date: formatDateFns(new Date(), "yyyy-MM-dd"),
     project: "",
     project_name: "",
@@ -99,13 +101,14 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
 
     // Document AI autofill state
     const [isAutofilling, setIsAutofilling] = useState(false);
-    const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount">>(new Set());
+    const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount" | "amount_excl_gst">>(new Set());
     const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
     const [autofillConfidence, setAutofillConfidence] = useState<Record<string, number> | null>(null);
     const [autofillExtractedValues, setAutofillExtractedValues] = useState<{
         invoice_no?: string;
         invoice_date?: string;
         amount?: string;
+        net_amount?: string;
     } | null>(null);
     const [autofillAllEntities, setAutofillAllEntities] = useState<
         Array<{ type: string; value: string; confidence: number }> | null
@@ -225,7 +228,7 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
         setFormErrors({});
     }, [projects, customers]);
 
-    const clearAutofillFlag = useCallback((field: "invoice_no" | "date" | "amount") => {
+    const clearAutofillFlag = useCallback((field: "invoice_no" | "date" | "amount" | "amount_excl_gst") => {
         setAutofilledFields(prev => {
             if (!prev.has(field)) return prev;
             const next = new Set(prev);
@@ -274,7 +277,7 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
 
             // Compute updates synchronously so `filled.size` reflects the actual
             // count when we decide which toast to show.
-            const filled = new Set<"invoice_no" | "date" | "amount">();
+            const filled = new Set<"invoice_no" | "date" | "amount" | "amount_excl_gst">();
             const updates: Partial<InvoiceFormState> = {};
             if (extracted.invoice_no) {
                 updates.invoice_no = extracted.invoice_no;
@@ -287,6 +290,10 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
             if (extracted.amount) {
                 updates.amount = String(extracted.amount);
                 filled.add("amount");
+            }
+            if (extracted.net_amount) {
+                updates.amount_excl_gst = String(extracted.net_amount);
+                filled.add("amount_excl_gst");
             }
 
             if (Array.isArray(extracted.entities)) {
@@ -303,6 +310,7 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                 invoice_no: extracted.invoice_no || "",
                 invoice_date: extracted.invoice_date || "",
                 amount: extracted.amount ? String(extracted.amount) : "",
+                net_amount: extracted.net_amount ? String(extracted.net_amount) : "",
             });
             if (extracted.confidence && typeof extracted.confidence === "object") {
                 setAutofillConfidence(extracted.confidence);
@@ -317,6 +325,7 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                     if (filled.has("invoice_no")) delete next.invoice_no;
                     if (filled.has("date")) delete next.date;
                     if (filled.has("amount")) delete next.amount;
+                    if (filled.has("amount_excl_gst")) delete next.amount_excl_gst;
                     return next;
                 });
             }
@@ -402,6 +411,10 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                 attachment: fileUrl,
                 project: invoiceData.project,
                 project_gst: invoiceData.project_gst,
+                // Excl. GST is optional — only persist when user entered or AI filled it
+                ...(invoiceData.amount_excl_gst.trim() !== ""
+                    ? { amount_excl_gst: parseNumber(invoiceData.amount_excl_gst) }
+                    : {}),
                 // Autofill audit fields — only persisted when autofill was used
                 autofill_used: autofillUsed ? 1 : 0,
                 ...(autofillUsed && autofillProcessorId
@@ -415,6 +428,9 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                     : {}),
                 ...(autofillUsed && autofillExtractedValues?.amount
                     ? { autofill_extracted_amount: parseNumber(autofillExtractedValues.amount) }
+                    : {}),
+                ...(autofillUsed && autofillExtractedValues?.net_amount
+                    ? { autofill_extracted_net_amount: parseNumber(autofillExtractedValues.net_amount) }
                     : {}),
                 ...(autofillUsed && autofillConfidence
                     ? { autofill_confidence_json: JSON.stringify(autofillConfidence) }
@@ -873,46 +889,91 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                             </div>
                         </div>
 
-                        {/* Amount */}
-                        <div className="space-y-1.5">
-                            <Label htmlFor="amount" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
-                                Amount (Incl. GST) <span className="text-red-500">*</span>
-                            </Label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
-                                <Input
-                                    id="amount"
-                                    name="amount"
-                                    type="text"
-                                    inputMode="decimal"
-                                    placeholder="0.00"
-                                    value={invoiceData.amount}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (/^-?\d*\.?\d*$/.test(val)) {
-                                            clearAutofillFlag("amount");
-                                            setInvoiceData(prev => ({ ...prev, amount: val }));
-                                            if (formErrors.amount) {
-                                                setFormErrors(prev => ({ ...prev, amount: undefined }));
+                        {/* Amount Excl. GST + Incl. GST side-by-side */}
+                        <div className="grid grid-cols-2 gap-3">
+                            {/* Amount (Excl. GST) — optional, AI fills from net_amount */}
+                            <div className="space-y-1.5">
+                                <Label htmlFor="amount_excl_gst" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                    <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
+                                    Amount (Excl. GST)
+                                </Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                                    <Input
+                                        id="amount_excl_gst"
+                                        name="amount_excl_gst"
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0.00"
+                                        value={invoiceData.amount_excl_gst}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (/^-?\d*\.?\d*$/.test(val)) {
+                                                clearAutofillFlag("amount_excl_gst");
+                                                setInvoiceData(prev => ({ ...prev, amount_excl_gst: val }));
+                                                if (formErrors.amount_excl_gst) {
+                                                    setFormErrors(prev => ({ ...prev, amount_excl_gst: undefined }));
+                                                }
                                             }
-                                        }
-                                    }}
-                                    disabled={isLoading}
-                                    className={cn(
-                                        "pl-7 h-10 text-base font-medium transition-all",
-                                        "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
-                                        formErrors.amount && "border-red-300 focus:border-red-500 focus:ring-red-500/20",
-                                        autofilledFields.has("amount") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400"
-                                    )}
-                                />
+                                        }}
+                                        disabled={isLoading}
+                                        className={cn(
+                                            "pl-7 h-10 text-base font-medium transition-all",
+                                            "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
+                                            formErrors.amount_excl_gst && "border-red-300 focus:border-red-500 focus:ring-red-500/20",
+                                            autofilledFields.has("amount_excl_gst") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400"
+                                        )}
+                                    />
+                                </div>
+                                {formErrors.amount_excl_gst && (
+                                    <p className="text-xs text-red-500 flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        {formErrors.amount_excl_gst}
+                                    </p>
+                                )}
                             </div>
-                            {formErrors.amount && (
-                                <p className="text-xs text-red-500 flex items-center gap-1">
-                                    <AlertCircle className="w-3 h-3" />
-                                    {formErrors.amount}
-                                </p>
-                            )}
+
+                            {/* Amount (Incl. GST) — required */}
+                            <div className="space-y-1.5">
+                                <Label htmlFor="amount" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                    <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
+                                    Amount (Incl. GST) <span className="text-red-500">*</span>
+                                </Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                                    <Input
+                                        id="amount"
+                                        name="amount"
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0.00"
+                                        value={invoiceData.amount}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (/^-?\d*\.?\d*$/.test(val)) {
+                                                clearAutofillFlag("amount");
+                                                setInvoiceData(prev => ({ ...prev, amount: val }));
+                                                if (formErrors.amount) {
+                                                    setFormErrors(prev => ({ ...prev, amount: undefined }));
+                                                }
+                                            }
+                                        }}
+                                        disabled={isLoading}
+                                        className={cn(
+                                            "pl-7 h-10 text-base font-medium transition-all",
+                                            "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
+                                            formErrors.amount && "border-red-300 focus:border-red-500 focus:ring-red-500/20",
+                                            autofilledFields.has("amount") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400"
+                                        )}
+                                    />
+                                </div>
+                                {formErrors.amount && (
+                                    <p className="text-xs text-red-500 flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        {formErrors.amount}
+                                    </p>
+                                )}
+                            </div>
                         </div>
 
                             {/* Attached file summary */}
