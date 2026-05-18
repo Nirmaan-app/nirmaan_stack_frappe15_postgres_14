@@ -80,7 +80,7 @@ export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
     const filteredTypeConfig = TYPE_CONFIG.filter((config) => {
-        if (isProjectManager && config.type === "Invoice") return false;
+        if (isProjectManager && (config.type === "Invoice" || config.type === "ClientInvoice")) return false;
         return true;
     });
 
