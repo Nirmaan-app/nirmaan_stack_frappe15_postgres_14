@@ -845,11 +845,11 @@ const SchedulerGroupRow: React.FC<SchedulerGroupRowProps> = ({
                   )}
                 >
                   <div className="px-3 py-2 pl-6 md:pl-9 text-sm text-gray-700">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs text-gray-400 tabular-nums shrink-0">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <span className="text-xs text-gray-400 tabular-nums shrink-0 pt-0.5">
                         {idx + 1}.
                       </span>
-                      <span className={cn('truncate', m.disabledByReport && 'line-through text-gray-500')}>
+                      <span className={cn('flex-1 min-w-0 break-words', m.disabledByReport && 'line-through text-gray-500')}>
                         {m.work_milestone_name}
                       </span>
                       {m.disabledByReport && (

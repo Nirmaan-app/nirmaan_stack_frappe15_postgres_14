@@ -44,6 +44,7 @@ const CreditsPage = () => {
     setTermToRequest,
     handleConfirmRequestPayment,
     isRequestingPayment,
+    fetchAllForExport,
   } = useCredits();
 
   // console.log("totalCount", totalCount);
@@ -104,6 +105,7 @@ const CreditsPage = () => {
         dateFilterColumns={TERM_DATE_COLUMNS}
         showExportButton={true}
         onExport="default"
+        onExportAll={fetchAllForExport}
         exportFileName={`Credit_payment_terms_${currentStatus.toLowerCase()}`}
         getRowClassName={getRowClassName}
       />

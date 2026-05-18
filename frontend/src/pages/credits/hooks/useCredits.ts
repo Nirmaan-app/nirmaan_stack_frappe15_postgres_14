@@ -401,6 +401,38 @@ export const useCredits = () => {
     fetchData();
   }, [fetchData]);
 
+  // --- Fetch ALL rows for CSV export (respects active filters / search / sort) ---
+  // Server-side pagination only returns the current page (50 rows). The export
+  // button needs every row matching the current view, so we hit the same
+  // endpoint with limit_page_length = totalCount.
+  const fetchAllForExport = useCallback(async (): Promise<PoPaymentTermRow[]> => {
+    const orderBy = sorting.length > 0
+      ? `${sorting[0].id} ${sorting[0].desc ? "desc" : "asc"}`
+      : "due_date desc";
+
+    const payload = {
+      status_filter: currentStatus,
+      filters: columnFilters.length > 0 ? JSON.stringify(columnFilters) : null,
+      search_term: debouncedSearchTerm || null,
+      search_field: selectedSearchField,
+      order_by: orderBy,
+      limit_start: 0,
+      limit_page_length: totalCount > 0 ? totalCount : 100000,
+      with_aggregates: false,
+    };
+
+    const response = await fetchCredits(payload);
+    return response?.message?.data || [];
+  }, [
+    currentStatus,
+    columnFilters,
+    debouncedSearchTerm,
+    selectedSearchField,
+    sorting,
+    totalCount,
+    fetchCredits,
+  ]);
+
   // --- TanStack Table Instance ---
   const table = useReactTable<PoPaymentTermRow>({
     data,
@@ -525,6 +557,7 @@ export const useCredits = () => {
     setSelectedSearchField,
     columnFilters,
     refetch,
+    fetchAllForExport,
     // Aggregates for summary cards (if needed later)
     aggregates,
   };
