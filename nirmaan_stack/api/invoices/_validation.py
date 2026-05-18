@@ -28,11 +28,16 @@ def gstin_match(extracted, expected, role):
             "message": None,
         }
     if not extracted_norm:
+        # "Can't verify" is NOT the same as "confirmed mismatch" — return null
+        # so the frontend hard-block (which checks match === false) doesn't
+        # fire on a missing extraction. Soft-warning is rendered instead.
+        # Auto-approve gates 6/7 still keep the invoice Pending because they
+        # check `not normalize_gstin(extracted)` independently of this match value.
         return {
             "extracted": "",
             "expected": expected_norm,
-            "match": False,
-            "message": f"AI couldn't extract the {role}'s GSTIN — please verify the invoice.",
+            "match": None,
+            "message": f"AI couldn't extract the {role}'s GSTIN — please verify the invoice manually.",
         }
     is_match = extracted_norm == expected_norm
     return {
