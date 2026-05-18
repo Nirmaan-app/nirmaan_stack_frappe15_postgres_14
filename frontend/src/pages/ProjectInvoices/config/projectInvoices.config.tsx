@@ -10,6 +10,20 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import SITEURL from "@/constants/siteURL";
+import {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+} from "@/components/ui/hover-card";
+
+/** Minimal inflow shape needed to render the reverse "Inflows" column. */
+export type LinkedInflowEntry = {
+    name: string;
+    utr?: string;
+    inflow_attachment?: string;
+    amount?: number;
+    payment_date?: string;
+};
 
 // =================================================================================
 // 1. STATIC CONFIGURATION
@@ -68,6 +82,12 @@ interface ColumnGeneratorOptions {
     onDelete: (invoice: ProjectInvoice) => void;
     onEdit: (invoice: ProjectInvoice) => void;
     hideCustomerColumn?: boolean; // Hide customer column when viewing from customer page
+    /**
+     * Resolves the inflows that have been recorded against the given invoice.
+     * Supplied by the parent page after it side-fetches Project Inflows
+     * filtered by `invoice IN (visible invoice ids)`. Returns [] when none.
+     */
+    getInflowsForInvoice?: (invoiceId: string) => LinkedInflowEntry[];
 }
 
 // =================================================================================
@@ -77,7 +97,7 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { canEdit, canDelete, getProjectName, getCustomerName, getUserName, getGstName, onDelete, onEdit, hideCustomerColumn } = options;
+    const { canEdit, canDelete, getProjectName, getCustomerName, getUserName, getGstName, onDelete, onEdit, hideCustomerColumn, getInflowsForInvoice } = options;
     const showActionsColumn = canEdit || canDelete;
 
     const columns: ColumnDef<ProjectInvoice>[] = [
@@ -154,6 +174,82 @@ export const getProjectInvoiceColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount(Incl. GST)" />,
             cell: ({ row }) => <div className="tabular-nums">{formatToIndianRupee(row.original.amount)}</div>,
             meta: { exportHeaderName: "Amount", exportValue: (row: ProjectInvoice) => row.amount, isNumeric: true }
+        },
+        // Reverse-direction "Inflows" column — shows how many inflow payments
+        // the customer has made against this invoice (one invoice can be paid
+        // in multiple chunks). Compact count-pill + HoverCard reveals each
+        // inflow as a clickable link to its payment proof attachment.
+        {
+            id: "inflows",
+            header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Inflows" />
+            ),
+            cell: ({ row }) => {
+                const list = getInflowsForInvoice?.(row.original.name) ?? [];
+                if (list.length === 0) {
+                    return <span className="text-muted-foreground text-xs">--</span>;
+                }
+                const label = `${list.length} ${list.length === 1 ? "inflow" : "inflows"}`;
+                return (
+                    <HoverCard openDelay={100} closeDelay={150}>
+                        <HoverCardTrigger asChild>
+                            <span
+                                className="inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 whitespace-nowrap"
+                                title={`${list.length} inflow${list.length === 1 ? "" : "s"} against this invoice`}
+                            >
+                                {label}
+                            </span>
+                        </HoverCardTrigger>
+                        <HoverCardContent
+                            className="w-auto max-w-sm p-2"
+                            side="bottom"
+                            align="start"
+                        >
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
+                                Inflows against this invoice
+                            </p>
+                            <ul className="space-y-0.5">
+                                {list.map((inf) => {
+                                    const display = inf.utr || inf.name;
+                                    const amountText = typeof inf.amount === "number"
+                                        ? ` — ${formatToIndianRupee(inf.amount)}`
+                                        : "";
+                                    return (
+                                        <li key={inf.name}>
+                                            {inf.inflow_attachment ? (
+                                                <a
+                                                    href={SITEURL + inf.inflow_attachment}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="block text-xs text-blue-600 hover:underline px-1 py-0.5 rounded hover:bg-blue-50"
+                                                >
+                                                    {display}{amountText}
+                                                </a>
+                                            ) : (
+                                                <span
+                                                    className="block text-xs text-muted-foreground px-1 py-0.5"
+                                                    title="No payment proof attached"
+                                                >
+                                                    {display}{amountText}
+                                                </span>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </HoverCardContent>
+                    </HoverCard>
+                );
+            },
+            enableSorting: false,
+            size: 140,
+            meta: {
+                exportHeaderName: "Inflows",
+                exportValue: (row: ProjectInvoice) =>
+                    (getInflowsForInvoice?.(row.name) ?? [])
+                        .map(inf => inf.utr || inf.name)
+                        .join("; ") || "--",
+            },
         },
         {
             accessorKey: "invoice_date",

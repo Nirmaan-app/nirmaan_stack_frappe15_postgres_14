@@ -9,6 +9,7 @@
   "links_section",
   "project",
   "customer",
+  "invoice",
   "inflow_details_section",
   "utr",
   "inflow_attachment",
@@ -32,6 +33,12 @@
    "fieldtype": "Link",
    "label": "Customer",
    "options": "Customers"
+  },
+  {
+   "fieldname": "invoice",
+   "fieldtype": "Link",
+   "label": "Invoice",
+   "options": "Project Invoices"
   },
   {
    "fieldname": "inflow_details_section",

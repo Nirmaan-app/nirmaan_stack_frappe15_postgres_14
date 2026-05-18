@@ -58,14 +58,14 @@
    "label": "Expense Processor ID"
   },
   {
-   "default": "Project Invoices, Vendor Invoices, Project Payments",
+   "default": "Project Invoices, Vendor Invoices",
    "description": "Comma-separated DocTypes that should use Invoice Processor ID.",
    "fieldname": "invoice_target_doctypes",
    "fieldtype": "Small Text",
    "label": "Invoice Target DocTypes"
   },
   {
-   "default": "Non Project Expenses",
+   "default": "Non Project Expenses, Project Payments",
    "description": "Comma-separated DocTypes that should use Expense Processor ID.",
    "fieldname": "expense_target_doctypes",
    "fieldtype": "Small Text",
