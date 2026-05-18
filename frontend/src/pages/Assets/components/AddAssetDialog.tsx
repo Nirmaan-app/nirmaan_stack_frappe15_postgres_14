@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useFrappeCreateDoc, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import ReactSelect from 'react-select';
 
 import {
@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
+import { CustomAttachment } from '@/components/helpers/CustomAttachment';
 import { Package, ChevronDown, Eye, EyeOff, Monitor, ListChecks } from 'lucide-react';
 
 import {
@@ -68,10 +69,17 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
     const [showPassword, setShowPassword] = useState(false);
     const [showPin, setShowPin] = useState(false);
 
+    // Project-asset attachment state
+    const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+    const [certificateFile, setCertificateFile] = useState<File | null>(null);
+
     const [formError, setFormError] = useState<string | null>(null);
 
     const { toast } = useToast();
     const { createDoc, loading: isCreating, error: createError } = useFrappeCreateDoc();
+    const { updateDoc } = useFrappeUpdateDoc();
+    const { upload } = useFrappeFileUpload();
+    const [isUploading, setIsUploading] = useState(false);
 
     // Fetch categories - uses shared cache key for cross-component invalidation
     const { data: categoryList, isLoading: categoriesLoading } = useFrappeGetDocList(
@@ -117,6 +125,8 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
         setItDetailsOpen(false);
         setShowPassword(false);
         setShowPin(false);
+        setInvoiceFile(null);
+        setCertificateFile(null);
         setFormError(null);
     };
 
@@ -133,6 +143,9 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
             setItDetailsOpen(false);
             setShowPassword(false);
             setShowPin(false);
+        } else {
+            setInvoiceFile(null);
+            setCertificateFile(null);
         }
     }, [assetType, isOpen, isITAsset]);
 
@@ -157,7 +170,7 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
         setFormError(null);
 
         try {
-            await createDoc(ASSET_MASTER_DOCTYPE, {
+            const createdDoc = await createDoc(ASSET_MASTER_DOCTYPE, {
                 asset_name: trimmedName,
                 asset_description: assetDescription.trim() || undefined,
                 asset_category: selectedCategory,
@@ -170,6 +183,44 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                 asset_email_password: isITAsset ? (assetPassword || undefined) : undefined,
                 asset_pin: isITAsset ? (assetPin || undefined) : undefined,
             });
+
+            // Upload Project-asset attachments (skip for IT) and attach to the new doc.
+            if (!isITAsset && (invoiceFile || certificateFile)) {
+                setIsUploading(true);
+                const docName = createdDoc.name;
+                const attachmentUpdate: Record<string, string> = {};
+                try {
+                    if (invoiceFile) {
+                        const uploaded = await upload(invoiceFile, {
+                            doctype: ASSET_MASTER_DOCTYPE,
+                            docname: docName,
+                            fieldname: 'asset_invoice_attachment',
+                            isPrivate: true,
+                        });
+                        attachmentUpdate.asset_invoice_attachment = uploaded.file_url;
+                    }
+                    if (certificateFile) {
+                        const uploaded = await upload(certificateFile, {
+                            doctype: ASSET_MASTER_DOCTYPE,
+                            docname: docName,
+                            fieldname: 'asset_certificate_attachment',
+                            isPrivate: true,
+                        });
+                        attachmentUpdate.asset_certificate_attachment = uploaded.file_url;
+                    }
+                    if (Object.keys(attachmentUpdate).length) {
+                        await updateDoc(ASSET_MASTER_DOCTYPE, docName, attachmentUpdate);
+                    }
+                } catch (uploadErr: any) {
+                    toast({
+                        title: 'Attachment Upload Failed',
+                        description: uploadErr?.message || 'Asset was created, but one or more attachments did not upload. You can add them from the asset page.',
+                        variant: 'destructive',
+                    });
+                } finally {
+                    setIsUploading(false);
+                }
+            }
 
             toast({
                 title: 'Asset Created',
@@ -302,6 +353,55 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                         />
                     </div>
 
+                    {/* Attachments - Project-type only */}
+                    {!isITAsset && (
+                        <div className="space-y-3 rounded-lg border border-dashed border-gray-200 p-4">
+                            <p className="text-sm font-medium text-gray-700">Attachments</p>
+
+                            <div className="space-y-1.5">
+                                <Label className="text-sm font-medium text-gray-700">
+                                    Invoice Attachment
+                                    <span className="ml-1 text-xs text-gray-400">(optional)</span>
+                                </Label>
+                                <CustomAttachment
+                                    selectedFile={invoiceFile}
+                                    onFileSelect={setInvoiceFile}
+                                    acceptedTypes={["image/*", "application/pdf"]}
+                                    label="Upload Invoice"
+                                    maxFileSize={10 * 1024 * 1024}
+                                    onError={(err) =>
+                                        toast({
+                                            title: 'File Error',
+                                            description: err.message,
+                                            variant: 'destructive',
+                                        })
+                                    }
+                                />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <Label className="text-sm font-medium text-gray-700">
+                                    Certificate Attachment
+                                    <span className="ml-1 text-xs text-gray-400">(optional)</span>
+                                </Label>
+                                <CustomAttachment
+                                    selectedFile={certificateFile}
+                                    onFileSelect={setCertificateFile}
+                                    acceptedTypes={["image/*", "application/pdf"]}
+                                    label="Upload Certificate"
+                                    maxFileSize={10 * 1024 * 1024}
+                                    onError={(err) =>
+                                        toast({
+                                            title: 'File Error',
+                                            description: err.message,
+                                            variant: 'destructive',
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     {/* IT Asset Details - Collapsible (IT-type only) */}
                     {isITAsset && (
                     <Collapsible open={itDetailsOpen} onOpenChange={setItDetailsOpen}>
@@ -409,16 +509,16 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                     <Button
                         variant="outline"
                         onClick={() => onOpenChange(false)}
-                        disabled={isCreating}
+                        disabled={isCreating || isUploading}
                     >
                         Cancel
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isCreating || !assetName.trim() || !selectedCategory}
+                        disabled={isCreating || isUploading || !assetName.trim() || !selectedCategory}
                         className="gap-2"
                     >
-                        {isCreating ? 'Creating...' : 'Create Asset'}
+                        {isCreating ? 'Creating...' : isUploading ? 'Uploading...' : 'Create Asset'}
                         <ListChecks className="h-4 w-4" />
                     </Button>
                 </DialogFooter>

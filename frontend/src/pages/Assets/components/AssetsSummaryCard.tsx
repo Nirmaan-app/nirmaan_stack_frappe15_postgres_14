@@ -233,7 +233,9 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
         isLoading: unassignedLoading,
     } = useFrappeGetDocCount(
         ASSET_MASTER_DOCTYPE,
-        [["current_assignee", "in", ["", null]]],
+        // `is not set` matches both NULL and ''. `in ["", null]` would be
+        // dropped by frappe.client.get_count and return 0.
+        [["current_assignee", "is", "not set"]],
         false,
         enabled ? ASSET_CACHE_KEYS.UNASSIGNED_ASSETS_COUNT : null,
     );
@@ -243,7 +245,7 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
         isLoading: pendingLoading,
     } = useFrappeGetDocCount(
         ASSET_MANAGEMENT_DOCTYPE,
-        [["asset_declaration_attachment", "in", ["", null]]],
+        [["asset_declaration_attachment", "is", "not set"]],
         false,
         enabled ? ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT : null,
     );
@@ -287,11 +289,14 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
     const assignedFilters = enabled && hasCategories
         ? [["asset_category", "in", categoryNames], ["current_assignee", "!=", ""]]
         : undefined;
+    // Use the Frappe `is not set` operator (matches both NULL and '') —
+    // sending `in ["", null]` through frappe.client.get_count silently drops
+    // the null value, yielding 0 when there are only NULL-valued rows.
     const unassignedFilters = enabled && hasCategories
-        ? [["asset_category", "in", categoryNames], ["current_assignee", "in", ["", null]]]
+        ? [["asset_category", "in", categoryNames], ["current_assignee", "is", "not set"]]
         : undefined;
     const pendingFilters = enabled && hasMasters
-        ? [["asset_declaration_attachment", "in", ["", null]], ["asset", "in", masterNames]]
+        ? [["asset_declaration_attachment", "is", "not set"], ["asset", "in", masterNames]]
         : undefined;
 
     const totalKey = enabled && hasCategories

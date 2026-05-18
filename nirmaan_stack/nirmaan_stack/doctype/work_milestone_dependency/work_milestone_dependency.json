@@ -8,7 +8,9 @@
  "field_order": [
   "dependent_milestone",
   "milestone_name",
-  "dependent_milestone_order"
+  "dependent_milestone_order",
+  "dependency_type",
+  "dependency_percentage"
  ],
  "fields": [
   {
@@ -34,6 +36,26 @@
    "in_list_view": 1,
    "label": "Order",
    "read_only": 1
+  },
+  {
+   "default": "Full Dependence",
+   "fieldname": "dependency_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Dependency Type",
+   "options": "Full Dependence\nPartial Dependence",
+   "reqd": 1
+  },
+  {
+   "default": "100",
+   "description": "Full = 100 (auto); Partial = enter 1-99",
+   "fieldname": "dependency_percentage",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Dependency %",
+   "mandatory_depends_on": "eval:doc.dependency_type=='Partial Dependence'",
+   "non_negative": 1,
+   "read_only_depends_on": "eval:doc.dependency_type=='Full Dependence'"
   }
  ],
  "grid_page_length": 50,

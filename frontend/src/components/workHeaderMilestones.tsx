@@ -28,6 +28,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -98,11 +99,15 @@ export interface WorkHeaders {
   modified_by?: string;
 }
 
+export type DependencyType = "Full Dependence" | "Partial Dependence";
+
 export interface WorkMilestoneDependency {
   name?: string;
   dependent_milestone: string;
   milestone_name?: string;
   dependent_milestone_order?: number;
+  dependency_type?: DependencyType;
+  dependency_percentage?: number;
 }
 
 export interface WorkMilestoneCriticalPODependency {
@@ -2092,6 +2097,43 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
     open ? undefined : null
   );
 
+  // Fetch the milestone's Work Header to learn its Work Package, and the full
+  // Critical PO Category list so we can map category -> work_package.
+  // Together these let us filter Critical PO Items to the same package only.
+  const { data: workHeader } = useFrappeGetDoc<WorkHeaders>(
+    "Work Headers",
+    milestone.work_header,
+    open && milestone.work_header ? undefined : null
+  );
+
+  const { data: criticalPOCategories } = useFrappeGetDocList<{
+    name: string;
+    work_package?: string;
+  }>(
+    "Critical PO Category",
+    {
+      fields: ["name", "work_package"],
+      limit: 0,
+    },
+    open ? undefined : null
+  );
+
+  const milestoneWorkPackage = workHeader?.work_package_link;
+  const categoryToPackage = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    (criticalPOCategories || []).forEach((c) => m.set(c.name, c.work_package));
+    return m;
+  }, [criticalPOCategories]);
+
+  const filteredCriticalPOItems = useMemo(() => {
+    if (!milestoneWorkPackage) return criticalPOItems || [];
+    return (criticalPOItems || []).filter((it) => {
+      const cat = it.critical_po_category;
+      if (!cat) return false;
+      return categoryToPackage.get(cat) === milestoneWorkPackage;
+    });
+  }, [criticalPOItems, categoryToPackage, milestoneWorkPackage]);
+
   const [dependentRows, setDependentRows] = useState<WorkMilestoneDependency[]>(
     []
   );
@@ -2102,7 +2144,12 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
   useEffect(() => {
     if (fullMilestone) {
       setDependentRows(
-        (fullMilestone.dependent_milestones || []).map((r) => ({ ...r }))
+        (fullMilestone.dependent_milestones || []).map((r) => ({
+          ...r,
+          dependency_type: r.dependency_type || "Full Dependence",
+          dependency_percentage:
+            r.dependency_percentage != null ? r.dependency_percentage : 100,
+        }))
       );
       setCriticalRows(
         (fullMilestone.critical_po_dependencies || []).map((r) => ({ ...r }))
@@ -2122,29 +2169,46 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
 
   const criticalPOItemsByName = useMemo(() => {
     const map = new Map<string, CriticalPOItemOption>();
+    // Keep ALL items in the lookup so already-saved rows still render their
+    // metadata (item_name, sub_category) even if they fall outside the filter.
     (criticalPOItems || []).forEach((it) => map.set(it.name, it));
     return map;
   }, [criticalPOItems]);
 
   const criticalPickerOptions = useMemo<CriticalPickerOption[]>(() => {
-    return (criticalPOItems || []).map((it) => ({
+    return filteredCriticalPOItems.map((it) => ({
       value: it.name,
       label: it.item_name || it.name,
       itemName: it.item_name,
       subCategory: it.sub_category,
       category: it.critical_po_category,
     }));
-  }, [criticalPOItems]);
+  }, [filteredCriticalPOItems]);
 
   const handleSave = async () => {
     const cleanDeps = dependentRows.filter((r) => r.dependent_milestone);
     const cleanCritical = criticalRows.filter((r) => r.critical_po_item);
+    for (const r of cleanDeps) {
+      if (r.dependency_type === "Partial Dependence") {
+        const pct = r.dependency_percentage;
+        if (pct == null || pct < 1 || pct > 99) {
+          toast({
+            title: "Invalid Dependency %",
+            description: `For Partial Dependence, % must be between 1 and 99 (${r.milestone_name || r.dependent_milestone
+              }).`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
     for (const r of cleanCritical) {
-      const pct = r.delivery_percentage ?? 0;
-      if (pct < 0 || pct > 100) {
+      const pct = r.delivery_percentage;
+      if (pct == null || pct <= 0 || pct > 100) {
         toast({
-          title: "Invalid Delivery %",
-          description: `Delivery % for ${r.critical_po_item} must be between 0 and 100.`,
+          title: "Delivery % required",
+          description: `Enter a Delivery % between 1 and 100 for ${r.item_name || r.critical_po_item
+            }.`,
           variant: "destructive",
         });
         return;
@@ -2153,9 +2217,15 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
 
     try {
       await updateDoc("Work Milestones", milestone.name, {
-        dependent_milestones: cleanDeps.map((r) => ({
-          dependent_milestone: r.dependent_milestone,
-        })),
+        dependent_milestones: cleanDeps.map((r) => {
+          const type: DependencyType = r.dependency_type || "Full Dependence";
+          return {
+            dependent_milestone: r.dependent_milestone,
+            dependency_type: type,
+            dependency_percentage:
+              type === "Full Dependence" ? 100 : r.dependency_percentage ?? 0,
+          };
+        }),
         critical_po_dependencies: cleanCritical.map((r) => ({
           critical_po_item: r.critical_po_item,
           delivery_percentage: r.delivery_percentage ?? 0,
@@ -2194,7 +2264,7 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
           <Network className="h-3.5 w-3.5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg overflow-visible">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold text-slate-900">
             Dependencies
@@ -2204,7 +2274,7 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="space-y-4 py-2">
           <DependentMilestonesSection
             rows={dependentRows}
             setRows={setDependentRows}
@@ -2215,10 +2285,11 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
             setRows={setCriticalRows}
             pickerOptions={criticalPickerOptions}
             itemsByName={criticalPOItemsByName}
+            workPackage={milestoneWorkPackage}
           />
         </div>
 
-        <div className="flex items-center justify-between gap-2 pt-2 border-t">
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
           <span className="text-xs text-slate-500">
             {depCount} milestone{depCount !== 1 ? "s" : ""} · {poCount} critical PO
             {poCount !== 1 ? "s" : ""}
@@ -2245,7 +2316,7 @@ const MilestoneDependenciesDialog: React.FC<MilestoneDependenciesDialogProps> = 
               )}
             </Button>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -2283,27 +2354,54 @@ const DependentMilestonesSection: React.FC<DependentMilestonesSectionProps> = ({
     return m;
   }, [pickerOptions]);
 
-  const value = useMemo<PickerOption[]>(
-    () =>
-      rows
-        .filter((r) => r.dependent_milestone)
-        .map((r) => {
-          const opt = optionByValue.get(r.dependent_milestone);
-          return {
-            value: r.dependent_milestone,
-            label: r.milestone_name || opt?.label || r.dependent_milestone,
-            order: opt?.order ?? r.dependent_milestone_order,
-          };
-        }),
-    [rows, optionByValue]
+  const pickedIds = useMemo(
+    () => new Set(rows.map((r) => r.dependent_milestone).filter(Boolean)),
+    [rows]
   );
 
-  const handleChange = (selected: readonly PickerOption[] | null) => {
-    const next = (selected || []).map((opt) => ({
-      dependent_milestone: opt.value,
-      milestone_name: opt.label,
-    }));
-    setRows(next);
+  const availableOptions = useMemo<PickerOption[]>(
+    () => pickerOptions.filter((o) => !pickedIds.has(o.value)),
+    [pickerOptions, pickedIds]
+  );
+
+  const addRow = (opt: PickerOption) => {
+    if (pickedIds.has(opt.value)) return;
+    setRows((prev) => [
+      ...prev,
+      {
+        dependent_milestone: opt.value,
+        milestone_name: opt.label,
+        dependent_milestone_order: opt.order,
+        dependency_type: "Full Dependence",
+        dependency_percentage: 100,
+      },
+    ]);
+  };
+
+  const updateRow = (
+    id: string,
+    patch: Partial<WorkMilestoneDependency>
+  ) => {
+    setRows((prev) =>
+      prev.map((r) => (r.dependent_milestone === id ? { ...r, ...patch } : r))
+    );
+  };
+
+  const setType = (id: string, type: DependencyType) => {
+    if (type === "Full Dependence") {
+      updateRow(id, { dependency_type: type, dependency_percentage: 100 });
+    } else {
+      // Switching to Partial: clear the 100 default so the user types 1-99.
+      const current = rows.find((r) => r.dependent_milestone === id);
+      const keep =
+        current?.dependency_percentage != null &&
+        current.dependency_percentage > 0 &&
+        current.dependency_percentage < 100;
+      updateRow(id, {
+        dependency_type: type,
+        dependency_percentage: keep ? current!.dependency_percentage : undefined,
+      });
+    }
   };
 
   const formatOptionLabel = (option: PickerOption) => (
@@ -2319,36 +2417,170 @@ const DependentMilestonesSection: React.FC<DependentMilestonesSectionProps> = ({
 
   return (
     <div className="border-t pt-4 space-y-2">
-      <h4 className="text-sm font-semibold text-slate-800">
-        Dependent Milestones
-      </h4>
-      <ReactSelect<PickerOption, true>
-        isMulti
-        value={value}
-        options={pickerOptions}
-        onChange={(sel) => handleChange(sel as readonly PickerOption[] | null)}
+      <h4 className="text-sm font-semibold text-slate-800">Milestones</h4>
+      <ReactSelect<PickerOption, false>
+        value={null}
+        options={availableOptions}
+        onChange={(opt) => {
+          if (opt) addRow(opt as PickerOption);
+        }}
         formatOptionLabel={formatOptionLabel}
-        placeholder="Select one or more milestones..."
+        placeholder={
+          availableOptions.length === 0
+            ? "All milestones added"
+            : "Search & add a milestone..."
+        }
+        isDisabled={availableOptions.length === 0}
         classNamePrefix="react-select"
-        menuPortalTarget={document.body}
-        menuPosition="fixed"
-        closeMenuOnSelect={false}
-        maxMenuHeight={240}
         styles={{
-          menuPortal: (base) => ({
-            ...base,
-            zIndex: 9999,
-            pointerEvents: "auto",
-          }),
-          menu: (base) => ({ ...base, pointerEvents: "auto" }),
-          menuList: (base) => ({ ...base, pointerEvents: "auto" }),
+          menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+          menu: (base) => ({ ...base, zIndex: 9999 }),
           control: (base) => ({ ...base, minHeight: 36, fontSize: 13 }),
         }}
       />
-      {value.length === 0 && (
+      {rows.filter((r) => r.dependent_milestone).length === 0 ? (
         <p className="text-xs text-slate-400">
           No dependencies. This milestone can start independently.
         </p>
+      ) : (
+        <div className="space-y-2 pt-1">
+          {rows
+            .filter((r) => r.dependent_milestone)
+            .map((row) => {
+              const id = row.dependent_milestone;
+              const label =
+                row.milestone_name ||
+                optionByValue.get(id)?.label ||
+                id;
+              const order =
+                row.dependent_milestone_order ?? optionByValue.get(id)?.order;
+              const type: DependencyType =
+                row.dependency_type || "Full Dependence";
+              const isPartial = type === "Partial Dependence";
+              const partialPct = row.dependency_percentage;
+              const rowInvalid =
+                isPartial &&
+                (partialPct == null || partialPct < 1 || partialPct > 99);
+              return (
+                <div
+                  key={id}
+                  className={`rounded-md border bg-white px-2.5 py-2 transition-colors ${rowInvalid
+                      ? "border-red-300"
+                      : isPartial
+                        ? "border-amber-300"
+                        : "border-emerald-300"
+                    }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {order != null && (
+                      <span className="inline-flex items-center justify-center min-w-[22px] h-5 px-1 rounded bg-indigo-50 text-indigo-700 text-[11px] font-semibold tabular-nums shrink-0 ring-1 ring-inset ring-indigo-100">
+                        {order}
+                      </span>
+                    )}
+                    <span className="text-xs text-slate-800 truncate flex-1">
+                      {label}
+                    </span>
+                    <span
+                      className={`shrink-0 inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold tabular-nums ${rowInvalid
+                          ? "bg-red-50 text-red-700"
+                          : isPartial
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-emerald-50 text-emerald-700"
+                        }`}
+                    >
+                      {rowInvalid
+                        ? "% required"
+                        : isPartial
+                          ? `Partial · ${partialPct}%`
+                          : "Full · 100%"}
+                    </span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() =>
+                        setRows((prev) =>
+                          prev.filter((r) => r.dependent_milestone !== id)
+                        )
+                      }
+                      className="h-7 w-7 text-slate-400 hover:text-red-600 shrink-0"
+                      aria-label="Remove dependency"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1.5 pl-[26px]">
+                    <span className="text-[11px] font-medium text-slate-600">
+                      Dependency Percentage:
+                    </span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`deptype-${id}`}
+                        checked={!isPartial}
+                        onChange={() => setType(id, "Full Dependence")}
+                        className="h-3 w-3"
+                      />
+                      Full (100%)
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`deptype-${id}`}
+                        checked={isPartial}
+                        onChange={() => setType(id, "Partial Dependence")}
+                        className="h-3 w-3"
+                      />
+                      Partial
+                    </label>
+                    {isPartial && (() => {
+                      const pct = row.dependency_percentage;
+                      const invalid =
+                        pct == null || pct < 1 || pct > 99;
+                      return (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            required
+                            aria-required="true"
+                            aria-invalid={invalid}
+                            value={pct == null ? "" : pct}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              updateRow(id, {
+                                dependency_percentage:
+                                  v === "" ? undefined : Number(v),
+                              });
+                            }}
+                            placeholder="1-99"
+                            className={`h-6 w-16 rounded border px-1.5 text-[11px] tabular-nums focus:outline-none focus:ring-1 ${invalid
+                                ? "border-red-400 focus:ring-red-400 bg-red-50"
+                                : "border-slate-300 focus:ring-indigo-400"
+                              }`}
+                          />
+                          <span className="text-[11px] text-slate-500">%</span>
+                          <span
+                            className="text-red-500 text-[11px] font-semibold"
+                            aria-hidden="true"
+                            title="Required"
+                          >
+                            *
+                          </span>
+                          {invalid && (
+                            <span className="text-[10px] text-red-600">
+                              Required (1-99)
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
       )}
     </div>
   );
@@ -2362,11 +2594,12 @@ interface CriticalPODependenciesSectionProps {
   >;
   pickerOptions: CriticalPickerOption[];
   itemsByName: Map<string, CriticalPOItemOption>;
+  workPackage?: string;
 }
 
 const CriticalPODependenciesSection: React.FC<
   CriticalPODependenciesSectionProps
-> = ({ rows, setRows, pickerOptions, itemsByName }) => {
+> = ({ rows, setRows, pickerOptions, itemsByName, workPackage }) => {
   const pickedIds = useMemo(
     () => new Set(rows.map((r) => r.critical_po_item).filter(Boolean)),
     [rows]
@@ -2387,7 +2620,7 @@ const CriticalPODependenciesSection: React.FC<
         item_name: meta?.item_name,
         sub_category: meta?.sub_category,
         critical_po_category: meta?.critical_po_category,
-        delivery_percentage: 0,
+        delivery_percentage: undefined,
         remarks: "",
       },
     ]);
@@ -2425,9 +2658,16 @@ const CriticalPODependenciesSection: React.FC<
 
   return (
     <div className="border-t pt-4 space-y-2">
-      <h4 className="text-sm font-semibold text-slate-800">
-        Critical PO Dependencies
-      </h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-slate-800">
+          Critical PO Dependencies
+        </h4>
+        {workPackage && (
+          <span className="inline-flex items-center h-5 px-1.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">
+            Package: {workPackage}
+          </span>
+        )}
+      </div>
       <ReactSelect<CriticalPickerOption, false>
         value={null}
         options={availableOptions}
@@ -2437,22 +2677,16 @@ const CriticalPODependenciesSection: React.FC<
         formatOptionLabel={formatOptionLabel}
         placeholder={
           availableOptions.length === 0
-            ? "All Critical PO Items added"
+            ? pickerOptions.length === 0 && workPackage
+              ? `No Critical PO Items in "${workPackage}"`
+              : "All Critical PO Items added"
             : "Search & add Critical PO Item..."
         }
         isDisabled={availableOptions.length === 0}
         classNamePrefix="react-select"
-        menuPortalTarget={document.body}
-        menuPosition="fixed"
-        maxMenuHeight={240}
         styles={{
-          menuPortal: (base) => ({
-            ...base,
-            zIndex: 9999,
-            pointerEvents: "auto",
-          }),
-          menu: (base) => ({ ...base, pointerEvents: "auto" }),
-          menuList: (base) => ({ ...base, pointerEvents: "auto" }),
+          menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+          menu: (base) => ({ ...base, zIndex: 9999 }),
           control: (base) => ({ ...base, minHeight: 36, fontSize: 13 }),
         }}
       />
@@ -2472,14 +2706,17 @@ const CriticalPODependenciesSection: React.FC<
                 row.item_name ||
                 itemsByName.get(row.critical_po_item)?.item_name ||
                 row.critical_po_item;
+              const pct = row.delivery_percentage;
+              const invalid = pct == null || pct <= 0 || pct > 100;
               return (
                 <div
                   key={row.critical_po_item}
-                  className="rounded-md border border-slate-200 p-2.5 space-y-2 bg-slate-50/40"
+                  className={`rounded-md border bg-white p-2.5 space-y-2 transition-colors ${invalid ? "border-red-300" : "border-emerald-300"
+                    }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-sm flex-wrap min-w-0">
-                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded bg-slate-200/70 text-slate-600 text-[11px] font-semibold tabular-nums shrink-0">
+                    <div className="flex items-center gap-1.5 text-sm flex-wrap min-w-0 flex-1">
+                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded bg-slate-100 text-slate-600 text-[11px] font-semibold tabular-nums shrink-0">
                         {idx + 1}
                       </span>
                       <span className="font-medium text-slate-800 truncate">
@@ -2492,51 +2729,94 @@ const CriticalPODependenciesSection: React.FC<
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`shrink-0 inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold tabular-nums ${invalid
+                          ? "bg-red-50 text-red-700"
+                          : "bg-emerald-50 text-emerald-700"
+                        }`}
+                    >
+                      {invalid ? "% required" : `${pct}%`}
+                    </span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeRow(row.critical_po_item)}
+                      className="h-7 w-7 text-slate-400 hover:text-red-600 shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="space-y-1 shrink-0">
+                      <label
+                        htmlFor={`pct-${row.critical_po_item}`}
+                        className="block text-[11px] font-medium text-slate-600"
+                      >
+                        Delivery %{" "}
+                        <span className="text-red-500" aria-hidden="true">
+                          *
+                        </span>
+                      </label>
                       <div className="flex items-center gap-1">
                         <Input
+                          id={`pct-${row.critical_po_item}`}
                           type="number"
-                          min={0}
+                          min={1}
                           max={100}
                           step="0.01"
-                          value={row.delivery_percentage ?? 0}
+                          required
+                          aria-required="true"
+                          aria-invalid={invalid}
+                          value={pct == null ? "" : pct}
                           onChange={(e) =>
                             updateField(
                               row.critical_po_item,
                               "delivery_percentage",
                               e.target.value === ""
-                                ? 0
+                                ? undefined
                                 : Number(e.target.value)
                             )
                           }
-                          className="h-8 w-20 text-xs"
-                          placeholder="%"
+                          className={`h-8 w-20 text-xs ${invalid
+                              ? "border-red-400 focus-visible:ring-red-400 bg-white"
+                              : "bg-white"
+                            }`}
+                          placeholder="1-100"
                         />
                         <span className="text-xs text-slate-500">%</span>
                       </div>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeRow(row.critical_po_item)}
-                        className="h-7 w-7 text-slate-400 hover:text-red-600"
+                      {invalid && (
+                        <span className="block text-[10px] text-red-600">
+                          Required (1-100)
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1 flex-1 min-w-0">
+                      <label
+                        htmlFor={`remarks-${row.critical_po_item}`}
+                        className="block text-[11px] font-medium text-slate-600"
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
+                        Remarks{" "}
+                        <span className="text-slate-400 font-normal">
+                          (optional)
+                        </span>
+                      </label>
+                      <Textarea
+                        id={`remarks-${row.critical_po_item}`}
+                        value={row.remarks || ""}
+                        onChange={(e) =>
+                          updateField(
+                            row.critical_po_item,
+                            "remarks",
+                            e.target.value
+                          )
+                        }
+                        placeholder="Notes about this critical PO dependency..."
+                        className="text-xs min-h-[44px]"
+                      />
                     </div>
                   </div>
-                  <Textarea
-                    value={row.remarks || ""}
-                    onChange={(e) =>
-                      updateField(
-                        row.critical_po_item,
-                        "remarks",
-                        e.target.value
-                      )
-                    }
-                    placeholder="Remarks (optional)"
-                    className="text-xs min-h-[44px]"
-                  />
                 </div>
               );
             })}
@@ -2779,119 +3059,119 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[900px]">
-              <TableHeader>
-                <TableRow className="bg-slate-50/50 border-b border-slate-100">
-                  {isReordering && (
-                    <TableHead className="w-12 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
-                      #
-                    </TableHead>
-                  )}
-                  {!isReordering && (
-                    <TableHead className="w-12 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
-                      #
-                    </TableHead>
-                  )}
-                  <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
-                    Milestone
-                  </TableHead>
-                  {!isReordering && (
-                    <>
-                      <TableHead className="w-24 text-slate-500 font-medium text-xs uppercase tracking-wider">
-                        Weightage
-                      </TableHead>
-                      <TableHead className="w-20 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
-                        Dependence
-                      </TableHead>
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((w) => (
-                        <TableHead key={w} className="w-12 text-center text-slate-500 font-medium text-[10px] uppercase tracking-wider">
-                          W{w}
-                        </TableHead>
-                      ))}
-                    </>
-                  )}
-                  <TableHead
-                    className={`${isReordering ? "w-16" : "w-24"
-                      } text-right text-slate-500 font-medium text-xs uppercase tracking-wider`}
-                  >
-                    {isReordering ? "Drag" : "Actions"}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {milestoneList.map((milestone, index) => (
-                  <TableRow
-                    key={milestone.name}
-                    draggable={isReordering}
-                    onDragStart={(e) =>
-                      isReordering && handleDragStart(e, index)
-                    }
-                    onDragEnter={(e) =>
-                      isReordering && handleDragEnter(e, index)
-                    }
-                    onDragEnd={isReordering ? handleDragEnd : undefined}
-                    onDragOver={(e) => isReordering && e.preventDefault()}
-                    className={`border-b border-slate-50 last:border-0 transition-colors ${isReordering
-                      ? "cursor-move hover:bg-slate-50"
-                      : "hover:bg-slate-50/50"
-                      }`}
-                  >
+                <TableHeader>
+                  <TableRow className="bg-slate-50/50 border-b border-slate-100">
                     {isReordering && (
-                      <TableCell className="text-center">
-                        <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs font-medium">
-                          {index + 1}
-                        </span>
-                      </TableCell>
+                      <TableHead className="w-12 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                        #
+                      </TableHead>
                     )}
                     {!isReordering && (
-                      <TableCell className="text-center">
-                        <span className="inline-flex items-center justify-center w-6 h-5 rounded bg-slate-100 text-slate-500 text-[11px] font-medium tabular-nums">
-                          {milestone.work_milestone_order ?? index + 1}
-                        </span>
-                      </TableCell>
+                      <TableHead className="w-12 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                        #
+                      </TableHead>
                     )}
-                    <TableCell className="font-medium text-slate-800">
-                      {milestone.work_milestone_name}
-                    </TableCell>
+                    <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
+                      Milestone
+                    </TableHead>
                     {!isReordering && (
                       <>
-                        <TableCell className="text-slate-600">
-                          {(milestone.weightage || 1.0).toFixed(2)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <DependencePreviewCell
-                            milestoneName={milestone.name}
-                          />
-                        </TableCell>
+                        <TableHead className="w-24 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                          Weightage
+                        </TableHead>
+                        <TableHead className="w-20 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                          Dependence
+                        </TableHead>
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((w) => (
-                          <TableCell key={w} className="text-center text-slate-500 text-xs">
-                            {(milestone[`week_${w}` as keyof WorkMilestone] as number | undefined) || 0}
-                          </TableCell>
+                          <TableHead key={w} className="w-12 text-center text-slate-500 font-medium text-[10px] uppercase tracking-wider">
+                            W{w}
+                          </TableHead>
                         ))}
                       </>
                     )}
-                    <TableCell className="text-right">
-                      {isReordering ? (
-                        <GripVertical className="w-4 h-4 text-slate-400 ml-auto" />
-                      ) : (
-                        <div className="flex items-center justify-end gap-0.5">
-                          <EditWorkMilestoneDialog
-                            milestone={milestone}
-                            mutate={workMilestonesMutate}
-                          />
-                          <MilestoneDependenciesDialog
-                            milestone={milestone}
-                            mutate={workMilestonesMutate}
-                          />
-                          <DeleteMilestoneAlertDialog
-                            milestone={milestone}
-                            mutate={workMilestonesMutate}
-                          />
-                        </div>
-                      )}
-                    </TableCell>
+                    <TableHead
+                      className={`${isReordering ? "w-16" : "w-24"
+                        } text-right text-slate-500 font-medium text-xs uppercase tracking-wider`}
+                    >
+                      {isReordering ? "Drag" : "Actions"}
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
+                </TableHeader>
+                <TableBody>
+                  {milestoneList.map((milestone, index) => (
+                    <TableRow
+                      key={milestone.name}
+                      draggable={isReordering}
+                      onDragStart={(e) =>
+                        isReordering && handleDragStart(e, index)
+                      }
+                      onDragEnter={(e) =>
+                        isReordering && handleDragEnter(e, index)
+                      }
+                      onDragEnd={isReordering ? handleDragEnd : undefined}
+                      onDragOver={(e) => isReordering && e.preventDefault()}
+                      className={`border-b border-slate-50 last:border-0 transition-colors ${isReordering
+                        ? "cursor-move hover:bg-slate-50"
+                        : "hover:bg-slate-50/50"
+                        }`}
+                    >
+                      {isReordering && (
+                        <TableCell className="text-center">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs font-medium">
+                            {index + 1}
+                          </span>
+                        </TableCell>
+                      )}
+                      {!isReordering && (
+                        <TableCell className="text-center">
+                          <span className="inline-flex items-center justify-center w-6 h-5 rounded bg-slate-100 text-slate-500 text-[11px] font-medium tabular-nums">
+                            {milestone.work_milestone_order ?? index + 1}
+                          </span>
+                        </TableCell>
+                      )}
+                      <TableCell className="font-medium text-slate-800">
+                        {milestone.work_milestone_name}
+                      </TableCell>
+                      {!isReordering && (
+                        <>
+                          <TableCell className="text-slate-600">
+                            {(milestone.weightage || 1.0).toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <DependencePreviewCell
+                              milestoneName={milestone.name}
+                            />
+                          </TableCell>
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((w) => (
+                            <TableCell key={w} className="text-center text-slate-500 text-xs">
+                              {(milestone[`week_${w}` as keyof WorkMilestone] as number | undefined) || 0}
+                            </TableCell>
+                          ))}
+                        </>
+                      )}
+                      <TableCell className="text-right">
+                        {isReordering ? (
+                          <GripVertical className="w-4 h-4 text-slate-400 ml-auto" />
+                        ) : (
+                          <div className="flex items-center justify-end gap-0.5">
+                            <EditWorkMilestoneDialog
+                              milestone={milestone}
+                              mutate={workMilestonesMutate}
+                            />
+                            <MilestoneDependenciesDialog
+                              milestone={milestone}
+                              mutate={workMilestonesMutate}
+                            />
+                            <DeleteMilestoneAlertDialog
+                              milestone={milestone}
+                              mutate={workMilestonesMutate}
+                            />
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
               </Table>
             </div>
           )}
@@ -2987,21 +3267,40 @@ const DependencePreviewCell: React.FC<DependencePreviewCellProps> = ({
                   </span>
                 </div>
                 <ul className="space-y-1">
-                  {deps.map((d) => (
-                    <li
-                      key={d.name || d.dependent_milestone}
-                      className="flex items-center gap-2 text-xs"
-                    >
-                      {d.dependent_milestone_order != null && (
-                        <span className="inline-flex items-center justify-center min-w-[22px] h-5 px-1 rounded bg-indigo-50 text-indigo-700 text-[11px] font-semibold tabular-nums shrink-0 ring-1 ring-inset ring-indigo-100">
-                          {d.dependent_milestone_order}
+                  {deps.map((d) => {
+                    const isPartial =
+                      d.dependency_type === "Partial Dependence" ||
+                      (d.dependency_percentage != null &&
+                        d.dependency_percentage < 100);
+                    const pct =
+                      d.dependency_percentage != null
+                        ? d.dependency_percentage
+                        : 100;
+                    return (
+                      <li
+                        key={d.name || d.dependent_milestone}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        {d.dependent_milestone_order != null && (
+                          <span className="inline-flex items-center justify-center min-w-[22px] h-5 px-1 rounded bg-indigo-50 text-indigo-700 text-[11px] font-semibold tabular-nums shrink-0 ring-1 ring-inset ring-indigo-100">
+                            {d.dependent_milestone_order}
+                          </span>
+                        )}
+                        <span className="text-slate-700 font-normal truncate flex-1">
+                          {d.milestone_name || d.dependent_milestone}
                         </span>
-                      )}
-                      <span className="text-slate-700 font-normal truncate">
-                        {d.milestone_name || d.dependent_milestone}
-                      </span>
-                    </li>
-                  ))}
+                        <span
+                          className={`shrink-0 inline-flex items-center h-4 px-1.5 rounded text-[10px] font-semibold tabular-nums ring-1 ring-inset ${isPartial
+                              ? "bg-amber-50 text-amber-700 ring-amber-100"
+                              : "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                            }`}
+                          title={isPartial ? "Partial Dependence" : "Full Dependence"}
+                        >
+                          {pct}%
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -3025,8 +3324,8 @@ const DependencePreviewCell: React.FC<DependencePreviewCellProps> = ({
                       pct >= 70
                         ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
                         : pct >= 30
-                        ? "bg-amber-50 text-amber-700 ring-amber-200"
-                        : "bg-rose-50 text-rose-700 ring-rose-200";
+                          ? "bg-amber-50 text-amber-700 ring-amber-200"
+                          : "bg-rose-50 text-rose-700 ring-rose-200";
                     return (
                       <li
                         key={c.name || c.critical_po_item}

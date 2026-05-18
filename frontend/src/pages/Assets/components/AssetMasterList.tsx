@@ -105,13 +105,86 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         return map;
     }, [usersList]);
 
+    // Scope filter shared by the table query and the facet-options query so the
+    // table and its filter dropdowns see the same Project/IT-bound dataset.
+    const scopeFilter = useMemo(() => {
+        if (!assetType) return [];
+        if (categoryNames.length === 0) return [['asset_category', 'in', ['__none__']]];
+        return [['asset_category', 'in', categoryNames]];
+    }, [assetType, categoryNames]);
+
+    // Fetch all asset names + assignees + category + condition scoped to the
+    // current type, so we can build facet filter options that cover the
+    // entire dataset (not just the current page) and embed per-option counts.
+    const { data: facetSource } = useFrappeGetDocList<{
+        name: string;
+        asset_name: string;
+        current_assignee: string;
+        asset_category: string;
+        asset_condition: string;
+    }>(
+        ASSET_MASTER_DOCTYPE,
+        {
+            fields: ['name', 'asset_name', 'current_assignee', 'asset_category', 'asset_condition'],
+            filters: scopeFilter,
+            limit: 0,
+        },
+        assetType
+            ? `asset_master_facet_source_${assetType}`
+            : 'asset_master_facet_source'
+    );
+
+    // Count occurrences per field value — drives the "(N)" suffix on each
+    // facet option (matches the Categories tab pattern).
+    const facetCounts = useMemo(() => {
+        const counts = {
+            asset_name: new Map<string, number>(),
+            current_assignee: new Map<string, number>(),
+            asset_category: new Map<string, number>(),
+            asset_condition: new Map<string, number>(),
+        };
+        (facetSource ?? []).forEach((row) => {
+            const n = row.asset_name?.trim();
+            if (n) counts.asset_name.set(n, (counts.asset_name.get(n) ?? 0) + 1);
+            if (row.current_assignee) counts.current_assignee.set(row.current_assignee, (counts.current_assignee.get(row.current_assignee) ?? 0) + 1);
+            if (row.asset_category) counts.asset_category.set(row.asset_category, (counts.asset_category.get(row.asset_category) ?? 0) + 1);
+            if (row.asset_condition) counts.asset_condition.set(row.asset_condition, (counts.asset_condition.get(row.asset_condition) ?? 0) + 1);
+        });
+        return counts;
+    }, [facetSource]);
+
     const categoryOptions = useMemo(() =>
         categoryList.map((cat) => ({
-            label: cat.asset_category,
+            label: `${cat.asset_category} (${facetCounts.asset_category.get(cat.name) ?? 0})`,
             value: cat.name,
         })),
-        [categoryList]
+        [categoryList, facetCounts]
     );
+
+    const conditionOptions = useMemo(() =>
+        ASSET_CONDITION_OPTIONS.map((opt) => ({
+            label: `${opt.label} (${facetCounts.asset_condition.get(opt.value) ?? 0})`,
+            value: opt.value,
+        })),
+        [facetCounts]
+    );
+
+    const assetNameOptions = useMemo(() => {
+        const opts: { label: string; value: string; count: number }[] = [];
+        facetCounts.asset_name.forEach((count, name) => {
+            opts.push({ label: `${name} (${count})`, value: name, count });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts]);
+
+    const assigneeOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.current_assignee.forEach((count, userId) => {
+            const name = usersMap[userId] || userId;
+            opts.push({ label: `${name} (${count})`, value: userId });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts, usersMap]);
 
     const columns = useMemo<ColumnDef<AssetMaster>[]>(() => [
         {
@@ -271,11 +344,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         },
     ], [usersMap]);
 
-    const additionalFilters = useMemo(() => {
-        if (!assetType) return [];
-        if (categoryNames.length === 0) return [['asset_category', 'in', ['__none__']]];
-        return [['asset_category', 'in', categoryNames]];
-    }, [assetType, categoryNames]);
+    const additionalFilters = scopeFilter;
 
     const {
         table,
@@ -300,15 +369,23 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
     });
 
     const facetFilterOptions = useMemo(() => ({
+        asset_name: {
+            title: 'Asset Name',
+            options: assetNameOptions,
+        },
         asset_category: {
             title: 'Category',
             options: categoryOptions,
         },
         asset_condition: {
             title: 'Condition',
-            options: ASSET_CONDITION_OPTIONS,
+            options: conditionOptions,
         },
-    }), [categoryOptions]);
+        current_assignee: {
+            title: 'Assignee',
+            options: assigneeOptions,
+        },
+    }), [assetNameOptions, categoryOptions, conditionOptions, assigneeOptions]);
 
     return (
         <DataTable<AssetMaster>
