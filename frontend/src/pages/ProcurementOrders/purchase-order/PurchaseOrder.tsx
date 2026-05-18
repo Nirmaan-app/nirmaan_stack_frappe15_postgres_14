@@ -714,13 +714,19 @@ export const PurchaseOrder = ({
     [vendorInvoices]
   );
 
-  // Calculate DC & MIR count
-  const dcMirCount = useMemo(
+  // Calculate DC and MIR counts separately
+  const dcCount = useMemo(
     () =>
       poAttachmentsData?.filter(
-        (att) =>
-          att.attachment_type === "po delivery challan" ||
-          att.attachment_type === "material inspection report"
+        (att) => att.attachment_type === "po delivery challan"
+      ).length || 0,
+    [poAttachmentsData]
+  );
+
+  const mirCount = useMemo(
+    () =>
+      poAttachmentsData?.filter(
+        (att) => att.attachment_type === "material inspection report"
       ).length || 0,
     [poAttachmentsData]
   );
@@ -1134,8 +1140,11 @@ export const PurchaseOrder = ({
                         <span className="text-gray-400">|</span>
                       </>
                     )}
-                    <span className="text-gray-600">DC & MIRs:</span>
-                    <Badge variant="secondary">{dcMirCount}</Badge>
+                    <span className="text-gray-600">DCs:</span>
+                    <Badge variant="secondary">{dcCount}</Badge>
+                    <span className="text-gray-400">|</span>
+                    <span className="text-gray-600">MIRs:</span>
+                    <Badge variant="secondary">{mirCount}</Badge>
                   </div>
                 </div>
               </AccordionTrigger>

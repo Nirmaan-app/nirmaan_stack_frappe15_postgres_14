@@ -357,7 +357,7 @@ export const WorkHeaderMilestones: React.FC = () => {
       <div className="min-h-screen bg-slate-50">
         {/* Header */}
         <div className="bg-white border-b border-slate-200">
-          <div className="max-w-5xl mx-auto px-6 py-4">
+          <div className="max-w-[1600px] mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <Button
@@ -414,7 +414,7 @@ export const WorkHeaderMilestones: React.FC = () => {
         </div>
 
         {/* Content */}
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-[1600px] mx-auto px-6 py-8">
           <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
             <Table>
               <TableHeader>
@@ -484,7 +484,7 @@ export const WorkHeaderMilestones: React.FC = () => {
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 py-5">
+        <div className="max-w-[1600px] mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold text-slate-900 tracking-tight">
@@ -515,7 +515,7 @@ export const WorkHeaderMilestones: React.FC = () => {
       </div>
 
       {/* Content */}
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-[1600px] mx-auto px-6 py-8">
         {workHeaders?.length === 0 ? (
           <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 mb-4">
@@ -3266,7 +3266,7 @@ const DependencePreviewCell: React.FC<DependencePreviewCellProps> = ({
                     {deps.length}
                   </span>
                 </div>
-                <ul className="space-y-1">
+                <ul className="space-y-1 max-h-[180px] overflow-y-auto pr-1">
                   {deps.map((d) => {
                     const isPartial =
                       d.dependency_type === "Partial Dependence" ||
@@ -3317,7 +3317,7 @@ const DependencePreviewCell: React.FC<DependencePreviewCellProps> = ({
                     {critical.length}
                   </span>
                 </div>
-                <ul className="space-y-1.5">
+                <ul className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
                   {critical.map((c, idx) => {
                     const pct = c.delivery_percentage ?? 0;
                     const pillCls =

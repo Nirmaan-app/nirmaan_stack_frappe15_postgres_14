@@ -40,8 +40,8 @@ export const useWorkHeaderOrder = () => {
     }, [workHeaders]);
 
     // TEMP DIAGNOSTIC — remove once header_weightage rollup is verified
-    console.log('[useWorkHeaderOrder] raw workHeaders =', workHeaders);
-    console.log('[useWorkHeaderOrder] headerWeightageMap =', headerWeightageMap);
+    // console.log('[useWorkHeaderOrder] raw workHeaders =', workHeaders);
+    // console.log('[useWorkHeaderOrder] headerWeightageMap =', headerWeightageMap);
 
     return { workHeaderOrderMap, headerWeightageMap, workHeadersLoading };
 };
