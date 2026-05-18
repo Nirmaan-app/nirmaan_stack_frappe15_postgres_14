@@ -88,6 +88,7 @@ export function useDNDCQuantityData(projectId: string | null) {
       filters: [
         ["project", "=", projectId],
         ["status", "in", ["Dispatched", "Partially Dispatched", "Delivered", "Partially Delivered"]],
+        ["total_amount", ">=", 5000],
       ],
       limit: 10000,
     },
