@@ -214,13 +214,6 @@ export const TaskHistoryTable: React.FC = () => {
         vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
         document_type: { title: "Type", options: typeFacetOptions, isLoading: isTypeFacetLoading },
         status: { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading },
-        auto_approved: {
-            title: "Auto-Approved",
-            options: [
-                { label: "Auto-Approved", value: "1" },
-                { label: "Manual", value: "0" },
-            ],
-        },
     }), [vendorFacetOptions, isVendorFacetLoading, typeFacetOptions, isTypeFacetLoading, statusFacetOptions, isStatusFacetLoading]);
 
     // Effect to extract attachment IDs from fetched invoices

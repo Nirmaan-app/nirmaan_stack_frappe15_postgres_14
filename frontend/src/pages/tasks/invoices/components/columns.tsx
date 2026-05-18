@@ -475,10 +475,11 @@ export const getTaskHistoryColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned By" />,
             cell: ({ row }) => {
                 if (row.original.status === "Pending") return <div>N/A</div>;
-                // Auto-approved invoices have approved_by = "System" — render
-                // the literal value (getUserName won't resolve it as a user).
+                // Auto-approved invoices have approved_by = "System". Surface
+                // the "(Auto)" suffix inline instead of a separate column so
+                // reviewers can see at a glance that the system stamped it.
                 if (row.original.approved_by === "System") {
-                    return <div>System</div>;
+                    return <div>System (Auto)</div>;
                 }
                 return <div>{getUserName(row.original.approved_by) || 'Administrator'}</div>;
             },
@@ -486,44 +487,8 @@ export const getTaskHistoryColumns = (
                 exportHeaderName: "Actioned By",
                 exportValue: (row: VendorInvoice) =>
                     row.approved_by === "System"
-                        ? "System"
+                        ? "System (Auto)"
                         : getUserName(row.approved_by) || 'Administrator'
-            }
-        },
-        {
-            accessorKey: "auto_approved",
-            id: "auto_approved",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Auto" />,
-            cell: ({ row }) => {
-                if (!row.original.auto_approved) return <div className="text-gray-300">—</div>;
-                const reasonsTooltip = row.original.auto_approve_skip_reasons || "";
-                return (
-                    <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Badge variant="green" className="gap-1">
-                                    <Sparkles className="h-3 w-3" />
-                                    Auto
-                                </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>Auto-approved by the system after passing every gate.</p>
-                                {reasonsTooltip ? (
-                                    <p className="text-[10px] mt-1 italic">{reasonsTooltip}</p>
-                                ) : null}
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                );
-            },
-            enableColumnFilter: true,
-            filterFn: (row, id, value) => {
-                const v = row.getValue(id) ? 1 : 0;
-                return value.includes(String(v));
-            },
-            meta: {
-                exportHeaderName: "Auto Approved",
-                exportValue: (row: VendorInvoice) => (row.auto_approved ? "Yes" : "No")
             }
         },
         {
