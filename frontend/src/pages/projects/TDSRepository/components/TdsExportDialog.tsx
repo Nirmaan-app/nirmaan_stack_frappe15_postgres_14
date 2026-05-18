@@ -21,6 +21,7 @@ interface TdsExportItem {
     tds_item_name: string;
     tds_description: string;
     tds_make: string;
+    tds_boq_line_item?: string;
     tds_attachment?: string;
     tds_status: string;
 }
@@ -380,6 +381,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                             <th className="text-left p-3 font-medium text-gray-600">Item Name</th>
                                             <th className="text-left p-3 font-medium text-gray-600">Description</th>
                                             <th className="text-left p-3 font-medium text-gray-600">Make</th>
+                                            <th className="text-left p-3 font-medium text-gray-600">BOQ Ref</th>
                                             <th className="w-24 text-left p-3 font-medium text-gray-600">Attached Doc.</th>
                                         </tr>
                                     </thead>
@@ -399,7 +401,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                                     )}
                                                     onClick={() => handleToggleCollapse(group.package)}
                                                 >
-                                                    <td colSpan={7} className="px-3 py-2">
+                                                    <td colSpan={8} className="px-3 py-2">
                                                         <div className="flex items-center justify-between">
                                                             <div className="flex items-center gap-2">
                                                                 {isCollapsed ? (
@@ -433,6 +435,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                                         <td className="p-3 text-gray-900">{item.tds_item_name || '-'}</td>
                                                         <td className="p-3 text-gray-500 max-w-[150px] truncate" title={item.tds_description || ''}>{item.tds_description || '-'}</td>
                                                         <td className="p-3 text-gray-700">{item.tds_make || '-'}</td>
+                                                        <td className="p-3 text-gray-700">{item.tds_boq_line_item || '-'}</td>
                                                         <td className="p-3">
                                                             {item.tds_attachment ? (
                                                                 <a 

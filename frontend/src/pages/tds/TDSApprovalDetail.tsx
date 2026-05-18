@@ -1019,29 +1019,17 @@ export const TDSApprovalDetail: React.FC = () => {
             header: "BOQ Ref",
             cell: ({ row }) => {
                 const text = row.original.tds_boq_line_item;
-
+                if (!text) return <span className="text-gray-300">-</span>;
                 return (
-                    <div className="flex justify-start items-center">
-                        {text ? (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
-                                            <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-[400px] whitespace-normal break-words">
-                                        <p>{text}</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        ) : (
-                            <span className="text-gray-300 ml-2">-</span>
-                        )}
-                    </div>
+                    <span
+                        className="block max-w-[180px] truncate text-slate-700"
+                        title={text}
+                    >
+                        {text}
+                    </span>
                 );
             },
-            size: 100,
+            size: 140,
         },
         {
             id: "doc",
@@ -1138,29 +1126,17 @@ export const TDSApprovalDetail: React.FC = () => {
             header: "BOQ Ref",
             cell: ({ row }) => {
                 const text = row.original.tds_boq_line_item;
-
+                if (!text) return <span className="text-gray-300">-</span>;
                 return (
-                    <div className="flex justify-start items-center">
-                        {text ? (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
-                                            <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-[400px] whitespace-normal break-words">
-                                        <p>{text}</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        ) : (
-                            <span className="text-gray-300 ml-2">-</span>
-                        )}
-                    </div>
+                    <span
+                        className="block max-w-[180px] truncate text-slate-700"
+                        title={text}
+                    >
+                        {text}
+                    </span>
                 );
             },
-            size: 100,
+            size: 140,
         },
         {
             accessorKey: "tds_rejection_reason",
