@@ -98,10 +98,11 @@ def _find_previous_status(project_id: str) -> str:
 
 def evaluate_project_ceo_release(project_id: str) -> bool:
 	"""
-	If a project is on cron-set CEO Hold and its cashflow gap has dropped at
-	or below cashflow_gap_limit, restore the most recent user-set status from
-	Version history. Hands off entirely on human-set holds and when the limit
-	has been cleared (== auto-management disabled).
+	If a project is on cron-set CEO Hold, restore the most recent user-set
+	status from Version history when EITHER:
+	  - the limit has been cleared to 0 (user opted out of auto-management), OR
+	  - the cashflow gap has dropped at or below cashflow_gap_limit.
+	Hands off entirely on human-set holds.
 
 	Returns True if a release was applied, False otherwise.
 	"""
@@ -115,11 +116,23 @@ def evaluate_project_ceo_release(project_id: str) -> bool:
 		return False
 	if row.ceo_hold_by != CEO_HOLD_SYSTEM_USER:
 		return False
-	if flt(row.cashflow_gap_limit) <= 0:
-		return False
+
+	limit = flt(row.cashflow_gap_limit)
+	if limit <= 0:
+		revert_to = _find_previous_status(project_id)
+		frappe.db.set_value(
+			"Projects",
+			project_id,
+			{"status": revert_to, "ceo_hold_by": None},
+			update_modified=False,
+		)
+		frappe.logger().info(
+			"[cashflow-hold] %s: limit cleared → released to %s" % (project_id, revert_to)
+		)
+		return True
 
 	gap = _compute_cashflow_gap(project_id)
-	if gap > flt(row.cashflow_gap_limit):
+	if gap > limit:
 		return False
 
 	revert_to = _find_previous_status(project_id)
@@ -134,7 +147,7 @@ def evaluate_project_ceo_release(project_id: str) -> bool:
 	)
 	frappe.logger().info(
 		"[cashflow-hold] %s: gap=%.2f ≤ limit=%.2f → released to %s"
-		% (project_id, gap, flt(row.cashflow_gap_limit), revert_to)
+		% (project_id, gap, limit, revert_to)
 	)
 	return True
 
@@ -151,12 +164,16 @@ def update_projects_cashflow_hold():
 	evaluate_project_ceo_release early-exits on non-held projects — so the
 	two passes are mutually exclusive per project.
 	"""
-	projects = frappe.get_all(
-		"Projects",
-		filters=[
-			["status", "!=", "Completed"],
-			["cashflow_gap_limit", ">", 0],
-		],
+	projects = frappe.db.sql(
+		"""
+		SELECT name FROM "tabProjects"
+		WHERE status != 'Completed'
+		  AND (
+		    cashflow_gap_limit > 0
+		    OR (status = 'CEO Hold' AND ceo_hold_by = %s)
+		  )
+		""",
+		(CEO_HOLD_SYSTEM_USER,),
 		pluck="name",
 	)
 
