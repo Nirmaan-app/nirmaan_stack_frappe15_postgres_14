@@ -1,0 +1,611 @@
+================================================================================
+Phase 1.9i — Single-Area-Targeted Diagnostic (11 sheets at hrc=1)
+Generated      : 2026-05-18T15:13:19.234893+00:00
+Policy         : hrc=1 only (single-area natural mode)
+Branch tip     : cb3f86941fc1237ccc76d456a9f184c1682c2d31
+================================================================================
+
+================================================================================
+TARGET: Bill of Quantities - ELECTRICAL & ELV BOQ
+  resolved_file  : Bill of Quantities.xlsx
+  resolved_sheet : 'ELECTRICAL & ELV BOQ'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 1
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | ITEM NO.                                   | sl_no
+     B | DSR / NDSR (MR)                            | null
+     C | ITEM DESCRIPTIONS                          | description
+     D | Unit                                       | unit
+     E | QTY.                                       | qty
+     F | Rate (In Rs.)                              | rate_combined
+     G | Rate (In Rs.)                              | null
+     H | Amount (In Rs.)                            | amount_total
+     I | Amount (In Rs.)                            | null
+     J | None                                       | null
+     K | None                                       | null
+     L | None                                       | null
+     M | None                                       | null
+     N | None                                       | null
+     O | None                                       | null
+     P | None                                       | null
+     Q | None                                       | null
+     R | None                                       | null
+     S | None                                       | null
+     T | None                                       | null
+     U | None                                       | null
+     V | None                                       | null
+     W | None                                       | null
+     X | None                                       | null
+     Y | None                                       | null
+     Z | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      2 |     4 | WIRING IN STEEL & PVC CONDUIT                      | 2
+      4 |     6 | Wiring for light point/ fan point/ exhaust fan poi… | 4
+     11 |    13 | Wiring for circuit/ submain wiring along with eart… | 11
+
+  [Table 3] first_l2_preamble
+  ridx=60  row=62  desc=MCCB, MCB & DB'S
+  path=52/60
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+      5 |     7 | Group C                                      |    1000.0 |      1760.0 |   1760000.0 | 4
+      7 |     9 | Wiring for light/ power plug with 2x4 sq.mm … |   25754.0 |       252.0 |   6490008.0 | 4
+      9 |    11 | Wiring for light/ power plug with 4x4 sq. mm… |   12877.0 |       545.0 |   7017965.0 | 4
+     12 |    14 | 2 X 1.5 sq. mm + 1 X 1.5 sq. mm earth wire   |    3535.0 |       120.0 |    424200.0 | 11
+     13 |    15 | 2 X 2.5 sq. mm + 1 X 2.5 sq. mm earth wire   |   19210.0 |       178.0 |   3419380.0 | 11
+     14 |    16 | 2 X 4 sq. mm + 1 X 4 sq. mm earth wire       |     100.0 |       260.0 |     26000.0 | 11
+     15 |    17 | 2 X 6 sq. mm + 1 X 6 sq. mm earth wire       |     640.0 |       368.0 |    235520.0 | 11
+     16 |    18 | 2 X 10 sq. mm + 1 X 6 sq. mm earth wire      |     100.0 |       530.0 |     53000.0 | 11
+     17 |    19 | 2 X 16 sq. mm + 1 X 6 sq. mm earth wire      |     120.0 |       754.0 |     90480.0 | 11
+     18 |    20 | 1 X 2.5 sq. mm + 2 X 2.5 sq. mm earth wire   |     100.0 |       178.0 |     17800.0 | 11
+
+  [DEPRECATED] line_items_with_non_none_qty: 449 / 449
+  qty   : real=  449  zero_default=    0  role_unassigned=    0  total=449
+  rate  : real=  200  zero_default=  249  role_unassigned=    0  total=449
+  amount: real=  449  zero_default=    0  role_unassigned=    0  total=449
+
+
+================================================================================
+TARGET: Paytm - ELEC  BOQ
+  resolved_file  : BOQ MEP_PAYTM BANGALORE.xlsx
+  resolved_sheet : 'ELEC  BOQ'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 5
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | Sl.No.                                     | sl_no
+     B | DESCRIPTION                                | description
+     C | UNIT                                       | unit
+     D | 6F                                         | null
+     E | Total                                      | null
+     F | RATE                                       | rate_combined
+     G | RATE                                       | null
+     H | AMOUNT                                     | amount_total
+     I | AMOUNT                                     | null
+     J | Total                                      | null
+     K | REMARKS                                    | row_notes
+     L | None                                       | null
+     M | None                                       | null
+     N | None                                       | null
+     O | None                                       | null
+     P | None                                       | null
+     Q | None                                       | null
+     R | None                                       | null
+     S | None                                       | null
+     T | None                                       | null
+     U | None                                       | null
+     V | None                                       | null
+     W | None                                       | null
+     X | None                                       | null
+     Y | None                                       | null
+     Z | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      2 |     8 | LT PANELS :                                        | 2
+      3 |     9 | All Panels Should be as per Technical specificatio… | 3
+     89 |    95 | Supply, Installation, testing & commisioning of Fu… | 89
+
+  [Table 3] first_l2_preamble
+  ridx=162  row=168  desc=LT CABLES & ENDTERMINATIONS
+  path=134/162
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+     65 |    71 | FLOOR LT PANEL                               |       0.0 |    336995.0 |    336995.0 | 3
+     67 |    73 | WORKSTATION UPS OUTPUT PANEL                 |       0.0 |    106006.0 |    106006.0 | 3
+     69 |    75 | Supply, Installation, testing & commisioning… |       0.0 |        null |         0.0 | 3
+     71 |    77 | Supply, Installation, testing & commisioning… |       0.0 |        null |         0.0 | 3
+     73 |    79 | Supply, Installation, testing & commisioning… |       0.0 |        null |         0.0 | 3
+     75 |    81 | Supply, Installation, testing & commisioning… |       0.0 |        null |         0.0 | 3
+     77 |    83 | Supply, installation, testing & commissionin… |       0.0 |        null |         0.0 | 3
+     79 |    85 | Supply, installation, testing & commissionin… |       0.0 |        null |         0.0 | 3
+     81 |    87 | Supply, installation, testing & commissionin… |       0.0 |        null |         0.0 | 3
+     83 |    89 | Supply, installation, testing & commissionin… |       0.0 |        null |         0.0 | 3
+
+  [DEPRECATED] line_items_with_non_none_qty: 553 / 553
+  qty   : real=    0  zero_default=    0  role_unassigned=  553  total=553
+  rate  : real=  159  zero_default=  394  role_unassigned=    0  total=553
+  amount: real=  553  zero_default=    0  role_unassigned=    0  total=553
+
+
+================================================================================
+TARGET: Paytm - HVAC BOQ
+  resolved_file  : BOQ MEP_PAYTM BANGALORE.xlsx
+  resolved_sheet : 'HVAC BOQ'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 4
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | Sl.No.                                     | sl_no
+     B | DESCRIPTION                                | description
+     C | UNIT                                       | unit
+     D | QNT                                        | qty
+     E | RATE                                       | rate_combined
+     F | RATE                                       | null
+     G | AMOUNT                                     | amount_total
+     H | AMOUNT                                     | null
+     I | Total                                      | null
+     J | None                                       | null
+     K | None                                       | null
+     L | None                                       | null
+     M | None                                       | null
+     N | None                                       | null
+     O | None                                       | null
+     P | None                                       | null
+     Q | None                                       | null
+     R | None                                       | null
+     S | None                                       | null
+     T | None                                       | null
+     U | None                                       | null
+     V | None                                       | null
+     W | None                                       | null
+     X | None                                       | null
+     Y | None                                       | null
+     Z | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      2 |     7 | AIR DISTRIBUTION WORKS                             | 2
+      4 |     9 | GI FACTORY FABRICATED SUPPLY AIR PLENUMS           | 4
+    240 |   245 | BTU meters -Ultrasonic type and including necessar… | 240
+
+  [Table 3] first_l2_preamble
+  ridx=257  row=262  desc=VAV WORKS
+  path=252/257
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+      5 |    10 | SITC of 50 mm thk double skin panel factory … |      25.0 |      3300.0 |     82500.0 | 4
+      6 |    11 | None                                         |       0.0 |        null |         0.0 | 4
+      7 |    12 | SITC of duct silencers / Sound attenuators i… |       0.0 |        null |         0.0 | 4
+      8 |    13 | Sound attenuator qty shall be on surface are… |       0.0 |        null |         0.0 | 4
+      9 |    14 | COMPUTER SELECTION SHOULD BE ATTACHED        |       0.0 |        null |         0.0 | 4
+     10 |    15 | Sound Attenuators made dissipative type to b… |       0.0 |        null |         0.0 | 4
+     11 |    16 | Sound Attenuators shall consist of outer cas… |       0.0 |        null |         0.0 | 4
+     12 |    17 | Casing shall be of galvanized steel of not l… |       0.0 |        null |         0.0 | 4
+     13 |    18 | Sound absorbing material shall be high densi… |       0.0 |        null |         0.0 | 4
+     14 |    19 | Supply, Installation & commissioning         |      15.0 |      3450.0 |     51750.0 | 4
+
+  [DEPRECATED] line_items_with_non_none_qty: 336 / 336
+  qty   : real=  184  zero_default=  152  role_unassigned=    0  total=336
+  rate  : real=   72  zero_default=  264  role_unassigned=    0  total=336
+  amount: real=  336  zero_default=    0  role_unassigned=    0  total=336
+
+
+================================================================================
+TARGET: Electrical BoQ - BOQ_ELECTRICAL
+  resolved_file  : Electrical BOQ.xlsx
+  resolved_sheet : 'BOQ_ELECTRICAL'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 8
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | Sl No.                                     | sl_no
+     B | ITEM DESCRIPTION                           | description
+     C | Ref No                                     | null
+     D | UNIT                                       | unit
+     E | QTY                                        | qty
+     F | Supply Rate                                | rate_supply
+     G | Installation Rate                          | rate_install
+     H | Supply Amount                              | amount_supply
+     I | Installation Amount                        | amount_install
+     J | Total Amount (INR)                         | amount_total
+     K | REMARKS                                    | row_notes
+     L | None                                       | null
+     M | None                                       | null
+     N | None                                       | null
+     O | None                                       | null
+     P | None                                       | null
+     Q | None                                       | null
+     R | None                                       | null
+     S | None                                       | null
+     T | None                                       | null
+     U | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      1 |    10 | LT PANELS:                                         | 1
+     59 |    68 | LT CABLES & ENDTERMINATIONS                        | 59
+    164 |   173 | MCB DISTRIBUTION BOARDS (DB)                       | 164
+
+  [Table 3] first_l2_preamble
+  ridx=47  row=56  desc=4P RCBO with enclosures
+  path=1/47
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+     43 |    52 | MAIN FLOOR LT PANEL                          |       1.0 |        null |         0.0 | 1
+     45 |    54 | 60 KVA UPS OUTPUT PANEL                      |       1.0 |        null |         0.0 | 1
+     48 |    57 | 16A                                          |       0.0 |        null |         0.0 | 1/47
+     49 |    58 | 20A                                          |       2.0 |        null |         0.0 | 1/47
+     50 |    59 | 40A                                          |       4.0 |        null |         0.0 | 1/47
+     53 |    62 | 16A, FP, MCB                                 |       0.0 |        null |         0.0 | 1/52
+     54 |    63 | 40A, FP, MCB                                 |       0.0 |        null |         0.0 | 1/52
+     55 |    64 | 63A, FP, MCCB                                |       1.0 |        null |         0.0 | 1/52
+     56 |    65 | 32A DP D-MCB                                 |       0.0 |        null |         0.0 | 1/52
+     57 |    66 | 40A DP C-MCB                                 |       0.0 |        null |         0.0 | 1/52
+
+  [DEPRECATED] line_items_with_non_none_qty: 261 / 261
+  qty   : real=  230  zero_default=   31  role_unassigned=    0  total=261
+  rate  : real=    0  zero_default=  261  role_unassigned=    0  total=261
+  amount: real=  259  zero_default=    2  role_unassigned=    0  total=261
+
+
+================================================================================
+TARGET: Electrical Unpriced - Electrical
+  resolved_file  : Electrical Unpriced BOQ-03.02.2026 R1.xlsx
+  resolved_sheet : 'Electrical '
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 5
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | S. NO                                      | sl_no
+     B | Item Description                           | description
+     C | UOM                                        | unit
+     D | Total Qty                                  | qty_total
+     E | Rate  in INR                               | rate_combined
+     F | Rate  in INR                               | null
+     G | Amount  in INR                             | amount_total
+     H | Amount  in INR                             | null
+     I | None                                       | null
+     J | None                                       | null
+     K | None                                       | null
+     L | None                                       | null
+     M | None                                       | null
+     N | None                                       | null
+     O | None                                       | null
+     P | None                                       | null
+     Q | None                                       | null
+     R | None                                       | null
+     S | None                                       | null
+     T | None                                       | null
+     U | None                                       | null
+     V | None                                       | null
+     W | None                                       | null
+     X | None                                       | null
+     Y | None                                       | null
+     Z | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      2 |     8 | POINT WIRING                                       | 2
+     98 |   104 | CONDUITING WORKS                                   | 98
+    122 |   128 | EARTHING                                           | 122
+
+  [Table 3] first_l2_preamble
+  ridx=11  row=17  desc=CIRCUIT / SUB MAINS:
+  path=2/11
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+     27 |    33 | 2R x 2.5 sq.mm + 1R x 1.5 sq.mm Cu FRLS wire… |    1950.0 |       159.0 |    310050.0 | 2/11
+     29 |    35 | 3C x 2.5 sqmm Multi Core Copper FRLS cable i… |      20.0 |       141.0 |      2820.0 | 2/11
+     31 |    37 | 3C x 1.5 sqmm Teflon insulated Transparent c… |      20.0 |        88.0 |      1760.0 | 2/11
+     33 |    39 | 2R x 1.5 sq.mm + 1R x 1.5 sq.mm Copper FRLS … |    1250.0 |       123.0 |    153750.0 | 2/11
+     35 |    41 | 4R x 4 sq.mm + 1R x 2.5 sq.mm Copper FRLS wi… |      30.0 |       377.0 |     11310.0 | 2/11
+     37 |    43 | 3C x 6 sq.mm cable with PVC-FRLS insulated o… |     250.0 |       316.0 |     79000.0 | 2/11
+     39 |    45 | 2R x 4 sq.mm + 1R x 2.5 sq.mm Copper FRLS wi… |     350.0 |       219.0 |     76650.0 | 2/11
+     41 |    47 | 3C x 4 sqmm Multi Core Copper FRLS cable in … |     250.0 |       215.0 |     53750.0 | 2/11
+     43 |    49 | 3C x 2.5 sqmm Multi Core Copper FRLS cable i… |    6600.0 |       141.0 |    930600.0 | 2/11
+     45 |    51 | 3C x 1.5 sqmm Multi Core Copper FRLS cable (… |     100.0 |        88.0 |      8800.0 | 2/11
+
+  [DEPRECATED] line_items_with_non_none_qty: 154 / 154
+  qty   : real=  149  zero_default=    5  role_unassigned=    0  total=154
+  rate  : real=  110  zero_default=   44  role_unassigned=    0  total=154
+  amount: real=  153  zero_default=    1  role_unassigned=    0  total=154
+
+
+================================================================================
+TARGET: Inovalon - BOQ
+  resolved_file  : Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx
+  resolved_sheet : 'BOQ'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 5
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | S. NO                                      | sl_no
+     B | Item Description                           | description
+     C | UOM                                        | unit
+     D | Total Qty                                  | qty_total
+     E | Supply Rate                                | rate_supply
+     F | Install Rate                               | rate_install
+     G | Supply Amount                              | amount_supply
+     H | Install Amount                             | amount_install
+     I | None                                       | null
+     J | None                                       | null
+     K | None                                       | null
+     L | None                                       | null
+     M | None                                       | null
+     N | None                                       | null
+     O | None                                       | null
+     P | None                                       | null
+     Q | None                                       | null
+     R | None                                       | null
+     S | None                                       | null
+     T | None                                       | null
+     U | None                                       | null
+     V | None                                       | null
+     W | None                                       | null
+     X | None                                       | null
+     Y | None                                       | null
+     Z | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      0 |     6 | EQUIPMENTS                                         | 0
+     13 |    19 | FLEXIBLE CANVASS CONNECTIONS                       | 13
+     47 |    53 | M.S. CHILLED WATER PIPING                          | 47
+
+  [Table 3] first_l2_preamble
+  ridx=1  row=7  desc=AIR HANDLING UNITS FLOOR MOUNTED OR CEILING SUSPENDED
+  path=0/1
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+      7 |    13 | CSU AHU -3000 CFM, 12.0 TR with 50mm S.P. wi… |       1.0 |    200000.0 |        null | 0/1
+     11 |    17 | Supply, Installation & Testing Temperature c… |       1.0 |      5500.0 |        null | 0/9
+     14 |    20 | Supply, Installation, Testing of 125mm deep … |      25.0 |      1450.0 |        null | 13
+     18 |    24 | 2700 CFM @ 25 mm wg(For Gents Toilet)        |       1.0 |     36450.0 |        null | 13/16
+     19 |    25 | 1600 CFM @ 25 mm wg(For Ladies Toilet)       |       1.0 |     29800.0 |        null | 13/16
+     20 |    26 | 400 CFM @ 15 mm wg(For Cafeteria)            |       1.0 | 7560.000000000001 |        null | 13/16
+     21 |    27 | 350 CFM @ 15 mm wg(For Hand wash)            |       1.0 |      6500.0 |        null | 13/16
+     25 |    31 | SITC of CO2 Sensor for rooms only with displ… |       2.0 |     11130.0 |        null | 24
+     28 |    34 | Supply, Installation, Testing & commissionin… |       1.0 |     42000.0 |        null | 27
+     35 |    41 | 15000 CFM Floor Mounted AHU                  |       2.0 |    357000.0 |        null | 27
+
+  [DEPRECATED] line_items_with_non_none_qty: 106 / 106
+  qty   : real=   93  zero_default=   13  role_unassigned=    0  total=106
+  rate  : real=   87  zero_default=   19  role_unassigned=    0  total=106
+  amount: real=  106  zero_default=    0  role_unassigned=    0  total=106
+
+
+================================================================================
+TARGET: K Mall - HVAC BOQ
+  resolved_file  : K-Mall Jodhpur BOQ Combined.xlsx
+  resolved_sheet : 'HVAC BOQ'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 2
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | SR.
+NO.                                    | sl_no
+     B | DESCRIPTION                                | description
+     C | QTY                                        | qty
+     D | UNIT                                       | unit
+     E | RATE
+(Rs)                                  | rate_combined
+     F | AMOUNT
+(Rs)                                | amount_total
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      0 |     3 | AIR DISTRIBUTIONS SYSTEM                           | 0
+      1 |     4 | GSS SHEET METAL DUCT: FACTORY FABRICATED           | 1
+     14 |    17 | FLEXIBLE DUCTS (for Projection Exhaust)            | 14
+
+  [Table 3] first_l2_preamble
+  ridx=20  row=23  desc=FLEXIBLE CONNECTION:
+  path=14/20
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+      9 |    12 | 24 gauge (0.63mm)                            |     510.0 |         0.0 |         0.0 | 1
+     10 |    13 | 22 gauge (0.8mm)                             |    1950.0 |         0.0 |         0.0 | 1
+     11 |    14 | 20 gauge (1.0mm)                             |     110.0 |         0.0 |         0.0 | 1
+     12 |    15 | Supply, Fixing & welding works required addi… |       0.0 |         0.0 |        null | 1
+     17 |    20 | Insulated Flexible ducts of 200 mm dia       |       0.0 |         0.0 |         0.0 | 14
+     18 |    21 | Insulated Flexible ducts of 300 mm dia       |       0.0 |         0.0 |         0.0 | 14
+     21 |    24 | Supply, fabrication & installation of double… |      25.0 |         0.0 |         0.0 | 14/20
+     24 |    27 | Supply, Installation and adjusting of GSS Vo… |      15.0 |         0.0 |         0.0 | 23
+     27 |    30 | Supply, installation, testing and commission… |      15.0 |         0.0 |         0.0 | 23/26
+     34 |    37 | (To be installed in Supply air duct tapping … |       0.0 |         0.0 |        null | 29/30
+
+  [DEPRECATED] line_items_with_non_none_qty: 67 / 67
+  qty   : real=   65  zero_default=    2  role_unassigned=    0  total=67
+  rate  : real=   60  zero_default=    7  role_unassigned=    0  total=67
+  amount: real=   47  zero_default=   20  role_unassigned=    0  total=67
+
+
+================================================================================
+TARGET: Kohler - Electrical
+  resolved_file  : Kohler-BOQ- 06-04-26.xlsx
+  resolved_sheet : 'Electrical'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 4
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | Sr. Nos                                    | sl_no
+     B | Description                                | description
+     C |  Qty.                                      | qty
+     D | Unit                                       | unit
+     E | Rate                                       | rate_combined
+     F | Amount                                     | amount_total
+     G | None                                       | null
+     H | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      5 |    10 | DISTRIBUTION BOARDS                                | 5
+     77 |    82 | L.T. CABLES & END TERMINATIONS                     | 77
+    150 |   155 | EARTHING STATIONS                                  | 150
+
+  [Table 3] first_l2_preamble
+  ridx=78  row=83  desc=M V CABLES
+  path=77/78
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+      1 |     6 | Supply, Installation, Testing, Commissioning… |       1.0 |        null |         0.0 | None
+      3 |     8 | Supply, Installation, Testing, Commissioning… |       1.0 |        null |         0.0 | None
+      7 |    12 | MAIN DB                                      |       0.0 |        null |         0.0 | 5
+      8 |    13 | 8way , VTPN MCB Double Door DB               |       0.0 |        null |         0.0 | 5
+      9 |    14 | Incomer :-                                   |       0.0 |        null |         0.0 | 5
+     10 |    15 | 160A TPN MCCB, 25KA : 1Nos                   |       0.0 |        null |         0.0 | 5
+     11 |    16 | Outgoing :-                                  |       0.0 |        null |         0.0 | 5
+     12 |    17 | 63A TP MCB, 10KA : 3Nos.                     |       0.0 |        null |         0.0 | 5
+     13 |    18 | 40A TP MCB, 10KA : 3Nos.                     |       0.0 |        null |         0.0 | 5
+     14 |    19 | 32A TP MCB, 10KA : 1Nos.                     |       0.0 |        null |         0.0 | 5
+
+  [DEPRECATED] line_items_with_non_none_qty: 236 / 236
+  qty   : real=  236  zero_default=    0  role_unassigned=    0  total=236
+  rate  : real=    0  zero_default=  236  role_unassigned=    0  total=236
+  amount: real=  236  zero_default=    0  role_unassigned=    0  total=236
+
+
+================================================================================
+TARGET: Kohler - HVAC
+  resolved_file  : Kohler-BOQ- 06-04-26.xlsx
+  resolved_sheet : 'HVAC'
+================================================================================
+  classification        : single-area
+  pattern               : None
+  areas                 : []
+  header_row_excel      : 9
+  header_row_count_used : 1
+
+  [Table 1] header_cells_by_column + auto_guessed_column_role_map
+   Col | Header text (exact)                        | Role
+  ------------------------------------------------------------------------
+     A | Sr. No                                     | sl_no
+     B | Description                                | description
+     C | Total Qty                                  | qty_total
+     D | UM                                         | unit
+     E | Supply  Rate                               | rate_supply
+     F | Supply  Amount                             | amount_supply
+     G | None                                       | null
+
+  [Table 2] first_3_l1_preambles (3)
+   ridx |   row | description                                        | path
+  ----------------------------------------------------------------------------------------------------
+      0 |    10 | VRF SYSTEM (High side Supply part)                 | 0
+     35 |    45 | LOW SIDE ANCILLARY SITC WOTK                       | 35
+     89 |    99 | FRESH AIR VENTILATION FOR VRV SYSTEM               | 89
+
+  [Table 3] first_l2_preamble
+  ridx=1  row=11  desc=Outdoor Units (with 410 A Gas)
+  path=0/1
+
+  [Table 4] first_10_line_items (10)
+   ridx |   row | description                                  |       qty |        rate |      amount | parent_path
+  ----------------------------------------------------------------------------------------------------------------------------------
+      3 |    13 | 28HP Outdoor Units                           |       3.0 |        null |        null | 0/1
+      4 |    14 | 16HP Outdoor Units                           |       1.0 |        null |        null | 0/1
+      7 |    17 | 1.5 TR Compact Cassette Units                |       1.0 |        null |        null | 0/6
+      8 |    18 | 1.3 TR Compact Cassette Units                |       4.0 |        null |        null | 0/6
+      9 |    19 | 1.0 TR Compact Cassette Units                |       2.0 |        null |        null | 0/6
+     10 |    20 | 0.8 TR Compact Cassette Units                |       3.0 |        null |        null | 0/6
+     13 |    23 | 3.2 TR Cassette Units                        |       8.0 |        null |        null | 0/12
+     14 |    24 | 2.8 TR Cassette Units                        |      12.0 |        null |        null | 0/12
+     15 |    25 | 2.0 TR Cassette Units                        |       3.0 |        null |        null | 0/12
+     18 |    28 | 2.0 TR Cassette Units                        |       1.0 |        null |        null | 0/17
+
+  [DEPRECATED] line_items_with_non_none_qty: 69 / 69
+  qty   : real=   66  zero_default=    3  role_unassigned=    0  total=69
+  rate  : real=    0  zero_default=   69  role_unassigned=    0  total=69
+  amount: real=   69  zero_default=    0  role_unassigned=    0  total=69
+
+================================================================================
+AGGREGATE SUMMARY
+================================================================================
+  Total target count          : 9
+  Classification [single-area ]: 9
+  Total null role assignments : 112
+  Total load exceptions       : 0
+  Non-None-qty ratio range    : min=449/449  median=154/154  max=69/69
+
+  [Phase 1.9j aggregate three-count metrics]
+  Total line items across all targets: 2231
+  qty   : real=  1472  zero_default=   206  role_unassigned=   553
+  rate  : real=   688  zero_default=  1543  role_unassigned=     0
+  amount: real=  2208  zero_default=    23  role_unassigned=     0
+
+END OF REPORT

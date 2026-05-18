@@ -127,7 +127,10 @@ TARGETS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 # Role-family membership sets used by Phase 1.9j three-count metric.
-_QTY_FAMILY_ROLES = frozenset({"qty"})
+# Phase 1.9n correction: qty_total added — Phase 1.9l Mode D's longest-match-wins now
+# correctly classifies "Total Qty" headers as qty_total, which is a qty-family role for
+# diagnostic counting purposes.
+_QTY_FAMILY_ROLES = frozenset({"qty", "qty_total"})
 _RATE_FAMILY_ROLES = frozenset({"rate_combined", "rate_supply", "rate_install"})
 _AMOUNT_FAMILY_ROLES = frozenset({"amount_total", "amount_combined", "amount_supply", "amount_install"})
 
@@ -693,9 +696,19 @@ def _render_txt(output: dict) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    print("Phase 1.9i — single-area-targeted diagnostic starting...", flush=True)
-    print(f"  Targets: {len(TARGETS)} sheets across 9 fixtures", flush=True)
+def main(subset: str | None = None) -> None:
+    # Phase 1.9n --- --subset 1_9n: re-run on targets 3-11 (drops 1-2 as not-single-area-candidate per 1.9i rationale)
+    if subset == "1_9n":
+        targets = TARGETS[2:]
+        phase_label = "1.9n"
+        output_suffix = "1_9n"
+        print(f"Phase 1.9n re-run — single-area-targeted diagnostic on {len(targets)} targets (3-11) ...", flush=True)
+    else:
+        targets = TARGETS
+        phase_label = "1.9i"
+        output_suffix = "1_9j"
+        print("Phase 1.9i — single-area-targeted diagnostic starting...", flush=True)
+    print(f"  Targets: {len(targets)} sheets", flush=True)
 
     try:
         branch_tip = subprocess.check_output(
@@ -707,24 +720,24 @@ def main() -> None:
         branch_tip = "unknown"
 
     results: list[dict] = []
-    for target in TARGETS:
+    for target in targets:
         print(f"  Processing: {target['rough']} ...", flush=True)
         results.append(_run_target(target))
 
     output = {
-        "phase": "1.9i",
+        "phase": phase_label,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "header_row_count_policy": "hrc=1 only (single-area natural mode)",
         "branch_tip_at_generation": branch_tip,
         "targets": results,
     }
 
-    json_path = _SCRIPT_DIR / "single_area_triage_1_9j_output.json"
+    json_path = _SCRIPT_DIR / f"single_area_triage_{output_suffix}_output.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False, default=str)
     print(f"\nJSON output: {json_path} ({json_path.stat().st_size:,} bytes)")
 
-    txt_path = _SCRIPT_DIR / "single_area_triage_1_9j_output.txt"
+    txt_path = _SCRIPT_DIR / f"single_area_triage_{output_suffix}_output.txt"
     txt_content = _render_txt(output)
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(txt_content)
@@ -760,5 +773,8 @@ def _self_test() -> None:
 if __name__ == "__main__":
     if "--self-test" in sys.argv:
         _self_test()
+    elif "--subset" in sys.argv:
+        _idx = sys.argv.index("--subset")
+        main(subset=sys.argv[_idx + 1])
     else:
         main()
