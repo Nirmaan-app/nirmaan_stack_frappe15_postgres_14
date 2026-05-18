@@ -21,7 +21,8 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 	"""
 	# Build filters for Procurement Orders
 	filters = {
-		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]
+		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]],
+		"total_amount": [">=", 5000]
 	}
 
 	if project_id:
@@ -155,7 +156,8 @@ def get_unique_categories_for_delivery_challans(project_id=None):
 		}
 	"""
 	filters = {
-		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]
+		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]],
+		"total_amount": [">=", 5000]
 	}
 
 	if project_id:
