@@ -126,6 +126,27 @@ TARGETS: list[dict] = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Role-family membership sets used by Phase 1.9j three-count metric.
+_QTY_FAMILY_ROLES = frozenset({"qty"})
+_RATE_FAMILY_ROLES = frozenset({"rate_combined", "rate_supply", "rate_install"})
+_AMOUNT_FAMILY_ROLES = frozenset({"amount_total", "amount_combined", "amount_supply", "amount_install"})
+
+
+def _role_metric(role_assigned: bool, real_flags: list[bool]) -> dict[str, int]:
+    """Three mutually-exclusive counts for one role family across all LINE_ITEM rows.
+
+    role_assigned: True if at least one column in the sheet carries a role from the family.
+    real_flags: one entry per LINE_ITEM row — True = source cell was non-empty before coercion.
+
+    Invariant (asserted by caller): real + zero_default + role_unassigned == len(real_flags).
+    """
+    total = len(real_flags)
+    if not role_assigned:
+        return {"real": 0, "zero_default": 0, "role_unassigned": total}
+    real = sum(1 for f in real_flags if f)
+    return {"real": real, "zero_default": total - real, "role_unassigned": 0}
+
+
 def _pattern_str(mp) -> str | None:
     if mp is None:
         return None
@@ -266,8 +287,17 @@ def _load_exception_result(
         "first_3_l1_preambles": [],
         "first_l2_preamble": None,
         "first_10_line_items": [],
-        "line_items_with_non_none_qty_count": 0,
+        "line_items_with_non_none_qty_count": 0,  # DEPRECATED — see line_items_with_real_qty_count etc. for accurate measurement (Phase 1.9j)
         "total_line_items_count": 0,
+        "line_items_with_real_qty_count": 0,
+        "line_items_with_qty_zero_default_count": 0,
+        "line_items_with_qty_role_unassigned_count": 0,
+        "line_items_with_real_rate_count": 0,
+        "line_items_with_rate_zero_default_count": 0,
+        "line_items_with_rate_role_unassigned_count": 0,
+        "line_items_with_real_amount_count": 0,
+        "line_items_with_amount_zero_default_count": 0,
+        "line_items_with_amount_role_unassigned_count": 0,
     }
 
 
@@ -352,6 +382,11 @@ def _run_target(target: dict) -> dict:
     classification = "multi-area" if mp is not None else "single-area"
     resolved_rows: list = parsed_sheet.resolved_rows
 
+    # Phase 1.9j: determine per-family role assignment from SheetConfig.
+    qty_role_assigned = any(cr.role in _QTY_FAMILY_ROLES for cr in sc.column_role_map.values())
+    rate_role_assigned = any(cr.role in _RATE_FAMILY_ROLES for cr in sc.column_role_map.values())
+    amount_role_assigned = any(cr.role in _AMOUNT_FAMILY_ROLES for cr in sc.column_role_map.values())
+
     first_3_l1: list[dict] = []
     first_l2: dict | None = None
     for i, rr in enumerate(resolved_rows):
@@ -364,15 +399,47 @@ def _run_target(target: dict) -> dict:
 
     first_10: list[dict] = []
     total_items = 0
-    qty_non_none = 0
+    qty_non_none = 0  # DEPRECATED — retained for one transition cycle (Phase 1.9j)
+    qty_real_flags: list[bool] = []
+    rate_real_flags: list[bool] = []
+    amount_real_flags: list[bool] = []
+
     for i, rr in enumerate(resolved_rows):
         if rr.classified_row.classification != RowClassification.LINE_ITEM:
             continue
         total_items += 1
-        if _null_if_blank(rr.classified_row.qty) is not None:
+        cr = rr.classified_row
+        if _null_if_blank(cr.qty) is not None:  # DEPRECATED metric
             qty_non_none += 1
+        # Phase 1.9j real-flags: "real" = non-None AND not §9 #66 coercion / rate-only marker
+        qty_real_flags.append(cr.qty is not None and not cr.is_rate_only)
+        rate_real_flags.append(
+            cr.rate_combined is not None
+            or cr.rate_supply is not None
+            or cr.rate_install is not None
+        )
+        amount_real_flags.append(
+            cr.amount_total is not None
+            or cr.amount_supply is not None
+            or cr.amount_install is not None
+        )
         if len(first_10) < 10:
             first_10.append(_line_item_entry(rr, i, resolved_rows, mp))
+
+    qty_metric = _role_metric(qty_role_assigned, qty_real_flags)
+    rate_metric = _role_metric(rate_role_assigned, rate_real_flags)
+    amount_metric = _role_metric(amount_role_assigned, amount_real_flags)
+
+    # Sum invariant: three counts must equal total_items for every role family.
+    for _fam, _metric in [("qty", qty_metric), ("rate", rate_metric), ("amount", amount_metric)]:
+        _s = _metric["real"] + _metric["zero_default"] + _metric["role_unassigned"]
+        if _s != total_items:
+            raise ValueError(
+                f"[{target['rough']}] Sum invariant violation for family='{_fam}': "
+                f"real={_metric['real']} + zero_default={_metric['zero_default']} + "
+                f"role_unassigned={_metric['role_unassigned']} = {_s}, "
+                f"expected total_items={total_items}"
+            )
 
     base["diagnostic"] = {
         "header_row_count_used": 1,
@@ -386,8 +453,17 @@ def _run_target(target: dict) -> dict:
         "first_3_l1_preambles": first_3_l1,
         "first_l2_preamble": first_l2,
         "first_10_line_items": first_10,
-        "line_items_with_non_none_qty_count": qty_non_none,
+        "line_items_with_non_none_qty_count": qty_non_none,  # DEPRECATED — see line_items_with_real_qty_count etc. for accurate measurement (Phase 1.9j)
         "total_line_items_count": total_items,
+        "line_items_with_real_qty_count": qty_metric["real"],
+        "line_items_with_qty_zero_default_count": qty_metric["zero_default"],
+        "line_items_with_qty_role_unassigned_count": qty_metric["role_unassigned"],
+        "line_items_with_real_rate_count": rate_metric["real"],
+        "line_items_with_rate_zero_default_count": rate_metric["zero_default"],
+        "line_items_with_rate_role_unassigned_count": rate_metric["role_unassigned"],
+        "line_items_with_real_amount_count": amount_metric["real"],
+        "line_items_with_amount_zero_default_count": amount_metric["zero_default"],
+        "line_items_with_amount_role_unassigned_count": amount_metric["role_unassigned"],
     }
     return base
 
@@ -509,9 +585,22 @@ def _render_txt(output: dict) -> str:
             lines.append("  (none)")
         lines.append("")
 
-        nq = d.get("line_items_with_non_none_qty_count", 0)
         tot = d.get("total_line_items_count", 0)
-        lines.append(f"  Line items with non-None qty: {nq} / {tot}")
+        nq = d.get("line_items_with_non_none_qty_count", 0)
+        lines.append(f"  [DEPRECATED] line_items_with_non_none_qty: {nq} / {tot}")
+        # Phase 1.9j three-count metrics
+        rq = d.get("line_items_with_real_qty_count", 0)
+        zq = d.get("line_items_with_qty_zero_default_count", 0)
+        uq = d.get("line_items_with_qty_role_unassigned_count", 0)
+        rr_ = d.get("line_items_with_real_rate_count", 0)
+        zr = d.get("line_items_with_rate_zero_default_count", 0)
+        ur = d.get("line_items_with_rate_role_unassigned_count", 0)
+        ra = d.get("line_items_with_real_amount_count", 0)
+        za = d.get("line_items_with_amount_zero_default_count", 0)
+        ua = d.get("line_items_with_amount_role_unassigned_count", 0)
+        lines.append(f"  qty   : real={rq:>5}  zero_default={zq:>5}  role_unassigned={uq:>5}  total={tot}")
+        lines.append(f"  rate  : real={rr_:>5}  zero_default={zr:>5}  role_unassigned={ur:>5}  total={tot}")
+        lines.append(f"  amount: real={ra:>5}  zero_default={za:>5}  role_unassigned={ua:>5}  total={tot}")
         lines.append("")
 
     # Aggregate summary
@@ -524,6 +613,11 @@ def _render_txt(output: dict) -> str:
     total_null_roles = 0
     total_load_exceptions = 0
     non_none_qty_ratios: list[tuple[int, int]] = []
+
+    agg_real_qty = agg_zero_qty = agg_unassigned_qty = 0
+    agg_real_rate = agg_zero_rate = agg_unassigned_rate = 0
+    agg_real_amt = agg_zero_amt = agg_unassigned_amt = 0
+    agg_total_items = 0
 
     for t in all_targets:
         d = t["diagnostic"]
@@ -541,6 +635,17 @@ def _render_txt(output: dict) -> str:
         nq = d.get("line_items_with_non_none_qty_count", 0)
         tot = d.get("total_line_items_count", 0)
         non_none_qty_ratios.append((nq, tot))
+
+        agg_total_items += tot
+        agg_real_qty += d.get("line_items_with_real_qty_count", 0)
+        agg_zero_qty += d.get("line_items_with_qty_zero_default_count", 0)
+        agg_unassigned_qty += d.get("line_items_with_qty_role_unassigned_count", 0)
+        agg_real_rate += d.get("line_items_with_real_rate_count", 0)
+        agg_zero_rate += d.get("line_items_with_rate_zero_default_count", 0)
+        agg_unassigned_rate += d.get("line_items_with_rate_role_unassigned_count", 0)
+        agg_real_amt += d.get("line_items_with_real_amount_count", 0)
+        agg_zero_amt += d.get("line_items_with_amount_zero_default_count", 0)
+        agg_unassigned_amt += d.get("line_items_with_amount_role_unassigned_count", 0)
 
     lines.append(f"  Total target count          : {total_count}")
     for cls_name in sorted(classification_counts.keys()):
@@ -565,6 +670,19 @@ def _render_txt(output: dict) -> str:
             f"median={mid_r[0]}/{mid_r[1]}  "
             f"max={max_r[0]}/{max_r[1]}"
         )
+
+    lines.append("")
+    lines.append("  [Phase 1.9j aggregate three-count metrics]")
+    lines.append(f"  Total line items across all targets: {agg_total_items}")
+    lines.append(
+        f"  qty   : real={agg_real_qty:>6}  zero_default={agg_zero_qty:>6}  role_unassigned={agg_unassigned_qty:>6}"
+    )
+    lines.append(
+        f"  rate  : real={agg_real_rate:>6}  zero_default={agg_zero_rate:>6}  role_unassigned={agg_unassigned_rate:>6}"
+    )
+    lines.append(
+        f"  amount: real={agg_real_amt:>6}  zero_default={agg_zero_amt:>6}  role_unassigned={agg_unassigned_amt:>6}"
+    )
 
     lines.append("")
     lines.append("END OF REPORT")
@@ -601,12 +719,12 @@ def main() -> None:
         "targets": results,
     }
 
-    json_path = _SCRIPT_DIR / "single_area_triage_1_9i_output.json"
+    json_path = _SCRIPT_DIR / "single_area_triage_1_9j_output.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False, default=str)
     print(f"\nJSON output: {json_path} ({json_path.stat().st_size:,} bytes)")
 
-    txt_path = _SCRIPT_DIR / "single_area_triage_1_9i_output.txt"
+    txt_path = _SCRIPT_DIR / "single_area_triage_1_9j_output.txt"
     txt_content = _render_txt(output)
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(txt_content)
@@ -615,5 +733,32 @@ def main() -> None:
     print("\nDone.")
 
 
+def _self_test() -> None:
+    """3 synthetic cases verifying _role_metric.
+
+    Kept in-script (not under tests/) so parser test count stays at 291.
+    Run via: python -m nirmaan_stack.services.boq_parser.single_area_triage_1_9i --self-test
+    """
+    # Case 1: role assigned, all source cells non-empty → all real
+    r = _role_metric(True, [True, True, True])
+    assert r == {"real": 3, "zero_default": 0, "role_unassigned": 0}, f"Case 1 FAIL: {r}"
+    print("  Case 1 (all-real): PASS")
+
+    # Case 2: role assigned, all source cells empty → all zero-default
+    r = _role_metric(True, [False, False, False])
+    assert r == {"real": 0, "zero_default": 3, "role_unassigned": 0}, f"Case 2 FAIL: {r}"
+    print("  Case 2 (all-zero-default): PASS")
+
+    # Case 3: no column has the role → all role-unassigned
+    r = _role_metric(False, [False, False, False])
+    assert r == {"real": 0, "zero_default": 0, "role_unassigned": 3}, f"Case 3 FAIL: {r}"
+    print("  Case 3 (role-unassigned): PASS")
+
+    print("_self_test: all 3 cases PASS")
+
+
 if __name__ == "__main__":
-    main()
+    if "--self-test" in sys.argv:
+        _self_test()
+    else:
+        main()
