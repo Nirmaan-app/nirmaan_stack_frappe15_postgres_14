@@ -2,7 +2,7 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json).
 **Owner:** Internal team.
-**Last updated:** 2026-05-18 IST (chore 7d588976, Phase 1.9i — single-area-targeted diagnostic)
+**Last updated:** 2026-05-18 IST (chore 68befb2e, Phase 1.9j --- Mode C diagnostic metric fix)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
 **Latest commit:** Phase 1.8.1 — F1 + F2 cleanup — feat `4c6b81e6`, docs `241988d9` (see git log).
 
@@ -961,6 +961,93 @@ Newest at the top.
   - Non-None-qty ratio: 100% across all 11 targets (min=58/58, max=553/553) — qty column detection working correctly for single-area sheets.
   - Line item counts span 58 (HVAC VRF) to 553 (Paytm ELEC) — parser scales correctly across large single-area sheets.
 - Next step: chat-Claude + Nitesh review output and decide on Stage 2 scope (single-area follow-on fixes or proceed to Raheja HVAC parser polish).
+
+### Phase 1.9j --- Mode C diagnostic metric fix ✅ COMPLETE
+
+Diagnostic-script-only sub-phase. Replaces the broken `line_items_with_non_none_qty_count`
+metric with three mutually-exclusive counts per role family (qty / rate / amount).
+No parser source touched. Parser tests unchanged at 291 PASS / 0 FAIL.
+
+**What changed in `single_area_triage_1_9i.py`:**
+
+- Added `_role_metric(role_assigned, real_flags)` helper returning three-count dict.
+- Added role-family membership constants `_QTY_FAMILY_ROLES`, `_RATE_FAMILY_ROLES`,
+  `_AMOUNT_FAMILY_ROLES`.
+- In `_run_target()`: per-LINE_ITEM-row appending of qty/rate/amount real-flags;
+  per-target three-count computation; sum-invariant assertion raises ValueError if
+  `real + zero_default + role_unassigned != total_line_items_count` for any role family
+  on any target.
+- New output fields per target: `line_items_with_real_<role>_count`,
+  `line_items_with_<role>_zero_default_count`,
+  `line_items_with_<role>_role_unassigned_count` for role in {qty, rate, amount}.
+- Deprecated `line_items_with_non_none_qty_count` retained with inline comment for
+  one transition cycle of comparability with 1.9i baseline.
+- TXT renderer per-target block + new aggregate-summary three-count block.
+- Output filenames changed from `_1_9i_output.{json,txt}` to `_1_9j_output.{json,txt}`;
+  1.9i baseline files at `c3b2ed1d` preserved untouched.
+- Added `_self_test()` callable via `--self-test` CLI flag; 3 synthetic cases
+  verify the helper's three-count logic. Kept in-script (no test file added) so
+  parser test count stays at 291.
+
+**Real-flag definition (per role family):**
+
+`real` = role assigned in `SheetConfig.column_role_map` AND
+`ClassifiedRow.<role_field>` is not None. For qty: also excludes `cr.is_rate_only`
+rows (§9 #66 blank-to-zero coercion and rate-only markers). Rate family checks
+`rate_combined`/`rate_supply`/`rate_install`. Amount family checks
+`amount_total`/`amount_supply`/`amount_install`.
+
+**Sum invariant:** `real + zero_default + role_unassigned == total_line_items_count`
+for each of qty / rate / amount on every target. Asserted in `_run_target` via
+explicit `raise ValueError` on violation. Re-run on the 11 original 1.9i targets
+showed no violations.
+
+**Empirical headline from re-run** (`single_area_triage_1_9j_output.txt` aggregate,
+2372 total line items across 11 targets):
+
+```
+qty   : real=  1617  zero_default=    32  role_unassigned=   723
+rate  : real=   733  zero_default=  1639  role_unassigned=     0
+amount: real=  2339  zero_default=    33  role_unassigned=     0
+```
+
+vs deprecated `line_items_with_non_none_qty_count` which scored 100% non-None on
+every target (because 0.0 was treated as non-None). Mode C confirmed: the prior metric
+was structurally incapable of distinguishing "parser found qty" from "qty unassigned
+and defaulting to 0."
+
+**Top finding: 723/2372 (30.5%) of line items have NO qty column assigned at all.**
+Largest single contributor: Target 4 (Paytm ELEC, 553 items, role_unassigned=553)
+— confirmed Mode A failure (merged-cell two-row header, hrc=1 misses the area names).
+Target 5 (Paytm HVAC, 170 items) similarly: role_unassigned=170. Combined these two
+targets account for 723/723 of the unassigned bucket. All other 9 targets show
+role_unassigned=0 for qty — clean single-area sheets with qty column correctly mapped.
+Mode A fix in Phase 1.9m should collapse role_unassigned for these targets.
+
+Selected per-target highlights:
+- Target 4 (Paytm ELEC, 553 items): qty real=0, zero_default=0, role_unassigned=553 — Mode A failure confirmed.
+- Target 9 (K Mall HVAC, 67 items): qty real=65, zero_default=2, role_unassigned=0 — clean parse; 2 rate-only rows coerced.
+- Target 11 (Kohler HVAC, 69 items): qty real=66, zero_default=3, role_unassigned=0 — clean; rate all zero_default (rate column absent or unrecognized).
+
+**Caveat for follow-up refinement:** The real flag uses `cr.<role_field> is not None`
+as a proxy for "source cell was non-empty." This is accurate if the parser preserves
+None for blank cells at the `ClassifiedRow` layer. Step 0 verify-current-state
+confirmed the type signatures (`qty: float | None = None`, etc.) but did not trace
+every parsing code path to confirm None-preservation end-to-end. If any §9 #66-style
+blank-to-zero coercion occurs at the `ClassifiedRow` layer (beyond the documented
+`is_rate_only` path), real counts for qty/amount are slightly inflated and
+zero_default slightly deflated; headline signals (role_unassigned distribution,
+rate zero_default ratio) are unaffected. Verification recommended in a future
+refinement (1.9j.1 candidate, low priority) or as a side-check during 1.9n re-run
+analysis.
+
+**Test impact:** Parser tests 291 unchanged. Script `--self-test` adds 3 synthetic
+cases (all-real, all-zero-default, role-unassigned), all PASS. No new files in `tests/`.
+
+**§9 #54 ECHO check:** xlsx fixtures perturbed by parser re-run; cleared via
+`git restore nirmaan_stack/services/boq_parser/tests/fixtures/*.xlsx` before commit.
+
+**Status:** CLOSED. Chore commit `68befb2e`. Docs commit see git log.
 
 ### Phase 1.9h complete (2026-05-18)
 
