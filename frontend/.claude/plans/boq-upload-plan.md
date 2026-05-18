@@ -2,7 +2,7 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json).
 **Owner:** Internal team.
-**Last updated:** 2026-05-18 IST (feat f00cc6ca, Phase 1.9l --- Mode D substring-match precedence fix)
+**Last updated:** 2026-05-18 IST (feat c08ebd13, Phase 1.9m --- Mode A auto-detect 2-row headers)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
 **Latest commit:** Phase 1.8.1 — F1 + F2 cleanup — feat `4c6b81e6`, docs `241988d9` (see git log).
 
@@ -1187,6 +1187,110 @@ asserted the buggy first-match precedence.
 commit.
 
 **Status:** CLOSED. Feat commit `f00cc6ca`. Docs commit see git log.
+
+### Phase 1.9m --- Mode A auto-detect 2-row headers ✅ COMPLETE
+
+Single targeted fix per the 1.9j-1.9n locked plan. Parser source touched:
+`_auto_guess.py` only. Test count 324 → 337. Phase 1.x Frappe tests 91 unchanged.
+
+**Mode A (1.9i §22.4 finding) --- merged-cell 2-row headers misread at hrc=1:**
+
+When a sheet uses a two-row merged header and is read at `header_row_count=1`, the
+reader flattens merged cells — every continuation cell carries the same text as its
+merge origin. This means adjacent columns share identical normalized text in the bottom
+header row. The Phase 1 singleton guard in `auto_guess_sheet_config()` fires on the
+second duplicate and drops its role assignment, leaving per-area columns without roles.
+
+**Helper: `_should_auto_promote_hrc_to_2(bottom_row, above_row, below_row) → bool`**
+
+Three-condition heuristic (all must hold):
+1. bottom_row has ≥ 3 non-blank cells (degenerate sheets don't trigger).
+2. At least one pair of ADJACENT columns (col-index difference == 1) in bottom_row
+   has identical normalized text (the merged-cell signature).
+3. For at least one such duplicate pair, either `above_row` or `below_row` has
+   DISTINCT non-blank text at both those column positions (confirms a genuine 2-row
+   header rather than a table with legitimately repeated values).
+
+Conservative by design: false negatives are recoverable via
+`SheetConfig.top_header_rows_override` (Phase 1.9d F5-b). False positives would
+corrupt the parse.
+
+**Signature change to `auto_guess_sheet_config()`:**
+
+```python
+# Before (Phase 1.9l):
+def auto_guess_sheet_config(reader, sheet_name, header_row,
+                             header_row_count: int,
+                             reserved_keywords: list[str]) -> SheetConfig
+
+# After (Phase 1.9m):
+def auto_guess_sheet_config(reader, sheet_name, header_row,
+                             header_row_count: int | None = None,
+                             reserved_keywords: list[str] | None = None) -> SheetConfig
+```
+
+- `header_row_count=None` (new default) → Mode A auto-detect: reads above + below rows,
+  calls `_should_auto_promote_hrc_to_2()`, resolves to `effective_hrc` ∈ {1, 2}.
+- Explicit int (1 or 2) → bypasses auto-detect, same behaviour as before.
+- `reserved_keywords=None` → resolves to `[]` (backward-compatible).
+
+All existing callers pass explicit positional args `(reader, sheet, hr, hrc, kws)` —
+unaffected by the default changes.
+
+**Empirical targets (Phase 1.9i §22.4):**
+
+- Paytm ELEC (header_row=5): adjacent RATE/RATE and AMOUNT/AMOUNT in row 5; below row 6
+  has Supply/Installation → `_should_auto_promote_hrc_to_2` returns True → effective_hrc=2.
+  BUT "SUPPLY" and "INSTALLATION" are in `multi_area_reserved_keywords`, so
+  `detect_multi_area_pattern` returns None on the top row → no per-area roles assigned.
+  effective_hrc=2 but area_dimensions=[] → no corruption, no improvement for Paytm.
+  Full fix for Paytm deferred (needs non-reserved area names or Pattern 6 detection).
+- Paytm HVAC: same shape; same result.
+- TS-T2-WEX shape (e.g. "Office"/"Common Area" above "QTY"/"QTY"): adjacent QTY/QTY
+  in bottom row; above row has distinct non-reserved names → promotes to hrc=2 → Pattern 1
+  (top row fallback) fires → per-area qty roles assigned correctly.
+
+**Implementation:**
+
+- `_should_auto_promote_hrc_to_2()` added after `_normalize()` in `_auto_guess.py`.
+- `auto_guess_sheet_config()` early block: if `header_row_count is None`, reads
+  `header_row − 1` (if exists) and `header_row + 1`, calls helper, sets `effective_hrc`.
+  `effective_hrc` then replaces `header_row_count` in Phase 1, Phase 2, and `SheetConfig(...)`.
+
+**Test calibrations:** None required. All existing tests pass explicit `header_row_count`
+values — they route through the `else: effective_hrc = header_row_count` branch, unaffected.
+
+**New tests** in `test_auto_guess.py` (13 total):
+
+`TestShouldAutoPromoteHrc2` (8 helper unit tests):
+- adjacent dup + below distinct → True
+- adjacent dup + above distinct → True
+- no adjacent dups → False
+- fewer than 3 cells → False
+- adjacent dup + both above/below None → False
+- adjacent dup + below matching at dup cols → False
+- adjacent dup + below blank at dup cols → False
+- non-adjacent dups (gap column) → False
+
+`TestPhase1_9mModeAAutoPromote2RowHeader` (5 integration tests):
+- TS-T2-WEX shape: auto-promotes to hrc=2
+- all-distinct bottom row: stays hrc=1
+- TS-T2-WEX: after promote, Pattern 1 (top) assigns per-area qty to Office + Common Area
+- Paytm ELEC shape: promotes to hrc=2 but reserved kws block pattern → area_dimensions=[]
+- explicit hrc=1 on promotable sheet: bypasses auto-detect → stays hrc=1, no per-area roles
+
+**Audit-script regression check (agreement #25):**
+
+`classifier_audit.py` does not call `auto_guess_sheet_config` — it uses
+`reader.detect_header_row()` and scans headers at its own fixed hrc=1. Stats are expected
+flat. Confirmed:
+  Before (Phase 1.9l): classified=3970, unclassified=10709, unique_unclassified=2536.
+  After (Phase 1.9m): classified=3970, unclassified=10709, unique_unclassified=2536. ✓
+
+**§9 #54 ECHO check:** Synthetic xlsx fixtures perturbed during test run; cleared via
+`git restore` before commit (done manually outside Claude Code due to tool hang).
+
+**Status:** CLOSED. Feat commit `c08ebd13`. Docs commit see git log.
 
 ### Phase 1.9h complete (2026-05-18)
 
