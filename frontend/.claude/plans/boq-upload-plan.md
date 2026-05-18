@@ -2,7 +2,7 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json).
 **Owner:** Internal team.
-**Last updated:** 2026-05-18 IST (chore 68befb2e, Phase 1.9j --- Mode C diagnostic metric fix)
+**Last updated:** 2026-05-18 IST (feat 3cc3819c, Phase 1.9k --- Mode B + Mode F + F3c broadened)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
 **Latest commit:** Phase 1.8.1 — F1 + F2 cleanup — feat `4c6b81e6`, docs `241988d9` (see git log).
 
@@ -1048,6 +1048,78 @@ cases (all-real, all-zero-default, role-unassigned), all PASS. No new files in `
 `git restore nirmaan_stack/services/boq_parser/tests/fixtures/*.xlsx` before commit.
 
 **Status:** CLOSED. Chore commit `68befb2e`. Docs commit see git log.
+
+### Phase 1.9k --- Mode B + Mode F + F3c broadened ✅ COMPLETE
+
+Three classifier defects fixed in one feat commit. Parser source touched:
+`classifier.py`, `multi_area_detection.py`, `classifier_audit.py`. Test count
+291 → 312. Phase 1.x Frappe tests 91 unchanged.
+
+**Mode B (1.9i finding) — `_HEADER_KW` vocabulary additions:**
+- `qnt`, `qnt.` → qty role (Paytm HVAC target 5, 170 line items with role_unassigned qty).
+- `um` → unit role (Kohler HVAC target 11).
+- 10 additional entries surfaced from `classifier_audit_output.json` top-200
+  unclassified strings:
+  - `sl no` → sl_no (unperioded variant; also enables Mode F "Sl No." fix as substring)
+  - `sq.ft`, `sqm`, `rmt`, `rft`, `mtr`, `set`, `each` → unit (square feet/meters,
+    running meter/feet, meter, set, each — all obvious unit abbreviations)
+  - `no's` → qty (possessive/plural of nos, i.e. "numbers")
+- `classifier_audit.py` `_CLASSIFIER_HEADER_KW` frozen replica synced
+  (agreement #21 mechanical cascade). Sync comment updated to Phase 1.9k.
+
+**Mode F (1.9i finding) — trailing-punctuation normalization:**
+- Normalization at `classify_row()` header-repeat step (line 434 in `classifier.py`)
+  extended: `_to_str(c.value).lower().rstrip(".:") `
+- Affects: `Sl No.`, `SL NO.`, `Qty.`, `S No:`, and any trailing-period / trailing-colon
+  variants across the corpus.
+- Call-site scope: local to the header-repeat detection in `classifier.py`. Does NOT
+  modify `multi_area_detection.py`'s `_is_reserved` (separate normalization path,
+  reserved keywords from GlobalSettings do not typically have trailing periods).
+- `classifier_audit.py` `_match_role()` normalization synced to same `rstrip(".:").
+- **Audit magnitude**: Mode F contributed substantially more matches than Mode B alone.
+  Classified count jumped from 3255 → 3970 (+715). The 715 delta vs ~12 vocabulary
+  additions confirms Mode F's `rstrip` caught a large trailing-period long tail across
+  the 25-workbook corpus.
+
+**F3c broadened (Phase 1.9e finding) — `_RATE_CELL_PATTERN`:**
+- Was: anchored regex `r"^\s*rates?\s*$"` (required cell to be exactly "rate"/"rates").
+- Now: word-boundary regex `r"\b(rates?|costs?|prices?)\b"` (rate/cost/price family).
+- Call-site changed from `.match()` to `.search()` (non-anchored regex requires search).
+- Recognizes rate-family words anywhere in the cell text: `Per Unit Rate`,
+  `Supply Rate`, `Rate (INR)`, `Unit Cost`, `Unit Price`, etc.
+- Empirical basis: 62 cases (60 rate + 2 price) from Phase 1.9e stress test.
+- False-positive risk bounded by Pattern 2-rate detection's call-site context
+  (only consulted after a 3-col merge structure is already confirmed).
+- Word-boundary semantics verified by `test_costing_does_NOT_match_word_boundary_check`
+  — "Costing" does NOT match.
+- F3c does NOT affect `classifier_audit_output.json` output (classifier_audit.py
+  only uses classifier.py's `_match_role`, not multi_area_detection).
+
+**Audit-script regression check (agreement #25):**
+- `classifier_audit_output.json` regenerated.
+- Before (v5.10 §17.11.F): classified=3255, unclassified=11424, unique_unclassified=2697.
+- After (Phase 1.9k): classified=3970, unclassified=10709, unique_unclassified=2536.
+- Net delta: classified +715; unclassified -715; unique_unclassified -161.
+- Direction consistent with additive vocabulary + normalization broadening. No unexpected
+  classification flips.
+
+**Test calibration (§9 #73 path-shift pattern):** None required. All existing tests
+continued to pass without modification. No test asserted that QNT/UM/Sl No. should
+stay unclassified, and no Pattern 2-rate test asserted that non-bare-Rate headers should
+fail detection.
+
+**Test count:** 291 → 312. New tests:
+- `TestPhase1_9kModeBAndF` in `test_classifier.py` (10 tests: QNT, QNT., UM, Sl No.,
+  SL NO., Qty., No's, Sq.ft, Rmt, Each).
+- `TestPhase1_9kF3cBroadenedRateCellPattern` in `test_multi_area_detection.py` (11 tests:
+  Per Unit Rate, Supply Rate, Rate (INR), Unit Cost, Unit Price, bare Rate, bare Rates,
+  Costing word-boundary guard, unrelated text guard, Per Unit Rate integration,
+  Unit Cost integration).
+
+**§9 #54 ECHO check:** xlsx fixtures perturbed by test runs; cleared via
+`git restore nirmaan_stack/services/boq_parser/tests/fixtures/*.xlsx` before commit.
+
+**Status:** CLOSED. Feat commit `3cc3819c`. Docs commit see git log.
 
 ### Phase 1.9h complete (2026-05-18)
 
