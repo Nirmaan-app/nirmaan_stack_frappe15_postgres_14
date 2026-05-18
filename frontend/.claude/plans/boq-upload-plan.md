@@ -2,7 +2,7 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json).
 **Owner:** Internal team.
-**Last updated:** 2026-05-18 IST (feat 3cc3819c, Phase 1.9k --- Mode B + Mode F + F3c broadened)
+**Last updated:** 2026-05-18 IST (feat f00cc6ca, Phase 1.9l --- Mode D substring-match precedence fix)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
 **Latest commit:** Phase 1.8.1 — F1 + F2 cleanup — feat `4c6b81e6`, docs `241988d9` (see git log).
 
@@ -1120,6 +1120,73 @@ fail detection.
 `git restore nirmaan_stack/services/boq_parser/tests/fixtures/*.xlsx` before commit.
 
 **Status:** CLOSED. Feat commit `3cc3819c`. Docs commit see git log.
+
+### Phase 1.9l --- Mode D substring-match precedence fix ✅ COMPLETE
+
+Single targeted fix per the 1.9j-1.9n locked plan. Parser source touched:
+`_auto_guess.py` (Phase 1 assignment matcher) and `classifier_audit.py` (`_match_role()`
+replica). `classifier.py` not modified — its HEADER_REPEAT checker iterates
+per-column against already-assigned roles (different semantics, no role competition).
+Test count 312 → 324. Phase 1.x Frappe tests 91 unchanged.
+
+**Mode D (1.9i finding) — generic keyword beats specific:**
+
+The old Phase 1 matcher in `_auto_guess.py` iterated `_HEADER_KW` in dict-insertion
+order and broke on the first role whose keyword set had any matching substring.
+Because substring matching makes shorter keywords match a strict superset of inputs
+vs longer ones, generic keywords like `"rate"` (in `rate_combined`) would beat
+specific compound keywords like `"supply rate"` (in `rate_supply`) whenever the cell
+text contained both.
+
+**Headline bug (1.9i target 8 Raheja Electrical):**
+- Bottom-header cell text: `"Supply Rate"`.
+- Old matcher: `"rate"` in `"supply rate"` → True → `rate_combined` wins (iteration
+  order); `break`. Supply rate column mis-labeled as `rate_combined`. Install rate
+  column dropped to NULL because no subsequent role's first-matching keyword was tried.
+- New matcher: among all keyword matches across all roles, picks the role whose
+  matched keyword is LONGEST. `"supply rate"` (11 chars) beats `"rate"` (4 chars) →
+  `rate_supply` wins. Tie-break by iteration order (no second criterion).
+
+**Implementation:**
+- `_auto_guess.py` Phase 1 assignment loop (lines 111-121): replaced inner
+  `if any(...): break` with a collect-all-matches loop tracking `best_kw_len`.
+- `classifier_audit.py` `_match_role()` (lines 140-153): same longest-match-wins
+  rewrite. Sync comment updated to cite Phase 1.9l Mode D + agreement #21.
+- `classifier.py` HEADER_REPEAT checker: NOT modified. That checker iterates the
+  already-assigned `col_map` and checks per-column whether the cell text matches
+  that column's own role keywords — no role competition, so Mode D is irrelevant.
+
+**Test calibrations (§9 #73 path-shift pattern):** None required. All existing tests
+either used bare `"Rate"`/`"Amount"` headers (which only match one role family) or
+pre-configured `column_role_map` objects (not derived from auto_guess). Zero tests
+asserted the buggy first-match precedence.
+
+**New tests** in `TestPhase1_9lModeDPrecedence`:
+- `test_auto_guess.py` (10 tests): Supply Rate → rate_supply; Installation Rate →
+  rate_install; Install Rate → rate_install; Supply Amount → amount_supply;
+  Installation Amount → amount_install; Combined Rate → rate_combined (regression);
+  bare Rate → rate_combined (regression); SITC Rate → rate_combined (regression);
+  DSR Rate → rate_supply; NDSR Rate → rate_install.
+- `test_classifier.py` (2 spot-check tests): Supply Rate in rate_supply col → HEADER_REPEAT;
+  Install Rate in rate_install col → HEADER_REPEAT. Complementary guards that role
+  assignment is in `_auto_guess.py` and tested fully there; classifier-level tests
+  verify the HEADER_REPEAT checker works once columns carry the right roles.
+
+**Audit-script regression check (agreement #25):**
+- Top-level stats (expected near-flat since Mode D reassigns but does not unclassify):
+  Before (Phase 1.9k): classified=3970, unclassified=10709, unique_unclassified=2536.
+  After (Phase 1.9l): classified=3970, unclassified=10709, unique_unclassified=2536.
+  Flat as expected — `"Supply Rate"` classified before (as wrong role) and after (as
+  correct role); net classified count unchanged.
+- Per-role breakdown: not surfaced in audit JSON structure (`summary` has no
+  `classified_by_role` field). Role-flip detail visible only in `per_fixture`
+  per-cell records; not summarized.
+
+**§9 #54 ECHO check:** xlsx fixtures perturbed during two test runs (Step 1 and Step
+7 checks); cleared via `git restore` before both the final test suite run and before
+commit.
+
+**Status:** CLOSED. Feat commit `f00cc6ca`. Docs commit see git log.
 
 ### Phase 1.9h complete (2026-05-18)
 
