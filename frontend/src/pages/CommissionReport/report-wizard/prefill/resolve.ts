@@ -149,6 +149,37 @@ export const resolveInitialValues = ({
                 }
                 break;
             }
+            case 'measurement_matrix': {
+                // Fixed N rows. Each row is keyed by the declared `rows[i].id` so we can
+                // re-align saved responses to the template rows even if the user changes
+                // row order in the master template later.
+                const existingArr = Array.isArray(existing)
+                    ? (existing as Array<Record<string, unknown>>)
+                    : null;
+                const existingById = new Map<string, Record<string, unknown>>();
+                if (existingArr) {
+                    for (const r of existingArr) {
+                        if (r && typeof r.id === 'string') existingById.set(r.id, r);
+                    }
+                }
+                out[section.id] = section.rows.map((rowDef) => {
+                    const saved = existingById.get(rowDef.id);
+                    const row: Record<string, unknown> = { id: rowDef.id };
+                    for (const col of section.columns) {
+                        const v = saved?.[col.key];
+                        row[col.key] =
+                            v === undefined || v === null
+                                ? resolveFieldValue(
+                                      { ...col, bind: undefined } as Field,
+                                      undefined,
+                                      prefillDict,
+                                  )
+                                : v;
+                    }
+                    return row;
+                });
+                break;
+            }
             case 'process':
             case 'image_attachments':
             case 'signatures':

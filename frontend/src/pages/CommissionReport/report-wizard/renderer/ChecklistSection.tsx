@@ -13,10 +13,6 @@ interface Props {
 export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly }) => {
     return (
         <section className="space-y-3">
-            {section.title && (
-                <h3 className="text-base font-semibold text-foreground">{section.title}</h3>
-            )}
-
             {/* Desktop table */}
             <div className="hidden overflow-hidden rounded-md border md:block">
                 <table className="w-full text-sm">

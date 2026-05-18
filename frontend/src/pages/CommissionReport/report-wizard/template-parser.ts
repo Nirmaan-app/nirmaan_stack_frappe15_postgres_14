@@ -231,6 +231,50 @@ const validateSection = (
             return true;
         }
 
+        case 'measurement_matrix': {
+            if (!Array.isArray(obj.columns) || obj.columns.length === 0) {
+                errors.push(err('missing_field', `${path}.columns required (non-empty)`, path));
+                return false;
+            }
+            const colKeys = new Set<string>();
+            for (let i = 0; i < obj.columns.length; i++) {
+                const col = obj.columns[i] as Record<string, unknown>;
+                if (!validateField(
+                    { ...col, bind: undefined } as object,
+                    `${path}.columns[${i}]`,
+                    errors,
+                )) return false;
+                const k = col.key as string;
+                if (colKeys.has(k)) {
+                    errors.push(err('duplicate_id', `${path}.columns[${i}].key "${k}" duplicated`, path));
+                    return false;
+                }
+                colKeys.add(k);
+            }
+            if (!Array.isArray(obj.rows) || obj.rows.length === 0) {
+                errors.push(err('missing_field', `${path}.rows required (non-empty)`, path));
+                return false;
+            }
+            const rowIds = new Set<string>();
+            for (let i = 0; i < obj.rows.length; i++) {
+                const row = obj.rows[i] as Record<string, unknown>;
+                if (typeof row?.id !== 'string' || !row.id.trim()) {
+                    errors.push(err('missing_field', `${path}.rows[${i}].id required`, `${path}.rows[${i}]`));
+                    return false;
+                }
+                if (rowIds.has(row.id)) {
+                    errors.push(err('duplicate_id', `${path}.rows[${i}].id "${row.id}" duplicated`, path));
+                    return false;
+                }
+                rowIds.add(row.id);
+                if (!row.labels || typeof row.labels !== 'object') {
+                    errors.push(err('missing_field', `${path}.rows[${i}].labels required`, `${path}.rows[${i}]`));
+                    return false;
+                }
+            }
+            return true;
+        }
+
         default:
             errors.push(err('invalid_type', `${path}.type unsupported`, path));
             return false;

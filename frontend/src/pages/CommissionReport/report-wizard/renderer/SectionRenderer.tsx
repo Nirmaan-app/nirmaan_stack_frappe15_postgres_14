@@ -8,6 +8,7 @@ import { ChecklistSection } from './ChecklistSection';
 import { FieldsSection } from './FieldsSection';
 import { HeaderSection } from './HeaderSection';
 import { ImageAttachmentSection } from './ImageAttachmentSection';
+import { MeasurementMatrixSection } from './MeasurementMatrixSection';
 import { ProcessSection } from './ProcessSection';
 import { SignaturesSection } from './SignaturesSection';
 import { TraineesDataTableSection } from './TraineesDataTableSection';
@@ -62,6 +63,8 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
             return <SignaturesSection section={section} />;
         case 'trainees_data_table':
             return <TraineesDataTableSection section={section} forceReadonly={forceReadonly} />;
+        case 'measurement_matrix':
+            return <MeasurementMatrixSection section={section} forceReadonly={forceReadonly} />;
         default: {
             const _exhaustive: never = section;
             void _exhaustive;

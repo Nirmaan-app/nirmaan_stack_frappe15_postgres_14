@@ -80,7 +80,7 @@ export const TraineesDataTableSection: React.FC<Props> = ({ section, forceReadon
                     <tbody>
                         {fields.map((row, idx) => (
                             <tr key={row.id} className="border-b last:border-0 align-top">
-                                <td className="py-2 px-2 text-muted-foreground">{idx + 1}</td>
+                                <td className="py-2 px-2 text-muted-foreground">{(section.rowLabelPrefix || '') + (idx + 1)}</td>
                                 {section.columns.map((col) => (
                                     <td key={col.key} className="py-2 px-2">
                                         <FieldControl

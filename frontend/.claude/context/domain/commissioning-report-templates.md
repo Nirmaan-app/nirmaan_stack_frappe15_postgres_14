@@ -706,11 +706,21 @@ Full template JSON for the canonical Sprinkler Pressure Test Report (decoded fro
 
 ## Templates and their tasks
 
-A single `templateId` is shared across many `Commission Report Tasks` master rows — one source_format powers every task that uses it.
+A single `templateId` is shared across many `Commission Report Tasks` master rows — one source_format powers every task that uses it. Source of truth: `nirmaan_stack/fixtures/commission_report_tasks.json`.
 
-### `demo-training-certificate`
+### What's new since the last revision
 
-Used by these task masters:
+- **`demo-training-certificate` bumped to v3.** Trainees roster now drives the body via `trainees_data_table`; comments captured via a `fields` section. The Filled Task print format dispatches a bordered trainees-table layout for this template.
+- **`fa-commission-report` split out of `common-template-1`.** FA Commissioning Report now uses its own template that adds a `fields` step ("loops" — quantities + types) and a `trainees_data_table` for loop-by-loop sign-off. Previously it shared `common-template-1`'s plain checklist layout.
+- **`access-control-commissioning` template retired.** Access Control Commissioning Report now uses `common-template-1` (it shares the plain checklist shape with the other ELV reports).
+- **`measurement_matrix` is a new section type** used by `db-commissioning-report` and `lt-panel-commission-report` (IR / phase-to-phase resistance grids). Grammar for this section type is not yet documented in the "Section Types" section above — see the master row's `source_format` for the shape until it's lifted in here.
+- **All un-authored task masters are now flagged `is_active=0`.** They no longer rely on having an empty `source_format` to hide — the soft-delete flag is the authoritative gate, and the wizard / Fill button respect it.
+
+### Shared templates (one source_format → many task masters)
+
+#### `demo-training-certificate` v3 — 9 tasks
+
+Generic training certificate. Sections: `header` · `trainees_data_table` · `fields` (comments / remarks) · `signatures`. Wizard: Header → Trainees → Comments → Signatures → Review. Print format renders a bordered trainees table.
 
 - Electrical System Training Report
 - HVAC VRF/DX Training Report
@@ -722,16 +732,35 @@ Used by these task masters:
 - Access Control Training Report
 - Critical Room ELV System Training Report
 
-### `common-template-1`
+#### `common-template-1` v1 — 5 tasks
 
-Used by these task masters:
+Default plain Yes/No/N-A checklist layout for simple ELV commissioning reports. Sections: `header` · `checklist` · `signatures`. Wizard: Header → Checklist → Signatures → Review.
 
 - CCTV Commissioning Report
-- FA Commissioning Report
 - WLD Commissioning Report
-- ACS Commissioning Report
+- Access Control Commissioning Report
 - RR Commissioning Report
 - VESDA Commissioning Report
+
+### Single-task templates (one source_format → one task master)
+
+| `templateId` | Task master | Sections | One-line purpose |
+|---|---|---|---|
+| `sprinkler-pressure-test` v1 | Sprinkler Pressure Test Report | `process` · `header` · `checklist` · `image_attachments` · `fields` · `signatures` | 2-hour pressure-hold test with procedure text, gauge images, and measured-pressure record. Print format keeps procedure text flowing across pages then locks the commissioning block to one page. |
+| `fa-commission-report` v1 | FA Commissioning Report | `header` · `checklist` · `fields` · `trainees_data_table` · `signatures` | Fire-alarm commissioning with a loops sub-step (count + type) and per-loop sign-off rows. |
+| `db-commissioning-report` v1 | DB Commissioning Report | `header` · `measurement_matrix` · `fields` · `checklist` · `signatures` | Distribution-board commissioning with an IR-test matrix (phase-to-phase / phase-to-earth grid). |
+| `lt-panel-commission-report` v1 | LT Panel Commissioning Report | `process` · `header` · `checklist` · `measurement_matrix` · `signatures` | LT-panel physical check + IR test with procedure text and resistance matrix. |
+| `duct-cfm-report` v1 | CFM / Air Balance Report | `header` · `trainees_data_table` · `signatures` | Air-balance readings, one row per diffuser/grille. |
+| `duct-pressure-testing-report` v1 | Duct Pressure Testing Report | `header` · `fields` · `checklist` · `signatures` | Duct leak/pressure test with measurements + observation checklist. |
+| `earth-pit-resistance-report` v1 | Earthing Test Report | `header` · `fields` · `checklist` · `trainees_data_table` · `signatures` | Earth-pit resistance test with per-pit reading rows. |
+| `lux-level-report` v1 | LUX Level Report | `header` · `trainees_data_table` · `signatures` | LUX readings, one row per location. |
+| `socket-testing-report` v1 | Socket Testing Report | `header` · `trainees_data_table` · `signatures` | Socket continuity / polarity, one row per socket. |
+
+### Inactive task masters (no template authored yet)
+
+These rows exist in the fixture but are flagged `is_active=0` — the Fill Report button is hidden and they don't surface on active projects. Author a `source_format` JSON and flip `is_active=1` to activate.
+
+AHU/CSU Commissioning · AHU/CSU Factory Test · Auto Sequencing Functional Testing · BMS System Functionality Test · Drain Slope Test · Fire Damper Functionality Test · Flow Switch Testing · Fluke Testing · LT Cable Megger Test · LT Panel Factory Test · Network Continuity Test · Nitrogen Pressure Testing · PA Commissioning · Pipe Pressure Testing · Sensor Calibration · Smoke Test · UPS Factory Test · UPS Site Test · VAV Commissioning · VRF/DX Commissioning · Wifi Heat Map
 
 
 ---

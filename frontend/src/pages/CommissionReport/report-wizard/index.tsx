@@ -154,6 +154,27 @@ export const CommissionReportWizard: React.FC = () => {
             prefillDict,
             existingResponse,
         });
+
+        // Auto-fill `training_topic` from the task name (stripping the word "Report")
+        // when the field is empty. Saved values are preserved.
+        if (childRow?.task_name) {
+            const stripped = childRow.task_name
+                .replace(/\breport\b/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (stripped) {
+                for (const section of template.sections) {
+                    if (section.type !== 'header' && section.type !== 'fields') continue;
+                    if (!section.fields.some((f) => f.key === 'training_topic')) continue;
+                    const sec = (initialResponses[section.id] || {}) as Record<string, unknown>;
+                    if (!sec.training_topic) {
+                        sec.training_topic = stripped;
+                        initialResponses[section.id] = sec;
+                    }
+                }
+            }
+        }
+
         const seededAttachments: Record<string, AttachmentSlotValue[]> = {};
         if (existingResponse?.attachments) {
             for (const [k, v] of Object.entries(existingResponse.attachments)) {
@@ -166,6 +187,7 @@ export const CommissionReportWizard: React.FC = () => {
         });
         initializedRef.current = true;
     }, [
+        childRow,
         existingResponse,
         form,
         isParentLoading,
@@ -755,6 +777,66 @@ const ReviewSummary: React.FC<{ template: ReportTemplate; formValues: FormShape 
                                     </table>
                                 </div>
                             )}
+                        </div>
+                    );
+                }
+
+                if (section.type === 'measurement_matrix') {
+                    const rows = (formValues.responses?.[section.id] || []) as Array<Record<string, unknown>>;
+                    return (
+                        <div key={section.id} className="rounded-md border p-3">
+                            <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full border-collapse text-sm">
+                                    <thead>
+                                        <tr className="border-b text-xs text-muted-foreground">
+                                            {section.columns.map((c) => (
+                                                <React.Fragment key={c.key}>
+                                                    <th className="py-1.5 pr-2 text-left font-medium">{c.label}</th>
+                                                    <th className="py-1.5 pr-2 text-left font-medium">
+                                                        {c.valueLabel
+                                                            || (c.type === 'number' && (c as NumberField).unit
+                                                                ? `In ${(c as NumberField).unit}`
+                                                                : 'Value')}
+                                                    </th>
+                                                </React.Fragment>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {section.rows.map((rowDef, idx) => {
+                                            const row = rows[idx] || {};
+                                            return (
+                                                <tr key={rowDef.id} className="border-b last:border-0 align-top">
+                                                    {section.columns.map((c) => {
+                                                        const cellLabel = rowDef.labels[c.key] || '';
+                                                        const display = formatReviewValue(
+                                                            { ...c, bind: undefined } as Field,
+                                                            row[c.key],
+                                                        );
+                                                        const isEmpty = display === '—';
+                                                        return (
+                                                            <React.Fragment key={c.key}>
+                                                                <td className="py-2 pr-2 font-medium">{cellLabel}</td>
+                                                                <td
+                                                                    className={
+                                                                        'py-2 pr-2 ' +
+                                                                        (isEmpty
+                                                                            ? 'italic text-muted-foreground'
+                                                                            : '')
+                                                                    }
+                                                                >
+                                                                    {display}
+                                                                </td>
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     );
                 }

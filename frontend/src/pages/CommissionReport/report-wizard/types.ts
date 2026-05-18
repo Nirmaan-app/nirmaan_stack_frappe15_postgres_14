@@ -148,6 +148,33 @@ export interface TraineesDataTableSection {
     maxRows?: number;
     /** Button text when adding another row. Default "Add another trainee". */
     addRowLabel?: string;
+    /** Optional prefix for the row-number column (e.g. "Loop " → "Loop 1", "Loop 2"). */
+    rowLabelPrefix?: string;
+}
+
+/** Column-group in a `measurement_matrix` section. Like a `Field` (sans `bind`)
+ *  plus an optional `valueLabel` shown as a sub-header above the input column. */
+export type MeasurementMatrixColumn = Omit<Field, 'bind'> & {
+    /** Sub-header rendered above the input column (e.g. "In Volts"). Optional. */
+    valueLabel?: string;
+};
+
+/** One declared row in a `measurement_matrix` section. */
+export interface MeasurementMatrixRow {
+    /** Stable identifier — written to responses, never user-edited. */
+    id: string;
+    /** Static cell label per column key, e.g. { pp: "R-Y", pn: "R-N", pe: "R-E" }. */
+    labels: Record<string, string>;
+}
+
+/** Fixed-row tabular measurement grid: N declared rows × M typed column-groups.
+ *  Stored as an array at `responses.<id>` — `[{ id, [col_key]: value, … }, …]`. */
+export interface MeasurementMatrixSection {
+    id: string;
+    type: 'measurement_matrix';
+    title?: string;
+    rows: MeasurementMatrixRow[];
+    columns: MeasurementMatrixColumn[];
 }
 
 export type Section =
@@ -157,7 +184,8 @@ export type Section =
     | ImageAttachmentsSection
     | FieldsSection
     | SignaturesSection
-    | TraineesDataTableSection;
+    | TraineesDataTableSection
+    | MeasurementMatrixSection;
 
 export type SectionType = Section['type'];
 
