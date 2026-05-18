@@ -137,10 +137,19 @@ def _match_role(header_str: str) -> str | None:
     cell_text = header_str.strip().lower().rstrip(".:") # Phase 1.9k Mode F sync
     if not cell_text:
         return None
+    # Phase 1.9l Mode D — longest matched keyword wins. Tie-break by iteration order.
+    # Sync with _auto_guess.py Phase 1 fix per agreement #21.
+    best_role: str | None = None
+    best_kw_len: int = -1
     for role, kws in _CLASSIFIER_HEADER_KW.items():
-        if any(kw in cell_text for kw in kws):
-            return role
-    return None
+        matched_kws = [kw for kw in kws if kw in cell_text]
+        if not matched_kws:
+            continue
+        longest_match = max(len(kw) for kw in matched_kws)
+        if longest_match > best_kw_len:
+            best_kw_len = longest_match
+            best_role = role
+    return best_role
 
 
 # ------------------------------------------------------------------

@@ -1647,5 +1647,59 @@ class TestAppendNotesRaw(unittest.TestCase):
         self.assertEqual(result.append_notes_raw, {})
 
 
+# ================================================================ #
+# Phase 1.9l Mode D --- HEADER_REPEAT spot-checks                  #
+# ================================================================ #
+
+class TestPhase1_9lModeDPrecedence(unittest.TestCase):
+    """
+    Phase 1.9l Mode D spot-checks at the classify_row HEADER_REPEAT level.
+
+    Role assignment (the Mode D fix) is in _auto_guess.py and tested fully
+    in test_auto_guess.TestPhase1_9lModeDPrecedence. These 2 tests are
+    complementary guards: they verify the HEADER_REPEAT checker in
+    classify_row() correctly detects compound-role header keywords once
+    a column carries the right role (as auto_guess now correctly assigns).
+    """
+
+    def test_supply_rate_header_in_rate_supply_col_triggers_header_repeat(self):
+        """'Supply Rate' in rate_supply column contributes to HEADER_REPEAT count (3+ threshold met)."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="rate_supply"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Supply Rate"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    def test_install_rate_header_in_rate_install_col_triggers_header_repeat(self):
+        """'Install Rate' in rate_install column contributes to HEADER_REPEAT count (3+ threshold met)."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="rate_install"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Install Rate"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+
 if __name__ == "__main__":
     unittest.main()

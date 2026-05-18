@@ -443,5 +443,84 @@ class TestAutoGuessEdgeCases(unittest.TestCase):
             self.assertNotEqual(crm["F"].role, "description")
 
 
+# -----------------------------------------------------------------------
+# Phase 1.9l Mode D --- longest-match-wins precedence
+# -----------------------------------------------------------------------
+
+class TestPhase1_9lModeDPrecedence(unittest.TestCase):
+    """
+    Phase 1.9l Mode D: longest matched keyword wins over shorter keyword
+    in competing roles.
+
+    Headline fix (1.9i Mode D, target 8): 'Supply Rate' cell text matches
+    both 'rate' (rate_combined, 4 chars) and 'supply rate' (rate_supply,
+    11 chars). Old first-match-wins by iteration order gave rate_combined.
+    New longest-match-wins gives rate_supply.
+
+    All tests use hrc=1 (single-area) so only Phase 1 assignment is active.
+    """
+
+    def _crm(self, header_text: str) -> dict:
+        """Build a single test column C with given header; return column_role_map."""
+        row = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": header_text},
+        })
+        reader = _make_reader({1: row})
+        sc = _call(reader, header_row=1, header_row_count=1)
+        return sc.column_role_map
+
+    def test_supply_rate_classifies_as_rate_supply_not_rate_combined(self):
+        """'Supply Rate' -> rate_supply: 'supply rate' (11c) beats 'rate' (4c) in rate_combined."""
+        crm = self._crm("Supply Rate")
+        self.assertEqual(crm["C"].role, "rate_supply")
+
+    def test_installation_rate_classifies_as_rate_install(self):
+        """'Installation Rate' -> rate_install: 'installation rate' (17c) beats 'rate' (4c)."""
+        crm = self._crm("Installation Rate")
+        self.assertEqual(crm["C"].role, "rate_install")
+
+    def test_install_rate_classifies_as_rate_install(self):
+        """'Install Rate' -> rate_install: 'install rate' (12c) beats 'rate' (4c)."""
+        crm = self._crm("Install Rate")
+        self.assertEqual(crm["C"].role, "rate_install")
+
+    def test_supply_amount_classifies_as_amount_supply(self):
+        """'Supply Amount' -> amount_supply: 'supply amount' (13c) beats 'amount' (6c)."""
+        crm = self._crm("Supply Amount")
+        self.assertEqual(crm["C"].role, "amount_supply")
+
+    def test_installation_amount_classifies_as_amount_install(self):
+        """'Installation Amount' -> amount_install: 'installation amount' (19c) beats 'amount' (6c)."""
+        crm = self._crm("Installation Amount")
+        self.assertEqual(crm["C"].role, "amount_install")
+
+    def test_combined_rate_classifies_as_rate_combined(self):
+        """'Combined Rate' -> rate_combined: 'combined rate' (13c) in rate_combined. Regression guard."""
+        crm = self._crm("Combined Rate")
+        self.assertEqual(crm["C"].role, "rate_combined")
+
+    def test_bare_rate_still_classifies_as_rate_combined(self):
+        """'Rate' alone -> rate_combined: only matches rate_combined keywords. Regression guard."""
+        crm = self._crm("Rate")
+        self.assertEqual(crm["C"].role, "rate_combined")
+
+    def test_sitc_rate_classifies_as_rate_combined(self):
+        """'SITC Rate' -> rate_combined: 'sitc rate' (9c) is longest match in rate_combined."""
+        crm = self._crm("SITC Rate")
+        self.assertEqual(crm["C"].role, "rate_combined")
+
+    def test_dsr_rate_classifies_as_rate_supply(self):
+        """'DSR Rate' -> rate_supply: 'dsr rate' (8c) beats 'rate' (4c) in rate_combined."""
+        crm = self._crm("DSR Rate")
+        self.assertEqual(crm["C"].role, "rate_supply")
+
+    def test_ndsr_rate_classifies_as_rate_install(self):
+        """'NDSR Rate' -> rate_install: 'ndsr rate' (9c) beats 'rate' (4c) in rate_combined."""
+        crm = self._crm("NDSR Rate")
+        self.assertEqual(crm["C"].role, "rate_install")
+
+
 if __name__ == "__main__":
     unittest.main()

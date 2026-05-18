@@ -108,11 +108,18 @@ def auto_guess_sheet_config(
         if not cell_text:
             continue
 
+        # Phase 1.9l Mode D — longest matched keyword wins. Tie-break by iteration order.
+        # Fixes: "Supply Rate" mis-labeled as rate_combined (1.9i Mode D, target 8).
         matched_role: str | None = None
+        best_kw_len: int = -1
         for role_key, kw_set in _HEADER_KW.items():
-            if any(kw in cell_text for kw in kw_set):
+            matched_kws = [kw for kw in kw_set if kw in cell_text]
+            if not matched_kws:
+                continue
+            longest_match = max(len(kw) for kw in matched_kws)
+            if longest_match > best_kw_len:
+                best_kw_len = longest_match
                 matched_role = role_key
-                break
 
         if matched_role is None:
             continue
