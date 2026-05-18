@@ -1299,6 +1299,160 @@ class TestHeaderKwExpansionPhase2c(unittest.TestCase):
         self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
 
 
+class TestPhase1_9kModeBAndF(unittest.TestCase):
+    """Phase 1.9k — Mode B vocabulary additions + Mode F trailing-punctuation normalization."""
+
+    # ---------------------------------------------------------------- #
+    # Test 1 — QNT classifies as qty                                    #
+    # ---------------------------------------------------------------- #
+
+    def test_qnt_classifies_as_qty(self):
+        """'QNT' header in qty col → HEADER_REPEAT (Paytm HVAC target 5)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "QNT"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 — QNT. (trailing period) classifies as qty                 #
+    # ---------------------------------------------------------------- #
+
+    def test_qnt_with_trailing_period_classifies_as_qty(self):
+        """'QNT.' (trailing period) in qty col → HEADER_REPEAT via qnt. keyword."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "QNT."},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 — UM classifies as unit                                    #
+    # ---------------------------------------------------------------- #
+
+    def test_um_classifies_as_unit(self):
+        """'UM' header in unit col → HEADER_REPEAT (Kohler HVAC target 11)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "UM"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 — Sl No. (trailing period) classifies as sl_no via Mode F  #
+    # ---------------------------------------------------------------- #
+
+    def test_sl_no_with_trailing_period_classifies_as_sl_no(self):
+        """'Sl No.' → rstrip('.') → 'sl no' → matches 'sl no' keyword → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 — SL NO. (trailing period, uppercase) classifies as sl_no  #
+    # ---------------------------------------------------------------- #
+
+    def test_sl_no_uppercase_with_trailing_period_classifies_as_sl_no(self):
+        """'SL NO.' → rstrip('.') → 'sl no' → HEADER_REPEAT (audit rollup freq=4)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 — Qty. (trailing period) classifies as qty via Mode F      #
+    # ---------------------------------------------------------------- #
+
+    def test_qty_with_trailing_period_classifies_as_qty(self):
+        """'Qty.' → rstrip('.') → 'qty' → HEADER_REPEAT (Mode F normalization)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty."},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 7 — No's classifies as qty                                   #
+    # ---------------------------------------------------------------- #
+
+    def test_nos_apostrophe_classifies_as_qty(self):
+        """\"No's\" in qty col → HEADER_REPEAT (nos-variant from audit top-200)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "No's"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — sq.ft classifies as unit                                 #
+    # ---------------------------------------------------------------- #
+
+    def test_sq_ft_classifies_as_unit(self):
+        """'Sq.ft' in unit col → HEADER_REPEAT (freq=91 in audit output)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Sq.ft"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — rmt classifies as unit                                   #
+    # ---------------------------------------------------------------- #
+
+    def test_rmt_classifies_as_unit(self):
+        """'Rmt' (running meter) in unit col → HEADER_REPEAT (freq=27)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Rmt"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 10 — each classifies as unit                                 #
+    # ---------------------------------------------------------------- #
+
+    def test_each_classifies_as_unit(self):
+        """'Each' in unit col → HEADER_REPEAT (freq=12 in audit output)."""
+        row = _make_row(1, {
+            "A": {"value": "SL NO"},
+            "B": {"value": "Description"},
+            "C": {"value": "Each"},
+            "D": {"value": "Qty"},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+
 class TestRateByAreaRaw(unittest.TestCase):
     """Phase 1.9a — rate_by_area_raw field on ClassifiedRow."""
 

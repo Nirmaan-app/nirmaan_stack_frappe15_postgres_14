@@ -6,6 +6,7 @@ import unittest
 from nirmaan_stack.services.boq_parser.config import GlobalSettings
 from nirmaan_stack.services.boq_parser.multi_area_detection import (
     MultiAreaPattern,
+    _RATE_CELL_PATTERN,
     detect_multi_area_pattern,
 )
 from nirmaan_stack.services.boq_parser.reader import CellInfo, RawRow
@@ -999,6 +1000,118 @@ class TestPattern2Rate(unittest.TestCase):
         # Pattern 1 on top: only PHASE-2 origin is non-reserved → 1 area < 2 → None.
         result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
         self.assertIsNone(result)
+
+
+class TestPhase1_9kF3cBroadenedRateCellPattern(unittest.TestCase):
+    """Phase 1.9k F3c — _RATE_CELL_PATTERN broadened from anchored bare-word to
+    word-boundary family (rate/cost/price). Empirical basis: 62 cases from Phase 1.9e."""
+
+    # ---------------------------------------------------------------- #
+    # Tests 1-5 — new rate/cost/price family matches                    #
+    # ---------------------------------------------------------------- #
+
+    def test_per_unit_rate_matches_rate_cell_pattern(self):
+        """'Per Unit Rate' matches via word boundary on 'Rate'."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Per Unit Rate"))
+
+    def test_supply_rate_matches_rate_cell_pattern(self):
+        """'Supply Rate' matches via word boundary on 'Rate'."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Supply Rate"))
+
+    def test_rate_inr_parenthetical_matches_rate_cell_pattern(self):
+        """'Rate (INR)' matches — rate word is at start before parenthetical."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Rate (INR)"))
+
+    def test_unit_cost_matches_rate_cell_pattern(self):
+        """'Unit Cost' matches via word boundary on 'Cost'."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Unit Cost"))
+
+    def test_unit_price_matches_rate_cell_pattern(self):
+        """'Unit Price' matches via word boundary on 'Price'."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Unit Price"))
+
+    # ---------------------------------------------------------------- #
+    # Tests 6-7 — regression guards (bare Rate/Rates still match)       #
+    # ---------------------------------------------------------------- #
+
+    def test_bare_rate_still_matches(self):
+        """'Rate' (bare) still matches — regression guard."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Rate"))
+
+    def test_bare_rates_plural_still_matches(self):
+        """'Rates' (plural) still matches — regression guard (F3b fix preserved)."""
+        self.assertIsNotNone(_RATE_CELL_PATTERN.search("Rates"))
+
+    # ---------------------------------------------------------------- #
+    # Test 8 — word boundary: "Costing" does NOT match                  #
+    # ---------------------------------------------------------------- #
+
+    def test_costing_does_NOT_match_word_boundary_check(self):
+        """'Costing' does NOT match — 'cost' is not a standalone word in 'Costing'."""
+        self.assertIsNone(_RATE_CELL_PATTERN.search("Costing"))
+
+    # ---------------------------------------------------------------- #
+    # Test 9 — unrelated text does not match                            #
+    # ---------------------------------------------------------------- #
+
+    def test_unrelated_text_does_not_match(self):
+        """'Description' does not match any rate/cost/price family word."""
+        self.assertIsNone(_RATE_CELL_PATTERN.search("Description"))
+
+    # ---------------------------------------------------------------- #
+    # Test 10 — integration: "Per Unit Rate" in rate cell → pattern_2_rate detected
+    # ---------------------------------------------------------------- #
+
+    def test_per_unit_rate_in_bottom_row_triggers_pattern_2_rate(self):
+        """'Per Unit Rate' in the rate-position of a 3-col merge → pattern_2_rate detected."""
+        top_row = _make_row(1, {
+            "C": {"value": "PHASE-1", "is_merged_origin": True,  "merged_range": "C1:E1"},
+            "D": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "F": {"value": "PHASE-2", "is_merged_origin": True,  "merged_range": "F1:H1"},
+            "G": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+            "H": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "Per Unit Rate"},  # F3c: now accepted
+            "E": {"value": "Amount"},
+            "F": {"value": "Qty"},
+            "G": {"value": "Per Unit Rate"},  # F3c: now accepted
+            "H": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "pattern_2_rate")
+        self.assertEqual(result.areas, ["PHASE-1", "PHASE-2"])
+        self.assertIsNotNone(result.rate_columns)
+        self.assertEqual(len(result.rate_columns), 2)
+
+    # ---------------------------------------------------------------- #
+    # Test 11 — "Unit Cost" in bottom row triggers pattern_2_rate       #
+    # ---------------------------------------------------------------- #
+
+    def test_unit_cost_in_bottom_row_triggers_pattern_2_rate(self):
+        """'Unit Cost' in rate-position cell → pattern_2_rate (cost family match)."""
+        top_row = _make_row(1, {
+            "C": {"value": "PHASE-1", "is_merged_origin": True,  "merged_range": "C1:E1"},
+            "D": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "PHASE-1", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "F": {"value": "PHASE-2", "is_merged_origin": True,  "merged_range": "F1:H1"},
+            "G": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+            "H": {"value": "PHASE-2", "is_merged_origin": False, "merged_range": "F1:H1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Qty"},
+            "D": {"value": "Unit Cost"},    # F3c: cost family accepted
+            "E": {"value": "Amount"},
+            "F": {"value": "Qty"},
+            "G": {"value": "Unit Cost"},    # F3c: cost family accepted
+            "H": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "pattern_2_rate")
 
 
 if __name__ == "__main__":

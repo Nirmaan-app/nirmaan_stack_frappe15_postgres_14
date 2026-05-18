@@ -57,9 +57,17 @@ _AMOUNT_CELL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Pattern 2-rate detection accepts "RATE" and "RATES" (plural) per §9 #62 F3b fix (Phase 1.9d 2026-05-17).
+# Phase 1.9k F3c — broadened from anchored bare-word to word-boundary family match.
+# Was: r"^\s*rates?\s*$"  (required cell to be exactly "rate"/"rates").
+# Now: matches when cell text contains a rate/cost/price family word at word boundaries.
+# Examples: "Rate", "Rates", "Per Unit Rate", "Supply Rate", "Rate (INR)",
+#           "Unit Rate", "Rate per Unit", "Unit Cost", "Total Cost", "Unit Price".
+# False-positive risk bounded: consulted only inside _try_pattern_2_rate, after
+# a 3-col merge structure is already confirmed. Use .search() not .match().
+# Empirical basis: 62 cases from Phase 1.9e stress test (60 rate + 2 price).
+# Name retained to avoid git-blame churn; semantics now cover cost/price family.
 _RATE_CELL_PATTERN = re.compile(
-    r"^\s*rates?\s*$",
+    r"\b(rates?|costs?|prices?)\b",
     re.IGNORECASE,
 )
 
@@ -330,7 +338,7 @@ def _try_pattern_2_rate(
 
         if not _QTY_CELL_PATTERN.match(qty_text):
             continue
-        if not _RATE_CELL_PATTERN.match(rate_text):
+        if not _RATE_CELL_PATTERN.search(rate_text):  # .search() for non-anchored word-boundary pattern
             continue
         if not _AMOUNT_CELL_PATTERN.match(amt_text):
             continue

@@ -96,6 +96,7 @@ _HEADER_KW: dict[str, frozenset[str]] = {
         "sl.no", "s.no", "sno", "sr.no",
         "sl. no", "s. no", "sr. no", "si no", "si.no",
         "serial no", "item no", "s.l",
+        "sl no",  # Phase 1.9k Mode B — unperioded variant; enables Mode F "Sl No." fix
     }),
     "description": frozenset({
         "description",
@@ -106,10 +107,18 @@ _HEADER_KW: dict[str, frozenset[str]] = {
     "unit": frozenset({
         "unit",
         "uom", "u.o.m",
+        # Phase 1.9k Mode B — unit abbreviations from classifier_audit_output top-200
+        "um",     # Kohler HVAC target 11
+        "sq.ft", "sqm",                  # square feet / square meters
+        "rmt", "rft", "mtr",             # running meter / running feet / meter
+        "set", "each",                   # count-as-unit variants
     }),
     "qty": frozenset({
         "qty", "quantity", "nos",
         "qnty", "boq qty", "boq quantity",
+        # Phase 1.9k Mode B — qty abbreviations from classifier_audit_output top-200
+        "qnt", "qnt.",  # Paytm HVAC target 5 (170 line items)
+        "no's",         # "No's" = numbers, variant of nos
     }),
     "qty_total": frozenset({
         "qty", "quantity", "nos",
@@ -431,7 +440,7 @@ def classify_row(
         c = raw_row.get_cell(col_letter)
         if c is None or c.value is None:
             continue
-        cell_text = _to_str(c.value).lower()
+        cell_text = _to_str(c.value).lower().rstrip(".:") # Phase 1.9k Mode F — strip trailing . and :
         if any(kw in cell_text for kw in kws):
             kw_hits += 1
 

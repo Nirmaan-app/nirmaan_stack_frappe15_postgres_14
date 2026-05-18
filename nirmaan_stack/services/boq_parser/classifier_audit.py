@@ -35,9 +35,9 @@ _MIN_NON_EMPTY = 3
 # ------------------------------------------------------------------
 # Read-only replica of _HEADER_KW from classifier.py::classify_row()
 # Source of truth: nirmaan_stack/services/boq_parser/classifier.py :: _HEADER_KW
-# Normalization: str(value).strip().lower()  (no internal whitespace collapse).
+# Normalization: str(value).strip().lower().rstrip(".:") — Phase 1.9k Mode F added trailing-punct strip.
 # Matching: substring — any(kw in cell_text for kw in kws).
-# Synced with classifier.py as of Phase 2c §9 #48 expansion (14 role keys).
+# Synced with classifier.py as of Phase 1.9k Mode B expansion.
 # Update this replica whenever _HEADER_KW in classifier.py changes.
 # ------------------------------------------------------------------
 
@@ -46,6 +46,7 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
         "sl.no", "s.no", "sno", "sr.no",
         "sl. no", "s. no", "sr. no", "si no", "si.no",
         "serial no", "item no", "s.l",
+        "sl no",  # Phase 1.9k Mode B — synced from classifier.py
     }),
     "description": frozenset({
         "description",
@@ -56,10 +57,18 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
     "unit": frozenset({
         "unit",
         "uom", "u.o.m",
+        # Phase 1.9k Mode B — synced from classifier.py
+        "um",
+        "sq.ft", "sqm",
+        "rmt", "rft", "mtr",
+        "set", "each",
     }),
     "qty": frozenset({
         "qty", "quantity", "nos",
         "qnty", "boq qty", "boq quantity",
+        # Phase 1.9k Mode B — synced from classifier.py
+        "qnt", "qnt.",
+        "no's",
     }),
     "qty_total": frozenset({
         "qty", "quantity", "nos",
@@ -125,7 +134,7 @@ def _match_role(header_str: str) -> str | None:
     Read-only replica of header-repeat detection from classifier.py::classify_row().
     Returns role name (e.g. "sl_no") or None if unrecognised.
     """
-    cell_text = header_str.strip().lower()
+    cell_text = header_str.strip().lower().rstrip(".:") # Phase 1.9k Mode F sync
     if not cell_text:
         return None
     for role, kws in _CLASSIFIER_HEADER_KW.items():
