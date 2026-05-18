@@ -1,13 +1,15 @@
 /**
  * WOSteps — Work Order selection list with search + select all
  */
-import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
 import { WOItem } from "../useBulkDownloadWizard";
 import { FilterBar } from "../FilterBar";
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
+import { useUserData } from "@/hooks/useUserData";
 
 interface WOStepsProps {
     items: WOItem[];
@@ -19,6 +21,8 @@ interface WOStepsProps {
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
+    withRate: boolean;
+    onWithRateChange: (v: boolean) => void;
     vendorOptions: { value: string; label: string }[];
     vendorFilter: string[];
     onToggleVendor: (v: string) => void;
@@ -33,9 +37,13 @@ interface WOStepsProps {
 export const WOSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
+    withRate, onWithRateChange,
     vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters,
     filteredItems, searchQuery, onSearchChange
 }: WOStepsProps) => {
+    const { role } = useUserData();
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+    const effectiveWithRate = isProjectManager ? false : withRate;
     const baseItems: BaseItem[] = filteredItems.map((wo) => ({
         name: wo.name,
         subtitle: wo.vendor_name || wo.vendor || "—",
@@ -49,11 +57,24 @@ export const WOSteps = ({
 
     return (
         <div className="flex flex-col gap-4">
-            <div>
-                <h2 className="text-xl font-bold">Select Work Orders</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                    Choose Work Orders to include in your download
-                </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h2 className="text-xl font-bold">Select Work Orders</h2>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                        Choose Work Orders to include in your download
+                    </p>
+                </div>
+                <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${isProjectManager ? "bg-muted/70 opacity-80" : "bg-muted/40"}`}>
+                    <Label htmlFor="wo-with-rate" className={`text-sm ${isProjectManager ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}>
+                        {effectiveWithRate ? "With Rate" : "Without Rate"}
+                    </Label>
+                    <Switch
+                        id="wo-with-rate"
+                        checked={effectiveWithRate}
+                        onCheckedChange={onWithRateChange}
+                        disabled={isProjectManager}
+                    />
+                </div>
             </div>
 
             <FilterBar
