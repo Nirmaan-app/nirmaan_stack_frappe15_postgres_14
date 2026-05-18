@@ -405,7 +405,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       {
         id: "po_value",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Value" />
+          <DataTableColumnHeader column={column} title="WO/PO Value" />
         ),
         cell: ({ row }) => {
           const totalValue = getDocumentTotal(
@@ -421,7 +421,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         size: 150,
         enableSorting: false,
         meta: {
-          exportHeaderName: "PO Value",
+          exportHeaderName: "WO/PO Value",
           exportValue: (row: ProjectPayments) =>
             formatToRoundedIndianRupee(
               getDocumentTotal(row.document_name, row.document_type)

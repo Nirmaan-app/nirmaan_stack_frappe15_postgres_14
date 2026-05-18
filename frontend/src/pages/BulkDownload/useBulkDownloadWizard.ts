@@ -410,6 +410,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
                 case "WO":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_wos";
                     formData.append("names", JSON.stringify(selectedIds));
+                    formData.append("with_rate", (isProjectManager ? false : withRate) ? "1" : "0");
                     break;
                 case "DN":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_dns";
