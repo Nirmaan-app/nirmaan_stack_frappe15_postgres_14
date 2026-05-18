@@ -31,7 +31,7 @@ export type LinkedInflowEntry = {
 export const DOCTYPE = "Project Invoices";
 
 export const PROJECT_INVOICE_FIELDS_TO_FETCH = [
-    "name", "invoice_no", "amount", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer", "project_gst"
+    "name", "invoice_no", "amount", "amount_excl_gst", "attachment", "creation", "owner", "project", "modified_by", "invoice_date", "customer", "project_gst"
 ];
 
 export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -44,7 +44,8 @@ export const PROJECT_INVOICE_DATE_COLUMNS = ["invoice_date"];
 
 // Backend aggregation config for summary card
 export const PROJECT_INVOICE_AGGREGATES_CONFIG: AggregationConfig[] = [
-    { field: 'amount', function: 'sum' }
+    { field: 'amount', function: 'sum' },
+    { field: 'amount_excl_gst', function: 'sum' },
 ];
 
 // Static filter helper function (follows inflowPaymentsTable.config.ts pattern)
@@ -170,10 +171,26 @@ export const getProjectInvoiceColumns = (
             }
         },
         {
+            accessorKey: "amount_excl_gst",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice (Excl. GST)" />,
+            cell: ({ row }) => (
+                <div className="tabular-nums">
+                    {row.original.amount_excl_gst != null
+                        ? formatToIndianRupee(row.original.amount_excl_gst)
+                        : <span className="text-muted-foreground">--</span>}
+                </div>
+            ),
+            meta: {
+                exportHeaderName: "Invoice (Excl. GST)",
+                exportValue: (row: ProjectInvoice) => row.amount_excl_gst ?? "",
+                isNumeric: true,
+            },
+        },
+        {
             accessorKey: "amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount(Incl. GST)" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice (Incl. GST)" />,
             cell: ({ row }) => <div className="tabular-nums">{formatToIndianRupee(row.original.amount)}</div>,
-            meta: { exportHeaderName: "Amount", exportValue: (row: ProjectInvoice) => row.amount, isNumeric: true }
+            meta: { exportHeaderName: "Invoice (Incl. GST)", exportValue: (row: ProjectInvoice) => row.amount, isNumeric: true }
         },
         // Reverse-direction "Inflows" column — shows how many inflow payments
         // the customer has made against this invoice (one invoice can be paid

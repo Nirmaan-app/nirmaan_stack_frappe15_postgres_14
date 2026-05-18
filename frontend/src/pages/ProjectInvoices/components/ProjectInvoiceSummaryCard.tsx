@@ -6,7 +6,10 @@ import { ColumnFiltersState } from "@tanstack/react-table";
 import { FileText } from "lucide-react";
 
 interface ProjectInvoiceSummaryCardProps {
-    aggregates: { sum_of_amount?: number } | null;
+    aggregates: {
+        sum_of_amount?: number;
+        sum_of_amount_excl_gst?: number;
+    } | null;
     isAggregatesLoading: boolean;
     totalCount: number;
     columnFilters: ColumnFiltersState;
@@ -98,14 +101,22 @@ export const ProjectInvoiceSummaryCard: React.FC<ProjectInvoiceSummaryCardProps>
                             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center">
                                 <FileText className="h-5 w-5 text-white" />
                             </div>
-                            {/* Primary metric */}
+                            {/* Primary metric — show both Excl. and Incl. GST stacked */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-lg font-bold text-teal-700 dark:text-teal-400 tabular-nums">
                                         {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
                                     </span>
                                     <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
-                                        Total Invoiced
+                                        Incl. GST
+                                    </span>
+                                </div>
+                                <div className="flex items-baseline gap-2 mt-0.5">
+                                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 tabular-nums">
+                                        {formatToRoundedIndianRupee(aggregates.sum_of_amount_excl_gst || 0)}
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
+                                        Excl. GST
                                     </span>
                                 </div>
                                 {/* Filters inline */}
@@ -170,17 +181,26 @@ export const ProjectInvoiceSummaryCard: React.FC<ProjectInvoiceSummaryCardProps>
                 </CardHeader>
                 <CardContent className="px-5 pb-4 pt-0">
                     {aggregates ? (
-                        <div className="grid grid-cols-2 gap-4">
-                            {/* Primary Metric - Total Invoice Amount */}
+                        <div className="grid grid-cols-3 gap-4">
+                            {/* Invoice (Excl. GST) */}
+                            <div className="bg-gradient-to-br from-sky-50 to-blue-50/50 dark:from-sky-950/40 dark:to-blue-950/30 rounded-lg p-4 border border-sky-100 dark:border-sky-900/50">
+                                <dt className="text-xs font-medium text-sky-600/80 dark:text-sky-400/80 uppercase tracking-wide mb-1">
+                                    Invoice (Excl. GST)
+                                </dt>
+                                <dd className="text-2xl font-bold text-sky-700 dark:text-sky-400 tabular-nums">
+                                    {formatToRoundedIndianRupee(aggregates.sum_of_amount_excl_gst || 0)}
+                                </dd>
+                            </div>
+                            {/* Invoice (Incl. GST) — primary */}
                             <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-100 dark:border-emerald-900/50">
                                 <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1">
-                                    Total Invoice Amount
+                                    Invoice (Incl. GST)
                                 </dt>
                                 <dd className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                                     {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
                                 </dd>
                             </div>
-                            {/* Secondary Metric - Invoice Count */}
+                            {/* Invoice Count */}
                             <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
                                 <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
                                     Invoice Count
