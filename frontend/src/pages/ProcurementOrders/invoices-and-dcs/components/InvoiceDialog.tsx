@@ -617,6 +617,21 @@ export function InvoiceDialog<T extends DocumentType>({
     !isEditMode &&
     autofillValidation?.receiver_gstin?.match === false &&
     !!autofillValidation.receiver_gstin.message;
+  // "Couldn't verify" cases — vendor/project has a GSTIN configured but AI
+  // failed to extract it from the invoice file. Soft-warn only; do NOT block
+  // submit. Reviewer will manually verify the GSTIN against the attached file.
+  const supplierGstinMissing =
+    !isEditMode &&
+    autofillValidation?.supplier_gstin?.match === null &&
+    !!autofillValidation?.supplier_gstin?.expected &&
+    !autofillValidation?.supplier_gstin?.extracted &&
+    !!autofillValidation?.supplier_gstin?.message;
+  const receiverGstinMissing =
+    !isEditMode &&
+    autofillValidation?.receiver_gstin?.match === null &&
+    !!autofillValidation?.receiver_gstin?.expected &&
+    !autofillValidation?.receiver_gstin?.extracted &&
+    !!autofillValidation?.receiver_gstin?.message;
 
   return (
     <>
@@ -741,6 +756,31 @@ export function InvoiceDialog<T extends DocumentType>({
                   <p className="font-medium">Receiver (Nirmaan) GSTIN mismatch — submit blocked.</p>
                   <p className="mt-0.5">{autofillValidation?.receiver_gstin?.message}</p>
                   <p className="mt-0.5 italic">Re-upload the correct invoice or verify the PO's Project GST setup.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Soft-warn: supplier GSTIN not extracted (AI couldn't read it).
+                Submit stays enabled — reviewer verifies against the file. */}
+            {supplierGstinMissing && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Supplier GSTIN not extracted</p>
+                  <p className="mt-0.5">{autofillValidation?.supplier_gstin?.message}</p>
+                  <p className="mt-0.5 italic">You can submit — a reviewer will verify the GSTIN against the attached file.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Soft-warn: receiver GSTIN not extracted. */}
+            {receiverGstinMissing && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Receiver (Nirmaan) GSTIN not extracted</p>
+                  <p className="mt-0.5">{autofillValidation?.receiver_gstin?.message}</p>
+                  <p className="mt-0.5 italic">You can submit — a reviewer will verify the GSTIN against the attached file.</p>
                 </div>
               </div>
             )}
