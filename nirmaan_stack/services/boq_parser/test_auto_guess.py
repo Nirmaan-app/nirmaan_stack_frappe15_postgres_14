@@ -12,7 +12,10 @@ semantics, singleton guard, and area_dimensions population.
 import unittest
 from unittest.mock import MagicMock
 
-from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
+from nirmaan_stack.services.boq_parser._auto_guess import (
+    auto_guess_sheet_config,
+    _should_auto_promote_hrc_to_2,
+)
 from nirmaan_stack.services.boq_parser.config import GlobalSettings
 from nirmaan_stack.services.boq_parser.reader import CellInfo, RawRow
 
@@ -520,6 +523,247 @@ class TestPhase1_9lModeDPrecedence(unittest.TestCase):
         """'NDSR Rate' -> rate_install: 'ndsr rate' (9c) beats 'rate' (4c) in rate_combined."""
         crm = self._crm("NDSR Rate")
         self.assertEqual(crm["C"].role, "rate_install")
+
+
+# -----------------------------------------------------------------------
+# Phase 1.9m Mode A --- _should_auto_promote_hrc_to_2 unit tests
+# -----------------------------------------------------------------------
+
+class TestShouldAutoPromoteHrc2(unittest.TestCase):
+    """Direct unit tests for _should_auto_promote_hrc_to_2().
+
+    Each test exercises one branch of the three-condition heuristic.
+    """
+
+    def test_adjacent_dup_below_distinct_returns_true(self):
+        """Adjacent RATE/RATE in bottom, Supply/Installation in below row → True."""
+        bottom = _make_row(5, {
+            "E": {"value": "RATE"},
+            "F": {"value": "RATE"},
+            "G": {"value": "AMOUNT"},
+            "H": {"value": "AMOUNT"},
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+        })
+        below = _make_row(6, {
+            "E": {"value": "Supply"},
+            "F": {"value": "Installation"},
+            "G": {"value": "Supply"},
+            "H": {"value": "Installation"},
+        })
+        self.assertTrue(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=below))
+
+    def test_adjacent_dup_above_distinct_returns_true(self):
+        """Adjacent QTY/QTY in bottom, Office/Common Area in above row → True."""
+        above = _make_row(1, {
+            "C": {"value": "Office"},
+            "D": {"value": "Common Area"},
+        })
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "QTY"},
+            "D": {"value": "QTY"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        self.assertTrue(_should_auto_promote_hrc_to_2(bottom, above_row=above, below_row=None))
+
+    def test_no_adjacent_duplicates_returns_false(self):
+        """All bottom-row cells distinct → no dup pairs → False."""
+        bottom = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        below = _make_row(2, {"A": {"value": "Supply"}, "B": {"value": "Installation"}})
+        self.assertFalse(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=below))
+
+    def test_fewer_than_3_cells_returns_false(self):
+        """Only 2 non-blank cells in bottom row → condition 1 fails → False."""
+        bottom = _make_row(1, {
+            "A": {"value": "Rate"},
+            "B": {"value": "Rate"},
+        })
+        below = _make_row(2, {"A": {"value": "Supply"}, "B": {"value": "Installation"}})
+        self.assertFalse(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=below))
+
+    def test_adjacent_dup_but_above_and_below_none_returns_false(self):
+        """Adjacent duplicates exist but both above/below are None → condition 3 fails → False."""
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Rate"},
+            "D": {"value": "Rate"},
+            "E": {"value": "Amount"},
+        })
+        self.assertFalse(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=None))
+
+    def test_adjacent_dup_but_below_matching_at_dup_cols_returns_false(self):
+        """Adjacent RATE/RATE; below also has Rate/Rate at those cols → condition 3 fails → False."""
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Rate"},
+            "D": {"value": "Rate"},
+            "E": {"value": "Amount"},
+        })
+        below = _make_row(3, {
+            "C": {"value": "Rate"},
+            "D": {"value": "Rate"},
+        })
+        self.assertFalse(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=below))
+
+    def test_adjacent_dup_but_below_blank_at_dup_cols_returns_false(self):
+        """Adjacent RATE/RATE; below row has no cells at C/D → condition 3 fails → False."""
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Rate"},
+            "D": {"value": "Rate"},
+            "E": {"value": "Amount"},
+        })
+        below = _make_row(3, {"A": {"value": "Some data"}})
+        self.assertFalse(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=below))
+
+    def test_non_adjacent_duplicates_not_triggered(self):
+        """RATE at C and RATE at E (gap at D) → not adjacent → no dup pair → False."""
+        bottom = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Rate"},
+            "D": {"value": "Amount"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Unit"},
+        })
+        below = _make_row(2, {"C": {"value": "Supply"}, "E": {"value": "Installation"}})
+        self.assertFalse(_should_auto_promote_hrc_to_2(bottom, above_row=None, below_row=below))
+
+
+# -----------------------------------------------------------------------
+# Phase 1.9m Mode A --- auto_guess_sheet_config with header_row_count=None
+# -----------------------------------------------------------------------
+
+def _call_auto(reader, header_row: int):
+    """Call auto_guess_sheet_config with header_row_count=None (Mode A auto-detect)."""
+    return auto_guess_sheet_config(reader, _SHEET, header_row, header_row_count=None, reserved_keywords=_KWS)
+
+
+class TestPhase1_9mModeAAutoPromote2RowHeader(unittest.TestCase):
+    """
+    auto_guess_sheet_config(header_row_count=None) activates Mode A auto-detect.
+
+    The function inspects bottom / above / below rows and calls
+    _should_auto_promote_hrc_to_2(); if True, effective_hrc=2 and Phase 2
+    pattern detection runs.
+    """
+
+    def test_auto_promote_sets_effective_hrc_2(self):
+        """Mode A: TS-T2-WEX shape → promoted → SheetConfig.header_row_count == 2."""
+        above = _make_row(1, {"C": {"value": "Office"}, "D": {"value": "Common Area"}})
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "QTY"},
+            "D": {"value": "QTY"},
+            "E": {"value": "TOTAL QTY"},
+            "F": {"value": "Rate"},
+            "G": {"value": "Amount"},
+        })
+        reader = _make_reader({1: above, 2: bottom})
+        sc = _call_auto(reader, header_row=2)
+        self.assertEqual(sc.header_row_count, 2)
+
+    def test_no_auto_promote_sets_effective_hrc_1(self):
+        """Mode A: all-distinct bottom row → no promotion → SheetConfig.header_row_count == 1."""
+        bottom = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        reader = _make_reader({1: bottom})
+        sc = _call_auto(reader, header_row=1)
+        self.assertEqual(sc.header_row_count, 1)
+
+    def test_auto_promote_triggers_pattern1_top_row_per_area_roles(self):
+        """Mode A: TS-T2-WEX → effective_hrc=2 → Pattern 1 (top) → per-area qty for Office + Common Area."""
+        above = _make_row(1, {"C": {"value": "Office"}, "D": {"value": "Common Area"}})
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "QTY"},
+            "D": {"value": "QTY"},
+            "E": {"value": "TOTAL QTY"},
+            "F": {"value": "Rate"},
+            "G": {"value": "Amount"},
+        })
+        reader = _make_reader({1: above, 2: bottom})
+        sc = _call_auto(reader, header_row=2)
+        crm = sc.column_role_map
+        self.assertEqual(crm["C"].role, "qty")
+        self.assertEqual(crm["C"].area, "Office")
+        self.assertEqual(crm["D"].role, "qty")
+        self.assertEqual(crm["D"].area, "Common Area")
+        self.assertEqual(sorted(sc.area_dimensions), ["Common Area", "Office"])
+
+    def test_paytm_elec_shape_promotes_but_reserved_keywords_block_pattern(self):
+        """Mode A: Paytm ELEC shape (RATE/RATE, AMOUNT/AMOUNT; Supply/Installation below).
+
+        After promotion to hrc=2, detect_multi_area_pattern runs with top=row4
+        and bottom=row5. 'SUPPLY' and 'INSTALLATION' are reserved keywords so
+        Pattern 1 (top) finds no valid area names → returns None → no per-area
+        roles assigned. effective_hrc=2 but area_dimensions=[].
+        """
+        above = _make_row(4, {
+            "A": {"value": "VERSION "},
+            "B": {"value": ": V0"},
+            "D": {"value": "Quantity"},
+            "E": {"value": "Quantity"},
+        })
+        bottom = _make_row(5, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Qty"},
+            "E": {"value": "Qty"},
+            "F": {"value": "Rate"},
+            "G": {"value": "Rate"},
+            "H": {"value": "Amount"},
+            "I": {"value": "Amount"},
+        })
+        below = _make_row(6, {
+            "F": {"value": "Supply"},
+            "G": {"value": "Installation"},
+            "H": {"value": "Supply"},
+            "I": {"value": "Installation"},
+        })
+        reader = _make_reader({4: above, 5: bottom, 6: below})
+        sc = _call_auto(reader, header_row=5)
+        self.assertEqual(sc.header_row_count, 2)
+        self.assertEqual(sc.area_dimensions, [])
+
+    def test_explicit_hrc_bypasses_auto_detect(self):
+        """Pass explicit header_row_count=1 on a promotable sheet → stays hrc=1, no per-area roles."""
+        above = _make_row(1, {"C": {"value": "Office"}, "D": {"value": "Common Area"}})
+        bottom = _make_row(2, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "QTY"},
+            "D": {"value": "QTY"},
+            "E": {"value": "Rate"},
+            "F": {"value": "Amount"},
+        })
+        reader = _make_reader({1: above, 2: bottom})
+        sc = _call(reader, header_row=2, header_row_count=1)
+        self.assertEqual(sc.header_row_count, 1)
+        for cr in sc.column_role_map.values():
+            self.assertIsNone(cr.area)
 
 
 if __name__ == "__main__":
