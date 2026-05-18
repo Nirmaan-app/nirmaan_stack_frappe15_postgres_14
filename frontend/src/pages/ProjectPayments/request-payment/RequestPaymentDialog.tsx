@@ -141,7 +141,7 @@ export default function RequestPaymentDialog(p:Props){
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount<=0 || !!warn}
+                      disabled={amount===0 || !!warn}
                       onClick={submit}>Confirm</Button>
             </>}
       </div>

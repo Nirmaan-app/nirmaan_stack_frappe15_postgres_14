@@ -10,8 +10,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
-    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_REM_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_REM_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
 } from "./config/ppTabs.constants";
+import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
@@ -26,6 +27,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     const { counts } = useDocCountStore()
 
     const canApprovePayments = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+    const isCEO = user_id === CEO_AUTHORIZED_USER;
 
     // --- Tab State Management ---
     const isAdmin = useMemo(() => PP_ADMIN_ROLES.includes(role), [role]);
@@ -34,11 +36,12 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     const initialTab = useMemo(() => {
         const adminDefault = PP_TABS.APPROVE_PAYMENTS;
+        const ceoDefault = PP_TABS.CEO_PENDING;
         const accountantDefault = PP_TABS.NEW_PAYMENTS;
         const userDefault = PP_TABS.PAYMENTS_DONE;
         const remDefault = PP_TABS.PO_WISE;
-        return getUrlStringParam("tab", isAdmin ? adminDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
-    }, [isAdmin, isAccountant, isProjectRole]); // Calculate only once based on role
+        return getUrlStringParam("tab", isCEO ? ceoDefault : isAdmin ? adminDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
+    }, [isCEO, isAdmin, isAccountant, isProjectRole]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
 
@@ -73,6 +76,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     // --- Filter tabs based on role ---
     const adminTabsFiltered = useMemo(() => PP_ADMIN_TAB_OPTIONS, []);
+    const ceoTabsFiltered = useMemo(() => (isCEO ? PP_CEO_TAB_OPTIONS : []), [isCEO]);
     const newPaymentsTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_NEW_PAYMENTS_TAB_OPTIONS : [], [isAdmin, isAccountant]);
     const remTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_REM_TAB_OPTIONS : [], [isAdmin, isAccountant]);
     const paymentTypeTabsFiltered = useMemo(() => [
@@ -84,7 +88,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         {
             label: "Payments Pending",
             value: PP_TABS.PAYMENTS_PENDING,
-            countValue: parseNumber(counts.pay.requested) + parseNumber(counts.pay.approved)
+            countValue: parseNumber(counts.pay.requested) + parseNumber(counts.pay.ceopending) + parseNumber(counts.pay.approved)
         }
     ], [counts]);
 
@@ -134,6 +138,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
                         </>
                     )}
+                    {/* CEO Pending Tab (CEO user only) */}
+                    {ceoTabsFiltered.length > 0 && (
+                        <>
+                            {ceoTabsFiltered.map(renderTabButton)}
+                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                        </>
+                    )}
                     {/* New Payments Tab */}
                     {newPaymentsTabsFiltered.length > 0 && (
                         <>
@@ -175,6 +186,8 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             )}
                             <ApprovePayments readOnly={!canApprovePayments} />
                         </>
+                    ) : tab === PP_TABS.CEO_PENDING ? (
+                        <ApprovePayments mode="ceo" readOnly={!isCEO} />
                     ) :
 
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?

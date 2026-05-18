@@ -447,8 +447,17 @@ export const useCredits = () => {
     enabled: true,
   });
 
-  // Note: Status facet (display_status) uses static options from CREDIT_FACET_FILTER_OPTIONS
-  // because "Due" is a computed status, not stored in the database
+  // Status facet uses the backend-computed display_status (Due, Requested,
+  // CEO Pending, Approved, Paid). Backend returns only options actually present
+  // in the current filtered dataset.
+  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useCreditsFacet({
+    facetField: "display_status",
+    statusFilter: currentStatus,
+    columnFilters,
+    searchTerm: debouncedSearchTerm,
+    selectedSearchField,
+    enabled: true,
+  });
 
   // --- Payment Term Status Options with Counts ---
   const paymentTermStatusOptionsWithCounts = useMemo(() => {
@@ -463,9 +472,15 @@ export const useCredits = () => {
   }, [creditsCounts]);
 
   // --- Facet Filter Options ---
-  // Status facet uses static options since display_status is computed and includes "Due"
+  // All three facets (status, project, vendor) are now dynamically populated
+  // by the backend based on the rows actually present in the current view.
   const facetFilterOptions = useMemo(() => {
     const dynamicOptions = { ...CREDIT_FACET_FILTER_OPTIONS };
+
+    if (dynamicOptions.display_status) {
+      dynamicOptions.display_status.options = statusFacetOptions;
+      dynamicOptions.display_status.isLoading = isStatusFacetLoading;
+    }
 
     if (dynamicOptions.project_name) {
       dynamicOptions.project_name.options = projectFacetOptions;
@@ -477,11 +492,10 @@ export const useCredits = () => {
       dynamicOptions.vendor_name.isLoading = isVendorFacetLoading;
     }
 
-    // display_status uses static options defined in CREDIT_FACET_FILTER_OPTIONS
-    // as it's a computed field (Due, Requested, Approved, Paid)
-
     return dynamicOptions;
   }, [
+    statusFacetOptions,
+    isStatusFacetLoading,
     projectFacetOptions,
     isProjectFacetLoading,
     vendorFacetOptions,

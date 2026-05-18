@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 
 from frappe.utils import flt
 from nirmaan_stack.api.milestone.project_schedule import sync_project_schedule
-
-CEO_HOLD_AUTHORIZED_USER = "nitesh@nirmaan.app"
-CEO_HOLD_SYSTEM_USER = "System (Cashflow Cron)"
+from nirmaan_stack.constants.authorized_users import (
+	CEO_AUTHORIZED_USER as CEO_HOLD_AUTHORIZED_USER,
+	CEO_HOLD_SYSTEM_USER,
+)
 
 class Projects(Document):
 	def validate(self):

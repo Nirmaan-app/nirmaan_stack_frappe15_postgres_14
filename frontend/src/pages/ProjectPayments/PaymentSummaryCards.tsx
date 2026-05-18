@@ -38,7 +38,7 @@
 //     }).format(value);
 
 // const PaymentSummaryTable: React.FC = ({totalCount}) => {
-    
+
 //   const {
 //         data: statsApiResponse,
 //         isLoading,
@@ -61,7 +61,7 @@
 
 //     // const handleRefetch = useCallback((event: { doctype: string, name: string }) => {
 //     //     console.log("Project Payments DocType changed (real-time)%%%:", event);
-        
+
 //     //     // Use a simple check to avoid unnecessary revalidation if the DocType name is empty
 //     //     if (!event.name) return; 
 
@@ -70,10 +70,10 @@
 //     //         description: `Payment document ${event.name} modified. Refreshing summary.`,
 //     //         duration: 1500
 //     //     });
-        
+
 //     //     // This is the core action: triggering the SWR/Query revalidation
 //     //     refetchPaymentSummary(); 
-        
+
 //     // }, [toast, refetchPaymentSummary,totalCount]); // <-- CRITICAL: Include refetchPaymentSummary here
 
 // console.log("totalCount in PaymentSummaryCards:", totalCount);
@@ -84,7 +84,7 @@
 // // useFrappeDocTypeEventListener(
 // //     "Project Payments",  // Listen to all documents in this DocType
 // //     handleRefetch
-    
+
 // // );
 //     const stats = useMemo(() => statsApiResponse?.message || null, [statsApiResponse]);
 
@@ -145,7 +145,7 @@
 //             amount: stats.payment_done_7_days_amount,
 //             type: "paid",
 //         },
-        
+
 //     ];
 
 //     // ✅ Dynamic color assignment
@@ -216,10 +216,16 @@ interface PaymentStats {
     total_pending_payment_amount: number;
     total_requested_payment_count: number;
     total_requested_payment_amount: number;
+    total_ceo_pending_count: number;
+    total_ceo_pending_amount: number;
     total_approval_done_today: number;
     total_approval_done_today_amount: number;
     total_approval_done_7_days: number;
     total_approval_done_7_days_amount: number;
+    total_ceo_approval_done_today: number;
+    total_ceo_approval_done_today_amount: number;
+    total_ceo_approval_done_7_days: number;
+    total_ceo_approval_done_7_days_amount: number;
     payment_done_today: number;
     payment_done_today_amount: number;
     payment_done_7_days: number;
@@ -234,82 +240,247 @@ const formatToRoundedIndianRupee = (value: number) =>
         maximumFractionDigits: 0,
     }).format(value);
 
-// Define the Row Component for the desktop grid layout
-const StatRow: React.FC<{ label: string; count: number; amount: number; type: string }> = ({ label, count, amount, type }) => {
-    const getStyles = (type: string) => {
-        if (type === "pending" || type === "requested") {
-            return {
-                text: "text-red-600 dark:text-red-400",
-                bg: "bg-red-50 dark:bg-red-950/30",
-                border: "border-red-100 dark:border-red-900/50",
-                icon: <AlertCircle className="h-4 w-4" />,
-            };
-        }
-        if (type === "approved") {
-            return {
-                text: "text-amber-600 dark:text-amber-400",
-                bg: "bg-amber-50 dark:bg-amber-950/30",
-                border: "border-amber-100 dark:border-amber-900/50",
-                icon: <Clock className="h-4 w-4" />,
-            };
-        }
-        if (type === "paid") {
-            return {
-                text: "text-emerald-600 dark:text-emerald-400",
-                bg: "bg-emerald-50 dark:bg-emerald-950/30",
-                border: "border-emerald-100 dark:border-emerald-900/50",
-                icon: <CheckCircle2 className="h-4 w-4" />,
-            };
-        }
+// Per-phase accent (stripe + icon color). Body of the tile stays neutral.
+const getAccent = (type: string) => {
+    if (type === "pending" || type === "requested") {
         return {
-            text: "text-slate-600 dark:text-slate-400",
-            bg: "bg-slate-50 dark:bg-slate-800/50",
-            border: "border-slate-200 dark:border-slate-700",
-            icon: <CreditCard className="h-4 w-4" />,
+            stripe: "bg-red-500 dark:bg-red-600",
+            icon: <AlertCircle className="h-4 w-4 text-red-500 dark:text-red-400" />,
         };
+    }
+    if (type === "approved") {
+        return {
+            stripe: "bg-amber-500 dark:bg-amber-600",
+            icon: <Clock className="h-4 w-4 text-amber-500 dark:text-amber-400" />,
+        };
+    }
+    if (type === "ceo_approved") {
+        return {
+            stripe: "bg-blue-500 dark:bg-blue-600",
+            icon: <CheckCircle2 className="h-4 w-4 text-blue-500 dark:text-blue-400" />,
+        };
+    }
+    if (type === "paid") {
+        return {
+            stripe: "bg-emerald-500 dark:bg-emerald-600",
+            icon: <CheckCircle2 className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />,
+        };
+    }
+    return {
+        stripe: "bg-slate-300 dark:bg-slate-600",
+        icon: <CreditCard className="h-4 w-4 text-slate-500 dark:text-slate-400" />,
     };
+};
 
-    const styles = getStyles(type);
+const getHoverText = (label: string) => {
+    if (label.includes("Pending Payment Request")) return "Payments Requested but not yet Approved.";
+    if (label.includes("Pending Payment Approval")) return "All payments awaiting an approval gate (Requested + CEO Pending).";
+    if (label.includes("Total Payment Due")) return "Total amount of all payments not yet Paid.";
+    if (label.includes("Approval Today")) return "Payments approved today by L1 + CEO combined.";
+    if (label.includes("Approval (7 Days)")) return "Payments approved in the last 7 days by L1 + CEO combined.";
+    if (label.includes("CEO Approved")) return "Count and value of payments CEO-approved in the specified period.";
+    if (label.includes("Approved")) return "Count and value of payments approved in the specified period.";
+    if (label.includes("Paid")) return "Count and value of payments completed/paid in the specified period.";
+    return label;
+};
 
-    const getHoverText = (label: string) => {
-        if (label.includes("Pending Payment Request")) return "Payments Requested but not yet Approved.";
-        if (label.includes("Total Payment Due")) return "Total amount of all payments not yet Paid";
-        if (label.includes("Approved")) return "Count and value of payments approved in the specified period.";
-        if (label.includes("Paid")) return "Count and value of payments completed/paid in the specified period.";
-        return label;
-    };
-
+// Shared tile shell — neutral white body + thin colored left stripe.
+// `amount` is optional: when omitted, the big bold number row is hidden
+// (used by tiles whose total is already represented as a breakdown row).
+const TileShell: React.FC<{
+    type: string;
+    label: string;
+    amount?: number;
+    count?: number;
+    children?: React.ReactNode;
+}> = ({ type, label, amount, count, children }) => {
+    const accent = getAccent(type);
     return (
-        <div className={`rounded-lg p-3 ${styles.bg} border ${styles.border}`}>
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 group">
-                    <span className={styles.text}>{styles.icon}</span>
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wide">
-                        {label}
-                    </span>
-                    <HoverCard>
-                        <HoverCardTrigger asChild>
-                            <Info className="w-3 h-3 text-muted-foreground cursor-pointer opacity-50 group-hover:opacity-100" />
-                        </HoverCardTrigger>
-                        <HoverCardContent className="text-xs w-auto p-2">
-                            {getHoverText(label)}
-                        </HoverCardContent>
-                    </HoverCard>
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
+            <div className={`w-1 shrink-0 ${accent.stripe}`} />
+            <div className="flex-1 p-3 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 group">
+                        {accent.icon}
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                            {label}
+                        </span>
+                        <HoverCard>
+                            <HoverCardTrigger asChild>
+                                <Info className="w-3 h-3 text-muted-foreground cursor-pointer opacity-50 group-hover:opacity-100 shrink-0" />
+                            </HoverCardTrigger>
+                            <HoverCardContent className="text-xs w-auto p-2">
+                                {getHoverText(label)}
+                            </HoverCardContent>
+                        </HoverCard>
+                    </div>
+                    {count !== undefined && (
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 tabular-nums shrink-0">
+                            {count} {count === 1 ? 'item' : 'items'}
+                        </span>
+                    )}
                 </div>
-                <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 tabular-nums">
-                    {count} {count === 1 ? 'item' : 'items'}
-                </span>
-            </div>
-            <div className={`text-xl font-bold ${styles.text} tabular-nums mt-1`}>
-                {formatToRoundedIndianRupee(amount)}
+                {amount !== undefined && (
+                    <div className="text-2xl font-bold text-slate-800 dark:text-slate-100 tabular-nums mt-1">
+                        {formatToRoundedIndianRupee(amount)}
+                    </div>
+                )}
+                {children}
             </div>
         </div>
     );
 };
 
+// Breakdown row used inside composite tiles.
+type BreakdownTone = "red" | "amber" | "blue" | "emerald";
+const TONE_CLASSES: Record<BreakdownTone, { dot: string; text: string }> = {
+    red: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400" },
+    amber: { dot: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
+    blue: { dot: "bg-blue-500", text: "text-blue-600 dark:text-blue-400" },
+    emerald: { dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
+};
+
+const BreakdownRow: React.FC<{
+    tone: BreakdownTone;
+    label: string;
+    labelLong?: string;
+    amount: number;
+    count: number;
+}> = ({ tone, label, labelLong, amount, count }) => {
+    const c = TONE_CLASSES[tone];
+    return (
+        <div className="grid grid-cols-[auto,1fr,auto] gap-x-2 items-center text-[11px]">
+            <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+            <div className="flex items-center gap-1 min-w-0">
+                <span className="text-slate-700 dark:text-slate-200 truncate font-semibold min-w-0">
+                    {labelLong ? (
+                        <>
+                            <span className="lg:hidden">{label}</span>
+                            <span className="hidden lg:inline">{labelLong}</span>
+                        </>
+                    ) : (
+                        label
+                    )}
+                </span>
+                <span className={`${c.text} font-semibold tabular-nums whitespace-nowrap shrink-0`}>
+                    ({count})
+                </span>
+            </div>
+            <span className="text-slate-900 dark:text-slate-100 tabular-nums font-semibold whitespace-nowrap">
+                {formatToRoundedIndianRupee(amount)}
+            </span>
+        </div>
+    );
+};
+
+// Define the Row Component for the desktop grid layout
+const StatRow: React.FC<{ label: string; count: number; amount: number; type: string }> = ({ label, count, amount, type }) => (
+    <TileShell type={type} label={label} amount={amount} count={count} />
+);
+
+// Composite tile: umbrella "Pending Payment Approval" with L1 + CEO breakdown,
+// plus a footer line for "Total Payment Due" (status=Approved, awaiting fulfilment).
+const PendingApprovalTile: React.FC<{
+    totalAmount: number;
+    totalCount: number;
+    l1Amount: number;
+    l1Count: number;
+    ceoAmount: number;
+    ceoCount: number;
+    totalDueAmount: number;
+    totalDueCount: number;
+}> = ({
+    totalAmount, totalCount,
+    l1Amount, l1Count,
+    ceoAmount, ceoCount,
+    totalDueAmount, totalDueCount,
+}) => (
+        <TileShell type="pending" label="Pending Payment Summary" count={totalCount + totalDueCount}>
+            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 space-y-1">
+                <BreakdownRow tone="red" label="Total Pending" labelLong="Pending Payment Approval" amount={totalAmount} count={totalCount} />
+                <BreakdownRow tone="amber" label="L1 Pending" labelLong="L1 Pending Approval" amount={l1Amount} count={l1Count} />
+                <BreakdownRow tone="blue" label="CEO Pending" labelLong="CEO Pending Approval" amount={ceoAmount} count={ceoCount} />
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                <BreakdownRow tone="red" label="Approved – Not Paid" labelLong="Approved But not Paid" amount={totalDueAmount} count={totalDueCount} />
+            </div>
+        </TileShell>
+    );
+
+// Combined "Recent Activity" tile — Approval (L1 + CEO, Today / 7 Days) and Paid (Today / 7 Days).
+const RecentActivityTile: React.FC<{
+    l1TodayAmount: number;
+    l1TodayCount: number;
+    ceoTodayAmount: number;
+    ceoTodayCount: number;
+    l17dAmount: number;
+    l17dCount: number;
+    ceo7dAmount: number;
+    ceo7dCount: number;
+    paidTodayAmount: number;
+    paidTodayCount: number;
+    paid7dAmount: number;
+    paid7dCount: number;
+}> = ({
+    l1TodayAmount, l1TodayCount,
+    ceoTodayAmount, ceoTodayCount,
+    l17dAmount, l17dCount,
+    ceo7dAmount, ceo7dCount,
+    paidTodayAmount, paidTodayCount,
+    paid7dAmount, paid7dCount,
+}) => (
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
+            <div className="w-1 shrink-0 bg-emerald-500 dark:bg-emerald-600" />
+            <div className="flex-1 p-3 min-w-0">
+                <div className="flex items-center gap-2 group">
+                    <Clock className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                        Approved &amp; Paid Summary
+                    </span>
+                    <HoverCard>
+                        <HoverCardTrigger asChild>
+                            <Info className="w-3 h-3 text-muted-foreground cursor-pointer opacity-50 group-hover:opacity-100 shrink-0" />
+                        </HoverCardTrigger>
+                        <HoverCardContent className="text-xs w-auto p-2">
+                            Approvals (L1 + CEO) and payments fulfilled, for today and the last 7 days.
+                        </HoverCardContent>
+                    </HoverCard>
+                </div>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-slate-200 dark:divide-slate-700 gap-y-2">
+                    {/* TODAY column */}
+                    <div className="space-y-1 sm:pr-4">
+
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            Approved<span className="lg:hidden"> Today</span>
+                        </div>
+                        <BreakdownRow tone="amber" label="L1" labelLong="L1 Approval Today" amount={l1TodayAmount} count={l1TodayCount} />
+                        <BreakdownRow tone="blue" label="CEO" labelLong="CEO Approval Today" amount={ceoTodayAmount} count={ceoTodayCount} />
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500 pt-1">
+                            Paid<span className="lg:hidden"> Today</span>
+                        </div>
+                        <BreakdownRow tone="emerald" label="Paid" labelLong="Paid Today" amount={paidTodayAmount} count={paidTodayCount} />
+                    </div>
+                    {/* 7 DAYS column */}
+                    <div className="space-y-1 sm:pl-4">
+
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            Approved<span className="lg:hidden"> (7 Days)</span>
+                        </div>
+                        <BreakdownRow tone="amber" label="L1" labelLong="L1 Approval (7 days)" amount={l17dAmount} count={l17dCount} />
+                        <BreakdownRow tone="blue" label="CEO" labelLong="CEO Approval (7 days)" amount={ceo7dAmount} count={ceo7dCount} />
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500 pt-1">
+                            Paid<span className="lg:hidden"> (7 Days)</span>
+                        </div>
+                        <BreakdownRow tone="emerald" label="Paid" labelLong="Paid (7 days)" amount={paid7dAmount} count={paid7dCount} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
 // NOTE: We assume `totalCount` is passed down from the `useServerDataTable` hook in the parent.
 const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) => {
-    
+
     const {
         data: statsApiResponse,
         isLoading,
@@ -330,7 +501,7 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
             // A toast is often redundant here since it runs frequently, but keep the previous console log
             console.log(`Summary Refetched: Triggered by Parent Total Count Change to ${totalCount}`);
         }
-    }, [totalCount, refetchPaymentSummary]); 
+    }, [totalCount, refetchPaymentSummary]);
     // --- END EFFECT ---
 
 
@@ -361,50 +532,22 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
 
     if (!stats) return null;
 
-    // Row definitions with type for color coding
-    const rows = [
-        {
-            label: "Pending Requests",
-            count: stats.total_requested_payment_count,
-            amount: stats.total_requested_payment_amount,
-            type: "requested",
-        },
-        {
-            label: "Total Payment Due",
-            count: stats.total_pending_payment_count,
-            amount: stats.total_pending_payment_amount,
-            type: "pending",
-        },
-        {
-            label: "Approved Today",
-            count: stats.total_approval_done_today,
-            amount: stats.total_approval_done_today_amount,
-            type: "approved",
-        },
-        {
-            label: "Approved (7 Days)",
-            count: stats.total_approval_done_7_days,
-            amount: stats.total_approval_done_7_days_amount,
-            type: "approved",
-        },
-        {
-            label: "Paid Today",
-            count: stats.payment_done_today,
-            amount: stats.payment_done_today_amount,
-            type: "paid",
-        },
-        {
-            label: "Paid (7 Days)",
-            count: stats.payment_done_7_days,
-            amount: stats.payment_done_7_days_amount,
-            type: "paid",
-        },
-    ];
+    // Composite "Pending Payment Approval" totals (L1 + CEO Pending)
+    const pendingApprovalCount =
+        stats.total_requested_payment_count + stats.total_ceo_pending_count;
+    const pendingApprovalAmount =
+        stats.total_requested_payment_amount + stats.total_ceo_pending_amount;
 
     // Calculate totals for mobile summary
-    const totalPendingAmount = stats.total_pending_payment_amount + stats.total_requested_payment_amount;
-    const totalPaidAmount = stats.payment_done_today_amount + stats.payment_done_7_days_amount;
-    const totalTransactions = stats.total_pending_payment_count + stats.total_requested_payment_count;
+    const totalPendingAmount =
+        stats.total_pending_payment_amount
+        + stats.total_requested_payment_amount
+        + stats.total_ceo_pending_amount;
+    const totalPaidAmount = stats.payment_done_7_days_amount;
+    const totalTransactions =
+        stats.total_pending_payment_count
+        + stats.total_requested_payment_count
+        + stats.total_ceo_pending_count;
 
     return (
         <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
@@ -455,13 +598,14 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                             <span className="text-[9px] font-medium text-red-600 dark:text-red-400 uppercase block">Requests</span>
                             <span className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
                                 {stats.total_requested_payment_count}
+                                <span className="text-blue-600 dark:text-blue-400"> + {stats.total_ceo_pending_count}</span>
                             </span>
                         </div>
                     </div>
                 </CardContent>
             </div>
 
-            {/* ===== EXPANDED DESKTOP VIEW ===== */}
+            {/* ===== EXPANDED TABLET + DESKTOP VIEW ===== */}
             <div className="hidden sm:block">
                 <CardHeader className="pb-2 pt-4 px-5">
                     <div className="flex items-center justify-between">
@@ -477,10 +621,35 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                     </div>
                 </CardHeader>
                 <CardContent className="px-5 pb-4 pt-0">
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                        {rows.map((row, i) => (
-                            <StatRow key={i} {...row} />
-                        ))}
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                        <div className="lg:col-span-2">
+                            <PendingApprovalTile
+                                totalAmount={pendingApprovalAmount}
+                                totalCount={pendingApprovalCount}
+                                l1Amount={stats.total_requested_payment_amount}
+                                l1Count={stats.total_requested_payment_count}
+                                ceoAmount={stats.total_ceo_pending_amount}
+                                ceoCount={stats.total_ceo_pending_count}
+                                totalDueAmount={stats.total_pending_payment_amount}
+                                totalDueCount={stats.total_pending_payment_count}
+                            />
+                        </div>
+                        <div className="lg:col-span-3">
+                            <RecentActivityTile
+                                l1TodayAmount={stats.total_approval_done_today_amount}
+                                l1TodayCount={stats.total_approval_done_today}
+                                ceoTodayAmount={stats.total_ceo_approval_done_today_amount}
+                                ceoTodayCount={stats.total_ceo_approval_done_today}
+                                l17dAmount={stats.total_approval_done_7_days_amount}
+                                l17dCount={stats.total_approval_done_7_days}
+                                ceo7dAmount={stats.total_ceo_approval_done_7_days_amount}
+                                ceo7dCount={stats.total_ceo_approval_done_7_days}
+                                paidTodayAmount={stats.payment_done_today_amount}
+                                paidTodayCount={stats.payment_done_today}
+                                paid7dAmount={stats.payment_done_7_days_amount}
+                                paid7dCount={stats.payment_done_7_days}
+                            />
+                        </div>
                     </div>
                 </CardContent>
             </div>

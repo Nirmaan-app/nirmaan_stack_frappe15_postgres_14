@@ -36,13 +36,15 @@ interface StatusBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
 const statusVariantMap: { [key: string]: BadgeProps["variant"] } = {
   Due: "destructive",      // Created terms with past due_date - shown in red
   Approved: "green",
+  "Ceo pending": "blue",
   Paid: "darkGreen",
   Requested: "yellow",
   Created: "gray",
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  // Normalize status for lookup (e.g., "approved" -> "Approved")
+  // Normalize status for lookup. Multi-word statuses like "CEO Pending" → "Ceo pending"
+  // (capitalize first letter, lowercase the rest — matches the keys above).
   const formattedStatus =
     status?.charAt(0).toUpperCase() + status?.slice(1).toLowerCase();
 

@@ -143,9 +143,11 @@ def sidebar_counts(user: str) -> str:
         "pending":  simple("Service Requests", {**sr_filters, "status": ["not in", ["Approved", "Amendment"]]}),
     }
     pay_filters = {} if is_full_access else {"project": ["in", user_projects]}
+    # Keys are lowercase single-word identifiers (spaces stripped) so consumers
+    # can use plain dot access — e.g. counts.pay.ceopending.
     pay_counts = {
-        s.lower(): simple("Project Payments", {**pay_filters, "status": s})
-        for s in ("Requested", "Approved", "Rejected", "Paid")
+        s.lower().replace(" ", ""): simple("Project Payments", {**pay_filters, "status": s})
+        for s in ("Requested", "CEO Pending", "Approved", "Rejected", "Paid")
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}
@@ -164,7 +166,7 @@ def sidebar_counts(user: str) -> str:
         },
         group_by="term_status"
     )
-    credit_counts = {item.term_status.lower(): item.count for item in credit_counts_raw}
+    credit_counts = {item.term_status.lower().replace(" ", ""): item.count for item in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
 
     # Calculate "due" count for the Due tab:

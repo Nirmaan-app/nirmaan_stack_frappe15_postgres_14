@@ -166,7 +166,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             accessorKey: "approval_date", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
             cell: ({ row }) => {
                 const payment = row.original;
-                const eventId = tab === "New Payments" ? "payment:approved" : "payment:paid";
+                const eventId = tab === "New Payments" ? "payment:ceo_approved" : "payment:paid";
                 const isNew = notifications.find(n => n.docname === payment.name && n.seen === "false" && n.event_id === eventId);
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
