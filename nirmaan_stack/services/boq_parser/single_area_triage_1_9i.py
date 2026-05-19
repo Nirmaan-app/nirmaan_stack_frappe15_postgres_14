@@ -130,24 +130,72 @@ TARGETS: list[dict] = [
 # Phase 1.9n correction: qty_total added — Phase 1.9l Mode D's longest-match-wins now
 # correctly classifies "Total Qty" headers as qty_total, which is a qty-family role for
 # diagnostic counting purposes.
-_QTY_FAMILY_ROLES = frozenset({"qty", "qty_total"})
-_RATE_FAMILY_ROLES = frozenset({"rate_combined", "rate_supply", "rate_install"})
-_AMOUNT_FAMILY_ROLES = frozenset({"amount_total", "amount_combined", "amount_supply", "amount_install"})
+_QTY_FAMILY_ROLES = frozenset({
+    "qty", "qty_total",
+    # Per-area qty uses role="qty" with area= set (section 9 hash 42
+    # deprecated qty_by_area in favor of qty+area pattern). The "qty"
+    # entry already covers both single-area and per-area cases.
+})
+
+_RATE_FAMILY_ROLES = frozenset({
+    "rate_combined", "rate_supply", "rate_install",
+    # Per-area rate role names (Phase 1.9a). Without these, multi-area
+    # sheets register rate_role_assigned=False even when rate columns
+    # exist per area --- causing the metric to report role_unassigned
+    # when in fact roles ARE assigned (just under per-area names).
+    "rate_combined_by_area", "rate_supply_by_area", "rate_install_by_area",
+})
+
+_AMOUNT_FAMILY_ROLES = frozenset({
+    "amount_total", "amount_combined", "amount_supply", "amount_install",
+    # Per-area amount role name (Phase 2b.2 Part B1). Same rationale as
+    # rate per-area entries above.
+    "amount_by_area",
+})
 
 
-def _role_metric(role_assigned: bool, real_flags: list[bool]) -> dict[str, int]:
-    """Three mutually-exclusive counts for one role family across all LINE_ITEM rows.
+def _source_present_for_family(cr, sc, family_roles: frozenset) -> bool:
+    """True if any column mapped to a role in family_roles has a non-blank raw source cell."""
+    for col_letter, col_role in sc.column_role_map.items():
+        if col_role.role not in family_roles:
+            continue
+        cell_info = cr.raw_row.cells.get(col_letter)
+        if cell_info is None:
+            continue
+        val = cell_info.value
+        if val is not None and str(val).strip() != "":
+            return True
+    return False
+
+
+def _role_metric(
+    role_assigned: bool,
+    real_flags: list[bool],
+    source_present_flags: list[bool],
+) -> dict[str, int]:
+    """Three mutually-exclusive counts + source_present_but_unparsed for one role family.
 
     role_assigned: True if at least one column in the sheet carries a role from the family.
-    real_flags: one entry per LINE_ITEM row — True = source cell was non-empty before coercion.
+    real_flags: one entry per LINE_ITEM row — True = parser captured a non-None value.
+    source_present_flags: one entry per LINE_ITEM row — True = at least one source cell in
+        the family had a non-blank raw value (regardless of whether the parser captured it).
 
     Invariant (asserted by caller): real + zero_default + role_unassigned == len(real_flags).
+    source_present_but_unparsed is a sub-count of zero_default (not part of the invariant sum).
     """
     total = len(real_flags)
     if not role_assigned:
-        return {"real": 0, "zero_default": 0, "role_unassigned": total}
+        return {"real": 0, "zero_default": 0, "role_unassigned": total, "source_present_but_unparsed": 0}
     real = sum(1 for f in real_flags if f)
-    return {"real": real, "zero_default": total - real, "role_unassigned": 0}
+    source_present_but_unparsed = sum(
+        1 for rf, spf in zip(real_flags, source_present_flags) if not rf and spf
+    )
+    return {
+        "real": real,
+        "zero_default": total - real,
+        "role_unassigned": 0,
+        "source_present_but_unparsed": source_present_but_unparsed,
+    }
 
 
 def _pattern_str(mp) -> str | None:
@@ -295,12 +343,15 @@ def _load_exception_result(
         "line_items_with_real_qty_count": 0,
         "line_items_with_qty_zero_default_count": 0,
         "line_items_with_qty_role_unassigned_count": 0,
+        "line_items_with_qty_source_present_but_unparsed_count": 0,
         "line_items_with_real_rate_count": 0,
         "line_items_with_rate_zero_default_count": 0,
         "line_items_with_rate_role_unassigned_count": 0,
+        "line_items_with_rate_source_present_but_unparsed_count": 0,
         "line_items_with_real_amount_count": 0,
         "line_items_with_amount_zero_default_count": 0,
         "line_items_with_amount_role_unassigned_count": 0,
+        "line_items_with_amount_source_present_but_unparsed_count": 0,
     }
 
 
@@ -404,8 +455,11 @@ def _run_target(target: dict) -> dict:
     total_items = 0
     qty_non_none = 0  # DEPRECATED — retained for one transition cycle (Phase 1.9j)
     qty_real_flags: list[bool] = []
+    qty_source_present_flags: list[bool] = []
     rate_real_flags: list[bool] = []
+    rate_source_present_flags: list[bool] = []
     amount_real_flags: list[bool] = []
+    amount_source_present_flags: list[bool] = []
 
     for i, rr in enumerate(resolved_rows):
         if rr.classified_row.classification != RowClassification.LINE_ITEM:
@@ -414,24 +468,52 @@ def _run_target(target: dict) -> dict:
         cr = rr.classified_row
         if _null_if_blank(cr.qty) is not None:  # DEPRECATED metric
             qty_non_none += 1
-        # Phase 1.9j real-flags: "real" = non-None AND not §9 #66 coercion / rate-only marker
+
         qty_real_flags.append(cr.qty is not None and not cr.is_rate_only)
+        qty_source_present_flags.append(
+            _source_present_for_family(cr, sc, _QTY_FAMILY_ROLES)
+        )
+
+        # Rate: include rate_combined + rate_by_area_raw (multi-area).
         rate_real_flags.append(
             cr.rate_combined is not None
             or cr.rate_supply is not None
             or cr.rate_install is not None
+            or bool(cr.rate_by_area_raw)
         )
+        rate_source_present_flags.append(
+            _source_present_for_family(cr, sc, _RATE_FAMILY_ROLES)
+        )
+
+        # Amount: include amount_by_area_raw (multi-area).
+        # NOTE: cr.amount_combined is intentionally NOT in this OR clause
+        # because the parser today does NOT have an amount_combined field
+        # on ClassifiedRow --- per section 7.14, amount_combined and
+        # amount_total are interchangeable by design at the output level,
+        # but classify_row() does not currently read amount_combined column
+        # cells into any field. The family frozenset still includes
+        # amount_combined as a valid role string for source-present detection;
+        # when a target has amount_combined columns mapped, the new
+        # source_present_but_unparsed signal will correctly surface that the
+        # source cells had data but no parser field captured it. This is the
+        # expected behavior of the repaired diagnostic and a useful finding for
+        # a future small parser-side alias sub-phase.
         amount_real_flags.append(
             cr.amount_total is not None
             or cr.amount_supply is not None
             or cr.amount_install is not None
+            or bool(cr.amount_by_area_raw)
         )
+        amount_source_present_flags.append(
+            _source_present_for_family(cr, sc, _AMOUNT_FAMILY_ROLES)
+        )
+
         if len(first_10) < 10:
             first_10.append(_line_item_entry(rr, i, resolved_rows, mp))
 
-    qty_metric = _role_metric(qty_role_assigned, qty_real_flags)
-    rate_metric = _role_metric(rate_role_assigned, rate_real_flags)
-    amount_metric = _role_metric(amount_role_assigned, amount_real_flags)
+    qty_metric = _role_metric(qty_role_assigned, qty_real_flags, qty_source_present_flags)
+    rate_metric = _role_metric(rate_role_assigned, rate_real_flags, rate_source_present_flags)
+    amount_metric = _role_metric(amount_role_assigned, amount_real_flags, amount_source_present_flags)
 
     # Sum invariant: three counts must equal total_items for every role family.
     for _fam, _metric in [("qty", qty_metric), ("rate", rate_metric), ("amount", amount_metric)]:
@@ -461,12 +543,15 @@ def _run_target(target: dict) -> dict:
         "line_items_with_real_qty_count": qty_metric["real"],
         "line_items_with_qty_zero_default_count": qty_metric["zero_default"],
         "line_items_with_qty_role_unassigned_count": qty_metric["role_unassigned"],
+        "line_items_with_qty_source_present_but_unparsed_count": qty_metric["source_present_but_unparsed"],
         "line_items_with_real_rate_count": rate_metric["real"],
         "line_items_with_rate_zero_default_count": rate_metric["zero_default"],
         "line_items_with_rate_role_unassigned_count": rate_metric["role_unassigned"],
+        "line_items_with_rate_source_present_but_unparsed_count": rate_metric["source_present_but_unparsed"],
         "line_items_with_real_amount_count": amount_metric["real"],
         "line_items_with_amount_zero_default_count": amount_metric["zero_default"],
         "line_items_with_amount_role_unassigned_count": amount_metric["role_unassigned"],
+        "line_items_with_amount_source_present_but_unparsed_count": amount_metric["source_present_but_unparsed"],
     }
     return base
 
@@ -591,19 +676,22 @@ def _render_txt(output: dict) -> str:
         tot = d.get("total_line_items_count", 0)
         nq = d.get("line_items_with_non_none_qty_count", 0)
         lines.append(f"  [DEPRECATED] line_items_with_non_none_qty: {nq} / {tot}")
-        # Phase 1.9j three-count metrics
+        # Phase 1.9j three-count metrics + Phase 4 source_present_but_unparsed sub-count
         rq = d.get("line_items_with_real_qty_count", 0)
         zq = d.get("line_items_with_qty_zero_default_count", 0)
         uq = d.get("line_items_with_qty_role_unassigned_count", 0)
+        spq = d.get("line_items_with_qty_source_present_but_unparsed_count", 0)
         rr_ = d.get("line_items_with_real_rate_count", 0)
         zr = d.get("line_items_with_rate_zero_default_count", 0)
         ur = d.get("line_items_with_rate_role_unassigned_count", 0)
+        spr = d.get("line_items_with_rate_source_present_but_unparsed_count", 0)
         ra = d.get("line_items_with_real_amount_count", 0)
         za = d.get("line_items_with_amount_zero_default_count", 0)
         ua = d.get("line_items_with_amount_role_unassigned_count", 0)
-        lines.append(f"  qty   : real={rq:>5}  zero_default={zq:>5}  role_unassigned={uq:>5}  total={tot}")
-        lines.append(f"  rate  : real={rr_:>5}  zero_default={zr:>5}  role_unassigned={ur:>5}  total={tot}")
-        lines.append(f"  amount: real={ra:>5}  zero_default={za:>5}  role_unassigned={ua:>5}  total={tot}")
+        spa = d.get("line_items_with_amount_source_present_but_unparsed_count", 0)
+        lines.append(f"  qty   : real={rq:>5}  zero_default={zq:>5}  role_unassigned={uq:>5}  total={tot}  [src_present_unparsed={spq}]")
+        lines.append(f"  rate  : real={rr_:>5}  zero_default={zr:>5}  role_unassigned={ur:>5}  total={tot}  [src_present_unparsed={spr}]")
+        lines.append(f"  amount: real={ra:>5}  zero_default={za:>5}  role_unassigned={ua:>5}  total={tot}  [src_present_unparsed={spa}]")
         lines.append("")
 
     # Aggregate summary
@@ -617,9 +705,9 @@ def _render_txt(output: dict) -> str:
     total_load_exceptions = 0
     non_none_qty_ratios: list[tuple[int, int]] = []
 
-    agg_real_qty = agg_zero_qty = agg_unassigned_qty = 0
-    agg_real_rate = agg_zero_rate = agg_unassigned_rate = 0
-    agg_real_amt = agg_zero_amt = agg_unassigned_amt = 0
+    agg_real_qty = agg_zero_qty = agg_unassigned_qty = agg_sp_qty = 0
+    agg_real_rate = agg_zero_rate = agg_unassigned_rate = agg_sp_rate = 0
+    agg_real_amt = agg_zero_amt = agg_unassigned_amt = agg_sp_amt = 0
     agg_total_items = 0
 
     for t in all_targets:
@@ -643,12 +731,15 @@ def _render_txt(output: dict) -> str:
         agg_real_qty += d.get("line_items_with_real_qty_count", 0)
         agg_zero_qty += d.get("line_items_with_qty_zero_default_count", 0)
         agg_unassigned_qty += d.get("line_items_with_qty_role_unassigned_count", 0)
+        agg_sp_qty += d.get("line_items_with_qty_source_present_but_unparsed_count", 0)
         agg_real_rate += d.get("line_items_with_real_rate_count", 0)
         agg_zero_rate += d.get("line_items_with_rate_zero_default_count", 0)
         agg_unassigned_rate += d.get("line_items_with_rate_role_unassigned_count", 0)
+        agg_sp_rate += d.get("line_items_with_rate_source_present_but_unparsed_count", 0)
         agg_real_amt += d.get("line_items_with_real_amount_count", 0)
         agg_zero_amt += d.get("line_items_with_amount_zero_default_count", 0)
         agg_unassigned_amt += d.get("line_items_with_amount_role_unassigned_count", 0)
+        agg_sp_amt += d.get("line_items_with_amount_source_present_but_unparsed_count", 0)
 
     lines.append(f"  Total target count          : {total_count}")
     for cls_name in sorted(classification_counts.keys()):
@@ -675,16 +766,16 @@ def _render_txt(output: dict) -> str:
         )
 
     lines.append("")
-    lines.append("  [Phase 1.9j aggregate three-count metrics]")
+    lines.append("  [Phase 1.9j aggregate three-count metrics + Phase 4 source_present_but_unparsed]")
     lines.append(f"  Total line items across all targets: {agg_total_items}")
     lines.append(
-        f"  qty   : real={agg_real_qty:>6}  zero_default={agg_zero_qty:>6}  role_unassigned={agg_unassigned_qty:>6}"
+        f"  qty   : real={agg_real_qty:>6}  zero_default={agg_zero_qty:>6}  role_unassigned={agg_unassigned_qty:>6}  [src_present_unparsed={agg_sp_qty}]"
     )
     lines.append(
-        f"  rate  : real={agg_real_rate:>6}  zero_default={agg_zero_rate:>6}  role_unassigned={agg_unassigned_rate:>6}"
+        f"  rate  : real={agg_real_rate:>6}  zero_default={agg_zero_rate:>6}  role_unassigned={agg_unassigned_rate:>6}  [src_present_unparsed={agg_sp_rate}]"
     )
     lines.append(
-        f"  amount: real={agg_real_amt:>6}  zero_default={agg_zero_amt:>6}  role_unassigned={agg_unassigned_amt:>6}"
+        f"  amount: real={agg_real_amt:>6}  zero_default={agg_zero_amt:>6}  role_unassigned={agg_unassigned_amt:>6}  [src_present_unparsed={agg_sp_amt}]"
     )
 
     lines.append("")
@@ -747,27 +838,89 @@ def main(subset: str | None = None) -> None:
 
 
 def _self_test() -> None:
-    """3 synthetic cases verifying _role_metric.
+    """7 synthetic cases verifying _role_metric.
 
-    Kept in-script (not under tests/) so parser test count stays at 291.
+    Kept in-script (not under tests/) so parser test count stays at 375.
     Run via: python -m nirmaan_stack.services.boq_parser.single_area_triage_1_9i --self-test
     """
-    # Case 1: role assigned, all source cells non-empty → all real
-    r = _role_metric(True, [True, True, True])
-    assert r == {"real": 3, "zero_default": 0, "role_unassigned": 0}, f"Case 1 FAIL: {r}"
+    # Case 1: role assigned, all real → all real, source_present_but_unparsed=0
+    r = _role_metric(True, [True, True, True], [True, True, True])
+    assert r == {"real": 3, "zero_default": 0, "role_unassigned": 0, "source_present_but_unparsed": 0}, f"Case 1 FAIL: {r}"
     print("  Case 1 (all-real): PASS")
 
-    # Case 2: role assigned, all source cells empty → all zero-default
-    r = _role_metric(True, [False, False, False])
-    assert r == {"real": 0, "zero_default": 3, "role_unassigned": 0}, f"Case 2 FAIL: {r}"
-    print("  Case 2 (all-zero-default): PASS")
+    # Case 2: role assigned, all zero-default, source present for 2 of 3 → source_present_but_unparsed=2
+    r = _role_metric(True, [False, False, False], [True, True, False])
+    assert r == {"real": 0, "zero_default": 3, "role_unassigned": 0, "source_present_but_unparsed": 2}, f"Case 2 FAIL: {r}"
+    print("  Case 2 (all-zero-default, 2 source-present): PASS")
 
-    # Case 3: no column has the role → all role-unassigned
-    r = _role_metric(False, [False, False, False])
-    assert r == {"real": 0, "zero_default": 0, "role_unassigned": 3}, f"Case 3 FAIL: {r}"
+    # Case 3: no column has the role → all role-unassigned, source_present_but_unparsed=0
+    r = _role_metric(False, [False, False, False], [False, False, False])
+    assert r == {"real": 0, "zero_default": 0, "role_unassigned": 3, "source_present_but_unparsed": 0}, f"Case 3 FAIL: {r}"
     print("  Case 3 (role-unassigned): PASS")
 
-    print("_self_test: all 3 cases PASS")
+    # Case 4: role assigned, 5 line items, all source cells blank
+    # → real=0, zero_default=5, role_unassigned=0,
+    #   source_present_but_unparsed=0 (nothing in source to surface).
+    r = _role_metric(
+        True,
+        [False, False, False, False, False],  # real_flags: all None
+        [False, False, False, False, False],  # source_present_flags: all blank
+    )
+    assert r == {
+        "real": 0, "zero_default": 5, "role_unassigned": 0,
+        "source_present_but_unparsed": 0,
+    }, f"Case 4 FAIL: {r}"
+    print("  Case 4 (all-source-blank, unpriced BoQ): PASS")
+
+    # Case 5: role assigned, 5 line items, all source cells had data,
+    # parser captured all 5.
+    # → real=5, zero_default=0, role_unassigned=0,
+    #   source_present_but_unparsed=0.
+    r = _role_metric(
+        True,
+        [True, True, True, True, True],
+        [True, True, True, True, True],
+    )
+    assert r == {
+        "real": 5, "zero_default": 0, "role_unassigned": 0,
+        "source_present_but_unparsed": 0,
+    }, f"Case 5 FAIL: {r}"
+    print("  Case 5 (all-source-present-and-parsed, priced clean): PASS")
+
+    # Case 6: Role assigned, 5 line items:
+    # - 2 parsed cleanly (real_flag=True, source_present=True)
+    # - 2 legitimately blank (real_flag=False, source_present=False)
+    # - 1 PARSER BUG: source cell had data but parser produced None
+    #   (real_flag=False, source_present=True)
+    # Expected: real=2, zero_default=3, role_unassigned=0,
+    #           source_present_but_unparsed=1.
+    r = _role_metric(
+        True,
+        [True, True, False, False, False],
+        [True, True, False, False, True],   # last entry: present but unparsed
+    )
+    assert r == {
+        "real": 2, "zero_default": 3, "role_unassigned": 0,
+        "source_present_but_unparsed": 1,
+    }, f"Case 6 FAIL: {r}"
+    print("  Case 6 (mixed with 1 parser bug): PASS")
+
+    # Case 7: no role assigned. source_present_flags are technically
+    # meaningless in this case but the function should still return
+    # source_present_but_unparsed=0 because role_unassigned wins.
+    # This locks in the precedence behavior.
+    r = _role_metric(
+        False,
+        [False, False, False],
+        [True, True, True],  # phantom values --- should be ignored
+    )
+    assert r == {
+        "real": 0, "zero_default": 0, "role_unassigned": 3,
+        "source_present_but_unparsed": 0,
+    }, f"Case 7 FAIL: {r}"
+    print("  Case 7 (role-unassigned, ignore phantom source_present): PASS")
+
+    print("_self_test: all 7 cases PASS")
 
 
 if __name__ == "__main__":
