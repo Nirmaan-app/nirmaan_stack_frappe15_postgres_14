@@ -27,6 +27,7 @@ import { useToast } from "@/components/ui/use-toast";
 
 // --- Dialog Component ---
 import { PaymentActionDialog } from "./components/PaymentActionDialog";
+import { BulkActionBar } from "./components/BulkActionBar";
 
 // --- Types and Constants ---
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -199,6 +200,30 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const vendorOptions = useMemo<SelectOption[]>(
     () => vendors?.map((v) => ({ label: v.vendor_name, value: v.name })) || [],
     [vendors]
+  );
+
+  const projectLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of projectOptions) m.set(o.value, o.label);
+    return m;
+  }, [projectOptions]);
+
+  const vendorLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of vendorOptions) m.set(o.value, o.label);
+    return m;
+  }, [vendorOptions]);
+
+  const projectLabelFor = useCallback(
+    (projectId?: string) =>
+      (projectId && projectLabelMap.get(projectId)) || projectId || "—",
+    [projectLabelMap]
+  );
+
+  const vendorLabelFor = useCallback(
+    (vendorId?: string) =>
+      (vendorId && vendorLabelMap.get(vendorId)) || vendorId || "—",
+    [vendorLabelMap]
   );
 
   const getAmountPaid = useMemo(() => {
@@ -574,7 +599,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     searchableFields: ppSearchableFields,
     urlSyncKey: isCEOMode ? URL_SYNC_KEY_CEO : URL_SYNC_KEY_LEAD,
     defaultSort: "creation desc",
-    enableRowSelection: false,
+    enableRowSelection: !readOnly
+      ? (row) => !ceoHoldProjectIds.has(row.original.project)
+      : false,
     additionalFilters: staticFilters,
   });
 
@@ -699,7 +726,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       if (projectId && ceoHoldProjectIds.has(projectId)) {
         return CEO_HOLD_ROW_CLASSES;
       }
-      return undefined;
+      // Override the default bg-muted (gray) selection highlight with green.
+      return "data-[state=selected]:bg-emerald-50 data-[state=selected]:hover:bg-emerald-100";
     },
     [ceoHoldProjectIds]
   );
@@ -770,7 +798,18 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           isExporting={isExporting}
           exportFileName={`${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`}
           getRowClassName={getRowClassName}
-        // toolbarActions={...} // Optional
+          showRowSelection={!readOnly}
+          toolbarActions={
+            !readOnly ? (
+              <BulkActionBar
+                table={table}
+                mode={isCEOMode ? "ceo" : "lead"}
+                refetch={refetch}
+                projectLabelFor={projectLabelFor}
+                vendorLabelFor={vendorLabelFor}
+              />
+            ) : undefined
+          }
         />
       )}
 

@@ -18,6 +18,10 @@ def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
     Finds the corresponding PO term by searching through the child table
     and updates its status.
     """
+    if payment_doc.flags.get("bulk_approval"):
+        # Bulk endpoint owns the PO row lock and syncs terms once per group.
+        return
+
     if payment_doc.document_type != "Procurement Orders":
         return
 
@@ -134,6 +138,9 @@ def on_update(doc, method):
     # --- Notification logic for specific status transitions ---
     if old_doc.status == 'Requested' and doc.status == "CEO Pending":
         # Project Lead has approved → notify the CEO that a payment is awaiting their gate.
+        if doc.flags.get("bulk_approval"):
+            # Bulk endpoint emits one summary notification covering all payments.
+            return
         ceo_user = _get_ceo_user()
         project = frappe.get_doc("Projects", doc.project)
         if ceo_user:
@@ -170,6 +177,9 @@ def on_update(doc, method):
 
     elif old_doc.status == 'CEO Pending' and doc.status == 'Approved':
         # CEO has approved → notify accountants that the payment is ready to fulfil.
+        if doc.flags.get("bulk_approval"):
+            # Bulk endpoint emits one summary notification per accountant per project.
+            return
         accountants = get_allowed_accountants(doc)
         project = frappe.get_doc("Projects", doc.project)
         if accountants:
