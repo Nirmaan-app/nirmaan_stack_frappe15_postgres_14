@@ -181,6 +181,26 @@ TARGETS: list[dict] = [
         "file": "Kohler-BOQ- 06-04-26.xlsx",
         "sheet": "HVAC",
     },
+    {
+        "rough": "merged_header_v1 - ELECTRICAL & ELV BOQ",
+        "file": "merged_header_v1.xlsx",
+        "sheet": "ELECTRICAL & ELV BOQ",
+    },
+    {
+        "rough": "merged_header_v2 - ELECTRICAL & ELV BOQ",
+        "file": "merged_header_v2.xlsx",
+        "sheet": "ELECTRICAL & ELV BOQ",
+    },
+    {
+        "rough": "single_header_v1 - HVAC BOQ",
+        "file": "single_header_v1.xlsx",
+        "sheet": "HVAC BOQ",
+    },
+    {
+        "rough": "single_header_v2 - HVAC BOQ",
+        "file": "single_header_v2.xlsx",
+        "sheet": "HVAC BOQ",
+    },
 ]
 
 
