@@ -889,5 +889,83 @@ class TestPhase1_9oTierAMergedAutoGuess(unittest.TestCase):
             self.assertIn(col, sc.column_role_map)
 
 
+class TestPhase1_9pAppendToNotesAutoGuess(unittest.TestCase):
+    """
+    Phase 1.9p --- auto_guess Phase 1 longest-match assignment for append_to_notes.
+
+    3 positive tests confirm new keyword entries auto-assign to append_to_notes.
+    1 multi-column lock-in confirms append_to_notes is NOT singleton-guarded
+    (two columns both get the role).
+    3 negative regression tests confirm that compound keywords (DSR Rate, NDSR Rate,
+    Material Code) preserve their existing roles via longest-match-wins (1.9l).
+    """
+
+    def _crm(self, header_text: str) -> dict:
+        """Build a single test column C with given header; return column_role_map."""
+        row = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": header_text},
+        })
+        reader = _make_reader({1: row})
+        sc = _call(reader, header_row=1, header_row_count=1)
+        return sc.column_role_map
+
+    def test_ref_no_column_auto_assigned_to_append_to_notes(self):
+        """'Ref No' header → append_to_notes via Phase 1 longest-match: 'ref no' (6c)."""
+        crm = self._crm("Ref No")
+        self.assertIn("C", crm)
+        self.assertEqual(crm["C"].role, "append_to_notes")
+
+    def test_dsr_column_auto_assigned_to_append_to_notes(self):
+        """'DSR' header → append_to_notes via Phase 1: 'dsr' (3c), only match."""
+        crm = self._crm("DSR")
+        self.assertIn("C", crm)
+        self.assertEqual(crm["C"].role, "append_to_notes")
+
+    def test_ndsr_column_auto_assigned_to_append_to_notes(self):
+        """'NDSR' header → append_to_notes via Phase 1: 'ndsr' (4c), only match."""
+        crm = self._crm("NDSR")
+        self.assertIn("C", crm)
+        self.assertEqual(crm["C"].role, "append_to_notes")
+
+    def test_two_append_to_notes_columns_both_assigned(self):
+        """
+        Two columns 'Ref No' and 'DSR' both get append_to_notes.
+
+        Critical lock-in: append_to_notes is NOT in _SINGLETON_ROLES so the
+        singleton guard does not fire; both columns receive the role.
+        """
+        row = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Qty"},
+            "D": {"value": "Ref No"},
+            "E": {"value": "DSR"},
+        })
+        reader = _make_reader({1: row})
+        sc = _call(reader, header_row=1, header_row_count=1)
+        crm = sc.column_role_map
+        self.assertIn("D", crm)
+        self.assertIn("E", crm)
+        self.assertEqual(crm["D"].role, "append_to_notes")
+        self.assertEqual(crm["E"].role, "append_to_notes")
+
+    def test_dsr_rate_column_auto_assigned_to_rate_supply(self):
+        """'DSR Rate' → rate_supply: 'dsr rate' (8c) beats 'dsr' (3c) in append_to_notes."""
+        crm = self._crm("DSR Rate")
+        self.assertEqual(crm["C"].role, "rate_supply")
+
+    def test_ndsr_rate_column_auto_assigned_to_rate_install(self):
+        """'NDSR Rate' → rate_install: 'ndsr rate' (9c) beats 'ndsr' (4c) in append_to_notes."""
+        crm = self._crm("NDSR Rate")
+        self.assertEqual(crm["C"].role, "rate_install")
+
+    def test_material_code_column_auto_assigned_to_make_model(self):
+        """'Material Code' → make_model: 'material code' (13c) beats 'code' (4c) in append_to_notes."""
+        crm = self._crm("Material Code")
+        self.assertEqual(crm["C"].role, "make_model")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -124,6 +124,14 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
         "remark", "remarks", "note", "notes",
         "comment", "comments",
     }),
+    # ===== Phase 1.9p append_to_notes keyword family (synced from classifier.py) =====
+    "append_to_notes": frozenset({
+        "ref no", "refno", "ref no.", "ref. no", "ref. no.",
+        "ref code", "ref number",
+        "reference",
+        "dsr", "ndsr",
+        "code", "item code",
+    }),
 }
 
 
@@ -139,6 +147,7 @@ def _match_role(header_str: str) -> str | None:
         return None
     # Phase 1.9l Mode D — longest matched keyword wins. Tie-break by iteration order.
     # Sync with _auto_guess.py Phase 1 fix per agreement #21.
+    # Phase 1.9k Mode B/F, Phase 1.9l Mode D, Phase 1.9p append_to_notes synced.
     best_role: str | None = None
     best_kw_len: int = -1
     for role, kws in _CLASSIFIER_HEADER_KW.items():

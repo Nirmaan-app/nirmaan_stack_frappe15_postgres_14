@@ -175,6 +175,14 @@ _HEADER_KW: dict[str, frozenset[str]] = {
         "remark", "remarks", "note", "notes",
         "comment", "comments",
     }),
+    # ===== Phase 1.9p append_to_notes keyword family =====
+    "append_to_notes": frozenset({
+        "ref no", "refno", "ref no.", "ref. no", "ref. no.",
+        "ref code", "ref number",
+        "reference",
+        "dsr", "ndsr",
+        "code", "item code",
+    }),
 }
 
 # Subtotal row text patterns (applied to the description cell, case-insensitive).

@@ -1701,5 +1701,200 @@ class TestPhase1_9lModeDPrecedence(unittest.TestCase):
         self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
 
 
+class TestPhase1_9pAppendToNotesKeywords(unittest.TestCase):
+    """
+    Phase 1.9p --- HEADER_REPEAT recognition for append_to_notes keyword family.
+
+    9 positive tests confirm each new keyword triggers HEADER_REPEAT when the
+    column is mapped to append_to_notes. 2 negative regression tests confirm that
+    the compound keywords 'DSR Rate' and 'NDSR Rate' continue to attribute to
+    rate_supply / rate_install respectively (longest-match-wins from 1.9l preserved
+    at the role-keyword-lookup level).
+    """
+
+    def _config_with_append_col(self) -> SheetConfig:
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="append_to_notes"),
+            },
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 --- Ref No                                                  #
+    # ---------------------------------------------------------------- #
+
+    def test_ref_no_recognized(self):
+        """'Ref No' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Ref No"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 2 --- Refno (no space)                                        #
+    # ---------------------------------------------------------------- #
+
+    def test_refno_no_space_recognized(self):
+        """'Refno' (no space) in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Refno"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 3 --- Ref No. (trailing period, via Mode F rstrip path)       #
+    # ---------------------------------------------------------------- #
+
+    def test_ref_no_with_period_recognized(self):
+        """'Ref No.' → rstrip('.:') → 'ref no' → matches 'ref no' keyword → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Ref No."},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 4 --- Reference                                               #
+    # ---------------------------------------------------------------- #
+
+    def test_reference_recognized(self):
+        """'Reference' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Reference"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 5 --- Ref Code                                                #
+    # ---------------------------------------------------------------- #
+
+    def test_ref_code_recognized(self):
+        """'Ref Code' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Ref Code"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 6 --- DSR                                                     #
+    # ---------------------------------------------------------------- #
+
+    def test_dsr_recognized(self):
+        """'DSR' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "DSR"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 7 --- NDSR                                                    #
+    # ---------------------------------------------------------------- #
+
+    def test_ndsr_recognized(self):
+        """'NDSR' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "NDSR"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 8 --- Code                                                    #
+    # ---------------------------------------------------------------- #
+
+    def test_code_recognized(self):
+        """'Code' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Code"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 9 --- Item Code                                               #
+    # ---------------------------------------------------------------- #
+
+    def test_item_code_recognized(self):
+        """'Item Code' in append_to_notes col → HEADER_REPEAT."""
+        row = _make_row(1, {
+            "A": {"value": "Sl No"},
+            "B": {"value": "Description"},
+            "C": {"value": "Item Code"},
+        })
+        result = classify_row(row, self._config_with_append_col(), _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 10 --- DSR Rate stays rate_supply (negative regression)       #
+    # ---------------------------------------------------------------- #
+
+    def test_dsr_rate_still_classified_as_rate_supply(self):
+        """'DSR Rate' in rate_supply col → HEADER_REPEAT (rate_supply keywords, not append_to_notes)."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="rate_supply"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "DSR Rate"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+    # ---------------------------------------------------------------- #
+    # Test 11 --- NDSR Rate stays rate_install (negative regression)     #
+    # ---------------------------------------------------------------- #
+
+    def test_ndsr_rate_still_classified_as_rate_install(self):
+        """'NDSR Rate' in rate_install col → HEADER_REPEAT (rate_install keywords, not append_to_notes)."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="rate_install"),
+            },
+        )
+        row = _make_row(1, {
+            "A": {"value": "Sl. No."},
+            "B": {"value": "Description"},
+            "C": {"value": "NDSR Rate"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
+
+
 if __name__ == "__main__":
     unittest.main()
