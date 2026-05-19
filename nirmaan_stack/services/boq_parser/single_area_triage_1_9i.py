@@ -183,22 +183,22 @@ TARGETS: list[dict] = [
     },
     {
         "rough": "merged_header_v1 - ELECTRICAL & ELV BOQ",
-        "file": "merged_header_v1.xlsx",
+        "file": "multi_area_merged_header_v1.xlsx",
         "sheet": "ELECTRICAL & ELV BOQ",
     },
     {
         "rough": "merged_header_v2 - ELECTRICAL & ELV BOQ",
-        "file": "merged_header_v2.xlsx",
+        "file": "multi_area_merged_header_v2.xlsx",
         "sheet": "ELECTRICAL & ELV BOQ",
     },
     {
         "rough": "single_header_v1 - HVAC BOQ",
-        "file": "single_header_v1.xlsx",
+        "file": "multi_area_single_header_v1.xlsx",
         "sheet": "HVAC BOQ",
     },
     {
         "rough": "single_header_v2 - HVAC BOQ",
-        "file": "single_header_v2.xlsx",
+        "file": "multi_area_single_header_v2.xlsx",
         "sheet": "HVAC BOQ",
     },
 ]
