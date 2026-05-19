@@ -2,7 +2,7 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json).
 **Owner:** Internal team.
-**Last updated:** 2026-05-18 IST (chore 3af8e828, Phase 1.9n --- re-run single-area diagnostic on subset + metric correction)
+**Last updated:** 2026-05-19 IST (feat 6f6214ba, Phase 1.9o --- Tier A-merged pattern recognizer)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
 **Latest commit:** Phase 1.8.1 — F1 + F2 cleanup — feat `4c6b81e6`, docs `241988d9` (see git log).
 
@@ -1406,6 +1406,62 @@ Commit: a97ff170
 Feeds: Phase 1.9o (Tier A-merged pattern recognizer +
 reference-code keyword expansion) regression coverage, and
 the expanded-subset diagnostic retest empirical surface.
+
+### Phase 1.9o --- Tier A-merged pattern recognizer (3-change feat) ✅ COMPLETE
+
+**Three coupled changes in two files:**
+
+**Change 1 (_auto_guess.py):** Added `amount_supply` and `amount_install` to
+`_SINGLETON_ROLES` frozenset (2 new entries). Prevents duplicate singleton
+assignment when a bottom header row contains both a Supply Amount and an
+Install Amount column.
+
+**Change 2+3 (multi_area_detection.py) --- unified `_try_tier_a_merged()`:**
+Single function handling two sub-shapes via a top+bottom row scan:
+- Qty-merged-over-areas: merged Qty/Quantity/Nos family cell spanning N>=2
+  distinct area-name cells in the bottom row yields areas + qty_columns.
+- Rate/Amount-merged-over-Supply/Install: merged Rate or Amount family cell
+  spanning a Supply-then-Install pair (N=2); when the col count equals n_areas
+  the columns are paired left-to-right with area names into rate_columns /
+  amount_columns (rate_combined_by_area convention, consistent with
+  Pattern 2-rate).
+
+Four new broad regexes added before the dataclass:
+`_QTY_CELL_PATTERN_BROAD`, `_AMOUNT_CELL_PATTERN_BROAD`,
+`_SUPPLY_CELL_PATTERN`, `_INSTALL_CELL_PATTERN`.
+Strict-anchor `_QTY_CELL_PATTERN` and `_AMOUNT_CELL_PATTERN` untouched
+(still used by Pattern 2 / Pattern 2-rate).
+
+Routing: `_try_tier_a_merged` inserted as the first step in the 2-row path
+(before `_try_pattern_2_rate`).
+
+**Empirical verification:**
+
+v1 (`multi_area_merged_header_v1.xlsx`, ELECTRICAL sheet, hrc=2):
+- tier_a_merged fires.
+- areas=["Area 1", "Area 2"], E/F=qty per area, G/H=rate_combined_by_area per
+  area, I/J=amount_by_area per area. Singletons A/C/D assigned correctly.
+
+v2 (`multi_area_merged_header_v2.xlsx`, ELECTRICAL sheet, hrc=2):
+- tier_a_merged returns None (top-row merges have area-name values, not
+  Qty/Rate/Amount family text).
+- Falls through to Pattern 1 top-row fallback.
+- areas=["Area 1", "Area 2"] via E+I qty columns. F=rate_supply, G=rate_install,
+  H=amount_total assigned as singletons from bottom row. J/K/L unassigned
+  (singleton guard blocks duplicates).
+
+**Tests:** 357 total (baseline 337 + 14 TestTryTierAMerged +
+8 TestPhase1_9oChange1SingletonGuard + 5 TestPhase1_9oTierAMergedAutoGuess).
+1 existing test calibrated: `test_reserved_keyword_top_row_merges_rejected_for_pattern_2`
+updated to assert `tier_a_merged` (not pattern 1) because tier_a_merged now
+correctly fires first for a QUANTITY-merge-over-area-names top row.
+
+**Metric-impact review (agreement #27):** No diagnostic script changes needed.
+`_AMOUNT_FAMILY_ROLES` already covers amount_supply + amount_install (Change 1
+singletons). tier_a_merged's per-area roles (rate_combined_by_area,
+amount_by_area) are multi-area only and not tracked by the single-area metric.
+
+**Feat commit:** `6f6214ba`
 
 ### Phase 1.9h complete (2026-05-18)
 
