@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 _SINGLETON_ROLES: frozenset[str] = frozenset({
     "sl_no", "description", "unit", "qty_total",
     "rate_supply", "rate_install", "rate_combined",
+    "amount_supply", "amount_install",
     "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
 })
 

@@ -766,5 +766,128 @@ class TestPhase1_9mModeAAutoPromote2RowHeader(unittest.TestCase):
             self.assertIsNone(cr.area)
 
 
+class TestPhase1_9oChange1SingletonGuard(unittest.TestCase):
+    """Phase 1.9o Change 1: amount_supply and amount_install added to _SINGLETON_ROLES."""
+
+    def test_amount_supply_assigned_once(self):
+        """Second 'Supply Amount' column is blocked by the singleton guard."""
+        bottom = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Supply Amount"},
+            "D": {"value": "Supply Amount"},   # duplicate
+        })
+        reader = _make_reader({1: bottom})
+        sc = auto_guess_sheet_config(reader, _SHEET, header_row=1, header_row_count=1, reserved_keywords=_KWS)
+        roles = [cr.role for cr in sc.column_role_map.values()]
+        self.assertEqual(roles.count("amount_supply"), 1)
+
+    def test_amount_install_assigned_once(self):
+        """Second 'Installation Amount' column is blocked by the singleton guard."""
+        bottom = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Installation Amount"},
+            "D": {"value": "Installation Amount"},   # duplicate
+        })
+        reader = _make_reader({1: bottom})
+        sc = auto_guess_sheet_config(reader, _SHEET, header_row=1, header_row_count=1, reserved_keywords=_KWS)
+        roles = [cr.role for cr in sc.column_role_map.values()]
+        self.assertEqual(roles.count("amount_install"), 1)
+
+    def test_amount_supply_and_amount_install_both_assigned(self):
+        """amount_supply and amount_install are distinct singletons, both can be assigned."""
+        bottom = _make_row(1, {
+            "A": {"value": "Sl.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Supply Amount"},
+            "D": {"value": "Installation Amount"},
+        })
+        reader = _make_reader({1: bottom})
+        sc = auto_guess_sheet_config(reader, _SHEET, header_row=1, header_row_count=1, reserved_keywords=_KWS)
+        roles = set(cr.role for cr in sc.column_role_map.values())
+        self.assertIn("amount_supply", roles)
+        self.assertIn("amount_install", roles)
+
+
+class TestPhase1_9oTierAMergedAutoGuess(unittest.TestCase):
+    """Phase 1.9o: auto_guess_sheet_config produces correct roles for tier_a_merged shape."""
+
+    def _v1_reader(self) -> MagicMock:
+        """Reader simulating the multi_area_merged_header_v1 fixture shape."""
+        top = _make_row(1, {
+            "E": {"value": "QTY.", "is_merged_origin": True, "merged_range": "E1:F1"},
+            "F": {"value": "QTY.", "is_merged_origin": False, "merged_range": "E1:F1"},
+            "G": {"value": "Rate (In Rs.)", "is_merged_origin": True, "merged_range": "G1:H1"},
+            "H": {"value": "Rate (In Rs.)", "is_merged_origin": False, "merged_range": "G1:H1"},
+            "I": {"value": "Amount (In Rs.)", "is_merged_origin": True, "merged_range": "I1:J1"},
+            "J": {"value": "Amount (In Rs.)", "is_merged_origin": False, "merged_range": "I1:J1"},
+        })
+        bottom = _make_row(2, {
+            "A": {"value": "S.No."},
+            "B": {"value": "Description"},
+            "C": {"value": "Unit"},
+            "D": {"value": "Remarks"},
+            "E": {"value": "Area 1"},
+            "F": {"value": "Area 2"},
+            "G": {"value": "Supply"},
+            "H": {"value": "Installation"},
+            "I": {"value": "Supply"},
+            "J": {"value": "Installation"},
+        })
+        return _make_reader({1: top, 2: bottom})
+
+    def test_v1_shape_areas_and_qty_roles(self):
+        """v1 shape: E->qty/Area1, F->qty/Area2."""
+        sc = auto_guess_sheet_config(self._v1_reader(), _SHEET, header_row=2, header_row_count=2, reserved_keywords=_KWS)
+        self.assertEqual(sc.area_dimensions, ["Area 1", "Area 2"])
+        e_role = sc.column_role_map.get("E")
+        f_role = sc.column_role_map.get("F")
+        self.assertIsNotNone(e_role)
+        self.assertIsNotNone(f_role)
+        self.assertEqual(e_role.role, "qty")
+        self.assertEqual(e_role.area, "Area 1")
+        self.assertEqual(f_role.role, "qty")
+        self.assertEqual(f_role.area, "Area 2")
+
+    def test_v1_shape_rate_columns_paired(self):
+        """v1 shape: G->rate_combined_by_area/Area1, H->rate_combined_by_area/Area2."""
+        sc = auto_guess_sheet_config(self._v1_reader(), _SHEET, header_row=2, header_row_count=2, reserved_keywords=_KWS)
+        g_role = sc.column_role_map.get("G")
+        h_role = sc.column_role_map.get("H")
+        self.assertIsNotNone(g_role)
+        self.assertIsNotNone(h_role)
+        self.assertEqual(g_role.role, "rate_combined_by_area")
+        self.assertEqual(g_role.area, "Area 1")
+        self.assertEqual(h_role.role, "rate_combined_by_area")
+        self.assertEqual(h_role.area, "Area 2")
+
+    def test_v1_shape_amount_columns_paired(self):
+        """v1 shape: I->amount_by_area/Area1, J->amount_by_area/Area2."""
+        sc = auto_guess_sheet_config(self._v1_reader(), _SHEET, header_row=2, header_row_count=2, reserved_keywords=_KWS)
+        i_role = sc.column_role_map.get("I")
+        j_role = sc.column_role_map.get("J")
+        self.assertIsNotNone(i_role)
+        self.assertIsNotNone(j_role)
+        self.assertEqual(i_role.role, "amount_by_area")
+        self.assertEqual(i_role.area, "Area 1")
+        self.assertEqual(j_role.role, "amount_by_area")
+        self.assertEqual(j_role.area, "Area 2")
+
+    def test_v1_shape_singleton_cols_still_assigned(self):
+        """Columns A-D (S.No, Description, Unit, Remarks) are still assigned singletons."""
+        sc = auto_guess_sheet_config(self._v1_reader(), _SHEET, header_row=2, header_row_count=2, reserved_keywords=_KWS)
+        roles = {col: cr.role for col, cr in sc.column_role_map.items()}
+        self.assertIn("sl_no", roles.values())
+        self.assertIn("description", roles.values())
+        self.assertIn("unit", roles.values())
+
+    def test_no_extra_assignments_beyond_scope(self):
+        """No unexpected column roles appear (all 10 cols E-J accounted for)."""
+        sc = auto_guess_sheet_config(self._v1_reader(), _SHEET, header_row=2, header_row_count=2, reserved_keywords=_KWS)
+        for col in ["E", "F", "G", "H", "I", "J"]:
+            self.assertIn(col, sc.column_role_map)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -308,7 +308,10 @@ class TestMultiAreaDetectionComprehensive(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_reserved_keyword_top_row_merges_rejected_for_pattern_2(self):
-        """Top-row merges carrying reserved-keyword values (QUANTITY, RATE) are skipped by P2; P1 on bottom catches the real area names."""
+        """Top-row merges with QUANTITY/RATE values: P2 skips (reserved), but Phase 1.9o
+        tier_a_merged fires first, correctly picking up area names from the bottom row
+        under the Qty-family merge. RATE merge over RATE/AMOUNT bottom cells does not
+        produce rate_columns (Supply/Install bottom pattern not matched)."""
         top_row = _make_row(1, {
             "D": {"value": "QUANTITY", "is_merged_origin": True,  "merged_range": "D1:E1"},
             "E": {"value": "QUANTITY", "is_merged_origin": False, "merged_range": "D1:E1"},
@@ -323,9 +326,10 @@ class TestMultiAreaDetectionComprehensive(unittest.TestCase):
         })
         result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
         self.assertIsNotNone(result)
-        self.assertEqual(result.pattern, 1)
+        self.assertEqual(result.pattern, "tier_a_merged")
         self.assertEqual(result.areas, ["Office", "Common Area"])
-        self.assertEqual(result.detected_on_row, bottom_row.row_number)
+        self.assertIsNone(result.rate_columns)
+        self.assertEqual(result.detected_on_row, top_row.row_number)
 
     # ------------------------------------------------------------------ #
     # Defensive cases                                                      #
@@ -1112,6 +1116,253 @@ class TestPhase1_9kF3cBroadenedRateCellPattern(unittest.TestCase):
         result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
         self.assertIsNotNone(result)
         self.assertEqual(result.pattern, "pattern_2_rate")
+
+
+class TestTryTierAMerged(unittest.TestCase):
+    """Phase 1.9o: _try_tier_a_merged and its routing in detect_multi_area_pattern."""
+
+    # ------------------------------------------------------------------
+    # Qty-merged-over-areas sub-shape
+    # ------------------------------------------------------------------
+
+    def test_qty_merged_two_areas_returns_pattern(self):
+        """Merged 'Qty' over two area cells yields tier_a_merged with 2 areas."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:B1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:B1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Area 2"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertEqual(result.areas, ["Area 1", "Area 2"])
+        self.assertEqual(result.qty_columns, [1, 2])
+        self.assertIsNone(result.rate_columns)
+        self.assertIsNone(result.amount_columns)
+
+    def test_qty_merged_three_areas(self):
+        """Merged 'Quantity' over three area cells yields 3 areas."""
+        top_row = _make_row(1, {
+            "C": {"value": "Quantity", "is_merged_origin": True, "merged_range": "C1:E1"},
+            "D": {"value": "Quantity", "is_merged_origin": False, "merged_range": "C1:E1"},
+            "E": {"value": "Quantity", "is_merged_origin": False, "merged_range": "C1:E1"},
+        })
+        bottom_row = _make_row(2, {
+            "C": {"value": "Block A"},
+            "D": {"value": "Block B"},
+            "E": {"value": "Block C"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertEqual(len(result.areas), 3)
+
+    def test_qty_merged_fewer_than_two_area_cells_returns_none(self):
+        """Merged 'Qty' spanning only 1 non-reserved bottom cell returns None."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:B1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:B1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Qty"},   # reserved keyword — excluded
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNone(result)
+
+    def test_qty_merged_reserved_area_cell_invalidates(self):
+        """If any bottom cell under the Qty merge is reserved, the whole merge is rejected."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:C1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:C1"},
+            "C": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:C1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Amount"},   # reserved — breaks the run
+            "C": {"value": "Area 2"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNone(result)
+
+    def test_no_qty_merge_returns_none(self):
+        """If the top row has no Qty/Rate/Amount merged cells, returns None (falls through)."""
+        top_row = _make_row(1, {
+            "A": {"value": "S.No.", "is_merged_origin": True, "merged_range": "A1:B1"},
+            "B": {"value": "S.No.", "is_merged_origin": False, "merged_range": "A1:B1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Area 2"},
+        })
+        # No Qty-family merge -> tier_a_merged returns None; Pattern 1 may pick it up
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        # Result may be Pattern 1 or None; just not tier_a_merged
+        if result is not None:
+            self.assertNotEqual(result.pattern, "tier_a_merged")
+
+    # ------------------------------------------------------------------
+    # Rate/Amount-merged-over-Supply/Install sub-shape
+    # ------------------------------------------------------------------
+
+    def test_qty_plus_rate_supply_install_pairs_rate_columns(self):
+        """Merged Rate over Supply+Install col is paired with 2 areas -> rate_columns set."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:B1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:B1"},
+            "C": {"value": "Rate (In Rs.)", "is_merged_origin": True, "merged_range": "C1:D1"},
+            "D": {"value": "Rate (In Rs.)", "is_merged_origin": False, "merged_range": "C1:D1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Area 2"},
+            "C": {"value": "Supply"},
+            "D": {"value": "Installation"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertEqual(result.rate_columns, [3, 4])
+
+    def test_qty_plus_amount_supply_install_pairs_amount_columns(self):
+        """Merged Amount over Supply+Install is paired with 2 areas -> amount_columns set."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:B1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:B1"},
+            "C": {"value": "Amount (In Rs.)", "is_merged_origin": True, "merged_range": "C1:D1"},
+            "D": {"value": "Amount (In Rs.)", "is_merged_origin": False, "merged_range": "C1:D1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Area 2"},
+            "C": {"value": "Supply"},
+            "D": {"value": "Installation"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertEqual(result.amount_columns, [3, 4])
+
+    def test_rate_cols_not_paired_when_count_mismatch(self):
+        """3 areas but only 2 rate supply/install cols -> rate_columns is None."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:C1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:C1"},
+            "C": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:C1"},
+            "D": {"value": "Rate", "is_merged_origin": True, "merged_range": "D1:E1"},
+            "E": {"value": "Rate", "is_merged_origin": False, "merged_range": "D1:E1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Zone A"},
+            "B": {"value": "Zone B"},
+            "C": {"value": "Zone C"},
+            "D": {"value": "Supply"},
+            "E": {"value": "Installation"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertEqual(len(result.areas), 3)
+        self.assertIsNone(result.rate_columns)
+
+    def test_rate_merge_wrong_order_install_supply_not_matched(self):
+        """Install then Supply order does not match -> rate_columns is None."""
+        top_row = _make_row(1, {
+            "A": {"value": "Qty", "is_merged_origin": True, "merged_range": "A1:B1"},
+            "B": {"value": "Qty", "is_merged_origin": False, "merged_range": "A1:B1"},
+            "C": {"value": "Rate", "is_merged_origin": True, "merged_range": "C1:D1"},
+            "D": {"value": "Rate", "is_merged_origin": False, "merged_range": "C1:D1"},
+        })
+        bottom_row = _make_row(2, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Area 2"},
+            "C": {"value": "Installation"},   # reversed
+            "D": {"value": "Supply"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertIsNone(result.rate_columns)
+
+    # ------------------------------------------------------------------
+    # Full v1-shape: Qty + Rate + Amount merges together
+    # ------------------------------------------------------------------
+
+    def test_full_v1_shape_qty_rate_amount_all_paired(self):
+        """Full v1 fixture shape: QTY/Rate/Amount merges + Area 1/Area 2."""
+        top_row = _make_row(1, {
+            "E": {"value": "QTY.", "is_merged_origin": True, "merged_range": "E1:F1"},
+            "F": {"value": "QTY.", "is_merged_origin": False, "merged_range": "E1:F1"},
+            "G": {"value": "Rate (In Rs.)", "is_merged_origin": True, "merged_range": "G1:H1"},
+            "H": {"value": "Rate (In Rs.)", "is_merged_origin": False, "merged_range": "G1:H1"},
+            "I": {"value": "Amount (In Rs.)", "is_merged_origin": True, "merged_range": "I1:J1"},
+            "J": {"value": "Amount (In Rs.)", "is_merged_origin": False, "merged_range": "I1:J1"},
+        })
+        bottom_row = _make_row(2, {
+            "E": {"value": "Area 1"},
+            "F": {"value": "Area 2"},
+            "G": {"value": "Supply "},
+            "H": {"value": "Installation"},
+            "I": {"value": "Supply "},
+            "J": {"value": "Installation"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.pattern, "tier_a_merged")
+        self.assertEqual(result.areas, ["Area 1", "Area 2"])
+        self.assertEqual(result.qty_columns, [5, 6])
+        self.assertEqual(result.rate_columns, [7, 8])
+        self.assertEqual(result.amount_columns, [9, 10])
+        self.assertEqual(result.detected_on_row, 1)
+
+    # ------------------------------------------------------------------
+    # Routing: tier_a_merged fires before pattern_2_rate
+    # ------------------------------------------------------------------
+
+    def test_tier_a_merged_fires_before_pattern_2_rate(self):
+        """Tier A-merged is attempted before Pattern 2-rate in routing priority."""
+        # Build a row that matches both tier_a_merged AND pattern_2_rate.
+        # Pattern 2-rate expects 3-col merges with area name on top.
+        # tier_a_merged expects Qty/Rate/Amount keyword on top.
+        # Use the v1 shape which is unambiguously tier_a_merged.
+        top_row = _make_row(1, {
+            "E": {"value": "QTY.", "is_merged_origin": True, "merged_range": "E1:F1"},
+            "F": {"value": "QTY.", "is_merged_origin": False, "merged_range": "E1:F1"},
+            "G": {"value": "Rate (In Rs.)", "is_merged_origin": True, "merged_range": "G1:H1"},
+            "H": {"value": "Rate (In Rs.)", "is_merged_origin": False, "merged_range": "G1:H1"},
+            "I": {"value": "Amount (In Rs.)", "is_merged_origin": True, "merged_range": "I1:J1"},
+            "J": {"value": "Amount (In Rs.)", "is_merged_origin": False, "merged_range": "I1:J1"},
+        })
+        bottom_row = _make_row(2, {
+            "E": {"value": "Area 1"},
+            "F": {"value": "Area 2"},
+            "G": {"value": "Supply"},
+            "H": {"value": "Installation"},
+            "I": {"value": "Supply"},
+            "J": {"value": "Installation"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=top_row)
+        self.assertEqual(result.pattern, "tier_a_merged")
+
+    # ------------------------------------------------------------------
+    # Single-row mode: tier_a_merged not attempted
+    # ------------------------------------------------------------------
+
+    def test_single_row_mode_does_not_invoke_tier_a_merged(self):
+        """Without top_header_row, routing stays in 1-row path (Pattern 3 or 1)."""
+        bottom_row = _make_row(1, {
+            "A": {"value": "Area 1"},
+            "B": {"value": "Amount"},
+            "C": {"value": "Area 2"},
+            "D": {"value": "Amount"},
+        })
+        result = detect_multi_area_pattern(bottom_row, _KWS, top_header_row=None)
+        # Pattern 3 should fire; definitely not tier_a_merged
+        self.assertIsNotNone(result)
+        self.assertNotEqual(result.pattern, "tier_a_merged")
 
 
 if __name__ == "__main__":

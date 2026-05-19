@@ -71,6 +71,29 @@ _RATE_CELL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Phase 1.9o Tier A-merged recognizer --- broad family patterns.
+# Strict-anchor _QTY_CELL_PATTERN and _AMOUNT_CELL_PATTERN are preserved
+# for Pattern 2/2-rate; these broad variants are only used in _try_tier_a_merged.
+_QTY_CELL_PATTERN_BROAD = re.compile(
+    r"\b(qty|quantity|nos)\b",
+    re.IGNORECASE,
+)
+
+_AMOUNT_CELL_PATTERN_BROAD = re.compile(
+    r"\b(amounts?|totals?|sums?|values?|subtotals?)\b",
+    re.IGNORECASE,
+)
+
+_SUPPLY_CELL_PATTERN = re.compile(
+    r"\b(supply|supplying|furnishing|furnish|material|materials)\b",
+    re.IGNORECASE,
+)
+
+_INSTALL_CELL_PATTERN = re.compile(
+    r"\b(install|installation|installing|erection|erect|labour|labor|laying|fixing|fit)\b",
+    re.IGNORECASE,
+)
+
 
 # ------------------------------------------------------------------
 # Result dataclass
@@ -136,7 +159,8 @@ def detect_multi_area_pattern(
 
     if top_header_row is not None:
         return (
-            _try_pattern_2_rate(top_header_row, bottom_header_row, kw_set)
+            _try_tier_a_merged(top_header_row, bottom_header_row, kw_set)
+            or _try_pattern_2_rate(top_header_row, bottom_header_row, kw_set)
             or _try_pattern_2(top_header_row, bottom_header_row, kw_set)
             or _try_pattern_3(bottom_header_row, kw_set)
             or _try_pattern_1(bottom_header_row, kw_set)
@@ -430,3 +454,119 @@ def _try_pattern_2(
             detected_on_row=top_row.row_number,
         )
     return None
+
+
+def _try_tier_a_merged(
+    top_row: RawRow,
+    bottom_row: RawRow,
+    kw_set: set[str],
+) -> MultiAreaPattern | None:
+    """
+    Tier A-merged (Phase 1.9o): top-row merged cells with Qty/Rate/Amount family
+    text spanning sub-header cells in the bottom row.
+
+    Handles two sub-shapes in a single pass:
+      - Qty-merged-over-areas: merged Qty-family cell spans N >= 2 distinct
+        area-name cells in the bottom row.
+      - Rate/Amount-merged-over-Supply/Install: merged Rate or Amount cell
+        spans a Supply + Install pair (N=2) in the bottom row.
+
+    When len(rate_supply_install) == n_areas, supply/install columns are
+    paired left-to-right with areas in rate_columns (rate_combined_by_area
+    convention, consistent with Pattern 2-rate). Same for amount_columns.
+
+    Returns None if fewer than 2 area names from a Qty-family merge.
+    """
+    areas: list[str] = []
+    qty_cols: list[int] = []
+    rate_supply_install: list[int] = []
+    amount_supply_install: list[int] = []
+
+    for col_idx, col_letter in _sorted_cols(top_row):
+        cell = top_row.cells[col_letter]
+        if not cell.is_merged_origin or cell.merged_range is None:
+            continue
+
+        try:
+            min_col, min_row_r, max_col, max_row_r = range_boundaries(cell.merged_range)
+        except Exception:
+            continue
+
+        # Only single-row merges spanning >= 2 columns.
+        if min_row_r != max_row_r:
+            continue
+        span = max_col - min_col + 1
+        if span < 2:
+            continue
+
+        anchor_text = str(cell.value or "").strip()
+
+        # Collect bottom-row cells under this merge span, left-to-right.
+        bottom_cells: list[tuple[int, str]] = []
+        for c in range(min_col, max_col + 1):
+            letter = get_column_letter(c)
+            bc = bottom_row.cells.get(letter)
+            if bc is not None and bc.value is not None:
+                text = str(bc.value).strip()
+                if text:
+                    bottom_cells.append((c, text))
+
+        if _QTY_CELL_PATTERN_BROAD.search(anchor_text):
+            # Qty family: bottom cells must be >= 2 distinct, non-reserved area names.
+            if len(bottom_cells) < 2:
+                continue
+            candidate_areas: list[str] = []
+            candidate_cols: list[int] = []
+            valid = True
+            seen_upper: set[str] = set()
+            for c_idx, c_text in bottom_cells:
+                upper = c_text.upper()
+                if _is_reserved(c_text, kw_set) or upper in seen_upper:
+                    valid = False
+                    break
+                seen_upper.add(upper)
+                candidate_areas.append(c_text)
+                candidate_cols.append(c_idx)
+            if valid and len(candidate_areas) >= 2:
+                areas = candidate_areas
+                qty_cols = candidate_cols
+
+        elif _RATE_CELL_PATTERN.search(anchor_text):
+            # Rate family: bottom cells must be Supply then Install (N=2).
+            if len(bottom_cells) == 2:
+                s_text = bottom_cells[0][1]
+                i_text = bottom_cells[1][1]
+                if _SUPPLY_CELL_PATTERN.search(s_text) and _INSTALL_CELL_PATTERN.search(i_text):
+                    rate_supply_install = [bottom_cells[0][0], bottom_cells[1][0]]
+
+        elif _AMOUNT_CELL_PATTERN_BROAD.search(anchor_text):
+            # Amount family: bottom cells must be Supply then Install (N=2).
+            if len(bottom_cells) == 2:
+                s_text = bottom_cells[0][1]
+                i_text = bottom_cells[1][1]
+                if _SUPPLY_CELL_PATTERN.search(s_text) and _INSTALL_CELL_PATTERN.search(i_text):
+                    amount_supply_install = [bottom_cells[0][0], bottom_cells[1][0]]
+
+    # Require at least 2 areas from a Qty-family merge.
+    if len(areas) < 2:
+        return None
+
+    n_areas = len(areas)
+
+    # Pair supply/install cols with areas only when counts match exactly.
+    rate_cols: list[int] | None = None
+    if len(rate_supply_install) == n_areas:
+        rate_cols = rate_supply_install
+
+    amount_cols: list[int] | None = None
+    if len(amount_supply_install) == n_areas:
+        amount_cols = amount_supply_install
+
+    return MultiAreaPattern(
+        pattern="tier_a_merged",
+        areas=areas,
+        qty_columns=qty_cols,
+        rate_columns=rate_cols,
+        amount_columns=amount_cols,
+        detected_on_row=top_row.row_number,
+    )
