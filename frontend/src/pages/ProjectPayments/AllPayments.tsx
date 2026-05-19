@@ -323,11 +323,11 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             }
         } as ColumnDef<ProjectPayments>] : []),
         {
-            id: "doc_value_col", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
+            id: "doc_value_col", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getDocumentTotal(row.original.document_name, row.original.document_type))}</div>,
             size: 130, enableSorting: false,
             meta: {
-                exportHeaderName: "PO Value",
+                exportHeaderName: "WO/PO Value",
                 exportValue: (row: ProjectPayments) => {
                     return formatForReport(getDocumentTotal(row.document_name, row.document_type));
                 }

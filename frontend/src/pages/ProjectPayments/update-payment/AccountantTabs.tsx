@@ -166,7 +166,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             accessorKey: "approval_date", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
             cell: ({ row }) => {
                 const payment = row.original;
-                const eventId = tab === "New Payments" ? "payment:approved" : "payment:paid";
+                const eventId = tab === "New Payments" ? "payment:ceo_approved" : "payment:paid";
                 const isNew = notifications.find(n => n.docname === payment.name && n.seen === "false" && n.event_id === eventId);
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
@@ -207,13 +207,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             enableColumnFilter: true, size: 180,
         },
         {
-            id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
+            id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
             cell: ({ row }) => {
                 const totalValue = getTotalAmount(row.original.document_name, row.original.document_type).totalWithTax;
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(totalValue)}</div>;
             }, size: 150, enableSorting: false,
             meta: {
-                exportHeaderName: "PO Value",
+                exportHeaderName: "WO/PO Value",
                 exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmount(row.document_name, row.document_type).totalWithTax),
             }
         },

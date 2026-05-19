@@ -7,6 +7,7 @@ import {
   FrappeContext,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
+  useFrappePostCall,
   FrappeDoc,
   GetDocListArgs,
 } from "frappe-react-sdk";
@@ -70,7 +71,8 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
-const URL_SYNC_KEY = "approve_pay";
+const URL_SYNC_KEY_LEAD = "approve_pay";
+const URL_SYNC_KEY_CEO = "ceo_pending_pay";
 
 interface SelectOption {
   label: string;
@@ -78,11 +80,22 @@ interface SelectOption {
 }
 
 // --- Component ---
+type ApprovePaymentsMode = "lead" | "ceo";
+
 interface ApprovePaymentsProps {
   readOnly?: boolean;
+  /**
+   * "lead" (default): Project Lead approving "Requested" payments → "CEO Pending".
+   *                   Approve uses generic doctype PATCH; Reject sets status = "Rejected".
+   * "ceo":            CEO promoting "CEO Pending" payments → "Approved".
+   *                   Approve uses ceo_approve_payment whitelisted API (stamps
+   *                   ceo_approval_date). Reject sets status = "Rejected" via PATCH.
+   */
+  mode?: ApprovePaymentsMode;
 }
 
-export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false }) => {
+export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false, mode = "lead" }) => {
+  const isCEOMode = mode === "ceo";
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   // const { mutate } = useSWRConfig();
@@ -250,9 +263,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   // --- Static Filters for This View ---
   const staticFilters = useMemo(
     () => [
-      ["status", "=", PAYMENT_STATUS.REQUESTED], // Only show payments with status "Requested"
+      ["status", "=", isCEOMode ? PAYMENT_STATUS.CEO_PENDING : PAYMENT_STATUS.REQUESTED],
     ],
-    []
+    [isCEOMode]
   );
 
   // --- Fields to Fetch for the Main DataTable ---
@@ -276,11 +289,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         ),
         cell: ({ row }) => {
           const payment = row.original;
+          const newEventId = isCEOMode ? "payment:approved" : "payment:new";
           const isNew = notifications.find(
             (n) =>
               n.docname === payment.name &&
               n.seen === "false" &&
-              n.event_id === "payment:new"
+              n.event_id === newEventId
           );
           const docLink = payment.document_name?.replace(/\//g, "&=");
           return (
@@ -391,7 +405,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       {
         id: "po_value",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Value" />
+          <DataTableColumnHeader column={column} title="WO/PO Value" />
         ),
         cell: ({ row }) => {
           const totalValue = getDocumentTotal(
@@ -407,7 +421,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         size: 150,
         enableSorting: false,
         meta: {
-          exportHeaderName: "PO Value",
+          exportHeaderName: "WO/PO Value",
           exportValue: (row: ProjectPayments) =>
             formatToRoundedIndianRupee(
               getDocumentTotal(row.document_name, row.document_type)
@@ -480,8 +494,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         header: "Actions",
         cell: ({ row }: { row: Row<ProjectPayments> }) => (
           <div className="flex items-center gap-1">
-            {" "}
-            {/* Reduced gap */}
             <HoverCard>
               <HoverCardTrigger asChild>
                 <Button
@@ -496,7 +508,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
                 </Button>
               </HoverCardTrigger>
               <HoverCardContent className="text-xs w-auto p-1.5">
-                Approve
+                {isCEOMode ? "CEO Approve" : "Approve"}
               </HoverCardContent>
             </HoverCard>
             <HoverCard>
@@ -535,6 +547,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       getAmountPaid,
       allPaidPayments,
       readOnly,
+      isCEOMode,
     ]
   );
 
@@ -559,7 +572,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     columns: columns,
     fetchFields: fieldsToFetchPP,
     searchableFields: ppSearchableFields,
-    urlSyncKey: URL_SYNC_KEY,
+    urlSyncKey: isCEOMode ? URL_SYNC_KEY_CEO : URL_SYNC_KEY_LEAD,
     defaultSort: "creation desc",
     enableRowSelection: false,
     additionalFilters: staticFilters,
@@ -610,8 +623,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     ]
   );
 
-  // --- Update Logic using useFrappeUpdateDoc ---
+  // --- Update Logic ---
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+  const { call: ceoApproveCall, loading: ceoApproveLoading } = useFrappePostCall(
+    "nirmaan_stack.api.payments.project_payments.ceo_approve_payment"
+  );
   const handlePaymentUpdate = useCallback(
     async (
       actionType: DialogActionType,
@@ -623,32 +639,45 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         showBlockedToast();
         return;
       }
-      const newStatus =
-        actionType === DIALOG_ACTION_TYPES.APPROVE ||
-          actionType === DIALOG_ACTION_TYPES.EDIT
-          ? PAYMENT_STATUS.APPROVED
-          : PAYMENT_STATUS.REJECTED;
       try {
-        await updateDoc(DOCTYPE, selectedPayment.name, {
-          status: newStatus,
-          amount: amount, // Already a number
-          approval_date: new Date().toISOString().split("T")[0],
-          ...(payment_details && {
-            payment_details: JSON.stringify(payment_details),
-          }), // Add UTR, Date etc.
-        });
+        if (isCEOMode) {
+          if (actionType === DIALOG_ACTION_TYPES.REJECT) {
+            // CEO rejection: no amount edits — flip status to Rejected.
+            await updateDoc(DOCTYPE, selectedPayment.name, {
+              status: PAYMENT_STATUS.REJECTED,
+            });
+          } else {
+            // CEO approval: call the whitelisted API so the backend can enforce
+            // the single-user permission gate (Approved + ceo_approval_date stamp).
+            await ceoApproveCall({ payment_id: selectedPayment.name });
+          }
+        } else {
+          const newStatus =
+            actionType === DIALOG_ACTION_TYPES.APPROVE ||
+              actionType === DIALOG_ACTION_TYPES.EDIT
+              ? PAYMENT_STATUS.CEO_PENDING
+              : PAYMENT_STATUS.REJECTED;
+          await updateDoc(DOCTYPE, selectedPayment.name, {
+            status: newStatus,
+            amount: amount,
+            approval_date: new Date().toISOString().split("T")[0],
+            ...(payment_details && {
+              payment_details: JSON.stringify(payment_details),
+            }),
+          });
+        }
         refetch();
         closeDialog();
         invalidateSidebarCounts();
 
-        //    mutate("payment_dashboard_stats_summary")
-
         toast({
           title: "Success!",
-          description: `Payment ${actionType} successfully!`,
+          description:
+            isCEOMode && actionType !== DIALOG_ACTION_TYPES.REJECT
+              ? "Payment forwarded for fulfilment."
+              : `Payment ${actionType} successfully!`,
           variant: "success",
         });
-        // Refetch is handled by useServerDataTable on data change (via useFrappeDocTypeEventListener)
       } catch (error: any) {
         console.error("Failed to update payment:", error);
         toast({
@@ -658,7 +687,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, closeDialog, toast, isCEOHold, showBlockedToast]
+    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch]
   );
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
@@ -739,7 +768,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           onExport={"default"}
           onExportAll={exportAllRows}
           isExporting={isExporting}
-          exportFileName={`Approve_Payments_${formatDate(new Date())}`}
+          exportFileName={`${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`}
           getRowClassName={getRowClassName}
         // toolbarActions={...} // Optional
         />
@@ -755,7 +784,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading}
+          isLoading={updateLoading || ceoApproveLoading}
         />
       )}
     </div>

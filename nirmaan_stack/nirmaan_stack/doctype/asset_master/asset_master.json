@@ -12,6 +12,9 @@
   "asset_condition",
   "asset_serial_number",
   "asset_value",
+  "attachments_section",
+  "asset_invoice_attachment",
+  "asset_certificate_attachment",
   "it_asset_details_section",
   "asset_email",
   "asset_email_password",
@@ -59,6 +62,21 @@
    "fieldname": "asset_value",
    "fieldtype": "Currency",
    "label": "Asset Value"
+  },
+  {
+   "fieldname": "attachments_section",
+   "fieldtype": "Section Break",
+   "label": "Attachments"
+  },
+  {
+   "fieldname": "asset_invoice_attachment",
+   "fieldtype": "Attach",
+   "label": "Invoice Attachment"
+  },
+  {
+   "fieldname": "asset_certificate_attachment",
+   "fieldtype": "Attach",
+   "label": "Certificate Attachment"
   },
   {
    "fieldname": "it_asset_details_section",

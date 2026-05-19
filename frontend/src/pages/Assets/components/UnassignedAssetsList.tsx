@@ -99,13 +99,71 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
         [categoryList]
     );
 
+    // Source for facets — all unassigned assets in the current type scope.
+    // `is not set` catches both NULL and ''; `in ["", null]` would drop
+    // nulls at the REST API boundary.
+    const facetSourceFilters = useMemo(() => {
+        const filters: any[] = [['current_assignee', 'is', 'not set']];
+        if (assetType) {
+            if (categoryNames.length === 0) filters.push(['asset_category', 'in', ['__none__']]);
+            else filters.push(['asset_category', 'in', categoryNames]);
+        }
+        return filters;
+    }, [assetType, categoryNames]);
+
+    const { data: facetSource } = useFrappeGetDocList<{
+        name: string;
+        asset_name: string;
+        asset_category: string;
+        asset_condition: string;
+    }>(
+        ASSET_MASTER_DOCTYPE,
+        {
+            fields: ['name', 'asset_name', 'asset_category', 'asset_condition'],
+            filters: facetSourceFilters,
+            limit: 0,
+        },
+        assetType ? `unassigned_facet_source_${assetType}` : 'unassigned_facet_source'
+    );
+
+    const facetCounts = useMemo(() => {
+        const counts = {
+            asset_name: new Map<string, number>(),
+            asset_category: new Map<string, number>(),
+            asset_condition: new Map<string, number>(),
+        };
+        (facetSource ?? []).forEach((row) => {
+            const n = row.asset_name?.trim();
+            if (n) counts.asset_name.set(n, (counts.asset_name.get(n) ?? 0) + 1);
+            if (row.asset_category) counts.asset_category.set(row.asset_category, (counts.asset_category.get(row.asset_category) ?? 0) + 1);
+            if (row.asset_condition) counts.asset_condition.set(row.asset_condition, (counts.asset_condition.get(row.asset_condition) ?? 0) + 1);
+        });
+        return counts;
+    }, [facetSource]);
+
     const categoryOptions = useMemo(() =>
         categoryList.map((cat) => ({
-            label: cat.asset_category,
+            label: `${cat.asset_category} (${facetCounts.asset_category.get(cat.name) ?? 0})`,
             value: cat.name,
         })),
-        [categoryList]
+        [categoryList, facetCounts]
     );
+
+    const conditionOptions = useMemo(() =>
+        ASSET_CONDITION_OPTIONS.map((opt) => ({
+            label: `${opt.label} (${facetCounts.asset_condition.get(opt.value) ?? 0})`,
+            value: opt.value,
+        })),
+        [facetCounts]
+    );
+
+    const assetNameOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.asset_name.forEach((count, name) => {
+            opts.push({ label: `${name} (${count})`, value: name });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts]);
 
     const { canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
 
@@ -223,8 +281,11 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
         }] : []),
     ], [canAssignAsset]);
 
+    // Match the summary card's Unassigned filter so the table, the Asset
+    // Name facet, and the summary count all agree. Uses `is not set` (matches
+    // NULL or '') — `in ["", null]` would drop nulls at the REST API.
     const additionalFilters = useMemo(() => {
-        const filters: any[] = [['current_assignee', '=', '']];
+        const filters: any[] = [['current_assignee', 'is', 'not set']];
         if (assetType) {
             if (categoryNames.length === 0) {
                 filters.push(['asset_category', 'in', ['__none__']]);
@@ -259,15 +320,19 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
     });
 
     const facetFilterOptions = useMemo(() => ({
+        asset_name: {
+            title: 'Asset Name',
+            options: assetNameOptions,
+        },
         asset_category: {
             title: 'Category',
             options: categoryOptions,
         },
         asset_condition: {
             title: 'Condition',
-            options: ASSET_CONDITION_OPTIONS,
+            options: conditionOptions,
         },
-    }), [categoryOptions]);
+    }), [assetNameOptions, categoryOptions, conditionOptions]);
 
     return (
         <>

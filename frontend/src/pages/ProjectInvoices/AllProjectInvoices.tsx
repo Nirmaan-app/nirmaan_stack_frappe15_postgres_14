@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   FrappeDoc,
   GetDocListArgs,
@@ -46,6 +46,8 @@ import { NewProjectInvoiceDialog } from "./components/NewProjectInvoiceDialog"; 
 import { EditProjectInvoiceDialog } from "./components/EditProjectInvoiceDialog"; // Import the new edit dialog
 import { ProjectInvoiceSummaryCard } from "./components/ProjectInvoiceSummaryCard";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { LinkedInflowEntry } from "./config/projectInvoices.config";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit dialog state
 import { Customers } from "@/types/NirmaanStack/Customers";
@@ -200,6 +202,17 @@ export const AllProjectInvoices: React.FC<{
     }
   };
 
+  // Map: invoice_id → list of inflows posted against it. Populated lazily by
+  // the side-fetch below. Stored in a ref so the columns memo stays stable;
+  // `mapVersion` state bump triggers a re-render so cells re-read the ref.
+  const inflowsByInvoiceRef = useRef<Map<string, LinkedInflowEntry[]>>(new Map());
+  const [, setMapVersion] = useState(0);
+
+  const getInflowsForInvoice = useCallback(
+    (invoiceId: string) => inflowsByInvoiceRef.current.get(invoiceId) ?? [],
+    []
+  );
+
   const tableColumns = useMemo(
     () =>
       getProjectInvoiceColumns({
@@ -212,6 +225,7 @@ export const AllProjectInvoices: React.FC<{
         onDelete: handleOpenDeleteDialog,
         onEdit: handleOpenEditDialog,
         hideCustomerColumn: !!customerId, // Hide customer column when viewing from customer page
+        getInflowsForInvoice,
       }),
     [
       canEdit,
@@ -223,6 +237,7 @@ export const AllProjectInvoices: React.FC<{
       handleOpenDeleteDialog,
       handleOpenEditDialog,
       customerId,
+      getInflowsForInvoice,
     ]
   );
 
@@ -258,6 +273,57 @@ export const AllProjectInvoices: React.FC<{
     defaultSort: "invoice_date desc",
     aggregatesConfig: PROJECT_INVOICE_AGGREGATES_CONFIG,
   });
+
+  // --- Side-fetch: inflows posted against each visible invoice ---
+  // One invoice can be paid in multiple inflow chunks. We fetch all
+  // `Project Inflows` whose `invoice` Link points at one of the visible
+  // invoices, then group them by invoice id and stash in the ref.
+  const visibleInvoiceIds = useMemo(
+    () => (projectInvoicesData ?? []).map((inv) => inv.name),
+    [projectInvoicesData]
+  );
+  const { data: inflowsForVisibleInvoices } = useFrappeGetDocList<ProjectInflows>(
+    "Project Inflows",
+    {
+      filters: [
+        [
+          "invoice",
+          "in",
+          visibleInvoiceIds.length ? visibleInvoiceIds : ["__none__"],
+        ],
+      ],
+      fields: [
+        "name",
+        "invoice",
+        "utr",
+        "amount",
+        "payment_date",
+        "inflow_attachment",
+      ],
+      limit: 100000,
+    },
+    visibleInvoiceIds.length
+      ? `InflowsForInvoices_${visibleInvoiceIds.join(",")}`
+      : null
+  );
+
+  useEffect(() => {
+    const grouped = new Map<string, LinkedInflowEntry[]>();
+    (inflowsForVisibleInvoices ?? []).forEach((inf) => {
+      if (!inf.invoice) return;
+      const arr = grouped.get(inf.invoice) ?? [];
+      arr.push({
+        name: inf.name,
+        utr: inf.utr,
+        inflow_attachment: inf.inflow_attachment,
+        amount: typeof inf.amount === "number" ? inf.amount : Number(inf.amount) || undefined,
+        payment_date: inf.payment_date,
+      });
+      grouped.set(inf.invoice, arr);
+    });
+    inflowsByInvoiceRef.current = grouped;
+    setMapVersion((v) => v + 1);
+  }, [inflowsForVisibleInvoices]);
 
   // --- Dynamic Facet Values ---
   const {

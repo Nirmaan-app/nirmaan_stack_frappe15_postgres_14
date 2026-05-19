@@ -154,7 +154,11 @@ const getCommonColumns = (
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getAmount?: (orderId: string, statuses: string[]) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
-    getVendorName?: (orderId: string, type: string) => string
+    getVendorName?: (orderId: string, type: string) => string,
+    // Returns sum of `invoice_amount` for all Vendor Invoices with same parent
+    // (document_type + document_name) AND status in ['Pending', 'Approved'].
+    // Same scope as `_existing_invoiced_sum` used by autofill validation.
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
         {
             accessorKey: "document_name",
@@ -303,14 +307,49 @@ const getCommonColumns = (
         },
         {
             accessorKey: "invoice_amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Amt (incl. GST)" />,
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight inline-block">Invoice Amt<br />(incl. GST)</span>}
+                />
+            ),
             cell: ({ row }) => (
                 <div>{formatToRoundedIndianRupee(parseNumber(row.original.invoice_amount))}</div>
             ),
+            size: 150,
             sortingFn: 'alphanumeric',
             meta: {
                 exportHeaderName: "Invoice Amt (incl. GST)",
                 exportValue: (row: VendorInvoice) => row.invoice_amount
+            }
+        },
+        {
+            // Running total invoiced against this row's parent PO/SR — sum of
+            // invoice_amount for all Pending+Approved invoices with same
+            // (document_type + document_name). Same value across all rows of
+            // the same parent, matches `_existing_invoiced_sum` used by autofill
+            // validation. Reviewers can compare this against the PO total to
+            // see how much of the order has been invoiced so far.
+            id: "total_invoiced_for_parent",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Total" />,
+            cell: ({ row }) => {
+                if (!getTotalInvoiced) {
+                    return <span className="text-gray-400 italic">—</span>;
+                }
+                const total = getTotalInvoiced(row.original.document_name, row.original.document_type);
+                if (!total) {
+                    return <span className="text-gray-400 italic">—</span>;
+                }
+                return <div>{formatToRoundedIndianRupee(total)}</div>;
+            },
+            size: 160,
+            enableSorting: false,
+            meta: {
+                exportHeaderName: "Invoice Total (Pending + Approved)",
+                exportValue: (row: VendorInvoice) =>
+                    getTotalInvoiced
+                        ? getTotalInvoiced(row.document_name, row.document_type)
+                        : ""
             }
         },
         {
@@ -343,9 +382,10 @@ export const getPendingTaskColumns = (
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getAmount?: (orderId: string, statuses: string[]) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
-    getVendorName?: (orderId: string, type: string) => string
+    getVendorName?: (orderId: string, type: string) => string,
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -409,9 +449,10 @@ export const getTaskHistoryColumns = (
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getAmount?: (orderId: string, statuses: string[]) => number,
-    getVendorName?: (orderId: string, type: string) => string
+    getVendorName?: (orderId: string, type: string) => string,
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -434,11 +475,20 @@ export const getTaskHistoryColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned By" />,
             cell: ({ row }) => {
                 if (row.original.status === "Pending") return <div>N/A</div>;
+                // Auto-approved invoices have approved_by = "System". Surface
+                // the "(Auto)" suffix inline instead of a separate column so
+                // reviewers can see at a glance that the system stamped it.
+                if (row.original.approved_by === "System") {
+                    return <div>System (Auto)</div>;
+                }
                 return <div>{getUserName(row.original.approved_by) || 'Administrator'}</div>;
             },
             meta: {
                 exportHeaderName: "Actioned By",
-                exportValue: (row: VendorInvoice) => getUserName(row.approved_by) || 'Administrator'
+                exportValue: (row: VendorInvoice) =>
+                    row.approved_by === "System"
+                        ? "System (Auto)"
+                        : getUserName(row.approved_by) || 'Administrator'
             }
         },
         {

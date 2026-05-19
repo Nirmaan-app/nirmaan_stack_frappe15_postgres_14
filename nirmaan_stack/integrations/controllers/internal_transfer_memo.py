@@ -165,6 +165,13 @@ def _get_old_status(doc):
 
 
 def _validate_state_transition(doc, old_status, new_status):
+    # System-initiated recalculation (DN edit / delete) is the only legitimate
+    # source of backward transitions like Delivered → Partially Delivered or
+    # → Dispatched. Trust the aggregation in that path and skip the forward-
+    # only state-machine check.
+    if doc.flags.get("from_dn_recalc"):
+        return
+
     allowed = ALLOWED_TRANSITIONS.get(old_status)
     if allowed is None or new_status not in allowed:
         frappe.throw(

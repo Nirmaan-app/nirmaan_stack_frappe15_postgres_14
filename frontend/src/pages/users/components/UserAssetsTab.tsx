@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TailSpin } from "react-loader-spinner";
 import { useToast } from "@/components/ui/use-toast";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
@@ -30,6 +31,8 @@ import {
   FileCheck,
   Upload,
   FileText,
+  Briefcase,
+  Laptop,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
@@ -61,7 +64,10 @@ interface AssetMasterRecord {
 interface AssetCategoryRecord {
   name: string;
   asset_category: string;
+  category_type?: "Project" | "IT";
 }
+
+type AssetSubTab = "Project" | "IT";
 
 interface UserAssetsTabProps {
   user: NirmaanUsers;
@@ -212,6 +218,7 @@ export function UserAssetsTab({
   const [isUnassigning, setIsUnassigning] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [declarationFile, setDeclarationFile] = useState<File | null>(null);
+  const [subTab, setSubTab] = useState<AssetSubTab>("Project");
 
   // Get asset details by ID
   const getAssetDetails = useCallback(
@@ -219,9 +226,49 @@ export function UserAssetsTab({
     [assetMasterList]
   );
 
-  // Unassigned assets for assignment dialog
+  // Map: category name -> category_type (Project | IT)
+  const categoryTypeMap = useMemo(() => {
+    const map = new Map<string, AssetSubTab>();
+    categoryList?.forEach((c) => {
+      if (c.category_type === "Project" || c.category_type === "IT") {
+        map.set(c.name, c.category_type);
+      }
+    });
+    return map;
+  }, [categoryList]);
+
+  // Determine an assignment's category type via its asset → category lookup.
+  const getAssignmentType = useCallback(
+    (assignment: AssetManagementRecord): AssetSubTab | undefined => {
+      const asset = getAssetDetails(assignment.asset);
+      if (!asset) return undefined;
+      return categoryTypeMap.get(asset.asset_category);
+    },
+    [getAssetDetails, categoryTypeMap]
+  );
+
+  const { projectAssignments, itAssignments } = useMemo(() => {
+    const project: AssetManagementRecord[] = [];
+    const it: AssetManagementRecord[] = [];
+    (assetManagementList ?? []).forEach((a) => {
+      const t = getAssignmentType(a);
+      if (t === "Project") project.push(a);
+      else if (t === "IT") it.push(a);
+    });
+    return { projectAssignments: project, itAssignments: it };
+  }, [assetManagementList, getAssignmentType]);
+
+  const totalAssigned = (assetManagementList ?? []).length;
+  const pendingDeclCount = (assetManagementList ?? []).filter(
+    (a) => !a.asset_declaration_attachment
+  ).length;
+
+  const visibleAssignments = subTab === "Project" ? projectAssignments : itAssignments;
+
+  // All unassigned assets — the dialog filters internally by its Asset Type
+  // dropdown (defaults to the currently active sub-tab).
   const unassignedAssets = useMemo(
-    () => assetMasterList?.filter((a) => !a.current_assignee) || [],
+    () => (assetMasterList ?? []).filter((a) => !a.current_assignee),
     [assetMasterList]
   );
 
@@ -300,15 +347,59 @@ export function UserAssetsTab({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">Assigned Assets</h3>
-          <p className="text-sm text-muted-foreground">
-            {assetManagementList?.length || 0} asset
-            {(assetManagementList?.length || 0) !== 1 ? "s" : ""} assigned
-          </p>
+      {/* Summary header */}
+      <div>
+        <h3 className="text-lg font-semibold">Assigned Assets</h3>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+          <span className="tabular-nums">
+            <span className="font-semibold text-emerald-700">{totalAssigned}</span> Total
+          </span>
+          <span className="text-slate-300">•</span>
+          <span className="inline-flex items-center gap-1">
+            <Briefcase className="h-3.5 w-3.5 text-blue-600" />
+            <span className="tabular-nums">{projectAssignments.length}</span> Project
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Laptop className="h-3.5 w-3.5 text-purple-600" />
+            <span className="tabular-nums">{itAssignments.length}</span> IT
+          </span>
+          {pendingDeclCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="tabular-nums">{pendingDeclCount}</span> Declaration Pending
+            </span>
+          )}
         </div>
+      </div>
+
+      {/* Project / IT Sub-tabs + Assign button on the same row */}
+      <div className="flex items-center justify-between gap-4">
+        <Tabs value={subTab} onValueChange={(v) => setSubTab(v as AssetSubTab)}>
+          <TabsList className="w-fit bg-gray-100/80 p-1">
+            <TabsTrigger
+              value="Project"
+              className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-blue-700"
+            >
+              <Briefcase className="h-4 w-4" />
+              <span className="hidden sm:inline">Project Assets</span>
+              <span className="sm:hidden">Project</span>
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
+                {projectAssignments.length}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger
+              value="IT"
+              className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-purple-700"
+            >
+              <Laptop className="h-4 w-4" />
+              <span className="hidden sm:inline">IT Assets</span>
+              <span className="sm:hidden">IT</span>
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
+                {itAssignments.length}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {isAdmin && (
           <Button onClick={() => setAssignDialogOpen(true)} className="gap-2">
@@ -320,21 +411,23 @@ export function UserAssetsTab({
       </div>
 
       {/* Assets Grid */}
-      {assetManagementList?.length === 0 ? (
+      {visibleAssignments.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
             <PackageSearch className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h4 className="text-lg font-semibold">No Assets Assigned</h4>
+          <h4 className="text-lg font-semibold">
+            No {subTab === "Project" ? "Project" : "IT"} Assets Assigned
+          </h4>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
             {isAdmin
-              ? "Click 'Assign Asset' to assign equipment to this user."
-              : "No assets have been assigned to this user yet."}
+              ? `Click 'Assign ${subTab === "Project" ? "Project" : "IT"} Asset' to assign equipment to this user.`
+              : `No ${subTab === "Project" ? "project" : "IT"} assets have been assigned to this user yet.`}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {assetManagementList?.map((assignment) => (
+          {visibleAssignments.map((assignment) => (
             <AssetCard
               key={assignment.name}
               assignment={assignment}
@@ -362,6 +455,7 @@ export function UserAssetsTab({
         userName={user.full_name}
         unassignedAssets={unassignedAssets}
         categoryList={categoryList}
+        initialAssetType={subTab}
         onAssigned={onMutate}
       />
 

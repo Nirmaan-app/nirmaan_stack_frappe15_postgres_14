@@ -56,6 +56,7 @@ export interface SidebarCountsData {
     pay: {
         all: number;
         requested: number;
+        ceopending: number;
         approved: number;
         rejected: number;
         paid: number;
@@ -65,6 +66,7 @@ export interface SidebarCountsData {
         created: number;  // Payment terms created but not yet requested
         due: number;      // Created terms with due_date <= today (replaces "scheduled")
         requested: number;
+        ceopending: number;  // L1 approved, awaiting CEO (mirrors payment status)
         approved: number;
         paid: number;
         return: number; // Note: 'return' is a keyword, but fine as a key.
@@ -130,6 +132,7 @@ export const useDocCountStore = create<Store>()(
         pay: {
             all: 0,
             requested: 0,
+            ceopending: 0,
             approved: 0,
             rejected: 0,
             paid: 0,
@@ -139,6 +142,7 @@ export const useDocCountStore = create<Store>()(
             created: 0,
             due: 0,
             requested: 0,
+            ceopending: 0,
             approved: 0,
             paid: 0,
             return: 0,

@@ -269,7 +269,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             SECTION 5: ACTIONS - All action buttons (hidden for PM role)
             Layout: Finalize/Revert → Preview → Content actions → Edit actions → Delete
         ═══════════════════════════════════════════════════════════════════ */}
-        {((!hideActions && !hideAmounts) || (onDelete && !isFinalized && isOwner)) && (
+        {((!hideActions && !hideAmounts) || (onDelete && !isFinalized && isOwner) || (!hideActions && onPreview)) && (
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
             {/* ─── State Control Actions (First) ─── */}
             {/* Finalize Button - Primary action when available */}
@@ -302,8 +302,8 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* ─── View Action ─── */}
-            {/* Preview Button */}
-            {!hideActions && !hideAmounts && onPreview && (
+            {/* Preview Button — visible to PM too; SRPdf hides Rate/Tax/Amount for them */}
+            {!hideActions && onPreview && (
               <Button
                 variant="outline"
                 size="sm"

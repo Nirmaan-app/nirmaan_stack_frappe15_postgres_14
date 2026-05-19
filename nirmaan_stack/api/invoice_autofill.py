@@ -2,6 +2,10 @@ import re
 
 import frappe
 
+from nirmaan_stack.api.invoices._validation import (
+    existing_invoiced_sum,
+    gstin_match,
+)
 from nirmaan_stack.services.document_ai import (
     SUPPORTED_EXTS,
     extract_with_document_ai,
@@ -14,10 +18,13 @@ MIN_CONFIDENCE = 0.70
 
 INVOICE_NO_KEYS = ("invoice_id", "invoice_number", "invoice_no")
 INVOICE_DATE_KEYS = ("invoice_date",)
-# Only `total_amount` (grand total, incl. tax) — must NOT fall back to
-# `net_amount` (pre-tax subtotal) since the form field is "Amount (incl. GST)".
-# If V1-base misses total_amount, we'd rather leave it blank than fill the wrong value.
+# `total_amount` (grand total, incl. tax) — never fall back to `net_amount`
+# because the form field labeled "Amount (Incl. GST)" must always be the
+# tax-inclusive total. If V1-base misses total_amount, leave it blank.
 AMOUNT_KEYS = ("total_amount",)
+# `net_amount` (pre-tax subtotal) — surfaced separately for forms that have
+# a distinct "Amount (Excl. GST)" field (currently Project Invoices).
+NET_AMOUNT_KEYS = ("net_amount",)
 
 
 @frappe.whitelist()
@@ -67,6 +74,7 @@ def extract_invoice_fields(file_url):
     invoice_no, invoice_no_conf = _pick_entity(entities, INVOICE_NO_KEYS)
     invoice_date, invoice_date_conf = _pick_entity(entities, INVOICE_DATE_KEYS, prefer_normalized=True)
     amount, amount_conf = _pick_entity(entities, AMOUNT_KEYS, prefer_normalized=True)
+    net_amount, net_amount_conf = _pick_entity(entities, NET_AMOUNT_KEYS, prefer_normalized=True)
     supplier_gstin, _ = _pick_entity(entities, ("supplier_gstin",))
     receiver_gstin, _ = _pick_entity(entities, ("receiver_gstin",))
 
@@ -86,16 +94,24 @@ def extract_invoice_fields(file_url):
     ]
 
     normalized_amount = _normalize_amount(amount) if amount_conf >= MIN_CONFIDENCE else ""
+    normalized_net_amount = _normalize_amount(net_amount) if net_amount_conf >= MIN_CONFIDENCE else ""
     validation = _build_validation(file_doc, normalized_amount, supplier_gstin, receiver_gstin)
 
     return {
         "invoice_no": invoice_no if invoice_no_conf >= MIN_CONFIDENCE else "",
         "invoice_date": _normalize_date(invoice_date) if invoice_date_conf >= MIN_CONFIDENCE else "",
         "amount": normalized_amount,
+        "net_amount": normalized_net_amount,
+        # Surface the raw extracted GSTINs so the frontend can persist them to
+        # the Vendor Invoice on submit (auto-approve gates 6 & 7 read them
+        # from dedicated columns instead of re-parsing autofill_all_entities_json).
+        "supplier_gstin": (supplier_gstin or "").strip(),
+        "receiver_gstin": (receiver_gstin or "").strip(),
         "confidence": {
             "invoice_no": round(invoice_no_conf, 3),
             "invoice_date": round(invoice_date_conf, 3),
             "amount": round(amount_conf, 3),
+            "net_amount": round(net_amount_conf, 3),
         },
         "entities": all_entities,
         "min_confidence": MIN_CONFIDENCE,
@@ -144,14 +160,17 @@ def _build_validation(file_doc, extracted_amount, extracted_supplier_gstin, extr
 
     # --- Amount overage check ---
     po_total = float(po.get("total_amount") or 0)
-    existing_sum = _existing_invoiced_sum(parent_name)
+    existing_sum = existing_invoiced_sum(parent_name)
     new_amount = 0.0
     try:
         new_amount = float(extracted_amount) if extracted_amount else 0.0
     except (TypeError, ValueError):
         new_amount = 0.0
     would_be_total = existing_sum + new_amount
-    would_exceed = po_total > 0 and would_be_total > po_total + 0.01  # tolerate float fuzz
+    # Tolerate up to ₹10 of rounding drift — must match the hard-block threshold
+    # in update_invoice_data._check_po_amount_overage. Tighter checks triggered
+    # false positives on real invoices with ₹0.10–₹5 GST/freight rounding.
+    would_exceed = po_total > 0 and would_be_total > po_total + 10
     result["amount"] = {
         "po_total": round(po_total, 2),
         "existing_invoiced_sum": round(existing_sum, 2),
@@ -170,75 +189,17 @@ def _build_validation(file_doc, extracted_amount, extracted_supplier_gstin, extr
     vendor_gst = ""
     if po.get("vendor"):
         vendor_gst = (frappe.db.get_value("Vendors", po["vendor"], "vendor_gst") or "").strip()
-    result["supplier_gstin"] = _gstin_match(
+    result["supplier_gstin"] = gstin_match(
         extracted_supplier_gstin, vendor_gst, "supplier"
     )
 
     # --- Receiver GSTIN check (extracted vs PO.project_gst) ---
     project_gst = (po.get("project_gst") or "").strip()
-    result["receiver_gstin"] = _gstin_match(
+    result["receiver_gstin"] = gstin_match(
         extracted_receiver_gstin, project_gst, "receiver"
     )
 
     return result
-
-
-def _existing_invoiced_sum(po_name):
-    """Sum invoice_amount of all Pending+Approved Vendor Invoices for this PO.
-
-    Rejected invoices are excluded (they're effectively cancelled). Pending is
-    included so a user can't keep stacking pending invoices that would push
-    the total over the PO once approved.
-    """
-    rows = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(invoice_amount), 0) AS total
-        FROM "tabVendor Invoices"
-        WHERE document_type = %s
-          AND document_name = %s
-          AND status IN ('Pending', 'Approved')
-        """,
-        ("Procurement Orders", po_name),
-        as_dict=True,
-    )
-    if not rows:
-        return 0.0
-    return float(rows[0].get("total") or 0)
-
-
-def _gstin_match(extracted, expected, role):
-    """Compare two GSTINs (case-insensitive, whitespace-trimmed).
-
-    role is "supplier" or "receiver" — used only in the user-facing message.
-    """
-    extracted_norm = (extracted or "").strip().upper()
-    expected_norm = (expected or "").strip().upper()
-    if not expected_norm:
-        # No expected GSTIN configured (vendor or PO missing it) — can't validate.
-        return {
-            "extracted": extracted_norm,
-            "expected": expected_norm,
-            "match": None,  # null = unknown / not applicable
-            "message": None,
-        }
-    if not extracted_norm:
-        return {
-            "extracted": "",
-            "expected": expected_norm,
-            "match": False,
-            "message": f"AI couldn't extract the {role}'s GSTIN — please verify the invoice.",
-        }
-    is_match = extracted_norm == expected_norm
-    return {
-        "extracted": extracted_norm,
-        "expected": expected_norm,
-        "match": is_match,
-        "message": (
-            None
-            if is_match
-            else f"Extracted {role} GSTIN ({extracted_norm}) does not match the expected GSTIN ({expected_norm})."
-        ),
-    }
 
 
 def _get_file_doc_by_url(file_url):

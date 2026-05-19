@@ -2,9 +2,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import SITEURL from "@/constants/siteURL";
+import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
+import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useMemo } from "react";
 
 interface InvoiceDataDialogProps {
   open: boolean;
@@ -24,6 +27,34 @@ export const InvoiceDataDialog = ({
   vendor
 }: InvoiceDataDialogProps) => {
   const approvedInvoices = vendorInvoices?.filter(inv => inv.status === "Approved") ?? [];
+
+  // `invoice_attachment` on a Vendor Invoice is a Link to a `Nirmaan Attachments`
+  // doc (an ID, not a file URL). Resolve IDs → file URLs in one batch when the
+  // dialog is open.
+  const attachmentIds = useMemo(
+    () => approvedInvoices.map(inv => inv.invoice_attachment).filter((id): id is string => !!id),
+    [approvedInvoices]
+  );
+
+  const { data: attachmentDocs } = useFrappeGetDocList<NirmaanAttachment>(
+    "Nirmaan Attachments",
+    {
+      fields: ["name", "attachment"],
+      filters: [["name", "in", attachmentIds]],
+      limit: attachmentIds.length || 1,
+    },
+    open && attachmentIds.length > 0
+      ? `InvoiceDataDialog-Attachments-${attachmentIds.join(",")}`
+      : null
+  );
+
+  const attachmentUrlById = useMemo(() => {
+    const map = new Map<string, string>();
+    attachmentDocs?.forEach(doc => {
+      if (doc.attachment) map.set(doc.name, doc.attachment);
+    });
+    return map;
+  }, [attachmentDocs]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -73,18 +104,23 @@ export const InvoiceDataDialog = ({
                         {formatToRoundedIndianRupee(inv.invoice_amount)}
                       </TableCell>
                       <TableCell>
-                        {inv.invoice_attachment ? (
-                          <a
-                            href={`${SITEURL}${inv.invoice_attachment}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline"
-                          >
-                            View Attachment
-                          </a>
-                        ) : (
-                          'N/A'
-                        )}
+                        {(() => {
+                          const fileUrl = inv.invoice_attachment
+                            ? attachmentUrlById.get(inv.invoice_attachment)
+                            : undefined;
+                          return fileUrl ? (
+                            <a
+                              href={`${SITEURL}${fileUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline"
+                            >
+                              View Attachment
+                            </a>
+                          ) : (
+                            'N/A'
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   ))

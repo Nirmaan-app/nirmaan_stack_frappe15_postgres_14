@@ -90,7 +90,23 @@ def apply_warehouse_delta(itm, item_row, delta: float):
         "make": item_row.make,
         "estimated_rate": item_row.estimated_rate,
     })
-    wsi.quantity = flt(wsi.quantity) + delta
+    new_quantity = flt(wsi.quantity) + delta
+
+    # Negative-stock guard: a DN delete or qty reduction can't drive warehouse
+    # stock below zero. If it would, downstream consumption has already drawn
+    # against this delivery and must be reversed first.
+    if new_quantity < 0:
+        make_suffix = f" ({item_row.make})" if item_row.make else ""
+        frappe.throw(
+            f"Cannot apply delivery change for {item_row.item_id}{make_suffix}: "
+            f"would drive warehouse stock to {new_quantity:.2f} (current "
+            f"{flt(wsi.quantity):.2f}, change {delta:+.2f}). Reverse any "
+            f"transfers that consumed this delivery before reducing or "
+            f"deleting the delivery note.",
+            frappe.ValidationError,
+        )
+
+    wsi.quantity = new_quantity
 
     if delta > 0:
         if item_row.estimated_rate and flt(item_row.estimated_rate) > flt(wsi.estimated_rate or 0):

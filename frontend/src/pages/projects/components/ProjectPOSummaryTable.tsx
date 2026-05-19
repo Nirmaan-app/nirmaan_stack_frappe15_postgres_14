@@ -261,7 +261,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   const { totals: creditTotals } = useProjectAllCredits(projectId);
 
   const TotalPurchaseOverCredit = creditTotals.totalPurchase;
-  const CreditDueAmount = creditTotals.due;
   const CreditPaidAmount = creditTotals.paid;
 
   // --- Memoized Lookups ---
@@ -333,34 +332,43 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
   const [selectedCriticalPO, setSelectedCriticalPO] = useState<Set<string>>(new Set());
 
+  type POValueBucket = "all" | "lt5000" | "gte5000";
+  const [poValueBucket, setPoValueBucket] = useState<POValueBucket>("all");
+
   const dynamicFilters = useMemo(() => {
-    if (selectedCriticalPO.size === 0) return staticFilters;
+    const base: Array<[string, string, any]> = (() => {
+      if (selectedCriticalPO.size === 0) return [...staticFilters];
 
-    const wantsNone = selectedCriticalPO.has(NO_CRITICAL_PO);
-    const selectedLabels = new Set(
-      [...selectedCriticalPO].filter(v => v !== NO_CRITICAL_PO)
-    );
+      const wantsNone = selectedCriticalPO.has(NO_CRITICAL_PO);
+      const selectedLabels = new Set(
+        [...selectedCriticalPO].filter(v => v !== NO_CRITICAL_PO)
+      );
 
-    const matchingPOs = new Set<string>();
-    for (const [poName, tasks] of criticalTasksByPO) {
-      if (selectedLabels.size > 0 && tasks.some(t => selectedLabels.has(criticalPOLabel(t)))) {
-        matchingPOs.add(poName);
+      const matchingPOs = new Set<string>();
+      for (const [poName, tasks] of criticalTasksByPO) {
+        if (selectedLabels.size > 0 && tasks.some(t => selectedLabels.has(criticalPOLabel(t)))) {
+          matchingPOs.add(poName);
+        }
       }
-    }
 
-    if (wantsNone && selectedLabels.size === 0) {
-      const allLinkedPOs = Array.from(criticalTasksByPO.keys());
-      return [...staticFilters, ["name", "not in", allLinkedPOs]];
-    }
+      if (wantsNone && selectedLabels.size === 0) {
+        const allLinkedPOs = Array.from(criticalTasksByPO.keys());
+        return [...staticFilters, ["name", "not in", allLinkedPOs]];
+      }
 
-    if (!wantsNone && matchingPOs.size > 0) {
-      return [...staticFilters, ["name", "in", Array.from(matchingPOs)]];
-    }
+      if (!wantsNone && matchingPOs.size > 0) {
+        return [...staticFilters, ["name", "in", Array.from(matchingPOs)]];
+      }
 
-    const nonMatchingLinkedPOs = Array.from(criticalTasksByPO.keys())
-      .filter(po => !matchingPOs.has(po));
-    return [...staticFilters, ["name", "not in", nonMatchingLinkedPOs]];
-  }, [selectedCriticalPO, staticFilters, criticalTasksByPO]);
+      const nonMatchingLinkedPOs = Array.from(criticalTasksByPO.keys())
+        .filter(po => !matchingPOs.has(po));
+      return [...staticFilters, ["name", "not in", nonMatchingLinkedPOs]];
+    })();
+
+    if (poValueBucket === "lt5000") return [...base, ["total_amount", "<", 5000]];
+    if (poValueBucket === "gte5000") return [...base, ["total_amount", ">=", 5000]];
+    return base;
+  }, [selectedCriticalPO, staticFilters, criticalTasksByPO, poValueBucket]);
 
   // --- Critical PO facet options ---
   const criticalPOFacetOptions = useMemo(() => {
@@ -378,6 +386,19 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     options.unshift({ label: "No Critical PO", value: NO_CRITICAL_PO });
     return options;
   }, [criticalTasksByPO]);
+
+  // --- PO value bucket absolute counts (independent of other column filters) ---
+  const poValueCounts = useMemo(() => {
+    const counts = { all: 0, lt5000: 0, gte5000: 0 };
+    if (!poAmountsDict) return counts;
+    for (const po of Object.values(poAmountsDict)) {
+      const total = parseNumber((po as any)?.total_incl_gst);
+      counts.all++;
+      if (total < 5000) counts.lt5000++;
+      else counts.gte5000++;
+    }
+    return counts;
+  }, [poAmountsDict]);
 
   // --- Helper function to calculate total liabilities ---
   const calculateTotalLiabilities = useCallback((row: ProcurementOrder): number => {
@@ -718,6 +739,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    setPagination,
   } = useServerDataTable<ProcurementOrder>({
     doctype: DOCTYPE,
     columns: columns, // Columns are defined below
@@ -904,6 +926,38 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     </CardDescription>
                 </CardContent>
             </Card> */}
+
+      {/* PO Value bucket chips */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {([
+          { value: "all", label: "All POs", count: poValueCounts.all },
+          { value: "lt5000", label: "Below ₹5K", count: poValueCounts.lt5000 },
+          { value: "gte5000", label: "₹5K & Above", count: poValueCounts.gte5000 },
+        ] as { value: POValueBucket; label: string; count: number }[]).map((b) => {
+          const isActive = poValueBucket === b.value;
+          return (
+            <button
+              key={b.value}
+              type="button"
+              onClick={() => {
+                setPoValueBucket(b.value);
+                setPagination(p => ({ ...p, pageIndex: 0 }));
+              }}
+              className={cn(
+                "px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap",
+                isActive
+                  ? "bg-sky-500 text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              )}
+            >
+              {b.label}
+              <span className={cn("text-xs font-bold", isActive ? "opacity-90" : "opacity-70")}>
+                {b.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Critical PO Filter Bar */}
       {criticalPOFacetOptions.length > 1 && (
@@ -1204,23 +1258,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                               )}
                             </span>
                           </p>
-
-                          {/* <p className="flex justify-between w-full">
-                                                        <span className="font-medium inline-flex items-center gap-1 group"> Due Amount<HoverCard>
-                                                            <HoverCardTrigger asChild>
-                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
-                                                            </HoverCardTrigger>
-                                                            <HoverCardContent className="text-xs w-auto p-1.5">
-                                                                Total value of credit POs scheduled for future payment.
-                                                            </HoverCardContent>
-                                                        </HoverCard>
-                                                        </span>{" "}
-                                                        <span className="text-red-600 font-semibold">
-                                                            {formatToRoundedIndianRupee(
-                                                                CreditDueAmount
-                                                            )}
-                                                        </span>
-                                                    </p> */}
 
                           {/* Total Due Not Paid */}
                           <p className="flex justify-between w-full">

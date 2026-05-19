@@ -307,7 +307,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
             {/* Cashflow Gap Limit */}
             <FormField
                 control={form.control}
-                name="cashflow_gap_limited"
+                name="cashflow_gap_limit"
                 render={({ field }) => (
                     <FormItem className="lg:flex lg:items-center gap-4">
                         <FormLabel className="md:basis-2/12">

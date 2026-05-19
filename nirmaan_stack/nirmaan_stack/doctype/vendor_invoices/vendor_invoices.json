@@ -22,10 +22,12 @@
   "approval_section",
   "status",
   "uploaded_by",
+  "auto_approved",
   "column_break_approval",
   "approved_by",
   "approved_on",
   "rejection_reason",
+  "auto_approve_skip_reasons",
   "reconciliation_section",
   "reconciliation_status",
   "reconciled_date",
@@ -39,6 +41,8 @@
   "autofill_extracted_invoice_no",
   "autofill_extracted_invoice_date",
   "autofill_extracted_amount",
+  "autofill_extracted_supplier_gstin",
+  "autofill_extracted_receiver_gstin",
   "autofill_confidence_json",
   "autofill_all_entities_json"
  ],
@@ -168,6 +172,25 @@
    "label": "Rejection Reason"
   },
   {
+   "default": "0",
+   "description": "1 if this invoice was approved automatically by the system (passed every auto-approve gate). approved_by will be 'System' on such rows.",
+   "fieldname": "auto_approved",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Auto Approved",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "depends_on": "eval:!doc.auto_approved",
+   "description": "Comma-separated reason tokens explaining why this invoice did NOT auto-approve (for audit and threshold tuning). Empty when auto_approved=1.",
+   "fieldname": "auto_approve_skip_reasons",
+   "fieldtype": "Long Text",
+   "label": "Auto Approve Skip Reasons",
+   "read_only": 1
+  },
+  {
    "fieldname": "reconciliation_section",
    "fieldtype": "Section Break",
    "label": "Reconciliation"
@@ -255,6 +278,22 @@
   },
   {
    "depends_on": "eval:doc.autofill_used",
+   "description": "Supplier GSTIN extracted by AI from the invoice file. Compared to Vendors.vendor_gst for the auto-approve supplier-identity gate.",
+   "fieldname": "autofill_extracted_supplier_gstin",
+   "fieldtype": "Data",
+   "label": "AI Extracted Supplier GSTIN",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
+   "description": "Receiver GSTIN extracted by AI from the invoice file. Compared to PO.project_gst for the auto-approve receiver-identity gate.",
+   "fieldname": "autofill_extracted_receiver_gstin",
+   "fieldtype": "Data",
+   "label": "AI Extracted Receiver GSTIN",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.autofill_used",
    "description": "Per-field confidence scores returned by Document AI (JSON).",
    "fieldname": "autofill_confidence_json",
    "fieldtype": "Long Text",
@@ -273,7 +312,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-22 10:00:00.000000",
+ "modified": "2026-05-16 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendor Invoices",

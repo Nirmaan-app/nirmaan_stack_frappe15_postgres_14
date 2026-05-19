@@ -5,7 +5,7 @@ import {
   useFrappeGetDocList,
   useFrappePostCall,
 } from "frappe-react-sdk";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 import {
@@ -31,9 +31,15 @@ import {
 import { toast } from "@/components/ui/use-toast";
 
 import { useUserData } from "@/hooks/useUserData";
-import { formatDate } from "@/utils/FormatDate";
+import { formatDate, isCreatedToday } from "@/utils/FormatDate";
 import { decodeFrappeId } from "./constants";
 import { ITMDeliveryMetadataBar } from "./components/ITMDeliveryMetadataBar";
+import { useITMDeliveryEdit } from "./hooks/useITMDeliveryEdit";
+import { useITMDeliveryDelete } from "./hooks/useITMDeliveryDelete";
+import {
+  SameDayDNWarningDialog,
+  WarningDN,
+} from "./components/SameDayDNWarningDialog";
 import type { ITMDetailPayload } from "@/pages/InternalTransferMemos/hooks/useITM";
 import type { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
@@ -76,6 +82,10 @@ const ITMDeliveryNote: React.FC = () => {
   const userData = useUserData();
   const isProjectManager =
     userData?.role === "Nirmaan Project Manager Profile";
+  // Delete button is Admin-only in the UI — mirrors the PO DN convention.
+  const isAdmin =
+    userData?.role === "Nirmaan Admin Profile" ||
+    userData?.user_id === "Administrator";
   const hideTotalReceived = isProjectManager && viewMode === "create";
 
   // In "create" mode the input row is auto-open. In "view" it stays
@@ -133,6 +143,33 @@ const ITMDeliveryNote: React.FC = () => {
     return map;
   }, [usersList]);
 
+  // Edit + Delete hooks — same role gate as PO DN (Admin/PMO/PL/Procurement
+  // always; PM same-day + creator). Delete UI is gated separately on isAdmin.
+  const {
+    editingDnName,
+    editedQuantities,
+    isEditSubmitting,
+    initEdit,
+    cancelEdit: cancelEditHook,
+    handleEditQuantityChange,
+    submitEdit,
+    canEditDn,
+    hasEditChanges,
+  } = useITMDeliveryEdit({
+    onDnRefetch: () => refetchDNs(),
+  });
+
+  const {
+    isDeleting,
+    deleteConfirmDialog,
+    setDeleteConfirmDialog,
+    dnToDelete,
+    handleDeleteClick,
+    handleConfirmDelete,
+  } = useITMDeliveryDelete({
+    onRefresh: () => refetchDNs(),
+  });
+
   const payload = itmData?.message;
   const itm = payload?.itm;
   // Sort DNs oldest → newest so columns read left-to-right in chronological
@@ -183,6 +220,56 @@ const ITMDeliveryNote: React.FC = () => {
     () => itemRows.some((r) => r.new_qty > 0),
     [itemRows]
   );
+
+  // Duplicate / same-day warning — mirrors PO's DeliveryPivotTable. Keys
+  // are composite (`item_id|make`) because ITM aggregation is by (item_id, make).
+  const sameDayDNs = useMemo(
+    () => dns.filter((dn) => isCreatedToday(dn.creation)),
+    [dns]
+  );
+
+  const duplicateDNs = useMemo(() => {
+    const newSig: Record<string, number> = {};
+    for (const r of itemRows) {
+      if (r.new_qty > 0) {
+        newSig[rowKey(r.item_id, r.make)] = r.new_qty;
+      }
+    }
+    const newKeys = Object.keys(newSig);
+    if (newKeys.length === 0) return [] as DeliveryNote[];
+
+    return dns.filter((dn) => {
+      if (dn.is_return) return false;
+      const existingSig: Record<string, number> = {};
+      for (const item of dn.items || []) {
+        const qty = Number(item.delivered_quantity) || 0;
+        if (qty <= 0) continue;
+        existingSig[rowKey(item.item_id, (item as any).make ?? null)] = qty;
+      }
+      const existingKeys = Object.keys(existingSig);
+      if (existingKeys.length !== newKeys.length) return false;
+      return newKeys.every((k) => existingSig[k] === newSig[k]);
+    });
+  }, [dns, itemRows]);
+
+  const warningDNs = useMemo<WarningDN[]>(() => {
+    const sameDayNames = new Set(sameDayDNs.map((dn) => dn.name));
+    const duplicateNames = new Set(duplicateDNs.map((dn) => dn.name));
+    const seen = new Set<string>();
+    const merged: WarningDN[] = [];
+    for (const dn of [...sameDayDNs, ...duplicateDNs]) {
+      if (seen.has(dn.name)) continue;
+      seen.add(dn.name);
+      const isSameDay = sameDayNames.has(dn.name);
+      const isDuplicate = duplicateNames.has(dn.name);
+      const reason: WarningDN["reason"] =
+        isSameDay && isDuplicate ? "both" : isSameDay ? "same-day" : "duplicate";
+      merged.push({ dn, reason });
+    }
+    return merged;
+  }, [sameDayDNs, duplicateDNs]);
+
+  const [warningOpen, setWarningOpen] = useState(false);
 
   // Lifecycle gate matching the PO page: only Dispatched / Partially Delivered
   // ITMs can have a DN added. The backend `create_itm_delivery_note` endpoint
@@ -316,38 +403,63 @@ const ITMDeliveryNote: React.FC = () => {
       )}
 
       <div className="border rounded-lg bg-card">
-        {/* Action bar — matches PO's `DeliveryPivotTable` action layout */}
-        {canEdit && (
-          <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 px-4 py-3 border-b">
-            {showEdit ? (
-              <>
+        {/* Action bar — matches PO's `DeliveryPivotTable` action layout.
+            Three modes share the bar: create-new-DN, edit-existing-DN, idle. */}
+        <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 px-4 py-3 border-b">
+          {editingDnName ? (
+            <>
+              <Button
+                size="sm"
+                onClick={submitEdit}
+                disabled={!hasEditChanges || isEditSubmitting}
+              >
+                {isEditSubmitting ? "Updating..." : "Update"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={cancelEditHook}
+                disabled={isEditSubmitting}
+              >
+                Cancel
+              </Button>
+            </>
+          ) : canEdit && showEdit ? (
+            <>
+              <Button
+                size="sm"
+                onClick={() => {
+                  // Gate behind duplicate / same-day warning — same UX as PO.
+                  if (warningDNs.length > 0) {
+                    setWarningOpen(true);
+                  } else {
+                    setConfirmOpen(true);
+                  }
+                }}
+                disabled={!hasValidInput || submitting}
+              >
+                Update
+              </Button>
+              {viewMode !== "create" && (
                 <Button
                   size="sm"
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={!hasValidInput || submitting}
+                  variant="ghost"
+                  onClick={handleToggleEdit}
                 >
-                  Update
+                  Cancel
                 </Button>
-                {viewMode !== "create" && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleToggleEdit}
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </>
-            ) : (
-              viewMode !== "create" && (
-                <Button size="sm" variant="outline" onClick={handleToggleEdit}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add New Delivery Note
-                </Button>
-              )
-            )}
-          </div>
-        )}
+              )}
+            </>
+          ) : (
+            canEdit &&
+            viewMode !== "create" && (
+              <Button size="sm" variant="outline" onClick={handleToggleEdit}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add New Delivery Note
+              </Button>
+            )
+          )}
+        </div>
 
         {/* Pivot-style table — one column per DN, optional New Entry column */}
         <div className="relative overflow-x-auto">
@@ -374,10 +486,20 @@ const ITMDeliveryNote: React.FC = () => {
                         : updatedBy.split("@")[0])
                     : null;
                   const noteNo = (dn as any).note_no ?? idx + 1;
+                  const dnCol = {
+                    dnName: dn.name,
+                    updatedBy,
+                    creationDate: dn.creation,
+                  };
+                  const isEditingThis = editingDnName === dn.name;
+                  // Match PO: pencil/trash stay visible while user types
+                  // a new DN; only hide when another DN is being edited.
+                  const showEditBtn = !editingDnName && canEditDn(dnCol);
+                  const showDeleteBtn = !editingDnName && isAdmin;
                   return (
                     <TableHead
                       key={dn.name}
-                      className="text-right text-xs font-medium text-muted-foreground min-w-[100px]"
+                      className={`text-right text-xs font-medium text-muted-foreground min-w-[100px] ${isEditingThis ? "bg-primary/5" : ""}`}
                     >
                       <div className="flex flex-col items-end gap-0.5 py-0.5">
                         <span className="uppercase tracking-wider font-semibold text-foreground/80">
@@ -391,11 +513,46 @@ const ITMDeliveryNote: React.FC = () => {
                             by {displayName.split(" ")[0]}
                           </span>
                         )}
+                        {(showEditBtn || showDeleteBtn) && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {showEditBtn && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5"
+                                title="Edit this delivery note"
+                                onClick={() => {
+                                  const initial: Record<string, number> = {};
+                                  for (const row of itemRows) {
+                                    const qty = row.dnQuantities[dn.name];
+                                    if (qty && qty > 0) {
+                                      initial[rowKey(row.item_id, row.make)] = qty;
+                                    }
+                                  }
+                                  initEdit(dnCol, initial);
+                                }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {showDeleteBtn && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 text-destructive hover:text-destructive"
+                                title="Delete this delivery note"
+                                onClick={() => handleDeleteClick({ dnName: dn.name })}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </TableHead>
                   );
                 })}
-                {showEdit && canEdit && (
+                {showEdit && canEdit && !editingDnName && (
                   <TableHead className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground bg-primary/5 min-w-[80px]">
                     New Entry
                   </TableHead>
@@ -438,10 +595,36 @@ const ITMDeliveryNote: React.FC = () => {
                     )}
                     {dns.map((dn) => {
                       const qty = row.dnQuantities[dn.name] || 0;
+                      const isEditingThis = editingDnName === dn.name;
+                      // Only the items present on the DN being edited get an
+                      // input; rows not on the DN render "--" so the user
+                      // can see what's not part of this DN. Adding new rows
+                      // to an existing DN isn't supported here (mirrors PO).
+                      if (isEditingThis && qty > 0) {
+                        const k = rowKey(row.item_id, row.make);
+                        const inputVal = editedQuantities[k] ?? "";
+                        return (
+                          <TableCell
+                            key={dn.name}
+                            className="text-center bg-primary/5"
+                          >
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={inputVal}
+                              onChange={(e) =>
+                                handleEditQuantityChange(k, e.target.value)
+                              }
+                              className="w-[80px] mx-auto text-center"
+                              placeholder="0"
+                            />
+                          </TableCell>
+                        );
+                      }
                       return (
                         <TableCell
                           key={dn.name}
-                          className="text-right tabular-nums text-sm"
+                          className={`text-right tabular-nums text-sm ${isEditingThis ? "bg-primary/5" : ""}`}
                         >
                           {qty > 0 ? (
                             qty
@@ -451,7 +634,7 @@ const ITMDeliveryNote: React.FC = () => {
                         </TableCell>
                       );
                     })}
-                    {showEdit && canEdit && (
+                    {showEdit && canEdit && !editingDnName && (
                       <TableCell className="text-center bg-primary/5">
                         <Input
                           type="number"
@@ -490,6 +673,50 @@ const ITMDeliveryNote: React.FC = () => {
           </Table>
         </div>
       </div>
+
+      {/* Duplicate / same-day warning — parity with PO DeliveryPivotTable. */}
+      <SameDayDNWarningDialog
+        warningDNs={warningDNs}
+        open={warningOpen}
+        onCancel={() => setWarningOpen(false)}
+        onContinue={() => {
+          setWarningOpen(false);
+          setConfirmOpen(true);
+        }}
+      />
+
+      {/* Delete confirmation dialog — Admin-only action (button gated above). */}
+      <AlertDialog
+        open={deleteConfirmDialog}
+        onOpenChange={setDeleteConfirmDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Delivery Note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete{" "}
+              <span className="font-semibold">{dnToDelete?.dnName}</span>.
+              ITM received quantities, status, and (for warehouse-target ITMs)
+              warehouse stock will be recalculated. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {isDeleting ? (
+              <TailSpin color="red" width={40} height={40} />
+            ) : (
+              <>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <Button
+                  variant="destructive"
+                  onClick={handleConfirmDelete}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Submit confirmation dialog — date picker lives here, matching PO */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

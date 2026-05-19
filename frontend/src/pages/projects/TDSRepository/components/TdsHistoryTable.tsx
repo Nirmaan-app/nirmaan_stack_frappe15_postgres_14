@@ -7,11 +7,11 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileText, Trash2, MessageSquare } from 'lucide-react';
-import { 
-    Tooltip, 
-    TooltipContent, 
-    TooltipProvider, 
-    TooltipTrigger 
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger
 } from "@/components/ui/tooltip";
 import { useUserData } from "@/hooks/useUserData";
 import { useNirmaanUsers } from '../../data/tds/useTdsQueries';
@@ -50,7 +50,7 @@ interface ProjectTDSItem {
     tds_boq_line_item?: string;
     creation: string;
     // owner: string; // Removed in favor of dynamic keys
-    [key: string]: any; 
+    [key: string]: any;
 }
 
 const DOCTYPE = "Project TDS Item List";
@@ -171,8 +171,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <div className="cursor-help">
-                                            <MessageSquare 
-                                                className={`h-3.5 w-3.5 ${hasReason ? "text-red-500 hover:text-red-700" : "text-gray-300 opacity-40"} transition-colors`} 
+                                            <MessageSquare
+                                                className={`h-3.5 w-3.5 ${hasReason ? "text-red-500 hover:text-red-700" : "text-gray-300 opacity-40"} transition-colors`}
                                             />
                                         </div>
                                     </TooltipTrigger>
@@ -208,23 +208,12 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             cell: ({ row }) => {
                 const boqRef = row.getValue("tds_boq_line_item") as string;
                 return boqRef ? (
-                    <div className="flex justify-start items-center">
-                         <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
-                                        <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-[300px] whitespace-normal break-words z-50">
-                                    <p>{boqRef}</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    </div>
+                    <span className="text-sm text-gray-700 whitespace-normal break-words">
+                        {boqRef}
+                    </span>
                 ) : <span className="text-gray-300 ml-2">-</span>;
             },
-            size: 100,
+            size: 120,
             enableSorting: true,
             meta: {
                 exportHeaderName: "BOQ Ref"
@@ -287,7 +276,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         searchableFields: searchableFields,
         defaultSort: "creation desc",
         additionalFilters: staticFilters,
-        urlSyncKey: `tds_history_${projectId}_${refreshTrigger}` 
+        urlSyncKey: `tds_history_${projectId}_${refreshTrigger}`
     });
 
     // --- Facet Filters ---
@@ -310,7 +299,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         additionalFilters: staticFilters,
         enabled: true
     });
-    
+
     const { facetOptions: statusOptions, isLoading: statusLoading, refetch: refetchStatus } = useFacetValues({
         doctype: DOCTYPE,
         field: "tds_status",
@@ -407,8 +396,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 title: "Deleted",
                 description: "Item removed from history.",
             });
-            refetchTable(); 
-            if (onDataChange) onDataChange(); 
+            refetchTable();
+            if (onDataChange) onDataChange();
         } catch (error) {
             console.error("Delete failed", error);
             toast({
@@ -442,40 +431,40 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
 
     return (
         <>
-        <DataTable<ProjectTDSItem>
-            table={table}
-            columns={columns}
-            isLoading={isLoading}
-            error={error}
-            totalCount={totalCount}
-            searchFieldOptions={searchableFields}
-            selectedSearchField={selectedSearchField}
-            onSelectedSearchFieldChange={setSelectedSearchField}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            showExportButton={true}
-            onExport="default"
-            onExportAll={exportAllRows}
-            isExporting={isExporting}
-        />
+            <DataTable<ProjectTDSItem>
+                table={table}
+                columns={columns}
+                isLoading={isLoading}
+                error={error}
+                totalCount={totalCount}
+                searchFieldOptions={searchableFields}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                showExportButton={true}
+                onExport="default"
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
+            />
 
-        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This action cannot be undone. This will permanently delete the item from the project history.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
-                        Delete
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the item from the project history.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 };

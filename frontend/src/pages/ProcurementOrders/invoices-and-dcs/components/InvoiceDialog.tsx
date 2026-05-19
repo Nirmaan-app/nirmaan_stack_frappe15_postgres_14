@@ -116,6 +116,8 @@ export function InvoiceDialog<T extends DocumentType>({
     invoice_no?: string;
     invoice_date?: string;
     amount?: string;
+    supplier_gstin?: string;
+    receiver_gstin?: string;
   } | null>(null);
   const [autofillAllEntities, setAutofillAllEntities] = useState<
     Array<{ type: string; value: string; confidence: number }> | null
@@ -329,10 +331,14 @@ export function InvoiceDialog<T extends DocumentType>({
       }
       // Capture original AI-extracted values so we can persist them on submit
       // independently of any manual edits the user makes before submitting.
+      // Supplier + receiver GSTINs feed the auto-approve gates on the backend
+      // (compared to Vendors.vendor_gst and PO.project_gst respectively).
       setAutofillExtractedValues({
         invoice_no: extracted.invoice_no || "",
         invoice_date: extracted.invoice_date || "",
         amount: extracted.amount || "",
+        supplier_gstin: extracted.supplier_gstin || "",
+        receiver_gstin: extracted.receiver_gstin || "",
       });
       // Capture the FULL entity list so reviewers can later inspect everything
       // Document AI returned (supplier_name, supplier_gstin, total_tax_amount,
@@ -439,10 +445,18 @@ export function InvoiceDialog<T extends DocumentType>({
           autofillUsed ? (autofillExtractedValues?.invoice_date || null) : null,
         autofill_extracted_amount:
           autofillUsed ? (autofillExtractedValues?.amount || null) : null,
+        autofill_extracted_supplier_gstin:
+          autofillUsed ? (autofillExtractedValues?.supplier_gstin || null) : null,
+        autofill_extracted_receiver_gstin:
+          autofillUsed ? (autofillExtractedValues?.receiver_gstin || null) : null,
         autofill_all_entities_json:
           autofillUsed && autofillAllEntities && autofillAllEntities.length > 0
             ? JSON.stringify(autofillAllEntities)
             : null,
+        // Source file_url AI extracted from. Backend's auto-approve gate 13
+        // confirms the saved invoice_attachment maps to the same file (no swap
+        // between auto-fill and submit).
+        autofill_source_file_url: autofillUsed ? (uploadedFileUrl || null) : null,
       };
 
       const response = await updateInvoiceApiCall(apiPayload);
@@ -463,6 +477,7 @@ export function InvoiceDialog<T extends DocumentType>({
             key.startsWith("Nirmaan Attachments-")
           )
         );
+        globalMutate("Recon-Total-Invoiced-By-Document");
         handleClose();
       } else {
         throw new Error(
@@ -495,6 +510,7 @@ export function InvoiceDialog<T extends DocumentType>({
     autofillConfidence,
     autofillExtractedValues,
     autofillAllEntities,
+    uploadedFileUrl,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -581,7 +597,9 @@ export function InvoiceDialog<T extends DocumentType>({
     const current = parseNumber(invoiceData.amount) || 0;
     if (poTotal <= 0 || current <= 0) return null;
     const wouldBeTotal = existing + current;
-    const wouldExceed = wouldBeTotal > poTotal + 0.01;
+    // Tolerate up to ₹10 of rounding drift — must match the backend
+    // hard-block threshold in update_invoice_data._check_po_amount_overage.
+    const wouldExceed = wouldBeTotal > poTotal + 10;
     return {
       poTotal,
       existing,
@@ -599,6 +617,21 @@ export function InvoiceDialog<T extends DocumentType>({
     !isEditMode &&
     autofillValidation?.receiver_gstin?.match === false &&
     !!autofillValidation.receiver_gstin.message;
+  // "Couldn't verify" cases — vendor/project has a GSTIN configured but AI
+  // failed to extract it from the invoice file. Soft-warn only; do NOT block
+  // submit. Reviewer will manually verify the GSTIN against the attached file.
+  const supplierGstinMissing =
+    !isEditMode &&
+    autofillValidation?.supplier_gstin?.match === null &&
+    !!autofillValidation?.supplier_gstin?.expected &&
+    !autofillValidation?.supplier_gstin?.extracted &&
+    !!autofillValidation?.supplier_gstin?.message;
+  const receiverGstinMissing =
+    !isEditMode &&
+    autofillValidation?.receiver_gstin?.match === null &&
+    !!autofillValidation?.receiver_gstin?.expected &&
+    !autofillValidation?.receiver_gstin?.extracted &&
+    !!autofillValidation?.receiver_gstin?.message;
 
   return (
     <>
@@ -703,24 +736,51 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             )}
 
-            {/* Soft warning: supplier GSTIN mismatch */}
+            {/* Hard-block: supplier GSTIN mismatch */}
             {supplierGstinMismatch && (
-              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
-                <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-900 leading-snug">
-                  <p className="font-medium">Supplier GSTIN mismatch.</p>
+              <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-300 px-3 py-2">
+                <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-red-900 leading-snug">
+                  <p className="font-medium">Supplier GSTIN mismatch — submit blocked.</p>
                   <p className="mt-0.5">{autofillValidation?.supplier_gstin?.message}</p>
+                  <p className="mt-0.5 italic">Re-upload the correct invoice or verify the vendor's GSTIN on file.</p>
                 </div>
               </div>
             )}
 
-            {/* Soft warning: receiver GSTIN mismatch */}
+            {/* Hard-block: receiver GSTIN mismatch */}
             {receiverGstinMismatch && (
-              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
-                <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-900 leading-snug">
-                  <p className="font-medium">Receiver (Nirmaan) GSTIN mismatch.</p>
+              <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-300 px-3 py-2">
+                <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-red-900 leading-snug">
+                  <p className="font-medium">Receiver (Nirmaan) GSTIN mismatch — submit blocked.</p>
                   <p className="mt-0.5">{autofillValidation?.receiver_gstin?.message}</p>
+                  <p className="mt-0.5 italic">Re-upload the correct invoice or verify the PO's Project GST setup.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Soft-warn: supplier GSTIN not extracted (AI couldn't read it).
+                Submit stays enabled — reviewer verifies against the file. */}
+            {supplierGstinMissing && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Supplier GSTIN not extracted</p>
+                  <p className="mt-0.5">{autofillValidation?.supplier_gstin?.message}</p>
+                  <p className="mt-0.5 italic">You can submit — a reviewer will verify the GSTIN against the attached file.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Soft-warn: receiver GSTIN not extracted. */}
+            {receiverGstinMissing && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Receiver (Nirmaan) GSTIN not extracted</p>
+                  <p className="mt-0.5">{autofillValidation?.receiver_gstin?.message}</p>
+                  <p className="mt-0.5 italic">You can submit — a reviewer will verify the GSTIN against the attached file.</p>
                 </div>
               </div>
             )}
@@ -946,7 +1006,9 @@ export function InvoiceDialog<T extends DocumentType>({
                     isLoading ||
                     validationState === "error" ||
                     validationState === "checking" ||
-                    !!liveAmountValidation?.wouldExceed
+                    !!liveAmountValidation?.wouldExceed ||
+                    supplierGstinMismatch ||
+                    receiverGstinMismatch
                   }
                 >
                   {isEditMode ? "Update Invoice" : "Add Invoice"}

@@ -12,7 +12,7 @@
   "project_value",
   "carpet_area",
   "project_value_gst",
-  "cashflow_gap_limited",
+  "cashflow_gap_limit",
   "project_gst_number",
   "project_gst",
   "customer_section",
@@ -221,14 +221,6 @@
    "label": "Project Value with GST"
   },
   {
-   "fieldname": "cashflow_gap_limited",
-   "fieldtype": "Float",
-   "label": "Cashflow Gap Limit",
-   "description": "If the project's cashflow gap (Outflow + Current Liabilities − Inflow) exceeds this, the daily cron auto-sets the project to CEO Hold. Backfilled at 20% of Project Value.",
-   "non_negative": 1,
-   "precision": "2"
-  },
-  {
    "fieldname": "project_milestone_details_section",
    "fieldtype": "Section Break",
    "label": "Project Milestone Details"
@@ -311,12 +303,20 @@
    "fieldname": "disabled_pmo",
    "fieldtype": "Check",
    "label": "Disabled PMO Dashboard"
+  },
+  {
+   "description": "If the project's cashflow gap (Outflow + Current Liabilities \u2212 Inflow) exceeds this,project to CEO Hold.",
+   "fieldname": "cashflow_gap_limit",
+   "fieldtype": "Float",
+   "label": "Cashflow Gap Limit",
+   "non_negative": 1,
+   "precision": "2"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-04 12:42:00.000000",
+ "modified": "2026-05-16 13:07:53.717615",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

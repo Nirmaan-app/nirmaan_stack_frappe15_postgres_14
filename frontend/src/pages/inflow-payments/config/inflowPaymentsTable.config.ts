@@ -5,6 +5,7 @@ import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
 export const DEFAULT_INFLOW_FIELDS_TO_FETCH: (keyof ProjectInflows | 'name')[] = [
     "name", "creation", "modified", "owner", "project",
     "customer",
+    "invoice",
     "amount", "payment_date", "utr", "inflow_attachment"
 ];
 

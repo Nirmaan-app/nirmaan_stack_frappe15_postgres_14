@@ -487,12 +487,30 @@ export function FuzzySearchSelect<T extends FuzzyOptionType, IsMulti extends boo
         setInputValue("");
     };
     
+    const ScrollableDefaultMenuList = (props: MenuListProps<T, IsMulti>) => {
+        const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+            const target = e.currentTarget;
+            const atTop = target.scrollTop <= 0;
+            const atBottom =
+                target.scrollTop + target.clientHeight >= target.scrollHeight - 1;
+            if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) return;
+            e.stopPropagation();
+            target.scrollTop += e.deltaY;
+        };
+        return (
+            <components.MenuList
+                {...props}
+                innerProps={{ ...(props.innerProps || {}), onWheel: handleWheel }}
+            />
+        );
+    };
+
     const MappedCustomMenuList = customMenuListComponent
         ? (props: MenuListProps<T, IsMulti>) => {
               const CustomComponent = customMenuListComponent;
               return <CustomComponent {...props} {...customMenuListProps} />;
           }
-        : components.MenuList;
+        : ScrollableDefaultMenuList;
 
     return (
         <ReactSelect<T, IsMulti>

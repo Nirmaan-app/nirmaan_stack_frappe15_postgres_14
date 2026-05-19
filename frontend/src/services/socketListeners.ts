@@ -137,11 +137,13 @@ export const initializeSocketListeners = ({
     // Payment Events
     const onPaymentNew = safeHandler(async (event: any) => handlePONewEvent(db, event, notificationActions.add_new_notification)); // Adapt handler if needed
     const onPaymentApproved = safeHandler(async (event: any) => handleSRApprovedEvent(db, event, notificationActions.add_new_notification)); // Adapt handler if needed
+    const onPaymentCEOApproved = safeHandler(async (event: any) => handleSRApprovedEvent(db, event, notificationActions.add_new_notification)); // Reuses same handler — accountants see "new" badge
     const onPaymentFulfilled = safeHandler(async (event: any) => handlePONewEvent(db, event, notificationActions.add_new_notification)); // Adapt handler if needed
     const onPaymentDelete = (event: any) => handlePRDeleteEvent(event, notificationActions.delete_notification); // Assuming same delete handler
 
     socket.on("payment:new", onPaymentNew);
     socket.on("payment:approved", onPaymentApproved);
+    socket.on("payment:ceo_approved", onPaymentCEOApproved);
     socket.on("payment:fulfilled", onPaymentFulfilled);
     socket.on("payment:delete", onPaymentDelete);
 
@@ -180,6 +182,7 @@ export const initializeSocketListeners = ({
 
         socket.off("payment:new", onPaymentNew);
         socket.off("payment:approved", onPaymentApproved);
+        socket.off("payment:ceo_approved", onPaymentCEOApproved);
         socket.off("payment:fulfilled", onPaymentFulfilled);
         socket.off("payment:delete", onPaymentDelete);
     };

@@ -6,6 +6,7 @@ import { AddressView } from "@/components/address-view";
 
 
 import { useGstOptions } from "@/hooks/useGstOptions";
+import { useUserData } from "@/hooks/useUserData";
 
 interface SRPdfProps {
   srPdfSheet: boolean;
@@ -23,27 +24,35 @@ interface SRPdfProps {
   // AddressView: React.ComponentType<{ id: string }>;
 }
 
+// Column count helper — keep tbody colSpans aligned with thead width
+const computeColCount = (gstEnabled: boolean, hideRate: boolean) => {
+  if (hideRate) return 4; // No., Service Description, Unit, Qty
+  return gstEnabled ? 7 : 6; // + Rate, (Tax,) Amount
+};
+
 // Header Component for reuse
-const SRHeader: React.FC<{ 
-  orderData: any; 
-  service_vendor: any; 
-  project: any; 
-  logo: string; 
-  showVendorInfo?: boolean; 
+const SRHeader: React.FC<{
+  orderData: any;
+  service_vendor: any;
+  project: any;
+  logo: string;
+  showVendorInfo?: boolean;
   gstEnabled: boolean;
+  hideRate: boolean;
   resolvedAddress: string;
-}> = ({ 
-  orderData, 
-  service_vendor, 
-  project, 
-  logo, 
+}> = ({
+  orderData,
+  service_vendor,
+  project,
+  logo,
   showVendorInfo = true,
   gstEnabled,
+  hideRate,
   resolvedAddress
 }) => (
   <thead className="border-b border-black">
     <tr>
-      <th colSpan={gstEnabled ? 7 : 6}>
+      <th colSpan={computeColCount(gstEnabled, hideRate)}>
         <div className="flex justify-between border-gray-600 pb-1">
           <div className="mt-2 flex justify-between">
             <div>
@@ -93,9 +102,13 @@ const SRHeader: React.FC<{
       <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
       <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
       <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
-      <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
-      {gstEnabled && <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>}
-      <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
+      {!hideRate && (
+        <>
+          <th scope="col" className="px-2 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Rate</th>
+          {gstEnabled && <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Tax</th>}
+          <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Amount</th>
+        </>
+      )}
     </tr>
   </thead>
 );
@@ -125,9 +138,10 @@ const ServiceItemRow: React.FC<{
   item: any;
   index: number;
   gstEnabled: boolean;
+  hideRate: boolean;
   formatToIndianRupee: (amount: number) => string;
   parseNumber: (value: any) => number;
-}> = ({ item, index, gstEnabled, formatToIndianRupee, parseNumber }) => (
+}> = ({ item, index, gstEnabled, hideRate, formatToIndianRupee, parseNumber }) => (
   <tr key={item.id} className="page-break-inside-avoid border-b border-gray-200">
     <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
     <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
@@ -136,9 +150,13 @@ const ServiceItemRow: React.FC<{
     </td>
     <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
     <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
-    <td className="py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
-    {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
-    <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}</td>
+    {!hideRate && (
+      <>
+        <td className="py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
+        {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
+        <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}</td>
+      </>
+    )}
   </tr>
 );
 
@@ -173,36 +191,51 @@ const SRPdf: React.FC<SRPdfProps> = ({
     return bengaluru?.address || "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka";
   }, [gstOptions, orderData?.project_gst]);
 
-  const [isDownloading, setIsDownloading] = React.useState(false);
+  const { role } = useUserData();
+  const isProjectManager = role === "Nirmaan Project Manager Profile";
 
-  const handleDownload = async () => {
+  const [downloadingFormat, setDownloadingFormat] = React.useState<string | null>(null);
+
+  const handleDownloadPdf = async (formatName: string) => {
     if (!orderData?.name) return;
-    setIsDownloading(true);
+    setDownloadingFormat(formatName);
     try {
-      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Service Requests&name=${orderData.name}&format=Work Orders&no_letterhead=0`;
+      const params = new URLSearchParams({
+        doctype: "Service Requests",
+        name: orderData.name,
+        format: formatName,
+        no_letterhead: "0",
+      });
+      const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
       const response = await fetch(url);
       if (!response.ok) throw new Error("Network response was not ok");
-      
+
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
-      
+
       const link = document.createElement('a');
       link.href = downloadUrl;
       const safeName = orderData.name.replace(/\//g, "_");
       const safeProjectName = (project?.name || "Project").replace(/\//g, "_");
-      link.download = `${safeName}_${safeProjectName}_SR.pdf`;
-      
+      const suffix = formatName === "Work Orders Without Rate" ? "_NoRate" : "";
+      link.download = `${safeName}_${safeProjectName}_SR${suffix}.pdf`;
+
       document.body.appendChild(link);
       link.click();
-      
+
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
     } catch (error) {
       console.error("Download failed:", error);
-      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Service Requests&name=${orderData?.name}&format=Work Orders&no_letterhead=0`;
-      window.open(url, '_blank');
+      const fallbackParams = new URLSearchParams({
+        doctype: "Service Requests",
+        name: orderData?.name,
+        format: formatName,
+        no_letterhead: "0",
+      });
+      window.open(`/api/method/frappe.utils.print_format.download_pdf?${fallbackParams.toString()}`, '_blank');
     } finally {
-      setIsDownloading(false);
+      setDownloadingFormat(null);
     }
   };
 
@@ -245,16 +278,25 @@ const SRPdf: React.FC<SRPdfProps> = ({
 
   return (
     <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
-      <SheetContent className="overflow-y-auto md:min-w-[900px]">
-        <div className="flex gap-2">
-
+      <SheetContent className="overflow-y-auto w-[95vw] sm:max-w-[95vw] md:max-w-[1000px] p-4 sm:p-6">
+        <div className="flex flex-wrap gap-2 pr-12">
+          {!isProjectManager && (
+            <Button
+              onClick={() => handleDownloadPdf("Work Orders")}
+              disabled={!!downloadingFormat}
+              className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className={`h-4 w-4 ${downloadingFormat === "Work Orders" ? "animate-bounce" : ""}`} />
+              {downloadingFormat === "Work Orders" ? "Downloading..." : "Download"}
+            </Button>
+          )}
           <Button
-            onClick={handleDownload}
-            disabled={isDownloading}
-            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => handleDownloadPdf("Work Orders Without Rate")}
+            disabled={!!downloadingFormat}
+            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
-            {isDownloading ? "Downloading..." : "Download"}
+            <Download className={`h-4 w-4 ${downloadingFormat === "Work Orders Without Rate" ? "animate-bounce" : ""}`} />
+            {downloadingFormat === "Work Orders Without Rate" ? "Downloading..." : "Download Without Rate"}
           </Button>
         </div>
         <div className={`w-full border mt-6`}>
@@ -276,13 +318,14 @@ const SRPdf: React.FC<SRPdfProps> = ({
               <div key={pageIndex} className={pageIndex > 0 ? "page-break" : ""}>
                 <div className="overflow-x-auto p-4">
                   <table className="min-w-full divide-gray-200">
-                    <SRHeader 
-                      orderData={orderData} 
-                      service_vendor={service_vendor} 
-                      project={project} 
-                      logo={logo} 
+                    <SRHeader
+                      orderData={orderData}
+                      service_vendor={service_vendor}
+                      project={project}
+                      logo={logo}
                       showVendorInfo={pageIndex === 0}
                       gstEnabled={gstEnabled}
+                      hideRate={isProjectManager}
                       resolvedAddress={resolvedAddress}
                     />
                     <tbody className={`bg-white`}>
@@ -295,6 +338,7 @@ const SRPdf: React.FC<SRPdfProps> = ({
                             item={item}
                             index={globalIndex}
                             gstEnabled={gstEnabled}
+                            hideRate={isProjectManager}
                             formatToIndianRupee={formatToIndianRupee}
                             parseNumber={parseNumber}
                           />
@@ -304,35 +348,40 @@ const SRPdf: React.FC<SRPdfProps> = ({
                       {/* Render totals and other sections only on the last page */}
                       {pageIndex === serviceItemPages.length - 1 && (
                         <>
-                          <tr className="">
-                            <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
-                            <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
-                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                            <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                            {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
-                            <td className="pl-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total:</td>
-                            <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal)}</td>
-                          </tr>
-                          <tr className="border-none">
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            {gstEnabled && <td></td>}
-                            <td></td>
-                            <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
-                              {gstEnabled && <div>Total Tax(GST):</div>}
-                              <div>Round Off:</div>
-                              <div>Total:</div>
-                            </td>
-                            <td className="space-y-4 py-4 text-sm whitespace-nowrap font-semibold">
-                              {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal * 1.18 - getTotal)}</div>}
-                              <div className="ml-4">- {formatToIndianRupee((getTotal * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
-                              <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
-                            </td>
-                          </tr>
+                          {/* Totals block hidden for Project Manager (no rate exposure) */}
+                          {!isProjectManager && (
+                            <>
+                              <tr className="">
+                                <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
+                                <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
+                                <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
+                                {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
+                                <td className="pl-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total:</td>
+                                <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal)}</td>
+                              </tr>
+                              <tr className="border-none">
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                {gstEnabled && <td></td>}
+                                <td></td>
+                                <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
+                                  {gstEnabled && <div>Total Tax(GST):</div>}
+                                  <div>Round Off:</div>
+                                  <div>Total:</div>
+                                </td>
+                                <td className="space-y-4 py-4 text-sm whitespace-nowrap font-semibold">
+                                  {gstEnabled && <div className="ml-4">{formatToIndianRupee(getTotal * 1.18 - getTotal)}</div>}
+                                  <div className="ml-4">- {formatToIndianRupee((getTotal * (gstEnabled ? 1.18 : 1)) - Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
+                                  <div className="ml-4">{formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}</div>
+                                </td>
+                              </tr>
+                            </>
+                          )}
 
                           <tr className="end-of-page page-break-inside-avoid" >
-                            <td colSpan={gstEnabled ? 7 : 6}>
+                            <td colSpan={computeColCount(gstEnabled, isProjectManager)}>
                               {notes?.length > 0 && (
                                 <div className="mb-2">
                                   <div className="text-gray-400 text-sm py-2">Notes</div>

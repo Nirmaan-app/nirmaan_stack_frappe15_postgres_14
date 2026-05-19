@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 
 from frappe.utils import flt
 from nirmaan_stack.api.milestone.project_schedule import sync_project_schedule
-
-CEO_HOLD_AUTHORIZED_USER = "nitesh@nirmaan.app"
-CEO_HOLD_SYSTEM_USER = "System (Cashflow Cron)"
+from nirmaan_stack.constants.authorized_users import (
+	CEO_AUTHORIZED_USER as CEO_HOLD_AUTHORIZED_USER,
+	CEO_HOLD_SYSTEM_USER,
+)
 
 class Projects(Document):
 	def validate(self):
@@ -104,6 +105,11 @@ def on_update(doc, method=None):
 	# to also trigger from on_update here.
 	if doc.has_value_changed('project_start_date') or doc.has_value_changed('project_end_date'):
 		sync_project_schedule(doc, method)
+
+	# Realtime CEO Hold re-check when the gap limit drops (or is first set).
+	if doc.has_value_changed('cashflow_gap_limit'):
+		from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import trigger_check
+		trigger_check(doc.name)
 
 
 def recalculate_critical_po_deadlines(project_name, project_start_date):

@@ -1,7 +1,16 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
-import { Check, Download, Plus, TriangleAlert } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -13,8 +22,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
+import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { cn } from "@/lib/utils";
+import { useITMDeliveryEdit } from "@/pages/DeliveryNotes/hooks/useITMDeliveryEdit";
+import { useITMDeliveryDelete } from "@/pages/DeliveryNotes/hooks/useITMDeliveryDelete";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import type { InternalTransferMemoItem } from "@/types/NirmaanStack/InternalTransferMemo";
 
@@ -55,8 +67,9 @@ const USERS_PARAMS = { fields: ["name", "full_name", "email"] as ("name" | "full
 /**
  * ITM Delivery Notes section — PO-style pivot table.
  *
- * Shows: ITEM | UNIT | ORDERED | DN (date, user) | NEW ENTRY | TOTAL RECEIVED
- * Only one DN allowed per ITM. Download DN button on right side.
+ * Renders one column per DN (sorted oldest → newest), matching the standalone
+ * ITM DN page. Returns (is_return=1) are filtered out; ITM Phase 1 doesn't
+ * support return notes anyway.
  */
 export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
   itmName,
@@ -64,6 +77,12 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
   items,
   onDNCreated,
 }) => {
+  const userData = useUserData();
+  // Delete button mirrors PO DN convention — Admin role / Administrator user only.
+  const isAdmin =
+    userData?.role === "Nirmaan Admin Profile" ||
+    userData?.user_id === "Administrator";
+
   const [isAdding, setIsAdding] = useState(false);
   const [newEntries, setNewEntries] = useState<Record<string, number>>({});
 
@@ -95,36 +114,81 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
     return map;
   }, [usersList]);
 
+  // Edit + Delete hooks — same role gate as PO DN. Delete UI is Admin-only.
+  const {
+    editingDnName,
+    editedQuantities,
+    isEditSubmitting,
+    initEdit,
+    cancelEdit: cancelEditHook,
+    handleEditQuantityChange,
+    submitEdit,
+    canEditDn,
+    hasEditChanges,
+  } = useITMDeliveryEdit({
+    onDnRefetch: () => mutateDNs(),
+    onSuccess: () => onDNCreated?.(),
+  });
+
+  const {
+    isDeleting,
+    deleteConfirmDialog,
+    setDeleteConfirmDialog,
+    dnToDelete,
+    handleDeleteClick,
+    handleConfirmDelete,
+  } = useITMDeliveryDelete({
+    onRefresh: () => mutateDNs(),
+    onSuccess: () => onDNCreated?.(),
+  });
+
   const dnList: DNRecord[] = dnData?.message ?? [];
-  const existingDN = dnList.length > 0 ? dnList[0] : null;
 
+  // Render one column per DN, sorted oldest → newest (matches the standalone
+  // ITM DN page and PO `DeliveryPivotTable`). Returns are filtered out
+  // (ITM Phase 1 has no return-note flow).
+  const visibleDNs = useMemo(
+    () =>
+      [...dnList]
+        .filter((dn) => !dn.is_return)
+        .sort((a, b) => {
+          const aTs = new Date(a.delivery_date || a.creation || 0).getTime();
+          const bTs = new Date(b.delivery_date || b.creation || 0).getTime();
+          return aTs - bTs;
+        }),
+    [dnList]
+  );
+
+  // Lifecycle gate: only Dispatched / Partially Delivered ITMs can have a
+  // new DN added. Same rule as the standalone page; allows multiple DNs.
   const canCreateDN =
-    (itmStatus === "Dispatched" || itmStatus === "Partially Delivered") &&
-    !existingDN;
+    itmStatus === "Dispatched" || itmStatus === "Partially Delivered";
 
-  // Build per-(item, make) quantity map from existing DN
-  const dnQtyByItem = useMemo(() => {
-    const map: Record<string, number> = {};
-    if (!existingDN) return map;
-    for (const di of existingDN.items ?? []) {
-      const k = rowKey(di.item_id, di.make);
-      map[k] = (map[k] || 0) + (di.delivered_quantity || 0);
+  // dnQtyByDn[dnName][rowKey] = qty for that (DN, item+make) pair.
+  const dnQtyByDn = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    for (const dn of visibleDNs) {
+      const inner: Record<string, number> = {};
+      for (const di of dn.items ?? []) {
+        const k = rowKey(di.item_id, di.make);
+        inner[k] = (inner[k] || 0) + (di.delivered_quantity || 0);
+      }
+      map[dn.name] = inner;
     }
     return map;
-  }, [existingDN]);
+  }, [visibleDNs]);
 
   // Total received across all DNs, keyed by (item, make).
   const totalReceivedByItem = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const dn of dnList) {
-      if (dn.is_return) continue;
+    for (const dn of visibleDNs) {
       for (const di of dn.items ?? []) {
         const k = rowKey(di.item_id, di.make);
         map[k] = (map[k] || 0) + (di.delivered_quantity || 0);
       }
     }
     return map;
-  }, [dnList]);
+  }, [visibleDNs]);
 
   const handleStartAdding = useCallback(() => {
     setNewEntries({});
@@ -184,35 +248,6 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
     }
   }, [hasValidEntries, newEntries, items, createDN, itmName, mutateDNs, onDNCreated]);
 
-  const handleDownloadDN = useCallback(async () => {
-    if (!existingDN) return;
-    try {
-      toast({ title: "Generating PDF", description: "Downloading delivery note..." });
-
-      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Delivery%20Notes&name=${encodeURIComponent(existingDN.name)}&no_letterhead=0`;
-      const response = await fetch(printUrl);
-      if (!response.ok) throw new Error("Failed to generate PDF");
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `${existingDN.name}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      toast({ title: "Success", description: "Delivery note downloaded." });
-    } catch {
-      toast({
-        title: "Error",
-        description: "Failed to download delivery note.",
-        variant: "destructive",
-      });
-    }
-  }, [existingDN]);
-
   if (dnLoading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -221,16 +256,30 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
     );
   }
 
-  const dnUpdatedBy = existingDN?.updated_by_user || existingDN?.owner;
-  const dnUserName = dnUpdatedBy
-    ? userNameMap.get(dnUpdatedBy) ?? (dnUpdatedBy === "Administrator" ? "Admin" : dnUpdatedBy.split("@")[0])
-    : undefined;
-
   return (
     <div className="space-y-3">
       {/* Action buttons */}
       <div className="flex items-center justify-end gap-2">
-        {isAdding ? (
+        {editingDnName ? (
+          <>
+            <Button
+              size="sm"
+              onClick={submitEdit}
+              disabled={!hasEditChanges || isEditSubmitting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isEditSubmitting ? "Updating..." : "Update"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={cancelEditHook}
+              disabled={isEditSubmitting}
+            >
+              Cancel
+            </Button>
+          </>
+        ) : isAdding ? (
           <>
             <Button
               size="sm"
@@ -251,12 +300,6 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
           </>
         ) : (
           <>
-            {/* {existingDN && (
-              <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={handleDownloadDN}>
-                <Download className="h-3.5 w-3.5 mr-1.5" />
-                Download DN
-              </Button>
-            )} */}
             {canCreateDN && (
               <Button size="sm" onClick={handleStartAdding}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
@@ -282,27 +325,90 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
                 Ordered
               </TableHead>
 
-              {/* Existing DN column — hidden when editing */}
-              {existingDN && (
-                <TableHead className="text-right text-xs font-medium text-muted-foreground min-w-[100px]">
-                  <div className="flex flex-col items-end gap-0.5 py-0.5">
-                    <span className="uppercase tracking-wider font-semibold text-foreground/80">
-                      DN
-                    </span>
-                    <span className="text-[10px] font-normal border-b pb-0.5 border-primary/30">
-                      {formatDate(existingDN.delivery_date || existingDN.creation)}
-                    </span>
-                    {dnUserName && (
-                      <span className="text-[10px] text-muted-foreground truncate max-w-[100px]" title={dnUserName}>
-                        by {dnUserName.split(" ")[0]}
-                      </span>
+              {/* One column per DN — sorted oldest first. */}
+              {visibleDNs.map((dn, idx) => {
+                const updatedBy = dn.updated_by_user || dn.owner;
+                const displayName = updatedBy
+                  ? userNameMap.get(updatedBy) ??
+                    (updatedBy === "Administrator"
+                      ? "Admin"
+                      : updatedBy.split("@")[0])
+                  : null;
+                const noteNo = dn.note_no ?? idx + 1;
+                const dnCol = {
+                  dnName: dn.name,
+                  updatedBy,
+                  creationDate: dn.creation,
+                };
+                const isEditingThis = editingDnName === dn.name;
+                return (
+                  <TableHead
+                    key={dn.name}
+                    className={cn(
+                      "text-right text-xs font-medium text-muted-foreground min-w-[100px]",
+                      isEditingThis && "bg-primary/5"
                     )}
-                  </div>
-                </TableHead>
-              )}
+                  >
+                    <div className="flex flex-col items-end gap-0.5 py-0.5">
+                      <span className="uppercase tracking-wider font-semibold text-foreground/80">
+                        DN-{noteNo}
+                      </span>
+                      <span className="text-[10px] font-normal border-b pb-0.5 border-primary/30">
+                        {formatDate(dn.delivery_date || dn.creation)}
+                      </span>
+                      {displayName && (
+                        <span
+                          className="text-[10px] text-muted-foreground truncate max-w-[100px]"
+                          title={displayName}
+                        >
+                          by {displayName.split(" ")[0]}
+                        </span>
+                      )}
+                      {/* Match PO: keep pencil/trash visible during create
+                          mode; only hide when this DN is being edited. */}
+                      {!editingDnName && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {canEditDn(dnCol) && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5"
+                              title="Edit this delivery note"
+                              onClick={() => {
+                                const initial: Record<string, number> = {};
+                                for (const it of items) {
+                                  const k = rowKey(it.item_id, it.make);
+                                  const qty = dnQtyByDn[dn.name]?.[k];
+                                  if (qty && qty > 0) initial[k] = qty;
+                                }
+                                initEdit(dnCol, initial);
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {isAdmin && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 text-destructive hover:text-destructive"
+                              title="Delete this delivery note"
+                              onClick={() =>
+                                handleDeleteClick({ dnName: dn.name })
+                              }
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </TableHead>
+                );
+              })}
 
               {/* New entry column */}
-              {isAdding && (
+              {isAdding && !editingDnName && (
                 <TableHead className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground bg-primary/5 min-w-[80px]">
                   New Entry
                 </TableHead>
@@ -317,7 +423,6 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
           <TableBody>
             {items.map((item) => {
               const k = rowKey(item.item_id, item.make);
-              const dnQty = dnQtyByItem[k] || 0;
               const totalReceived = totalReceivedByItem[k] || 0;
               const fullyDelivered = totalReceived >= item.transfer_quantity && totalReceived > 0;
               const overDelivered = totalReceived > item.transfer_quantity;
@@ -345,15 +450,45 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
                     {item.transfer_quantity}
                   </TableCell>
 
-                  {/* Existing DN qty — hidden when editing */}
-                  {existingDN && (
-                    <TableCell className="text-right tabular-nums text-sm">
-                      {dnQty > 0 ? dnQty : <span className="text-muted-foreground">--</span>}
-                    </TableCell>
-                  )}
+                  {/* One qty cell per DN. Becomes an input when THIS DN is
+                      being edited (only for items already on the DN). */}
+                  {visibleDNs.map((dn) => {
+                    const qty = dnQtyByDn[dn.name]?.[k] || 0;
+                    const isEditingThis = editingDnName === dn.name;
+                    if (isEditingThis && qty > 0) {
+                      return (
+                        <TableCell
+                          key={dn.name}
+                          className="text-center bg-primary/5"
+                        >
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            value={editedQuantities[k] ?? ""}
+                            onChange={(e) =>
+                              handleEditQuantityChange(k, e.target.value)
+                            }
+                            className="h-8 w-20 text-center text-sm tabular-nums mx-auto"
+                            placeholder="0"
+                          />
+                        </TableCell>
+                      );
+                    }
+                    return (
+                      <TableCell
+                        key={dn.name}
+                        className={cn(
+                          "text-right tabular-nums text-sm",
+                          isEditingThis && "bg-primary/5"
+                        )}
+                      >
+                        {qty > 0 ? qty : <span className="text-muted-foreground">--</span>}
+                      </TableCell>
+                    );
+                  })}
 
-                  {/* Input column (add or edit) */}
-                  {isAdding && (
+                  {/* New-entry input column */}
+                  {isAdding && !editingDnName && (
                     <TableCell className="text-center bg-primary/5">
                       <Input
                         type="number"
@@ -388,6 +523,36 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
           </TableBody>
         </Table>
       </div>
+
+      {/* Delete confirmation dialog — Admin-only action (button gated above). */}
+      <AlertDialog
+        open={deleteConfirmDialog}
+        onOpenChange={setDeleteConfirmDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Delivery Note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete{" "}
+              <span className="font-semibold">{dnToDelete?.dnName}</span>.
+              ITM received quantities, status, and (for warehouse-target ITMs)
+              warehouse stock will be recalculated. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {isDeleting ? (
+              <TailSpin color="red" width={32} height={32} />
+            ) : (
+              <>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <Button variant="destructive" onClick={handleConfirmDelete}>
+                  Delete
+                </Button>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

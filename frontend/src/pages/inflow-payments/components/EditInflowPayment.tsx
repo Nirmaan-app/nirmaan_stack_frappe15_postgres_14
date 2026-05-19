@@ -11,6 +11,7 @@ import {
 } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { TailSpin } from "react-loader-spinner";
+import ReactSelect from "react-select";
 import {
     AlertCircle,
     X as XIcon,
@@ -48,10 +49,14 @@ import { cn } from "@/lib/utils";
 
 // --- Types ---
 import { ProjectInflows as ProjectInflowsType } from "@/types/NirmaanStack/ProjectInflows";
+import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 
+type InvoiceOption = { value: string; label: string };
+
 // --- Utils & State ---
+import { getSelectStyles } from "@/config/selectTheme";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
@@ -94,11 +99,35 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
     const [customerName, setCustomerName] = useState("");
     const [isProjectValid, setIsProjectValid] = useState(true);
 
+    // Linked invoice state — single Link, pre-populated from inflowToEdit.invoice.
+    const [selectedInvoice, setSelectedInvoice] = useState<InvoiceOption | null>(null);
+
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
     const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", getProjectListOptions({ fields: ["name", "project_name", "customer"] }) as any, queryKeys.projects.list());
     const { data: customers, isLoading: customersLoading } = useFrappeGetDocList<Customers>("Customers", getCustomerListOptions({ fields: ["name", "company_name"] }) as any, queryKeys.customers.list());
+
+    // Invoices belonging to the inflow's project — populates the multi-select.
+    const { data: projectInvoicesForLink, isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>(
+        "Project Invoices",
+        {
+            filters: inflowToEdit.project ? [["project", "=", inflowToEdit.project]] : undefined,
+            fields: ["name", "invoice_no", "amount", "invoice_date"],
+            limit: 1000,
+            orderBy: { field: "invoice_date", order: "desc" },
+        },
+        inflowToEdit.project ? `ProjectInvoicesForInflow_${inflowToEdit.project}` : null
+    );
+
+    const invoiceOptions = useMemo<InvoiceOption[]>(
+        () =>
+            (projectInvoicesForLink ?? []).map(inv => ({
+                value: inv.name,
+                label: `${inv.invoice_no || inv.name} — ${formatToRoundedIndianRupee(inv.amount || 0)}`,
+            })),
+        [projectInvoicesForLink]
+    );
 
     useEffect(() => {
         if (editInflowDialog && inflowToEdit) {
@@ -130,8 +159,30 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
             if (!currentProject?.customer && inflowToEdit.project) {
                 toast({ title: "Warning", description: "The associated project does not have a customer linked. This inflow might be problematic.", variant: "default" });
             }
+
+            // Seed selectedInvoice directly from the parent row's `invoice`
+            // Link field (now fetched as part of the inflow list). Label is
+            // initially the bare id; a separate effect below upgrades it to
+            // `invoice_no — ₹amount` once project invoice metadata loads.
+            if (inflowToEdit.invoice) {
+                setSelectedInvoice({ value: inflowToEdit.invoice, label: inflowToEdit.invoice });
+            } else {
+                setSelectedInvoice(null);
+            }
         }
     }, [editInflowDialog, inflowToEdit, projects, customers, toast]);
+
+    // When project invoice metadata loads, upgrade the selectedInvoice label
+    // from "bare id" to "invoice_no — ₹amount". Does not change membership.
+    useEffect(() => {
+        if (invoiceOptions.length === 0) return;
+        setSelectedInvoice(prev => {
+            if (!prev) return prev;
+            const fresh = invoiceOptions.find(opt => opt.value === prev.value);
+            if (!fresh || fresh.label === prev.label) return prev;
+            return fresh;
+        });
+    }, [invoiceOptions]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -175,6 +226,8 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
             amount: parseNumber(formState.amount),
             payment_date: formState.payment_date,
             utr: formState.utr.trim(),
+            // Single Link to a Project Invoice; passing null clears the link.
+            invoice: selectedInvoice?.value ?? null as any,
         };
 
         try {
@@ -195,7 +248,7 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
             console.error("Error updating inflow payment:", error);
             toast({ title: "Failed!", description: error.message || "Failed to update payment.", variant: "destructive" });
         }
-    }, [updateDoc, inflowToEdit.name, formState, newPaymentScreenshot, attachmentAction, upload, validateForm, toast, onSuccess]);
+    }, [updateDoc, inflowToEdit.name, formState, newPaymentScreenshot, attachmentAction, selectedInvoice, upload, validateForm, toast, onSuccess]);
 
     const handleDialogCloseAttempt = () => {
         setFormState({ project: "", customer: "", amount: "", payment_date: "", utr: "" });
@@ -203,6 +256,7 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
         setNewPaymentScreenshot(null);
         setExistingAttachmentUrl(undefined);
         setAttachmentAction("keep");
+        setSelectedInvoice(null);
     };
 
     const isLoadingAny = updateLoading || uploadLoading || projectsLoading || customersLoading;
@@ -298,6 +352,35 @@ export const EditInflowPayment: React.FC<EditInflowPaymentProps> = ({ inflowToEd
                                 </AlertDescription>
                             </Alert>
                         )}
+
+                        {/* Linked Invoice — single-select, scoped to this inflow's project.
+                            One inflow pays against one invoice; one invoice can receive many inflows. */}
+                        <div className="space-y-1.5">
+                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Linked Invoice
+                                <span className="text-xs font-normal text-slate-400 ml-1">(Optional)</span>
+                            </Label>
+                            <ReactSelect
+                                options={invoiceOptions}
+                                value={selectedInvoice}
+                                onChange={(opt) => setSelectedInvoice((opt as InvoiceOption | null) ?? null)}
+                                isClearable
+                                placeholder={
+                                    projectInvoicesLoading
+                                        ? "Loading invoices…"
+                                        : invoiceOptions.length === 0
+                                            ? "No invoices found for this project"
+                                            : "Select the invoice this payment covers…"
+                                }
+                                isDisabled={projectInvoicesLoading}
+                                isLoading={projectInvoicesLoading}
+                                classNamePrefix="react-select"
+                                menuPortalTarget={typeof document !== "undefined" ? document.body : undefined}
+                                menuPosition="fixed"
+                                styles={getSelectStyles<InvoiceOption, false>()}
+                                noOptionsMessage={() => "No invoices found for this project"}
+                            />
+                        </div>
                     </div>
 
                     {/* Divider */}

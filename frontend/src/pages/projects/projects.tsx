@@ -91,7 +91,6 @@ export interface ProcessedProjectForTable extends ProjectsType {
   calculatedTotalInflow: number;
   calculatedTotalOutflow: number;
   totalCreditPurchase: number;
-  totalCreditDue: number;
   totalCreditPaid: number;
   totalLiabilities: number;
   // prStatusCounts?: Record<string, number>; // For the status count badge display
@@ -384,7 +383,6 @@ export const Projects: React.FC<ProjectsProps> = ({
         calculatedTotalOutflow: 0,
         totalCreditPurchase: 0,
         totalCreditPaid: 0,
-        totalCreditDue: 0,
         totalLiabilities: 0,
       });
 
@@ -426,10 +424,6 @@ export const Projects: React.FC<ProjectsProps> = ({
         (sum, term) => sum + parseNumber(term.amount),
         0
       );
-
-      const totalCreditDue = projectCredits
-        .filter((cr) => cr.term_status === "Scheduled")
-        .reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
       const totalCreditPaid = projectCredits
         .filter((cr) => cr.term_status === "Paid")
@@ -476,7 +470,6 @@ export const Projects: React.FC<ProjectsProps> = ({
         calculatedTotalOutflow: totalOutflow,
         totalCreditPurchase, // Renamed from relatedTotalBalanceCredit
         totalCreditPaid,
-        totalCreditDue,
         totalLiabilities,
       };
     });

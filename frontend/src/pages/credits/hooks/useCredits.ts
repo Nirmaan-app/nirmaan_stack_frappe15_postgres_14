@@ -401,6 +401,38 @@ export const useCredits = () => {
     fetchData();
   }, [fetchData]);
 
+  // --- Fetch ALL rows for CSV export (respects active filters / search / sort) ---
+  // Server-side pagination only returns the current page (50 rows). The export
+  // button needs every row matching the current view, so we hit the same
+  // endpoint with limit_page_length = totalCount.
+  const fetchAllForExport = useCallback(async (): Promise<PoPaymentTermRow[]> => {
+    const orderBy = sorting.length > 0
+      ? `${sorting[0].id} ${sorting[0].desc ? "desc" : "asc"}`
+      : "due_date desc";
+
+    const payload = {
+      status_filter: currentStatus,
+      filters: columnFilters.length > 0 ? JSON.stringify(columnFilters) : null,
+      search_term: debouncedSearchTerm || null,
+      search_field: selectedSearchField,
+      order_by: orderBy,
+      limit_start: 0,
+      limit_page_length: totalCount > 0 ? totalCount : 100000,
+      with_aggregates: false,
+    };
+
+    const response = await fetchCredits(payload);
+    return response?.message?.data || [];
+  }, [
+    currentStatus,
+    columnFilters,
+    debouncedSearchTerm,
+    selectedSearchField,
+    sorting,
+    totalCount,
+    fetchCredits,
+  ]);
+
   // --- TanStack Table Instance ---
   const table = useReactTable<PoPaymentTermRow>({
     data,
@@ -447,8 +479,17 @@ export const useCredits = () => {
     enabled: true,
   });
 
-  // Note: Status facet (display_status) uses static options from CREDIT_FACET_FILTER_OPTIONS
-  // because "Due" is a computed status, not stored in the database
+  // Status facet uses the backend-computed display_status (Due, Requested,
+  // CEO Pending, Approved, Paid). Backend returns only options actually present
+  // in the current filtered dataset.
+  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useCreditsFacet({
+    facetField: "display_status",
+    statusFilter: currentStatus,
+    columnFilters,
+    searchTerm: debouncedSearchTerm,
+    selectedSearchField,
+    enabled: true,
+  });
 
   // --- Payment Term Status Options with Counts ---
   const paymentTermStatusOptionsWithCounts = useMemo(() => {
@@ -463,9 +504,15 @@ export const useCredits = () => {
   }, [creditsCounts]);
 
   // --- Facet Filter Options ---
-  // Status facet uses static options since display_status is computed and includes "Due"
+  // All three facets (status, project, vendor) are now dynamically populated
+  // by the backend based on the rows actually present in the current view.
   const facetFilterOptions = useMemo(() => {
     const dynamicOptions = { ...CREDIT_FACET_FILTER_OPTIONS };
+
+    if (dynamicOptions.display_status) {
+      dynamicOptions.display_status.options = statusFacetOptions;
+      dynamicOptions.display_status.isLoading = isStatusFacetLoading;
+    }
 
     if (dynamicOptions.project_name) {
       dynamicOptions.project_name.options = projectFacetOptions;
@@ -477,11 +524,10 @@ export const useCredits = () => {
       dynamicOptions.vendor_name.isLoading = isVendorFacetLoading;
     }
 
-    // display_status uses static options defined in CREDIT_FACET_FILTER_OPTIONS
-    // as it's a computed field (Due, Requested, Approved, Paid)
-
     return dynamicOptions;
   }, [
+    statusFacetOptions,
+    isStatusFacetLoading,
     projectFacetOptions,
     isProjectFacetLoading,
     vendorFacetOptions,
@@ -511,6 +557,7 @@ export const useCredits = () => {
     setSelectedSearchField,
     columnFilters,
     refetch,
+    fetchAllForExport,
     // Aggregates for summary cards (if needed later)
     aggregates,
   };

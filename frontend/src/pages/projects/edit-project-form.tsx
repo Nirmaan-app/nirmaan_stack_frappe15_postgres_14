@@ -93,7 +93,7 @@ const projectFormSchema = z.object({
   project_type: z.string().optional(),
   project_value: z.string().optional(),
   project_value_gst: z.string().optional(),
-  cashflow_gap_limited: z.string().optional(),
+  cashflow_gap_limit: z.string().optional(),
   address_line_1: z
     .string({
       required_error: "Address Line 1 Required",
@@ -308,7 +308,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       project_type: data?.project_type || "",
       project_value: data?.project_value || "",
       project_value_gst: data?.project_value_gst || "",
-      cashflow_gap_limited: data?.cashflow_gap_limited?.toString() || "",
+      cashflow_gap_limit: data?.cashflow_gap_limit?.toString() || "",
       address_line_1: project_address?.address_line1 || "",
       address_line_2: project_address?.address_line2 || "",
       pin: project_address?.pincode || "",
@@ -346,7 +346,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_type: data?.project_type || "",
         project_value: data?.project_value?.toString() || "",
         project_value_gst: data?.project_value_gst?.toString() || "",
-        cashflow_gap_limited: data?.cashflow_gap_limited?.toString() || "",
+        cashflow_gap_limit: data?.cashflow_gap_limit?.toString() || "",
         address_line_1: project_address?.address_line1 || "",
         address_line_2: project_address?.address_line2 || "",
         pin: project_address?.pincode || "",
@@ -529,7 +529,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_type: values.project_type,
         project_value: parseNumber(values.project_value).toString(), // Frappe might expect string for Data/Currency
         project_value_gst: parseNumber(values.project_value_gst).toString(),
-        cashflow_gap_limited: parseNumber(values.cashflow_gap_limited),
+        cashflow_gap_limit: parseNumber(values.cashflow_gap_limit),
         // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
         project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
         carpet_area: values.carpet_area,
@@ -883,7 +883,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
             <FormField
               control={form.control}
-              name="cashflow_gap_limited"
+              name="cashflow_gap_limit"
               render={({ field }) => (
                 <FormItem className="md:flex md:items-start gap-4">
                   <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">

@@ -163,7 +163,7 @@ def create_project_with_address(values: dict):
         project_doc.project_value = frappe.utils.flt(values.get("project_value")) # Use flt for safe conversion
         project_doc.project_value_gst = frappe.utils.flt(values.get("project_value_gst"))
         project_doc.carpet_area = frappe.utils.flt(values.get("carpet_area"))
-        project_doc.cashflow_gap_limited = frappe.utils.flt(values.get("cashflow_gap_limited"))
+        project_doc.cashflow_gap_limit = frappe.utils.flt(values.get("cashflow_gap_limit"))
 
         
         # Set the project_gst Link field

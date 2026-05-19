@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
@@ -58,6 +58,7 @@ import { memoize } from "lodash";
 
 // --- Types ---
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 
@@ -142,6 +143,13 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
   const [inflowToDelete, setInflowToDelete] = useState<ProjectInflows | null>(
     null
   ); // NEW
+
+  // Map: invoice_id → {invoice_no, attachment} for display in the Linked
+  // Invoice column. Stored in a ref so the `columns` memo stays stable; a
+  // `mapVersion` state bump triggers a re-render so cells re-read the ref.
+  type InvoiceMeta = { invoice_no: string; attachment: string };
+  const invoiceMetaRef = useRef<Map<string, InvoiceMeta>>(new Map());
+  const [, setMapVersion] = useState(0);
 
   // --- Supporting Data Fetches ---
   const projectFiltersForLookup = useMemo(
@@ -406,6 +414,43 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
         },
       },
       {
+        id: "invoice",
+        accessorKey: "invoice",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Linked Invoice" />
+        ),
+        cell: ({ row }) => {
+          const invoiceId = row.original.invoice;
+          if (!invoiceId) {
+            return <span className="text-muted-foreground text-xs">--</span>;
+          }
+          const meta = invoiceMetaRef.current.get(invoiceId);
+          const display = meta?.invoice_no || invoiceId;
+          if (meta?.attachment) {
+            return (
+              <a
+                href={SITEURL + meta.attachment}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-blue-600 hover:underline whitespace-nowrap"
+              >
+                {display}
+              </a>
+            );
+          }
+          return <span className="text-xs font-medium whitespace-nowrap">{display}</span>;
+        },
+        enableSorting: false,
+        size: 160,
+        meta: {
+          exportHeaderName: "Linked Invoice",
+          exportValue: (row: ProjectInflows) => {
+            if (!row.invoice) return "--";
+            return invoiceMetaRef.current.get(row.invoice)?.invoice_no || row.invoice;
+          },
+        },
+      },
+      {
         id: "download_proof",
         header: "Proof",
         cell: ({ row }) =>
@@ -517,6 +562,38 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     additionalFilters: staticFilters,
     aggregatesConfig: INFLOW_AGGREGATES_CONFIG, // NEW: Pass the config
   });
+
+  // --- Side-fetch invoice metadata (invoice_no + attachment) for the
+  //     distinct invoice ids referenced by the visible inflow rows. Lets the
+  //     "Linked Invoice" column render a clickable link to the invoice file.
+  const linkedInvoiceIds = useMemo(
+    () => Array.from(new Set((data ?? []).map((d) => d.invoice).filter(Boolean) as string[])),
+    [data]
+  );
+  const { data: invoiceMetaRows } = useFrappeGetDocList<ProjectInvoice>(
+    "Project Invoices",
+    {
+      filters: [["name", "in", linkedInvoiceIds.length ? linkedInvoiceIds : ["__none__"]]],
+      fields: ["name", "invoice_no", "attachment"],
+      limit: 1000,
+    },
+    linkedInvoiceIds.length
+      ? `InflowInvoiceMeta_${linkedInvoiceIds.join(",")}`
+      : null
+  );
+
+  // Stash the lookup in the ref + bump version so the cell re-reads.
+  useEffect(() => {
+    const m = new Map<string, InvoiceMeta>();
+    (invoiceMetaRows ?? []).forEach((inv) => {
+      m.set(inv.name, {
+        invoice_no: inv.invoice_no || inv.name,
+        attachment: inv.attachment || "",
+      });
+    });
+    invoiceMetaRef.current = m;
+    setMapVersion((v) => v + 1);
+  }, [invoiceMetaRows]);
 
   // --- Dynamic Facet Values ---
   const {

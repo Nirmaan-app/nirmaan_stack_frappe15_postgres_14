@@ -335,8 +335,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           <CardDescription className="space-y-2">
             <span>Cashflow Gap Limit</span>
             <p className="font-bold text-black">
-              {projectData?.cashflow_gap_limited && projectData.cashflow_gap_limited > 0
-                ? formatToRoundedIndianRupee(projectData.cashflow_gap_limited)
+              {projectData?.cashflow_gap_limit && projectData.cashflow_gap_limit > 0
+                ? formatToRoundedIndianRupee(projectData.cashflow_gap_limit)
                 : "--"}
             </p>
           </CardDescription>
