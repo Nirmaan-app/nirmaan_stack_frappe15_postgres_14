@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-20 IST (chore c8c9f234, expanded-retest fixture-name correction + real empirical run)
+**Last updated:** 2026-05-20 IST (docs 85772b52, Bug 6 fix cascade design + boq-upload-plan log)
 
 ## Overview
 
