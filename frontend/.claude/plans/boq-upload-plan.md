@@ -929,6 +929,38 @@ Newest at the top.
 
 ---
 
+### 2026-05-20 - Bug 7 + Bug 9 + CRLF remediation (feat 9a5b16cb)
+
+**Context.** Combined remediation for Bug 7 (sec 9 #85) and Bug 9 (sec 9 #86), plus CRLF pollution cleanup from the original (abandoned) Bug 7 attempt.
+
+**CRLF remediation.** The prior Bug 7 attempt (`d2b542b4` + docs `e4792920`) was committed with CRLF line endings in classifier.py and classifier_audit.py — Windows-side Edit tool preserved CRLF while Docker git commits LF. `git diff --stat` showed ~1539 and ~673 spurious line changes. Resolution: soft-reset HEAD~2 back to Bug 6 tip (`3f7f4ffc`), converted files via Python in container, added `.gitattributes` (`* text=auto eol=lf`, binary overrides for xlsx/png/pdf/jpg) at repo root, then re-applied all changes with guaranteed LF.
+
+**Bug 7 (sec 9 #85) — reverse word order keyword variants.** Real-world BoQ headers like "Rate Supply", "Rate Install", "Total Rate" and "Amount Supply", "Amount Install", "Amount Total" were not matched. Root cause: `_HEADER_KW` in classifier.py only had natural-word-order forms ("Supply Rate", "Install Rate", etc.). Fix: 10 new keyword entries across 7 frozensets:
+
+- `qty_total`: `"qty total"`, `"quantity total"`
+- `rate_combined`: `"rate total"`
+- `rate_supply`: `"rate supply"`
+- `rate_install`: `"rate install"`, `"rate installation"`
+- `amount_total`: `"amount total"`
+- `amount_supply`: `"amount supply"`
+- `amount_install`: `"amount install"`, `"amount installation"`
+
+`_CLASSIFIER_HEADER_KW` replica in classifier_audit.py synced (agreement #21). No changes to `_auto_guess.py` — the Phase 1.9l longest-match-wins precedence means the 11-char "rate supply" beats the 4-char "rate" automatically.
+
+**Bug 9 (sec 9 #86) — amount_combined extraction gap.** `amount_combined` ColumnRole had no extraction path in `classify_row()` — silently dropped. This was surfaced as a "deferred item" in Bug 6. Per sec 7.14, `amount_total` and `amount_combined` are semantically equivalent. Fix: OR-fallback after `amount_total_raw = _cell_float("amount_total")`: if None, try `_cell_float("amount_combined")`. Bug 6 cascade Priority 1/2/3 unchanged; amount_combined now participates as a Priority 1 source. No new ClassifiedRow field needed.
+
+**stopping condition #8 (config.py finding).** `amount_total` and `amount_combined` are both in `_SINGLETON_ROLES` independently but NOT mutually exclusive — a sheet CAN have both columns simultaneously (validator only checks each singleton ≤1, not family-wise exclusion). OR-fallback is still correct regardless.
+
+**Tests added (392 → 409, +17):**
+
+- test_auto_guess.py: `TestBug7WordOrderVariants` (6 methods) — rate/amount/qty family variants, longest-match disambiguation, parenthetical regression, agreement #21 sync invariant.
+- test_orchestrator.py: `TestBug7SingleHeaderV2Integration` (6 methods) — real-fixture HVAC BOQ: columns H="Rate Supply"→rate_supply, I="Rate Install"→rate_install, J="Total Rate"→rate_combined, F="Total Qty"→qty_total; end-to-end parse_boq smoke.
+- test_classifier.py: `TestBug9AmountCombinedExtraction` (5 methods) — B9-1 combined alone, B9-2 combined wins over supply+install, B9-3 blank falls to P2, B9-4 blank falls to P3 per-area, B9-5 SheetConfig validates OK.
+
+**Classifier audit delta.** Classified 3970 → 4789 (+819) across 28 fixtures (3 new fixtures added since last audit run). 1 pre-existing fixture failure unchanged.
+
+---
+
 ### 2026-05-20 - Bug 6 fix - convenience field summation cascade (feat 47090d7d)
 
 **Context.** Implements the fix designed during pre-implementation audit (commit 95718686, entry below). Files changed: classifier.py, test_classifier.py, test_orchestrator.py. orchestrator.py and hierarchy.py not touched (no changes needed at those layers).
