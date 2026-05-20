@@ -927,6 +927,109 @@ Re-evaluation now unblocked — empirical data committed at 5cd4f580.
 
 Newest at the top.
 
+---
+
+### 2026-05-20 - Bug 6 pre-implementation audit - convenience-field computation in classifier + orchestrator
+
+**Context.** Bug 6 (sec 9 #84 in v5.20 handover) - convenience fields on ClassifiedRow leave as None when "total" column blank, even when component sources have data. Pre-fix read-only audit per working agreement #18 (emergent-design pattern). NO code changes this commit.
+
+**ColumnRole Literal values (confirmed against config.py):**
+
+```
+"sl_no", "description", "unit", "qty", "qty_total",
+"rate_supply", "rate_install", "rate_combined",
+"amount_supply", "amount_install", "amount_total", "amount_combined",
+"amount_by_area",
+"rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
+"make_model", "row_notes", "append_to_notes", "reference_images", "ignore"
+```
+
+Note: `amount_combined` is a valid ColumnRole but has NO corresponding ClassifiedRow field and is never extracted by classify_row() - see Out-of-scope items below.
+
+**ClassifiedRow fields (confirmed against classifier.py):**
+
+Convenience fields:
+
+| Field | Computation source today | Sum-fallback exists? | Gap re Bug 6 |
+| --- | --- | --- | --- |
+| cr.qty | Multi-area path (lines 573-582): sum of qty_by_area_raw.values() when qty_area_cols present, else None. Single-col path (lines 584-589): direct _parse_qty_cell read. Then qty_total column OVERRIDES qty (lines 631-637) when non-blank, recording qty_total_raw separately. | YES for per-area case (primary path, not a fallback). NO for single-col case. | No gap at ClassifiedRow level. When qty_area_cols exist, cr.qty = per-area sum regardless of qty_total being blank. qty_total_raw tracked separately feeds ResolvedRow.qty_total; post-pass (Site 1) handles that layer. "Ends up None" only when ALL qty sources are blank - expected behavior. |
+| cr.amount_total | Line 665: _cell_float("amount_total") - direct read from amount_total column only. Independent of amount_supply/amount_install and amount_by_area_raw. | NO - no fallback of any kind. | CRITICAL GAP (two sub-cases). Sub-case A (Inovalon): amount_supply + amount_install present, amount_total column absent - cr.amount_total = None, and post-pass does NOT fix ResolvedRow.amount_total (post-pass Site 2 only reads amount_by_area, not supply+install). Sub-case B (per-area): amount_by_area_raw present, amount_total column absent - cr.amount_total = None (never fixed at ClassifiedRow level), but ResolvedRow.amount_total IS fixed by post-pass Site 2. |
+| cr.amount_supply | Line 663: _cell_float("amount_supply") - direct read. | NO | Not a Bug 6 target (source field, not derived). |
+| cr.amount_install | Line 664: _cell_float("amount_install") - direct read. | NO | Not a Bug 6 target (source field, not derived). |
+| cr.amount_combined | DOES NOT EXIST as a ClassifiedRow field. No extraction in classify_row(). role="amount_combined" exists in config.py + _HEADER_KW (for HEADER_REPEAT detection) but produces no line-item data. | N/A | N/A - field is absent. See Out-of-scope items. |
+| cr.rate_combined | Line 498: _cell_float("rate_combined") - direct read from rate_combined column only. | NO - no fallback from rate_supply + rate_install, no fallback from rate_by_area_raw. | GAP: when rate_combined column absent, cr.rate_combined = None even if rate_supply + rate_install present. Semantically valid per sec 7.32 (combined == supply + install). No fix exists at any layer (classifier, orchestrator, hierarchy). |
+| cr.rate_supply | Line 496: _cell_float("rate_supply") - direct read. | NO | Not a Bug 6 target (source field). |
+| cr.rate_install | Line 497: _cell_float("rate_install") - direct read. | NO | Not a Bug 6 target (source field). |
+
+Raw fields (for reference, no Bug 6 work):
+
+- `qty_total_raw: float | None` - value from qty_total column cell specifically (None if blank/absent); tracked separately from cr.qty to initialize ResolvedRow.qty_total
+- `qty_by_area_raw: dict[str, float]` - per-area qty values keyed by area name; populated only from role="qty" with area= columns
+- `amount_by_area_raw: dict[str, float]` - per-area amount values; populated only from role="amount_by_area" columns
+- `rate_by_area_raw: dict[str, dict[str, float | None]]` - outer key=area, inner key in {"supply_rate","install_rate","combined_rate"}; populated from rate_*_by_area columns
+- `append_notes_raw: dict[str, str]` - per-column text values for role="append_to_notes" columns; keyed by column header label
+
+Other fields (not Bug 6):
+
+- `raw_row, classification, sl_no_value, description, unit, is_rate_only, make_model, row_notes, warnings, preamble_candidate_score, preamble_candidate_signals`
+
+**ResolvedRow direct fields (confirmed against hierarchy.py):**
+
+Fields initialized from ClassifiedRow at resolve_hierarchy() LINE_ITEM construction (lines 467-475):
+
+- `classified_row: ClassifiedRow` - full reference (most cr fields accessed by indirection)
+- `qty_by_area_raw: dict[str, float]` - initialized from classified_row.qty_by_area_raw
+- `amount_by_area_raw: dict[str, float]` - initialized from classified_row.amount_by_area_raw
+- `qty_total: float | None` - initialized from classified_row.qty_total_raw (NOT from cr.qty)
+- `amount_total: float | None` - initialized from classified_row.amount_total
+
+Fields with defaults (not initialized from cr at construction):
+
+- `parent_index, level, path, attached_to_index, attached_notes, is_synthetic, validation_warnings` - tree/structural fields
+- `qty_by_area: dict[str, float]` - populated by _apply_multi_area_post_pass (Policy X copy from qty_by_area_raw + fallback)
+- `amount_by_area: dict[str, float]` - populated by _apply_multi_area_post_pass
+- `rate_by_area: dict[str, dict[str, float | None]]` - populated by _apply_multi_area_post_pass from cr.rate_by_area_raw
+- `needs_classification_review: bool, review_reason: str` - set by priced-preamble review-flag post-pass
+
+**Existing sum-fallback sites (confirmed against orchestrator.py + hierarchy.py):**
+
+- Site 1: orchestrator.py:120-121, _apply_multi_area_post_pass(). Modifies ResolvedRow.qty_total. Reads from row.qty_by_area (which = row.qty_by_area_raw at this point - Policy X direct copy at line 84). Trigger: qty_total is None AND qty_by_area is non-empty. Result: qty_total = sum(qty_by_area.values()).
+- Site 2: orchestrator.py:122-123, _apply_multi_area_post_pass(). Modifies ResolvedRow.amount_total. Reads from row.amount_by_area (which = row.amount_by_area_raw - Policy X direct copy at line 85). Trigger: amount_total is None AND amount_by_area is non-empty. Result: amount_total = sum(amount_by_area.values()). CRITICAL: amount_by_area comes ONLY from role="amount_by_area" columns; this site does NOT handle the amount_supply + amount_install sub-case.
+
+No sum-fallback sites exist anywhere for cr.rate_combined, cr.amount_total (supply+install sub-case), or any ClassifiedRow convenience field. All ClassifiedRow convenience fields are set once in classify_row() with no post-classification mutation.
+
+**Bug 6 gap summary - the actual fixes needed:**
+
+1. cr.qty: No gap. When qty_area_cols (role="qty" with area=) exist, cr.qty = per-area sum already computed in the primary path (classifier.py:582). The qty_total column only overrides when non-blank (lines 631-637); a blank qty_total leaves cr.qty unchanged as the area sum. "Ends up None" only when all qty sources are blank - expected, no data to sum. ResolvedRow.qty_total fallback already covered by orchestrator.py Site 1. No fix needed for this field.
+
+2. cr.amount_total: TWO gaps. (A) Per-component summation (Inovalon case): amount_supply + amount_install present, amount_total column absent - cr.amount_total = None with no fallback at ClassifiedRow OR ResolvedRow layer. Fix needed: add fallback in classifier.py after line 665 - if amount_total is None and amount_supply and amount_install are both non-None, set amount_total = amount_supply + amount_install. Also add parallel fallback in orchestrator.py _apply_multi_area_post_pass for ResolvedRow.amount_total. (B) Per-area summation: cr.amount_total stays None (ClassifiedRow-level gap persists), but ResolvedRow.amount_total is fixed by post-pass Site 2 - partial coverage already exists. Fix at ClassifiedRow level requires: if amount_total is None and amount_by_area_raw is non-empty, set amount_total = sum(amount_by_area_raw.values()).
+
+3. cr.rate_combined: GAP - no fallback from rate_supply + rate_install. Per-area rate summation is explicitly INVALID (rates are per-unit; summing across areas is semantically wrong). Supply + install summation IS valid per sec 7.32 combined-rate consistency rule. Fix would be: if rate_combined is None and rate_supply is not None and rate_install is not None, rate_combined = rate_supply + rate_install - in classifier.py after line 498. Semantic confirmation needed before implementing (see open questions below).
+
+**Out-of-scope items surfaced during audit (NOT Bug 6, but visible from the code):**
+
+- `amount_combined` convenience field is entirely absent from ClassifiedRow. The role="amount_combined" ColumnRole exists in config.py and _HEADER_KW (used for HEADER_REPEAT detection at classifier.py Step 2), but classify_row() never extracts an amount_combined value for line items. Any column mapped as role="amount_combined" is silently ignored for data extraction. This is a separate feature gap - not Bug 6.
+- `cr.rate_combined` fallback via rate_by_area_raw: per-area rate columns produce rate_by_area_raw entries but these are never used to compute cr.rate_combined. This would be semantically invalid (per-unit rates not summable across areas) so omission is correct design, but the gap between rate_by_area_raw and cr.rate_combined should be flagged.
+- ResolvedRow.qty_total is initialized from qty_total_raw (the qty_total column cell value), NOT from cr.qty. This means if cr.qty was correctly computed as a per-area sum but qty_total_raw is None (qty_total column blank), ResolvedRow.qty_total starts as None before post-pass fixes it. The post-pass always makes it consistent. Design is intentional per comment at classifier.py line 46-48 ("Separate from qty because classify_row() may override qty from per-area sum").
+
+**Recommended fix shape (informs the next prompt):**
+
+- Files to touch: classifier.py (primary - cr.amount_total and cr.rate_combined fallbacks); orchestrator.py (secondary - ResolvedRow.amount_total supply+install fallback alongside the existing per-area fallback at Site 2)
+- Approximate LOC: ~15-25 in classifier.py (3 new fallback blocks with guard conditions); ~5-8 in orchestrator.py (extend Site 2 with supply+install check)
+- New tests needed:
+  - Synthetic fixture test: amount_supply + amount_install present, no amount_total column - assert cr.amount_total = supply + install and ResolvedRow.amount_total = same
+  - Synthetic fixture test: rate_supply + rate_install present, no rate_combined column - assert cr.rate_combined = supply + install
+  - Inovalon real-fixture integration test (if one does not already assert amount_total): assert ResolvedRow.amount_total is non-None on rows with supply + install amounts
+  - Edge case: amount_supply present but amount_install = None (or vice versa) - fallback should NOT fire for incomplete components; only when BOTH are non-None
+- Existing tests that may need updates: any test currently asserting cr.amount_total = None when amount_total column absent but amount_supply/amount_install present; grep for amount_total assertions in test_*.py files before implementing
+- Semantic open questions for chat-Claude to resolve before fix:
+  - Should cr.rate_combined fall back to rate_supply + rate_install when rate_combined column absent? (YES per sec 7.32, but confirm.)
+  - Should the fallback fire when ONLY ONE of supply/install is present (e.g., supply-only BoQ with no install rate)? (Probably NO - partial sum would be misleading. Require both.)
+  - Ordering priority for cr.amount_total fallbacks: should supply+install summation take precedence over per-area summation, or vice versa? If both sources available simultaneously, which wins?
+  - Should cr.amount_total fallback be added at classifier.py level (consistent, single-pass) or only at orchestrator.py level (no cr field mutation, follows existing pattern for amounts)? The per-area case currently only fixes ResolvedRow.amount_total, not cr.amount_total - should Bug 6 fix match that asymmetry or make both layers consistent?
+
+---
+
 ### Phase 1.9i complete (2026-05-18)
 
 **Single-area-targeted diagnostic on 11 sheets at hrc=1.**
