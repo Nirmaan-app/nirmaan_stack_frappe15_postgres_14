@@ -929,6 +929,38 @@ Newest at the top.
 
 ---
 
+### 2026-05-20 - Bug 6 fix - convenience field summation cascade (feat 47090d7d)
+
+**Context.** Implements the fix designed during pre-implementation audit (commit 95718686, entry below). Files changed: classifier.py, test_classifier.py, test_orchestrator.py. orchestrator.py and hierarchy.py not touched (no changes needed at those layers).
+
+**Design decisions locked by chat-Claude before implementation:**
+
+- NEW FIELD: `amount_total_raw: float | None = None` on ClassifiedRow (mirrors qty_total_raw pattern). Tracks the raw column cell value separately from the derived cascade result so callers can distinguish "total column was present" from "total was synthesized."
+- cr.amount_total priority cascade:
+  - Priority 1: amount_total column cell value wins when non-None.
+  - Priority 2: amount_supply + amount_install when both non-None (and amount_total column absent/blank).
+  - Priority 3: sum(amount_by_area_raw.values()) when both components absent/None.
+  - Priority 4: None (all sources absent).
+  - Warning emitted when Priority 2 fires AND amount_by_area_raw is non-empty AND |supply+install - per_area_sum| > 1.0 abs tolerance.
+- cr.rate_combined fallback: Priority 1 (column) > Priority 2 (rate_supply + rate_install, both required). NO per-area rate summation (rates are per-unit; summing across areas is semantically invalid). No Priority 3 path for rate.
+- Partial components: fallback does NOT fire when only one of supply/install is present. Both required for the cascade to activate.
+- orchestrator.py Site 2 (ResolvedRow.amount_total per-area fallback) is redundant for supply+install case after fix but retained for safety - no code change.
+- rate_combined fallback insertion point: BEFORE has_nonzero_rate computation so the derived rate_combined contributes to has_nonzero_rate (enabling correct blank-qty -> rate-only classification for rows with supply+install rates but no combined column).
+
+**Tests added:**
+
+- test_classifier.py: 13 new unit tests in TestBug6ConvenienceFieldSummation covering all cascade priorities (1-3), partial components (supply-only, install-only), all-blank -> None, warning fires (diff > 1.0), no warning within tolerance, rate_combined column wins, rate_combined fallback fires, rate_combined None (partial), rate_combined fallback contributes to has_nonzero_rate.
+- test_orchestrator.py: 4 new integration tests in TestBug6InovalonIntegration using Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx real fixture. Ground-truth row sl_no='1.1.4' at Excel row 13: G(amount_supply)=200000.0, H(amount_install)=25000.0, sum=225000.0, no amount_total column. Tests: smoke parse, amount_total summed correctly, amount_total_raw is None for summed rows, ResolvedRow.amount_total inherits cascade value.
+
+**Parser test count: 375 -> 392 (+17).**
+
+**Deferred items surfaced during implementation:**
+
+- `amount_combined` ColumnRole has no ClassifiedRow field and no extraction path in classify_row(). Silently ignored for data extraction. Separate gap, not Bug 6.
+- orchestrator.py Site 2 is now partially redundant but retained without change.
+
+---
+
 ### 2026-05-20 - Bug 6 pre-implementation audit - convenience-field computation in classifier + orchestrator
 
 **Context.** Bug 6 (sec 9 #84 in v5.20 handover) - convenience fields on ClassifiedRow leave as None when "total" column blank, even when component sources have data. Pre-fix read-only audit per working agreement #18 (emergent-design pattern). NO code changes this commit.
