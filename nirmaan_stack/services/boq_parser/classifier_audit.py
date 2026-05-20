@@ -73,6 +73,7 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
     "qty_total": frozenset({
         "qty", "quantity", "nos",
         "total qty", "total quantity",
+        "qty total", "quantity total",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "rate_combined": frozenset({
         "rate", "rates", "rate in", "rate (",
@@ -81,20 +82,24 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
         "supply & installation rate", "supply and installation rate",
         "supply, install & commissioning rate",
         "combined rate", "total rate",
+        "rate total",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "rate_supply": frozenset({
         "supply rate", "material rate", "dsr rate",
         "rate (supply)",
+        "rate supply",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "rate_install": frozenset({
         "installation rate", "install rate", "erection rate",
         "labour rate", "labor rate",
         "ndsr rate", "non-dsr rate", "non dsr rate",
         "rate (install)", "rate (installation)",
+        "rate install", "rate installation",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "amount_total": frozenset({
         "amount", "total amount", "amount in", "amount (", "amt",
         "as per boq total amount",
+        "amount total",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "amount_combined": frozenset({
         "sitc amount",
@@ -105,6 +110,7 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
     "amount_supply": frozenset({
         "supply amount", "material amount", "dsr amount",
         "amount (supply)", "as per boq total supply",
+        "amount supply",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "amount_install": frozenset({
         "installation amount", "install amount", "erection amount",
@@ -112,6 +118,7 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
         "non-dsr amount", "non dsr amount",
         "amount (install)", "amount (installation)",
         "as per boq total erection", "as per boq total installation",
+        "amount install", "amount installation",  # Bug 7 (sec 9 #85) — reverse word order
     }),
     "make_model": frozenset({
         "make", "model", "brand", "manufacturer", "manufacturers",

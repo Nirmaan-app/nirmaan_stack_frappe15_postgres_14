@@ -967,5 +967,127 @@ class TestPhase1_9pAppendToNotesAutoGuess(unittest.TestCase):
         self.assertEqual(crm["C"].role, "make_model")
 
 
+
+# -----------------------------------------------------------------------
+# Bug 7 (sec 9 #85) — reverse word order keyword variants
+# -----------------------------------------------------------------------
+
+class TestBug7WordOrderVariants(unittest.TestCase):
+    """
+    Validates that _HEADER_KW in classifier.py handles reverse-word-order
+    column headers (e.g. "Rate Supply" in addition to "Supply Rate").
+
+    These tests use auto_guess_sheet_config() with hrc=1 (single-area path)
+    so the Phase 1 universal-role matcher does the keyword lookup — same
+    code path as the real-fixture HVAC BOQ column-H trigger.
+    """
+
+    def _make_single_col_row(self, header_text: str) -> "RawRow":
+        return _make_row(1, {"C": {"value": header_text}})
+
+    def _role(self, header_text: str) -> "str | None":
+        row = self._make_single_col_row(header_text)
+        reader = _make_reader({1: row})
+        sc = _call(reader, header_row=1, header_row_count=1)
+        entry = sc.column_role_map.get("C")
+        return entry.role if entry is not None else None
+
+    # -- rate family --
+
+    def test_rate_family_variants(self):
+        cases = [
+            ("Supply Rate", "rate_supply"),
+            ("Rate Supply", "rate_supply"),
+            ("Install Rate", "rate_install"),
+            ("Installation Rate", "rate_install"),
+            ("Rate Install", "rate_install"),
+            ("Rate Installation", "rate_install"),
+            ("Total Rate", "rate_combined"),
+            ("Rate Total", "rate_combined"),
+        ]
+        for header, expected in cases:
+            with self.subTest(header=header):
+                self.assertEqual(self._role(header), expected,
+                    f"Expected {header!r} → {expected!r}")
+
+    # -- amount family --
+
+    def test_amount_family_variants(self):
+        cases = [
+            ("Supply Amount", "amount_supply"),
+            ("Amount Supply", "amount_supply"),
+            ("Install Amount", "amount_install"),
+            ("Installation Amount", "amount_install"),
+            ("Amount Install", "amount_install"),
+            ("Amount Installation", "amount_install"),
+            ("Amount Total", "amount_total"),
+        ]
+        for header, expected in cases:
+            with self.subTest(header=header):
+                self.assertEqual(self._role(header), expected,
+                    f"Expected {header!r} → {expected!r}")
+
+    # -- qty family --
+
+    def test_qty_total_family_variants(self):
+        cases = [
+            ("Total Qty", "qty_total"),
+            ("Total Quantity", "qty_total"),
+            ("Qty Total", "qty_total"),
+            ("Quantity Total", "qty_total"),
+        ]
+        for header, expected in cases:
+            with self.subTest(header=header):
+                self.assertEqual(self._role(header), expected,
+                    f"Expected {header!r} → {expected!r}")
+
+    # -- longest-match-wins disambiguation --
+
+    def test_longest_match_wins_disambiguation(self):
+        """rate_supply (11 chars) beats rate_combined's 'rate' (4 chars)."""
+        self.assertEqual(self._role("Rate Supply"), "rate_supply")
+        self.assertEqual(self._role("Rate"), "rate_combined")
+        self.assertEqual(self._role("Supply Rate"), "rate_supply")
+        self.assertEqual(self._role("Total Rate"), "rate_combined")
+
+    # -- regression: parenthetical pre-existing variants still work --
+
+    def test_parenthetical_variants_regression(self):
+        cases = [
+            ("Rate (Supply)", "rate_supply"),
+            ("Rate (Install)", "rate_install"),
+            ("Rate (Installation)", "rate_install"),
+            ("Amount (Supply)", "amount_supply"),
+            ("Amount (Install)", "amount_install"),
+            ("Amount (Installation)", "amount_install"),
+        ]
+        for header, expected in cases:
+            with self.subTest(header=header):
+                self.assertEqual(self._role(header), expected,
+                    f"Expected {header!r} → {expected!r}")
+
+    # -- agreement #21: _HEADER_KW and _CLASSIFIER_HEADER_KW must be identical --
+
+    def test_header_kw_and_classifier_header_kw_synchronized(self):
+        """
+        Ensures the replica dict in classifier_audit.py stays in sync with
+        the source of truth in classifier.py (agreement #21).
+        """
+        from nirmaan_stack.services.boq_parser.classifier import _HEADER_KW
+        from nirmaan_stack.services.boq_parser.classifier_audit import _CLASSIFIER_HEADER_KW
+
+        self.assertEqual(
+            set(_HEADER_KW.keys()),
+            set(_CLASSIFIER_HEADER_KW.keys()),
+            "Key sets differ between _HEADER_KW and _CLASSIFIER_HEADER_KW",
+        )
+        for role in _HEADER_KW:
+            self.assertEqual(
+                _HEADER_KW[role],
+                _CLASSIFIER_HEADER_KW[role],
+                f"Frozenset mismatch for role {role!r}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

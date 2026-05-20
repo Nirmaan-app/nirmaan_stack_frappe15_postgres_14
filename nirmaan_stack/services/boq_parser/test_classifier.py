@@ -2188,5 +2188,145 @@ class TestBug6ConvenienceFieldSummation(unittest.TestCase):
         self.assertEqual(result.rate_combined, 90.0)
 
 
+
+# -----------------------------------------------------------------------
+# Bug 9 (sec 9 #86) — amount_combined ColumnRole extraction fallback
+# -----------------------------------------------------------------------
+
+class TestBug9AmountCombinedExtraction(unittest.TestCase):
+    """
+    Bug 9 (sec 9 #86): amount_combined ColumnRole had no extraction path in classify_row().
+    Any column mapped as amount_combined was silently dropped (cr.amount_total always None).
+
+    Fix: OR-fallback in Bug 6 cascade Priority 1 step:
+      amount_total_raw = _cell_float("amount_total")
+      if amount_total_raw is None:
+          amount_total_raw = _cell_float("amount_combined")  # Bug 9
+
+    Column layout used throughout:
+      A=sl_no, B=description, C=unit, D=qty,
+      [E=rate_supply, F=rate_install optional],
+      [H=amount_supply, I=amount_install optional],
+      J=amount_combined  (the test subject)
+    """
+
+    def _config_with_combined(
+        self,
+        has_supply_install: bool = False,
+        areas: list[str] | None = None,
+    ) -> SheetConfig:
+        """Config with amount_combined as the total-amount column."""
+        col_map: dict[str, ColumnRole] = {
+            "A": ColumnRole(role="sl_no"),
+            "B": ColumnRole(role="description"),
+            "C": ColumnRole(role="unit"),
+            "D": ColumnRole(role="qty"),
+        }
+        if has_supply_install:
+            col_map["H"] = ColumnRole(role="amount_supply")
+            col_map["I"] = ColumnRole(role="amount_install")
+        col_map["J"] = ColumnRole(role="amount_combined")
+        if areas:
+            for idx, area in enumerate(areas):
+                col_map[chr(ord("K") + idx)] = ColumnRole(role="amount_by_area", area=area)
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map=col_map,
+            area_dimensions=areas or [],
+        )
+
+    # B9-1: amount_combined column alone populates cr.amount_total
+
+    def test_amount_combined_populates_amount_total(self):
+        """B9-1: Sheet has only amount_combined column (no supply/install). cr.amount_total = J."""
+        config = self._config_with_combined()
+        row = _make_row(2, {
+            "A": {"value": "1"},
+            "B": {"value": "Supply and install of SITC works"},
+            "C": {"value": "LS"},
+            "D": {"value": 1.0},
+            "J": {"value": 100.0},  # amount_combined
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.LINE_ITEM)
+        self.assertEqual(result.amount_total, 100.0,
+            "amount_combined value must propagate to cr.amount_total via Bug 9 fallback")
+        self.assertEqual(result.amount_total_raw, 100.0,
+            "amount_total_raw must equal the amount_combined cell value")
+
+    # B9-2: amount_combined wins over supply+install (Priority 1 > Priority 2)
+
+    def test_amount_combined_wins_over_supply_install(self):
+        """B9-2: J=amount_combined=100 present alongside H=supply=40 I=install=50 → total=100."""
+        config = self._config_with_combined(has_supply_install=True)
+        row = _make_row(2, {
+            "A": {"value": "1"},
+            "B": {"value": "SITC item"},
+            "C": {"value": "LS"},
+            "D": {"value": 1.0},
+            "H": {"value": 40.0},   # amount_supply
+            "I": {"value": 50.0},   # amount_install
+            "J": {"value": 100.0},  # amount_combined — wins as Priority 1
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 100.0,
+            "amount_combined (P1) must win over supply+install sum (P2) when non-None")
+        self.assertEqual(result.amount_total_raw, 100.0)
+
+    # B9-3: blank amount_combined falls through to supply+install (P2)
+
+    def test_blank_amount_combined_falls_to_supply_install(self):
+        """B9-3: J=None, H=40, I=50 → cr.amount_total=90 via P2; amount_total_raw=None."""
+        config = self._config_with_combined(has_supply_install=True)
+        row = _make_row(2, {
+            "A": {"value": "1"},
+            "B": {"value": "SITC item"},
+            "C": {"value": "LS"},
+            "D": {"value": 1.0},
+            "H": {"value": 40.0},
+            "I": {"value": 50.0},
+            # J absent → amount_combined cell is None
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0,
+            "When amount_combined is blank, P2 supply+install fallback must fire")
+        self.assertIsNone(result.amount_total_raw,
+            "amount_total_raw must be None when amount_combined cell is blank")
+
+    # B9-4: blank amount_combined falls through to per-area sum (P3)
+
+    def test_blank_amount_combined_falls_to_per_area(self):
+        """B9-4: J=None, no supply/install, per-area A=30 B=60 → cr.amount_total=90 via P3."""
+        config = self._config_with_combined(areas=["AreaA", "AreaB"])
+        row = _make_row(2, {
+            "A": {"value": "1"},
+            "B": {"value": "SITC item"},
+            "C": {"value": "LS"},
+            "D": {"value": 1.0},
+            "K": {"value": 30.0},   # amount_by_area AreaA
+            "L": {"value": 60.0},   # amount_by_area AreaB
+            # J absent
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0,
+            "When amount_combined and supply+install both blank, P3 per-area sum must fire")
+        self.assertIsNone(result.amount_total_raw)
+
+    # B9-5: SheetConfig with amount_combined role validates OK
+
+    def test_amount_combined_sheetconfig_validates_ok(self):
+        """B9-5: A SheetConfig with amount_combined ColumnRole must not raise ValidationError.
+
+        SheetConfig uses @model_validator(mode='after') — validation fires on construction.
+        We verify by re-constructing from the config's model data; no ValidationError expected.
+        """
+        config = self._config_with_combined()
+        try:
+            SheetConfig(**config.model_dump())
+        except Exception as exc:
+            self.fail(f"SheetConfig with amount_combined raised unexpectedly: {exc!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

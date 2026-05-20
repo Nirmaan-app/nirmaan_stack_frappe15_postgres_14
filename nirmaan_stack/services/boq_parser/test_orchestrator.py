@@ -1370,5 +1370,100 @@ class TestBug6InovalonIntegration(unittest.TestCase):
                          "ResolvedRow.amount_total must inherit cascaded value from cr.amount_total")
 
 
+
+# -----------------------------------------------------------------------
+# Bug 7 (sec 9 #85) — real-fixture integration: multi_area_single_header_v2.xlsx
+# -----------------------------------------------------------------------
+
+class TestBug7SingleHeaderV2Integration(unittest.TestCase):
+    """
+    Real-fixture integration test: multi_area_single_header_v2.xlsx, HVAC BOQ sheet.
+
+    Row 2 header (1-indexed):
+      H = "Rate Supply"  → must map to rate_supply  (Bug 7 new keyword)
+      I = "Rate Install" → must map to rate_install  (Bug 7 new keyword)
+      J = "Total Rate"   → must map to rate_combined (pre-existing keyword)
+      F = "Total Qty"    → must map to qty_total     (pre-existing keyword)
+
+    Uses BoqReader directly (not _make_reader mock) via auto_guess_sheet_config().
+    parse_boq() smoke verifies end-to-end classification returns LINE_ITEMs.
+    """
+
+    _FIXTURE = _FIXTURES / "multi_area_single_header_v2.xlsx"
+    _SHEET = "HVAC BOQ"
+    _HEADER_ROW = 2
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_parser.reader import BoqReader
+        from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
+        from nirmaan_stack.services.boq_parser.config import GlobalSettings
+
+        kws = GlobalSettings().multi_area_reserved_keywords
+        reader = BoqReader(str(cls._FIXTURE))
+        cls.sc = auto_guess_sheet_config(
+            reader, cls._SHEET, cls._HEADER_ROW,
+            header_row_count=1, reserved_keywords=kws,
+        )
+
+    def test_fixture_exists(self):
+        self.assertTrue(
+            self._FIXTURE.exists(),
+            f"Fixture not found: {self._FIXTURE}",
+        )
+
+    def test_rate_supply_column_h_resolved_correctly(self):
+        """'Rate Supply' (col H, row 2) must map to rate_supply via Bug 7 keyword."""
+        entry = self.sc.column_role_map.get("H")
+        self.assertIsNotNone(entry, "Column H not found in column_role_map")
+        self.assertEqual(entry.role, "rate_supply",
+            f"Expected H=rate_supply, got {entry.role!r}")
+
+    def test_rate_install_column_i_resolved_correctly(self):
+        """'Rate Install' (col I, row 2) must map to rate_install via Bug 7 keyword."""
+        entry = self.sc.column_role_map.get("I")
+        self.assertIsNotNone(entry, "Column I not found in column_role_map")
+        self.assertEqual(entry.role, "rate_install",
+            f"Expected I=rate_install, got {entry.role!r}")
+
+    def test_total_rate_column_j_resolved_correctly(self):
+        """'Total Rate' (col J, row 2) must map to rate_combined (pre-existing keyword)."""
+        entry = self.sc.column_role_map.get("J")
+        self.assertIsNotNone(entry, "Column J not found in column_role_map")
+        self.assertEqual(entry.role, "rate_combined",
+            f"Expected J=rate_combined, got {entry.role!r}")
+
+    def test_total_qty_column_f_resolved_correctly(self):
+        """'Total Qty' (col F, row 2) must map to qty_total."""
+        entry = self.sc.column_role_map.get("F")
+        self.assertIsNotNone(entry, "Column F not found in column_role_map")
+        self.assertEqual(entry.role, "qty_total",
+            f"Expected F=qty_total, got {entry.role!r}")
+
+    def test_parse_boq_returns_line_items(self):
+        """End-to-end smoke: parse_boq() with auto-guessed SheetConfig returns >= 1 LINE_ITEM."""
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+
+        mc = MappingConfig(
+            project="test",
+            master_boq=MasterBoqMetadata(boq_name="bug7_integration"),
+            sheets=[self.sc],
+        )
+        result = parse_boq(str(self._FIXTURE), mc)
+        boq_sheet = next(
+            (s for s in result.sheets if s.sheet_name == self._SHEET), None
+        )
+        self.assertIsNotNone(boq_sheet, f"Sheet {self._SHEET!r} not found in parse result")
+        line_items = [
+            rr for rr in boq_sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+        ]
+        self.assertGreater(
+            len(line_items), 0,
+            "Expected at least one LINE_ITEM in HVAC BOQ sheet",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
