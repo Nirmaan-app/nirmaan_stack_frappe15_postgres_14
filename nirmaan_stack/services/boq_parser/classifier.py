@@ -54,6 +54,11 @@ class ClassifiedRow:
     amount_supply: float | None = None
     amount_install: float | None = None
     amount_total: float | None = None
+    # Raw value from the amount_total column cell specifically (None if blank/absent).
+    # Separate from `amount_total` because classify_row() derives amount_total via
+    # priority cascade: column > supply+install > per-area sum (Bug 6 fix, sec 9 #84).
+    # ResolvedRow.amount_total is initialized from cr.amount_total after the cascade.
+    amount_total_raw: float | None = None
     make_model: str | None = None
     row_notes: str | None = None
 
@@ -496,6 +501,11 @@ def classify_row(
     rate_supply = _cell_float("rate_supply")
     rate_install = _cell_float("rate_install")
     rate_combined = _cell_float("rate_combined")
+    # Bug 6 (sec 9 #84): fall back to supply + install when rate_combined column blank.
+    # Per-area rate summation is semantically invalid (rates are per-unit, not summable
+    # across areas); only the supply+install component path is applied here.
+    if rate_combined is None and rate_supply is not None and rate_install is not None:
+        rate_combined = rate_supply + rate_install
     has_nonzero_rate = any(
         r is not None and r != 0
         for r in (rate_supply, rate_install, rate_combined)
@@ -662,7 +672,28 @@ def classify_row(
 
     amount_supply = _cell_float("amount_supply")
     amount_install = _cell_float("amount_install")
-    amount_total = _cell_float("amount_total")
+    amount_total_raw = _cell_float("amount_total")
+    # Bug 6 (sec 9 #84): priority cascade for cr.amount_total.
+    # Priority 1: column value wins when present.
+    # Priority 2: supply + install sum (both components required).
+    # Priority 3: sum of per-area amounts when both components absent.
+    # Warning emitted when Priority 2 fires but per-area source disagrees by > 1.0.
+    if amount_total_raw is not None:
+        amount_total: float | None = amount_total_raw
+    elif amount_supply is not None and amount_install is not None:
+        amount_total = amount_supply + amount_install
+        if amount_by_area_raw:
+            _per_area_sum = sum(amount_by_area_raw.values())
+            if abs(amount_total - _per_area_sum) > 1.0:
+                warnings.append(
+                    f"amount_total mismatch: supply+install={amount_total}, "
+                    f"per_area_sum={_per_area_sum}, "
+                    f"diff={amount_total - _per_area_sum}; using supply+install"
+                )
+    elif amount_by_area_raw:
+        amount_total = sum(amount_by_area_raw.values())
+    else:
+        amount_total = None
 
     make_model = _cell_str_val("make_model")
     row_notes = _cell_str_val("row_notes")
@@ -724,6 +755,7 @@ def classify_row(
         amount_supply=amount_supply,
         amount_install=amount_install,
         amount_total=amount_total,
+        amount_total_raw=amount_total_raw,
         make_model=make_model,
         row_notes=row_notes,
         warnings=warnings,

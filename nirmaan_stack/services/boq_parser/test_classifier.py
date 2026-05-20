@@ -1896,5 +1896,297 @@ class TestPhase1_9pAppendToNotesKeywords(unittest.TestCase):
         self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
 
 
+class TestBug6ConvenienceFieldSummation(unittest.TestCase):
+    """
+    Bug 6 (sec 9 #84) - convenience field summation cascade for cr.amount_total
+    and cr.rate_combined when "total" column is blank.
+
+    Column layout used throughout:
+      A=sl_no, B=description, C=unit, D=qty,
+      E=rate_supply, F=rate_install, G=rate_combined,
+      H=amount_supply, I=amount_install, J=amount_total
+    """
+
+    def _cascade_config(
+        self,
+        has_amount_total_col: bool = True,
+        areas: list[str] | None = None,
+    ) -> SheetConfig:
+        """Config with supply/install/total amount columns and optional per-area amounts."""
+        col_map: dict[str, ColumnRole] = {
+            "A": ColumnRole(role="sl_no"),
+            "B": ColumnRole(role="description"),
+            "C": ColumnRole(role="unit"),
+            "D": ColumnRole(role="qty"),
+            "E": ColumnRole(role="rate_supply"),
+            "F": ColumnRole(role="rate_install"),
+            "G": ColumnRole(role="rate_combined"),
+            "H": ColumnRole(role="amount_supply"),
+            "I": ColumnRole(role="amount_install"),
+        }
+        if has_amount_total_col:
+            col_map["J"] = ColumnRole(role="amount_total")
+        if areas:
+            for idx, area in enumerate(areas):
+                col_map[chr(ord("K") + idx)] = ColumnRole(role="amount_by_area", area=area)
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map=col_map,
+            area_dimensions=areas or [],
+        )
+
+    # ---------------------------------------------------------------- #
+    # Test 1 - amount_total_raw column wins over supply+install        #
+    # ---------------------------------------------------------------- #
+
+    def test_amount_total_raw_column_wins(self):
+        """Priority 1: amount_total column value wins over supply+install sum."""
+        config = self._cascade_config(has_amount_total_col=True)
+        row = _make_row(1, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "H": {"value": 40.0},
+            "I": {"value": 50.0},
+            "J": {"value": 100.0},  # column value = 100, supply+install = 90
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 100.0)   # column wins
+        self.assertEqual(result.amount_total_raw, 100.0)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 2 - supply+install sums when amount_total column blank      #
+    # ---------------------------------------------------------------- #
+
+    def test_supply_install_sum_when_total_blank(self):
+        """Priority 2: supply + install = 90.0 when amount_total column blank."""
+        config = self._cascade_config(has_amount_total_col=True)
+        row = _make_row(2, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "H": {"value": 40.0},
+            "I": {"value": 50.0},
+            "J": {"value": None},  # blank
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)
+        self.assertIsNone(result.amount_total_raw)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 3 - supply+install fires when no amount_total column at all #
+    # ---------------------------------------------------------------- #
+
+    def test_supply_install_sum_when_no_total_column(self):
+        """Priority 2: works when amount_total column is absent from column_role_map."""
+        config = self._cascade_config(has_amount_total_col=False)
+        row = _make_row(3, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "H": {"value": 40.0},
+            "I": {"value": 50.0},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)
+        self.assertIsNone(result.amount_total_raw)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 4 - per-area sums when supply+install absent                #
+    # ---------------------------------------------------------------- #
+
+    def test_per_area_sum_when_supply_install_absent(self):
+        """Priority 3: sum(amount_by_area_raw) when supply+install both None."""
+        config = self._cascade_config(has_amount_total_col=False, areas=["A", "B"])
+        row = _make_row(4, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "K": {"value": 30.0},   # area A
+            "L": {"value": 60.0},   # area B
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)
+        self.assertIsNone(result.amount_total_raw)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 5 - partial supply only falls through to per-area           #
+    # ---------------------------------------------------------------- #
+
+    def test_supply_only_partial_falls_through_to_per_area(self):
+        """Supply non-None but install None: Priority 2 does not fire; Priority 3 fires."""
+        config = self._cascade_config(has_amount_total_col=False, areas=["A", "B"])
+        row = _make_row(5, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "H": {"value": 40.0},   # supply present
+            # I (install) absent
+            "K": {"value": 30.0},   # area A
+            "L": {"value": 60.0},   # area B
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)  # per-area sum wins (Priority 3)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 6 - partial install only falls through to per-area          #
+    # ---------------------------------------------------------------- #
+
+    def test_install_only_partial_falls_through_to_per_area(self):
+        """Install non-None but supply None: Priority 2 does not fire; Priority 3 fires."""
+        config = self._cascade_config(has_amount_total_col=False, areas=["A", "B"])
+        row = _make_row(6, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            # H (supply) absent
+            "I": {"value": 50.0},   # install present
+            "K": {"value": 30.0},   # area A
+            "L": {"value": 60.0},   # area B
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)  # per-area sum wins (Priority 3)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 7 - all sources blank -> amount_total is None               #
+    # ---------------------------------------------------------------- #
+
+    def test_all_sources_blank_amount_total_is_none(self):
+        """All three sources absent/blank: cr.amount_total stays None."""
+        config = self._cascade_config(has_amount_total_col=True)
+        row = _make_row(7, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "E": {"value": 100.0},
+            "J": {"value": None},  # blank amount_total
+            # H and I absent (no supply/install)
+        })
+        result = classify_row(row, config, _GS)
+        self.assertIsNone(result.amount_total)
+        self.assertIsNone(result.amount_total_raw)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 8 - warning fires when supply+install disagrees with per-area#
+    # ---------------------------------------------------------------- #
+
+    def test_warning_fires_when_supply_install_disagrees_with_per_area(self):
+        """supply+install=90, per_area_sum=100, diff=10 > 1.0 -> warning emitted."""
+        config = self._cascade_config(has_amount_total_col=False, areas=["A", "B"])
+        row = _make_row(8, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "H": {"value": 40.0},   # supply
+            "I": {"value": 50.0},   # install -> supply+install = 90
+            "K": {"value": 30.0},   # area A
+            "L": {"value": 70.0},   # area B -> per_area_sum = 100
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)  # supply+install wins per Q3
+        self.assertEqual(len(result.warnings), 1)
+        self.assertIn("amount_total mismatch", result.warnings[0])
+        self.assertIn("supply+install=90.0", result.warnings[0])
+        self.assertIn("per_area_sum=100.0", result.warnings[0])
+
+    # ---------------------------------------------------------------- #
+    # Test 9 - no warning when within tolerance (diff <= 1.0)          #
+    # ---------------------------------------------------------------- #
+
+    def test_no_warning_within_tolerance(self):
+        """supply+install=90.0, per_area_sum=89.5, diff=0.5 <= 1.0 -> no warning."""
+        config = self._cascade_config(has_amount_total_col=False, areas=["A", "B"])
+        row = _make_row(9, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "H": {"value": 40.0},
+            "I": {"value": 50.0},   # supply+install = 90.0
+            "K": {"value": 30.5},   # area A
+            "L": {"value": 59.0},   # area B -> per_area_sum = 89.5
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_total, 90.0)
+        self.assertEqual(result.warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 10 - rate_combined column wins (Priority 1)                 #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_combined_column_wins(self):
+        """rate_combined column non-None: column value used, no fallback."""
+        config = self._cascade_config()
+        row = _make_row(10, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "E": {"value": 40.0},   # rate_supply
+            "F": {"value": 50.0},   # rate_install
+            "G": {"value": 100.0},  # rate_combined column (col wins over 40+50=90)
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.rate_combined, 100.0)
+
+    # ---------------------------------------------------------------- #
+    # Test 11 - rate_combined falls back to supply+install when blank  #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_combined_fallback_to_supply_plus_install(self):
+        """rate_combined column blank: falls back to rate_supply + rate_install."""
+        config = self._cascade_config()
+        row = _make_row(11, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "E": {"value": 40.0},   # rate_supply
+            "F": {"value": 50.0},   # rate_install
+            "G": {"value": None},   # rate_combined blank
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.rate_combined, 90.0)
+
+    # ---------------------------------------------------------------- #
+    # Test 12 - rate_combined None when only supply present            #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_combined_none_when_install_absent(self):
+        """rate_combined blank, rate_install None: fallback does NOT fire."""
+        config = self._cascade_config()
+        row = _make_row(12, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": 2.0},
+            "E": {"value": 40.0},   # rate_supply
+            # F (rate_install) absent
+            "G": {"value": None},   # rate_combined blank
+        })
+        result = classify_row(row, config, _GS)
+        self.assertIsNone(result.rate_combined)
+
+    # ---------------------------------------------------------------- #
+    # Test 13 - rate_combined fallback contributes to has_nonzero_rate #
+    # ---------------------------------------------------------------- #
+
+    def test_rate_combined_fallback_triggers_rate_only_for_blank_qty(self):
+        """Derived rate_combined contributes to has_nonzero_rate -> blank qty = rate-only."""
+        config = self._cascade_config(has_amount_total_col=False)
+        row = _make_row(13, {
+            "A": {"value": "1."},
+            "B": {"value": "Item"},
+            "D": {"value": None},   # blank qty
+            "E": {"value": 40.0},   # rate_supply
+            "F": {"value": 50.0},   # rate_install
+            # G (rate_combined) absent
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.classification, RowClassification.LINE_ITEM)
+        self.assertEqual(result.qty, 0.0)
+        self.assertTrue(result.is_rate_only)
+        self.assertEqual(result.rate_combined, 90.0)
+
+
 if __name__ == "__main__":
     unittest.main()

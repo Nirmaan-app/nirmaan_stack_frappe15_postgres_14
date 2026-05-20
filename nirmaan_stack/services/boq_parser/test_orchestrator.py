@@ -1251,5 +1251,124 @@ class TestPhase19cRealFixturesDTechCivilWorks(unittest.TestCase):
         self.assertNotIn("Workitem", notes)
 
 
+# ================================================================ #
+# Bug 6 (sec 9 #84) - Inovalon real-fixture integration test       #
+# ================================================================ #
+
+_INOVALON_FIXTURE = _FIXTURES / "Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx"
+
+
+def _inovalon_config() -> MappingConfig:
+    """
+    MappingConfig for Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx, sheet 'BOQ'.
+
+    Header is on row 5. Column layout:
+      A=sl_no (S. NO), B=description (Item Description), C=unit (UOM),
+      D=qty (Total Qty), E=rate_supply (Supply Rate), F=rate_install (Install Rate),
+      G=amount_supply (Supply Amount), H=amount_install (Install Amount).
+    There is NO amount_total column in this workbook -- amount_total must be derived
+    from supply + install via the Bug 6 priority cascade.
+    """
+    return MappingConfig(
+        project="inovalon_test",
+        master_boq=MasterBoqMetadata(boq_name="Inovalon HVAC BOQ"),
+        sheets=[
+            SheetConfig(sheet_name="SUMMARY ", skip=True, column_role_map={}),
+            SheetConfig(
+                sheet_name="BOQ",
+                header_row=5,
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="description"),
+                    "C": ColumnRole(role="unit"),
+                    "D": ColumnRole(role="qty"),
+                    "E": ColumnRole(role="rate_supply"),
+                    "F": ColumnRole(role="rate_install"),
+                    "G": ColumnRole(role="amount_supply"),
+                    "H": ColumnRole(role="amount_install"),
+                },
+            ),
+            SheetConfig(sheet_name="Make list", skip=True, column_role_map={}),
+        ],
+    )
+
+
+class TestBug6InovalonIntegration(unittest.TestCase):
+    """
+    Bug 6 (sec 9 #84) -- real-fixture integration test against Inovalon HVAC BOQ.
+
+    The Inovalon workbook has amount_supply (col G) and amount_install (col H) columns
+    but NO amount_total column. Before Bug 6 fix, cr.amount_total was None for every
+    line item. After fix, cr.amount_total = amount_supply + amount_install via Priority 2.
+
+    Uses BoqReader via parse_boq() -- NOT _make_reader mock.
+    parse_boq() is called ONCE in setUpClass; result shared across all test methods.
+
+    Ground truth row: Excel row 13, sl_no='1.1.4', desc='CSU AHU -3000 CFM, 12.0 TR...'
+      G (amount_supply) = 200000.0
+      H (amount_install) = 25000.0
+      Expected amount_total = 225000.0  (hand-verified via openpyxl direct read)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.result = parse_boq(str(_INOVALON_FIXTURE), _inovalon_config())
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        boq_sheet = next(s for s in cls.result.sheets if s.sheet_name == "BOQ")
+        cls.line_items = [
+            rr for rr in boq_sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+        ]
+        # Ground-truth row: sl_no='1.1.4'
+        matches = [
+            rr for rr in cls.line_items
+            if rr.classified_row.sl_no_value == "1.1.4"
+        ]
+        cls.ground_truth_row = matches[0] if matches else None
+
+    def test_inovalon_loads_and_parses(self):
+        """Smoke: parse_boq() returns non-empty result with at least one LINE_ITEM."""
+        self.assertIsNotNone(self.result)
+        self.assertGreater(len(self.line_items), 0, "BOQ sheet must have at least one LINE_ITEM")
+
+    def test_inovalon_amount_total_summed_from_supply_install(self):
+        """
+        Row sl_no='1.1.4' (Excel row 13): amount_supply=200000, amount_install=25000.
+        After Bug 6 fix: cr.amount_total must equal 225000.0 (supply+install sum).
+        """
+        self.assertIsNotNone(
+            self.ground_truth_row,
+            "Row with sl_no='1.1.4' not found in Inovalon BOQ line items"
+        )
+        cr = self.ground_truth_row.classified_row
+        # Verify source fields are populated (confirming the mapping is correct)
+        self.assertEqual(cr.amount_supply, 200000.0)
+        self.assertEqual(cr.amount_install, 25000.0)
+        # Bug 6 fix: amount_total must be derived as supply + install
+        self.assertEqual(cr.amount_total, 225000.0)  # ground truth: 200000 + 25000
+
+    def test_inovalon_amount_total_raw_is_none_for_summed_rows(self):
+        """
+        Row sl_no='1.1.4': amount_total column is absent from the workbook.
+        cr.amount_total_raw must be None (Priority 2 path, not Priority 1).
+        """
+        self.assertIsNotNone(self.ground_truth_row)
+        cr = self.ground_truth_row.classified_row
+        self.assertIsNone(cr.amount_total_raw,
+                          "amount_total_raw must be None when no amount_total column exists")
+
+    def test_inovalon_resolvedrow_amount_total_inherits_cascade(self):
+        """
+        ResolvedRow.amount_total is initialized from cr.amount_total in resolve_hierarchy().
+        After Bug 6 fix, it must equal the cascaded value (225000.0), confirming hierarchy.py
+        init propagates the cascade without any code change to hierarchy.py.
+        """
+        self.assertIsNotNone(self.ground_truth_row)
+        rr = self.ground_truth_row
+        self.assertEqual(rr.amount_total, 225000.0,
+                         "ResolvedRow.amount_total must inherit cascaded value from cr.amount_total")
+
+
 if __name__ == "__main__":
     unittest.main()
