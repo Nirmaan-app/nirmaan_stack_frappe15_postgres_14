@@ -12,7 +12,7 @@
 import { useFrappeAuth } from 'frappe-react-sdk';
 import { ArrowLeft, ArrowRight, Loader2, Printer, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FormProvider, useForm } from 'react-hook-form';
+import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSWRConfig } from 'swr';
 
@@ -43,7 +43,26 @@ import type {
     ReportTemplate,
     ResponseData,
     WizardMode,
+    WizardStepDef,
 } from './types';
+
+/** Resolve a dot-path inside an object — used to evaluate `visibleIf.field`. */
+const getByPath = (obj: unknown, path: string): unknown => {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce<unknown>((acc, k) => {
+        if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[k];
+        return undefined;
+    }, obj);
+};
+
+/** A wizard step is visible when its `visibleIf` (if any) matches the current form values. */
+const isStepVisible = (step: WizardStepDef, formValues: unknown): boolean => {
+    if (!step.visibleIf) return true;
+    const v = getByPath(formValues, step.visibleIf.field);
+    if (step.visibleIf.in !== undefined) return step.visibleIf.in.includes(v as string);
+    if (step.visibleIf.equals !== undefined) return v === step.visibleIf.equals;
+    return true;
+};
 
 interface FormShape extends Record<string, unknown> {
     // Per-section responses: object for header/fields/checklist; array for trainees_data_table.
@@ -124,10 +143,6 @@ export const CommissionReportWizard: React.FC = () => {
 
     // ─── Wizard step state ────────────────────────────────────────────────
     const [currentStep, setCurrentStep] = useState(0);
-    const wizardSteps: WizardStep[] = useMemo(() => {
-        if (!template?.wizardSteps) return [];
-        return template.wizardSteps.map((s) => ({ key: s.key, title: s.title }));
-    }, [template]);
 
     // ─── Form ─────────────────────────────────────────────────────────────
     // Note: per-step Zod is built lazily inside handleNext via getRhfKeysForStep,
@@ -140,6 +155,28 @@ export const CommissionReportWizard: React.FC = () => {
             attachments: {},
         },
     });
+
+    // Reactive subscription to form values — used to filter wizard steps via visibleIf.
+    const watched = useWatch({ control: form.control });
+
+    // Filter steps by visibleIf; this drives navigation, validation, and rendering.
+    const visibleStepDefs: WizardStepDef[] = useMemo(() => {
+        if (!template?.wizardSteps) return [];
+        return template.wizardSteps.filter((s) => isStepVisible(s, watched));
+    }, [template, watched]);
+
+    const wizardSteps: WizardStep[] = useMemo(
+        () => visibleStepDefs.map((s) => ({ key: s.key, title: s.title })),
+        [visibleStepDefs],
+    );
+
+    // If the user changes a field that hides the step they're on, clamp currentStep.
+    useEffect(() => {
+        if (visibleStepDefs.length === 0) return;
+        if (currentStep > visibleStepDefs.length - 1) {
+            setCurrentStep(visibleStepDefs.length - 1);
+        }
+    }, [visibleStepDefs.length, currentStep]);
 
     // Initialize form values once template + prefill + (optional) existing response are ready.
     // The response_data is the single source of truth for attachments — each slot value
@@ -239,7 +276,7 @@ export const CommissionReportWizard: React.FC = () => {
     // ─── Step nav ─────────────────────────────────────────────────────────
     const handleNext = useCallback(async () => {
         if (!template) return;
-        const step = template.wizardSteps?.[currentStep];
+        const step = visibleStepDefs[currentStep];
         if (!step) return;
 
         // Clear any prior errors on this step's fields, then re-validate.
@@ -259,10 +296,10 @@ export const CommissionReportWizard: React.FC = () => {
             return;
         }
 
-        if (currentStep < (template.wizardSteps?.length ?? 1) - 1) {
+        if (currentStep < visibleStepDefs.length - 1) {
             setCurrentStep((n) => n + 1);
         }
-    }, [currentStep, form, template, toast]);
+    }, [currentStep, form, template, toast, visibleStepDefs]);
 
     const handleBack = useCallback(() => {
         setCurrentStep((n) => Math.max(0, n - 1));
@@ -422,9 +459,9 @@ export const CommissionReportWizard: React.FC = () => {
     }
 
     // ─── Render wizard ────────────────────────────────────────────────────
-    const step = template.wizardSteps?.[currentStep];
+    const step = visibleStepDefs[currentStep];
     const isReviewStep = step && step.sections.length === 0;
-    const isFinalStep = step && currentStep === (template.wizardSteps?.length ?? 1) - 1;
+    const isFinalStep = step && currentStep === visibleStepDefs.length - 1;
     const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
 
     return (
@@ -556,7 +593,7 @@ export const CommissionReportWizard: React.FC = () => {
                     onStartFresh={draft.discardDraft}
                     draftDate={new Date().toISOString()}
                     currentStep={currentStep + 1}
-                    totalSteps={template.wizardSteps?.length || 1}
+                    totalSteps={visibleStepDefs.length || 1}
                 />
             )}
         </div>

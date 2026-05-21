@@ -191,11 +191,24 @@ export type SectionType = Section['type'];
 
 // ─── Wizard-step + template ──────────────────────────────────────────────────
 
+/** Optional condition that hides a wizard step when a form value doesn't match.
+ *  `field` is a dot path into the response object, e.g. "responses.unit_choice.unit_type". */
+export interface WizardStepVisibleIf {
+    /** Dot path into the form values (e.g. "responses.unit_choice.unit_type"). */
+    field: string;
+    /** Step is visible if the resolved value is in this list. */
+    in?: string[];
+    /** Step is visible if the resolved value equals this. */
+    equals?: string | number | boolean;
+}
+
 export interface WizardStepDef {
     key: string;
     title: string;
     /** Section ids this step renders. Empty array = Review step. */
     sections: string[];
+    /** Optional visibility gate based on current form values. */
+    visibleIf?: WizardStepVisibleIf;
 }
 
 export interface ReportTemplate {
