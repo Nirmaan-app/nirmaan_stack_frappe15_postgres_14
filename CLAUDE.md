@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-20 IST (feat 9a5b16cb, Bug 7 + Bug 9 + CRLF remediation)
+**Last updated:** 2026-05-21 IST (tip fe18b337 unchanged from v5.20 close; v5.21 docs-cycle adds MSYS_NO_PATHCONV=1 Windows quirk note)
 
 ## Overview
 
@@ -112,6 +112,8 @@ docker cp /tmp/q.py frappe_docker_devcontainer-frappe-1:/tmp/q.py
 docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/q.py
 ```
 `os.chdir` to `sites/` is **required** before `frappe.init()`.
+
+**Windows quirk:** prefix `MSYS_NO_PATHCONV=1` on all `docker exec` and `docker cp` commands when passing UNIX-style paths through Git Bash. Bash tool on Windows otherwise translates `/tmp/...` → `C:/Users/.../Temp/...`. See handover §9 #93 + §11 #33.
 
 ---
 
