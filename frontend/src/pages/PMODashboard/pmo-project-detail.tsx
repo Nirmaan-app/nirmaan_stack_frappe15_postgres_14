@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
-import { ArrowLeft, Pencil, Check, FileText, ExternalLink, Activity, LayoutDashboard, PenTool, BarChart2, PencilRuler, Download, Loader2, UserCheck, Users, UserX, MapPin, CalendarRange } from "lucide-react";
+import { ArrowLeft, Pencil, Check, X, FileText, ExternalLink, Activity, LayoutDashboard, PenTool, BarChart2, PencilRuler, Download, Loader2, UserCheck, Users, UserX, MapPin, CalendarRange, History } from "lucide-react";
 import { useProjectScheduler } from "@/pages/Manpower-and-WorkMilestones/hooks/useProjectScheduler";
 import { ProjectDetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import EditTaskModal from "./components/EditTaskModal";
 import { AssignPMODialog } from "./components/AssignPMODialog";
+import TaskHistoryDrawer from "./components/TaskHistoryDrawer";
 import { parseAssignedFromField, type AssignedPMODetail } from "./utils";
 
 interface TaskItem {
@@ -31,6 +32,7 @@ interface TaskItem {
   completion_date: string | null;
   attachment: string | null;
   assigned_to?: string | null;
+  is_recurring?: 0 | 1 | null;
 }
 
 interface StatusOverview {
@@ -103,6 +105,10 @@ const PMOProjectDetail: React.FC = () => {
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
   const [editTask, setEditTask] = useState<TaskItem | null>(null);
+
+  // History drawer state
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyTask, setHistoryTask] = useState<TaskItem | null>(null);
 
   // Bulk assign state (admin)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
@@ -417,7 +423,9 @@ const PMOProjectDetail: React.FC = () => {
   // Compute progress
   const allTasks = Object.values(visibleTasks).flat();
   const totalTasks = allTasks.length;
-  const completedTasks = allTasks.filter((t) => t.status === "Approve by client").length;
+  const completedTasks = allTasks.filter(
+    (t) => t.status === "Approve by client" || t.status === "Done"
+  ).length;
   const pendingTasks = totalTasks - completedTasks;
   const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
@@ -442,6 +450,20 @@ const PMOProjectDetail: React.FC = () => {
           <span className="inline-flex min-w-[84px] items-center justify-center gap-1 rounded-md bg-green-50 border border-green-100 px-2 py-1 text-xs font-medium text-green-600">
             <Check className="h-3 w-3" />
             Approved
+          </span>
+        );
+      case "Done":
+        return (
+          <span className="inline-flex min-w-[84px] items-center justify-center gap-1 rounded-md bg-green-50 border border-green-100 px-2 py-1 text-xs font-medium text-green-600">
+            <Check className="h-3 w-3" />
+            Done
+          </span>
+        );
+      case "Not Done":
+        return (
+          <span className="inline-flex min-w-[84px] items-center justify-center gap-1 rounded-md bg-red-50 border border-red-100 px-2 py-1 text-xs font-medium text-red-600">
+            <X className="h-3 w-3" />
+            Not Done
           </span>
         );
       case "Sent/Submision":
@@ -679,13 +701,16 @@ const PMOProjectDetail: React.FC = () => {
                         <TableCell className="text-sm text-gray-900">
                           <div className="flex items-center gap-2">
                             <span
-                              className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${task.status === "Approve by client"
-                                ? "bg-green-500"
-                                : task.status === "Sent/Submision"
-                                  ? "bg-blue-500"
-                                  : task.status === "WIP"
-                                    ? "bg-orange-500"
-                                    : "bg-gray-300"
+                              className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${
+                                task.status === "Approve by client" || task.status === "Done"
+                                  ? "bg-green-500"
+                                  : task.status === "Not Done"
+                                    ? "bg-red-500"
+                                    : task.status === "Sent/Submision"
+                                      ? "bg-blue-500"
+                                      : task.status === "WIP"
+                                        ? "bg-orange-500"
+                                        : "bg-gray-300"
                                 }`}
                             />
                             {task.task_name}
@@ -733,20 +758,34 @@ const PMOProjectDetail: React.FC = () => {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <button
-                            disabled={isPMO && !canPMOEdit(task)}
-                            onClick={() => {
-                              if (isPMO && !canPMOEdit(task)) return;
-                              setEditTask(task);
-                              setEditOpen(true);
-                            }}
-                            className={`p-1 ${isPMO && !canPMOEdit(task)
-                                ? "text-gray-300 cursor-not-allowed"
-                                : "text-gray-400 hover:text-gray-600"
-                              }`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
+                          <div className="inline-flex items-center justify-end gap-1">
+                            {task.is_recurring === 1 && (
+                              <button
+                                onClick={() => {
+                                  setHistoryTask(task);
+                                  setHistoryOpen(true);
+                                }}
+                                title="View submission history"
+                                className="p-1 text-gray-400 hover:text-red-500"
+                              >
+                                <History className="h-4 w-4" />
+                              </button>
+                            )}
+                            <button
+                              disabled={isPMO && !canPMOEdit(task)}
+                              onClick={() => {
+                                if (isPMO && !canPMOEdit(task)) return;
+                                setEditTask(task);
+                                setEditOpen(true);
+                              }}
+                              className={`p-1 ${isPMO && !canPMOEdit(task)
+                                  ? "text-gray-300 cursor-not-allowed"
+                                  : "text-gray-400 hover:text-gray-600"
+                                }`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -1008,6 +1047,14 @@ const PMOProjectDetail: React.FC = () => {
         onOpenChange={setEditOpen}
         task={editTask}
         onSuccess={loadTasks}
+      />
+
+      {/* Submission History Drawer (recurring tasks) */}
+      <TaskHistoryDrawer
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        taskName={historyTask?.name || null}
+        taskLabel={historyTask?.task_name}
       />
 
       {/* Bulk Assign Dialog (admin) */}

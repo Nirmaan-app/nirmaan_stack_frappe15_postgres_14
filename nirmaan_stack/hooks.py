@@ -291,6 +291,9 @@ scheduler_events = {
 		"30 4 * * *": [
 			"nirmaan_stack.tasks.vendor_credit_update.update_all_vendor_credits",
 			# "nirmaan_stack.tasks.project_cashflow_hold_update.update_projects_cashflow_hold"
+		],
+		"0 1 * * *": [
+			"nirmaan_stack.tasks.pmo_task_renewal.renew_due_recurring_tasks"
 		]
 	}
 }
