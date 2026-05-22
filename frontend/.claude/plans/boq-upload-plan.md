@@ -4,7 +4,7 @@
 **Owner:** Internal team.
 **Last updated:** 2026-05-23 IST (Bug 11 PARKED v5.22 — feat reverted f1839b1e, docs reverted debd5186; supplementary parking docs; parser tests unchanged 434)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** Bug 11 parking docs — feat revert f1839b1e + docs revert debd5186 — `[hash pending]` (see git log).
+**Latest commit:** Bug 11 parking docs — feat revert f1839b1e + docs revert debd5186 — `1b3e99c1` (see git log).
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
