@@ -70,6 +70,22 @@ _COL_LETTER_RE = re.compile(r"^[A-Z]+$")
 
 
 # ------------------------------------------------------------------
+# Excel error literal detection (Bug 13, sec 9 #89)
+# ------------------------------------------------------------------
+
+EXCEL_ERROR_LITERALS: frozenset[str] = frozenset({
+    "#REF!", "#VALUE!", "#NAME?", "#DIV/0!",
+    "#NULL!", "#N/A", "#NUM!",
+})
+
+
+def _is_excel_error(value: Any) -> bool:
+    """Return True if value is one of Excel's seven error literal strings.
+    Whitespace-tolerant, case-insensitive comparison."""
+    return isinstance(value, str) and value.strip().upper() in EXCEL_ERROR_LITERALS
+
+
+# ------------------------------------------------------------------
 # BoqReader
 # ------------------------------------------------------------------
 
@@ -228,6 +244,10 @@ class BoqReader:
                     computed_value = cell_val.value
                     is_origin = cell_key in origins
                     merged_range_val = origins.get(cell_key)
+
+                # Normalize Excel error literals to None (Bug 13, sec 9 #89)
+                if _is_excel_error(computed_value):
+                    computed_value = None
 
                 # Formatting — always the covered cell's own, never inherited from origin.
                 font_bold = bool(cell_val.font and cell_val.font.bold)

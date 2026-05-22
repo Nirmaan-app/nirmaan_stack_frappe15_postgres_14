@@ -561,5 +561,91 @@ class TestSheetStateExposure(unittest.TestCase):
             self.assertEqual(states["Mid  Double"], "visible")
 
 
+class TestExcelErrorLiterals(unittest.TestCase):
+    """Bug 13 (sec 9 #89) — Excel error literals normalised to None at reader level."""
+
+    # ------------------------------------------------------------------
+    # _is_excel_error unit tests
+    # ------------------------------------------------------------------
+
+    def test_is_excel_error_true_all_seven_literals(self):
+        from nirmaan_stack.services.boq_parser.reader import _is_excel_error
+        literals = ["#REF!", "#VALUE!", "#NAME?", "#DIV/0!", "#NULL!", "#N/A", "#NUM!"]
+        for lit in literals:
+            with self.subTest(lit=lit):
+                self.assertTrue(_is_excel_error(lit))
+
+    def test_is_excel_error_whitespace_and_case_tolerance(self):
+        from nirmaan_stack.services.boq_parser.reader import _is_excel_error
+        self.assertTrue(_is_excel_error("  #ref!  "))
+        self.assertTrue(_is_excel_error("#value!"))
+        self.assertTrue(_is_excel_error("\t#DIV/0!\n"))
+
+    def test_is_excel_error_false_for_none_empty_numeric_normal_text(self):
+        from nirmaan_stack.services.boq_parser.reader import _is_excel_error
+        for val in [None, "", "   ", 0, 3.14, "hello", "#"]:
+            with self.subTest(val=val):
+                self.assertFalse(_is_excel_error(val))
+
+    def test_is_excel_error_false_for_substring(self):
+        """Partial match must not fire — value must equal the literal exactly (after strip/upper)."""
+        from nirmaan_stack.services.boq_parser.reader import _is_excel_error
+        self.assertFalse(_is_excel_error("see #REF! note"))
+        self.assertFalse(_is_excel_error("Error: #VALUE!"))
+
+    # ------------------------------------------------------------------
+    # Integration: BoqReader.iter_rows() normalises error literal cells
+    # ------------------------------------------------------------------
+
+    def test_reader_normalizes_error_literal_cell_to_none(self):
+        import tempfile, openpyxl
+        from nirmaan_stack.services.boq_parser.reader import BoqReader
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "error_test.xlsx")
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sheet1"
+            ws["A1"] = "Normal"
+            ws["B1"] = "#REF!"
+            ws["C1"] = "#VALUE!"
+            ws["A2"] = 42
+            ws["B2"] = "#N/A"
+            wb.save(path)
+
+            reader = BoqReader(path)
+            rows = list(reader.iter_rows("Sheet1"))
+
+            row1 = rows[0]
+            self.assertEqual(row1.get_cell("A").value, "Normal")
+            self.assertIsNone(row1.get_cell("B").value, "#REF! should be None")
+            self.assertIsNone(row1.get_cell("C").value, "#VALUE! should be None")
+
+            row2 = rows[1]
+            self.assertEqual(row2.get_cell("A").value, 42)
+            self.assertIsNone(row2.get_cell("B").value, "#N/A should be None")
+
+    def test_reader_blank_row_detection_not_confused_by_error_cells(self):
+        """A row whose only non-None cell contains an error literal must be treated as blank."""
+        import tempfile, openpyxl
+        from nirmaan_stack.services.boq_parser.reader import BoqReader
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "error_blank.xlsx")
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sheet1"
+            ws["A1"] = "Header"
+            ws["A2"] = "#DIV/0!"
+            ws["A3"] = "Data"
+            wb.save(path)
+
+            reader = BoqReader(path)
+            rows = list(reader.iter_rows("Sheet1"))
+
+            self.assertEqual(len(rows), 3)
+            self.assertTrue(rows[1].is_blank(), "Row with only #DIV/0! should be blank after normalisation")
+
+
 if __name__ == "__main__":
     unittest.main()
