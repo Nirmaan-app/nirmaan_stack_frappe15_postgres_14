@@ -395,6 +395,62 @@ const DeliveryNotes: React.FC = () => {
     return map;
   }, [viewExistingITMsResult]);
 
+  // --- CREATE view: pre-fetch eligible project IDs so the project picker
+  // can hide projects that have nothing to act on. Two minimal fetches (PO
+  // + ITM) that pull only the project-link field — payloads stay tiny.
+  const shouldFetchEligibleProjects = activeView === "CREATE";
+
+  const { data: eligiblePOProjectsRaw, isLoading: eligiblePOLoading } =
+    useFrappeGetDocList<{ name: string; project: string }>(
+      "Procurement Orders",
+      {
+        fields: ["project"],
+        filters: [
+          ["status", "in", ["Partially Dispatched", "Dispatched", "Partially Delivered"]],
+        ],
+        limit: 0,
+      },
+      shouldFetchEligibleProjects ? undefined : null
+    );
+
+  // ITM side uses the custom endpoint (bypasses User Permissions) so PMs
+  // don't lose target projects they can legitimately receive into.
+  const { data: eligibleITMResult, isLoading: eligibleITMLoading } =
+    useFrappeGetCall<{ message: { data: ITMListRow[] } }>(
+      "nirmaan_stack.api.internal_transfers.get_itms_list.get_itms_list",
+      shouldFetchEligibleProjects
+        ? {
+            filters: JSON.stringify([
+              ["status", "in", ["Dispatched", "Partially Delivered"]],
+            ]),
+            limit_page_length: 10000,
+          }
+        : undefined,
+      shouldFetchEligibleProjects ? undefined : null
+    );
+
+  // Build the allow-set lazily. Returns `undefined` while either fetch is
+  // still loading so `ProjectSelect` doesn't briefly render an empty list
+  // — once both finish, the populated Set takes over.
+  const eligibleProjectIds = useMemo<Set<string> | undefined>(() => {
+    if (!shouldFetchEligibleProjects) return undefined;
+    if (eligiblePOLoading || eligibleITMLoading) return undefined;
+    const set = new Set<string>();
+    (eligiblePOProjectsRaw || []).forEach((row) => {
+      if (row.project) set.add(row.project);
+    });
+    (eligibleITMResult?.message?.data || []).forEach((itm) => {
+      if (itm.target_project) set.add(itm.target_project);
+    });
+    return set;
+  }, [
+    shouldFetchEligibleProjects,
+    eligiblePOLoading,
+    eligibleITMLoading,
+    eligiblePOProjectsRaw,
+    eligibleITMResult,
+  ]);
+
   // Enriched ITM list for View Existing (ITMs with at least one DN)
   const enrichedViewITMs = useMemo(() => {
     return Object.entries(dnsByITM).map(([itmName, dns]) => ({
@@ -473,7 +529,10 @@ const DeliveryNotes: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="mb-4">
-              <ProjectSelect onChange={handleProjectChange} />
+              <ProjectSelect
+                onChange={handleProjectChange}
+                filterByProjects={eligibleProjectIds}
+              />
             </div>
             {selectedProject && (
               <div className="space-y-4">

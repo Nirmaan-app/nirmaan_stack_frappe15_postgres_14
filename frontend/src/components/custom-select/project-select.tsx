@@ -19,6 +19,7 @@ interface ProjectSelectProps {
     styles?: StylesConfig<SelectOptions, false>;
     /** Disable the select */
     disabled?: boolean;
+    filterByProjects?: Set<string> | string[] | null;
 }
 
 // Token-based search config optimized for projects
@@ -42,6 +43,7 @@ export default function ProjectSelect({
     usePortal = false,
     styles,
     disabled = false,
+    filterByProjects,
 }: ProjectSelectProps) {
     // First build the filters array dynamically
     const projectFilters: any[] = [];
@@ -78,10 +80,20 @@ export default function ProjectSelect({
         onChange(selectedOption);
     };
 
-    const options: SelectOptions[] = useMemo(() => data?.map((item) => ({
-        value: item.name,
-        label: item.project_name,
-    })) || [], [data]);
+    const options: SelectOptions[] = useMemo(() => {
+        const all = data?.map((item) => ({
+            value: item.name,
+            label: item.project_name,
+        })) || [];
+        // null/undefined → no filter. A populated Set → strict filter. An
+        // empty Set DOES mean "show nothing" — callers should pass undefined
+        // (not an empty Set) while their eligibility fetch is still loading.
+        if (filterByProjects == null) return all;
+        const allowed = filterByProjects instanceof Set
+            ? filterByProjects
+            : new Set(filterByProjects);
+        return all.filter((o) => allowed.has(o.value));
+    }, [data, filterByProjects]);
 
     // Portal props for rendering dropdown in document.body (fixes clipping in dialogs)
     const portalProps = usePortal
