@@ -2414,3 +2414,28 @@ Per-row attribution columns (D-Tech CIVIL WORKS Floor/Area/Activity/Workitem/Spe
 - `append_notes_raw` passed through in `ClassifiedRow` return statement at end of `classify_row()`.
 - 8 new tests (249→257): `test_config.py` +3 (tests 25-27: `append_to_notes` role accepted, two append_to_notes columns allowed on same sheet, `column_headers` round-trips); `test_classifier.py` +5 (`TestAppendNotesRaw` class: single column populated, multiple columns populated, empty cell produces no key, non-string coerced to str, no role mapped → empty dict).
 - Phase 1.9c (real-fixture integration tests for Raheja + D-Tech using `synthetic_pattern_2_rate.xlsx` and append_to_notes columns) is next.
+
+### 2026-05-22 — Bug 11 — pattern-consistency post-pass for PREAMBLE/LINE_ITEM sig groups (sec 9 #87)
+
+**Feat commit: `fb89bf44`**
+
+**Problem:** The classifier assigns PREAMBLE vs LINE_ITEM based solely on qty/rate/amount presence. Rows sharing an identical sl_no structural pattern (e.g. all "D.D" depth-2 values like "1.0", "2.0") can split inconsistently — some becoming PREAMBLE (no qty) and others LINE_ITEM (with qty) — giving the Phase 3 wizard no signal that the classification may be unreliable.
+
+**Solution:** `_apply_pattern_consistency_post_pass(classified_rows)` added to `classifier.py`, running between `_apply_unit_based_demotion_post_pass` (§7.28) and `populate_preamble_candidate_scores` (§7.3). Groups all PREAMBLE/LINE_ITEM rows by `_compute_pattern_signature(sl_no)` (digits→D, uppercase→U, lowercase→l, others literal). Any mixed group at depth < 3 gets flagged: `needs_classification_review=True` + `review_reason='pattern_consistency_mismatch_depth_1'` (depth ≤ 1) or `'_depth_2'` (depth == 2). `resolve_hierarchy()` carries these fields onto `ResolvedRow`.
+
+**Orchestrator:** Step 2c added between Step 2b and Step 3.
+
+**DISCLOSED DEVIATIONS from spec:**
+1. **Case-preserving normalization** (uppercase→U, lowercase→l) instead of spec's case-folded L — prevents snitch_electrical uppercase section header ('A.', 'B.') / lowercase sub-item ('a.', 'b.') false groupings that would force §7.29 qty→0 on 16 real LINE_ITEMS.
+2. **Flag-only for ALL depths** (no auto-promotion at depth≤1) — spec prescribed auto-promotion. Empirical run: snitch_electrical 'l' sig group (single lowercase letter, depth=1) has 104 LINE_ITEM vs 5 PREAMBLE. Promotion would cause 95 LINE_ITEM regressions (104 promoted → §7.29 demotes 9 back to LINE_ITEM(qty=0), net -95). Flag-only is safe; Phase 3 wizard handles manual reclassification.
+3. **§7.30 defensive write removed** — `_apply_priced_preamble_with_children_review_flag_post_pass` now unconditionally overwrites Bug 11 flags. The more specific `priced_preamble_with_children` signal wins when both conditions apply.
+
+**Tests (434→481, +47):**
+- `TestBug11PatternSignatureHelper` (13) — `_compute_pattern_signature` unit tests incl. case-preserving assertion
+- `TestBug11PatternDepthHelper` (9) — `_compute_pattern_depth` unit tests
+- `TestBug11PatternConsistencyPostPass` (12) — post-pass unit tests with hand-constructed ClassifiedRows
+- `TestBug11OrchestratorIntegration` (3) — end-to-end through `resolve_hierarchy()`, no .xlsx needed
+- `TestBug11BoqElecIntegration` (5) — real fixture: Bill of Quantities.xlsx ELECTRICAL & ELV BOQ; depth-2 flag threshold ≥ 400
+- `TestBug11V2HvacIntegration` (5) — real fixture: multi_area_single_header_v2.xlsx HVAC BOQ; depth-2 flag threshold ≥ 5; DISCLOSED no depth-1 mixed groups found
+
+**Phase 2c: next (unblocked).**
