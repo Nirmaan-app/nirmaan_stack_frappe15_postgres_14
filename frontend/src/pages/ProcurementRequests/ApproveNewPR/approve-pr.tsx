@@ -224,7 +224,7 @@ export const ApprovePR: React.FC = () => {
               {data.work_package?.toLowerCase() === "custom" && (
                 <Badge className="text-xs">Custom</Badge>
               )}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
                   parentDoc={data}
                   parentDoctype={DOCTYPE} // 'Procurement Requests'
