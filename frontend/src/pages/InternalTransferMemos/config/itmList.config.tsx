@@ -36,6 +36,9 @@ export interface ITMListRow {
   requested_by_full_name?: string | null;
   approved_by?: string | null;
   approved_on?: string | null;
+  dispatched_by?: string | null;
+  dispatched_on?: string | null;
+  latest_delivery_date?: string | null;
   owner?: string | null;
 }
 
