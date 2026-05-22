@@ -449,6 +449,8 @@ def resolve_hierarchy(
                 parent_index=parent_index,
                 level=level,
                 path=path,
+                needs_classification_review=classified_row.needs_classification_review,
+                review_reason=classified_row.review_reason,
             ))
             continue
 
@@ -472,6 +474,8 @@ def resolve_hierarchy(
                 amount_by_area_raw=classified_row.amount_by_area_raw,
                 qty_total=classified_row.qty_total_raw,
                 amount_total=classified_row.amount_total,
+                needs_classification_review=classified_row.needs_classification_review,
+                review_reason=classified_row.review_reason,
             ))
             continue
 
