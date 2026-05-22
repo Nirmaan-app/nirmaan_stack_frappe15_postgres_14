@@ -156,6 +156,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         "total_amount",
         "loading_charges",
         "freight_charges",
+        "po_amount_delivered",
       ],
       limit: 100000,
     },
@@ -262,6 +263,16 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         return 0;
       }),
     [purchaseOrders, serviceOrders]
+  );
+
+  const getPoAmountDelivered = useMemo(
+    () =>
+      memoize((docName: string, docType: string) => {
+        if (docType !== DOC_TYPES.PROCUREMENT_ORDERS) return 0;
+        const order = purchaseOrders?.find((po) => po.name === docName);
+        return parseNumber(order?.po_amount_delivered);
+      }, (docName: string, docType: string) => `${docName}-${docType}`),
+    [purchaseOrders]
   );
 
   // --- Callbacks ---
@@ -443,7 +454,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </div>
           );
         },
-        size: 150,
+        size: 100,
         enableSorting: false,
         meta: {
           exportHeaderName: "WO/PO Value",
@@ -466,12 +477,36 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </div>
           );
         },
-        size: 180,
+        size: 100,
         enableSorting: false,
         meta: {
           exportHeaderName: "Total Paid",
           exportValue: (row: ProjectPayments) =>
             formatToRoundedIndianRupee(getAmountPaid(row.document_name)),
+        },
+      },
+      {
+        id: "payable_against_delivery",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Payable Against Delivery" />
+        ),
+        cell: ({ row }) => {
+          const delivered = getPoAmountDelivered(
+            row.original.document_name,
+            row.original.document_type
+          );
+          return (
+            <div className="font-medium pr-2">
+              {delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}
+            </div>
+          );
+        },
+        size: 100,
+        enableSorting: false,
+        meta: {
+          exportHeaderName: "Payable Against Delivery",
+          exportValue: (row: ProjectPayments) =>
+            getPoAmountDelivered(row.document_name, row.document_type),
         },
       },
       {
@@ -484,7 +519,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             {formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}
           </div>
         ),
-        size: 150,
+        size: 100,
         meta: {
           exportHeaderName: "Requested Amount",
           exportValue: (row: ProjectPayments) =>
@@ -506,7 +541,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </div>
           );
         },
-        size: 180,
+        size: 120,
         meta: {
           exportHeaderName: "Requested By",
           exportValue: (row: ProjectPayments) =>
@@ -555,7 +590,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </HoverCard>
           </div>
         ),
-        size: 120,
+        size: 80,
         meta: {
           excludedFromExport: true,
         },
@@ -570,6 +605,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       openDialog,
       getDocumentTotal,
       getAmountPaid,
+      getPoAmountDelivered,
       allPaidPayments,
       readOnly,
       isCEOMode,

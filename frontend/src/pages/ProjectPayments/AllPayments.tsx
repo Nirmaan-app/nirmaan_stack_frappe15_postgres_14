@@ -156,7 +156,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
     // Fetch related POs and SRs for "PO Value" calculation
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
-        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "total_amount", "loading_charges", "freight_charges"], limit: 0 }, 'POs_AllPay'
+        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "total_amount", "loading_charges", "freight_charges", "po_amount_delivered"], limit: 0 }, 'POs_AllPay'
     );
     const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
         DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "service_order_list", "gst"], limit: 0 }, 'SRs_AllPay'
@@ -187,6 +187,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         }
         return 0;
     }), [purchaseOrders, serviceOrders]);
+
+    const getPoAmountDelivered = useMemo(() => memoize((docName?: string, docType?: string): number => {
+        if (!docName || docType !== DOC_TYPES.PROCUREMENT_ORDERS) return 0;
+        const order = purchaseOrders?.find(po => po.name === docName);
+        return parseNumber(order?.po_amount_delivered);
+    }, (docName?: string, docType?: string) => `${docName}-${docType}`), [purchaseOrders]);
 
 
     // --- Notification Handling ---
@@ -227,7 +233,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const paymentsSearchableFields = useMemo(() => {
         let fields = [...PP_SEARCHABLE_FIELDS];
 
-        const isUTRDefaultTab = ["Payments Done","All Payments"].includes(tab);
+        const isUTRDefaultTab = ["Payments Done", "All Payments"].includes(tab);
 
         if (isUTRDefaultTab) {
             // 1. Remove default from Payment ID (name)
@@ -325,7 +331,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         {
             id: "doc_value_col", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getDocumentTotal(row.original.document_name, row.original.document_type))}</div>,
-            size: 130, enableSorting: false,
+            size: 100, enableSorting: false,
             meta: {
                 exportHeaderName: "WO/PO Value",
                 exportValue: (row: ProjectPayments) => {
@@ -341,7 +347,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 const displayAmount = parseNumber(payment.amount);
                 return tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={payment} /> : <div className="font-medium pr-2">{formatToRoundedIndianRupee(displayAmount)}</div>;
             },
-            size: 130,
+            size: 100,
             meta: {
                 exportHeaderName: tab === "Payments Done" ? "Amt. Paid" : "Amt. To Pay",
                 exportValue: (row: ProjectPayments) => {
@@ -350,11 +356,24 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 }
             }
         },
+        {
+            id: "payable_against_delivery",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Payable Against Delivery" />,
+            cell: ({ row }) => {
+                const delivered = getPoAmountDelivered(row.original.document_name, row.original.document_type);
+                return <div className="font-medium pr-2">{delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}</div>;
+            },
+            size: 100, enableSorting: false,
+            meta: {
+                exportHeaderName: "Payable Against Delivery",
+                exportValue: (row: ProjectPayments) => formatForReport(getPoAmountDelivered(row.document_name, row.document_type)),
+            }
+        },
         ...(tab === "Payments Done" ? [ // Columns only for "Payments Done"
             {
                 accessorKey: "utr", header: "UTR",
                 cell: ({ row }) => (row.original.payment_attachment ? (<a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noreferrer" className="font-medium text-blue-600 underline">{row.original.utr || "View Proof"}</a>) : <div className="font-medium">{row.original.utr || '--'}</div>),
-                size: 150,
+                size: 130,
                 meta: {
                     exportHeaderName: "UTR",
                     exportValue: (row: ProjectPayments) => {
@@ -387,7 +406,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                         )}
                     </div>
                 ),
-                size: 100,
+                size: 80,
                 meta: { excludeFromExport: true }
             }
         ] as ColumnDef<ProjectPayments>[] : []),
@@ -405,10 +424,10 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     </div>
                 );
             },
-            enableColumnFilter: true, size: 120
+            enableColumnFilter: true, size: 100
         } as ColumnDef<ProjectPayments>] : []),
 
-    ], [tab, projectId, notifications, projectOptions, projectMap, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification, isAdmin, handleOpenEditDialog]);
+    ], [tab, projectId, notifications, projectOptions, projectMap, vendorOptions, userList, getVendorName, getDocumentTotal, getPoAmountDelivered, handleSeenNotification, isAdmin, handleOpenEditDialog]);
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
     const {
