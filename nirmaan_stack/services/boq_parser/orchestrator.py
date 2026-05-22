@@ -17,7 +17,6 @@ from pydantic import BaseModel
 
 from nirmaan_stack.services.boq_parser.classifier import (
     RowClassification,
-    _apply_pattern_consistency_post_pass,
     _apply_unit_based_demotion_post_pass,
     classify_row,
     populate_preamble_candidate_scores,
@@ -202,11 +201,6 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
         # Step 2b: Unit-based PREAMBLE demotion post-pass (must precede scoring)
         _apply_unit_based_demotion_post_pass(classified_rows)
-
-        # Step 2c: Pattern-consistency post-pass (Bug 11, sec 9 #87)
-        # Runs after §7.28 (unit demotion may create new mixed groups) and before
-        # preamble candidate scoring (scoring must see post-promotion classifications).
-        _apply_pattern_consistency_post_pass(classified_rows)
 
         # Step 3: Preamble candidate scoring post-pass (mutates in place)
         populate_preamble_candidate_scores(classified_rows, sheet_config)

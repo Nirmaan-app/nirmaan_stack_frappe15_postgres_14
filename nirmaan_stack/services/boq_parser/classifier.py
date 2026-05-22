@@ -89,12 +89,6 @@ class ClassifiedRow:
     preamble_candidate_score: int = 0
     preamble_candidate_signals: list[str] = field(default_factory=list)
 
-    # §9 #87 review flag — set by _apply_pattern_consistency_post_pass (Bug 11).
-    # Mirrors the corresponding fields on ResolvedRow (added in feat 7ff4ce55 §9 #45).
-    # resolve_hierarchy() carries these onto ResolvedRow at LINE_ITEM/PREAMBLE construction.
-    needs_classification_review: bool = False
-    review_reason: str = ""
-
 
 # ------------------------------------------------------------------
 # Constants
@@ -305,123 +299,6 @@ def _is_cross_row_sum(formula: str, current_row: int) -> bool:
     if not found_any_ref:
         return True  # no cell refs parsed; conservative
     return not all_same_row
-
-
-# ------------------------------------------------------------------
-# Pattern-consistency helpers (Bug 11, sec 9 #87)
-# ------------------------------------------------------------------
-
-def _compute_pattern_signature(sl_no: str) -> str:
-    """Normalize sl_no structural shape: digits→'D', uppercase letters→'U',
-    lowercase letters→'l', other characters preserved literally.
-
-    Case is preserved at the class level (upper vs lower) to avoid merging
-    uppercase section-header codes ('A', 'B') with lowercase sub-item codes
-    ('a', 'b') which serve different roles in BoQ numbering conventions.
-    Whitespace is stripped before processing.
-
-    Examples:
-      "1.03"  -> "D.DD"
-      "1.1.5" -> "D.D.D"
-      "A"     -> "U"
-      "a"     -> "l"
-      "D.0"   -> "U.D"
-      "D+.0"  -> "U+.D"
-      "D0.0"  -> "UD.D"
-      "1a"    -> "Dl"
-      ""      -> ""
-    """
-    result = []
-    for ch in sl_no.strip():
-        if ch.isdigit():
-            result.append("D")
-        elif ch.isupper():
-            result.append("U")
-        elif ch.islower():
-            result.append("l")
-        else:
-            result.append(ch)
-    return "".join(result)
-
-
-def _compute_pattern_depth(sl_no: str) -> int:
-    """Number of dot-separated non-empty tokens in sl_no.
-
-    Examples:
-      "1"     -> 1
-      "1.03"  -> 2
-      "1.1.5" -> 3
-      "A"     -> 1
-      "1."    -> 1  (trailing dot, empty token ignored)
-      ""      -> 0
-      ".5"    -> 1  (leading dot, empty token ignored)
-    """
-    return len([t for t in sl_no.split(".") if t.strip()])
-
-
-# ------------------------------------------------------------------
-# Pattern-consistency post-pass (Bug 11, sec 9 #87)
-# ------------------------------------------------------------------
-
-def _apply_pattern_consistency_post_pass(
-    classified_rows: list[ClassifiedRow],
-) -> None:
-    """Mutate classified_rows in place. Apply pattern-consistency flag-only rule.
-
-    Group rows by _compute_pattern_signature(sl_no). For each mixed
-    PREAMBLE/LINE_ITEM signature group at depth < 3: flag every row with
-    needs_classification_review=True and the appropriate review_reason:
-      depth <= 1: 'pattern_consistency_mismatch_depth_1'
-      depth == 2: 'pattern_consistency_mismatch_depth_2'
-      depth >= 3: no action.
-
-    DISCLOSED DEVIATION (Bug 11 implementation): spec prescribed auto-promotion
-    of LINE_ITEMs to PREAMBLE at depth <= 1. Empirically, this causes 95 LINE_ITEM
-    regressions in snitch_electrical.xlsx (single-letter depth-1 groups, 104
-    LINE_ITEM vs 5 PREAMBLE). Flag-only is safer; the Phase 3 wizard handles
-    manual re-classification.
-
-    Rows with empty sl_no_value are skipped. Rows whose classification is not
-    PREAMBLE or LINE_ITEM (SUBTOTAL_MARKER, NOTE, SPACER, HEADER_REPEAT) are
-    excluded from grouping and never flagged.
-
-    Existing non-empty review_reason is never overwritten.
-
-    Must run AFTER _apply_unit_based_demotion_post_pass (§7.28) and BEFORE
-    populate_preamble_candidate_scores (§7.3).
-    """
-    from collections import defaultdict
-
-    sig_to_indices: dict[str, list[int]] = defaultdict(list)
-    for i, cr in enumerate(classified_rows):
-        if cr.classification not in (RowClassification.PREAMBLE, RowClassification.LINE_ITEM):
-            continue
-        sn = (cr.sl_no_value or "").strip()
-        if not sn:
-            continue
-        sig_to_indices[_compute_pattern_signature(sn)].append(i)
-
-    for sig, indices in sig_to_indices.items():
-        rows = [classified_rows[i] for i in indices]
-        has_preamble = any(cr.classification == RowClassification.PREAMBLE for cr in rows)
-        has_line_item = any(cr.classification == RowClassification.LINE_ITEM for cr in rows)
-        if not (has_preamble and has_line_item):
-            continue
-
-        sample_sn = (classified_rows[indices[0]].sl_no_value or "").strip()
-        depth = _compute_pattern_depth(sample_sn)
-        if depth >= 3:
-            continue
-
-        review_reason = (
-            "pattern_consistency_mismatch_depth_1"
-            if depth <= 1
-            else "pattern_consistency_mismatch_depth_2"
-        )
-        for cr in rows:
-            if not cr.review_reason:
-                cr.needs_classification_review = True
-                cr.review_reason = review_reason
 
 
 # ------------------------------------------------------------------
