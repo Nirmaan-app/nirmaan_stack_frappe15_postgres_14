@@ -1465,5 +1465,139 @@ class TestBug7SingleHeaderV2Integration(unittest.TestCase):
         )
 
 
+# ================================================================ #
+# Bug 10 (sec 9 #86) -- VRF System real-fixture integration test   #
+# ================================================================ #
+
+_VRF_FIXTURE = _FIXTURES / "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx"
+
+
+def _vrf_config() -> MappingConfig:
+    """
+    MappingConfig for the VRF System sheet from the HVAC Modification workbook.
+
+    Header rows 9-10 (2-row header; header_row=10 is the bottom row).
+    Column layout (row 10 sub-header):
+      B=SL. NO., C=DESCRIPTION, D=UNIT,
+      E=L1 qty, F=L2 qty, G=TOTAL QTY,
+      H=SUPPLY (rate), I=INSTALLATION (rate), J=TOTAL (rate combined),
+      K=SUPPLY (amount), L=INSTALLATION (amount), M=TOTAL (amount_total).
+
+    Column M carries =SUM(K<row>:L<row>) on every line item -- the Bug 10
+    misfire pattern. After the fix these rows classify as LINE_ITEM.
+    """
+    return MappingConfig(
+        project="vrf_bug10_test",
+        master_boq=MasterBoqMetadata(boq_name="VRF System Bug10 Test"),
+        sheets=[
+            SheetConfig(sheet_name="Assumptions & Exclusions", skip=True, column_role_map={}),
+            SheetConfig(sheet_name="SUMMARY-HVAC", skip=True, column_role_map={}),
+            SheetConfig(
+                sheet_name="VRF System",
+                header_row=10,
+                header_row_count=2,
+                area_dimensions=["L1", "L2"],
+                column_role_map={
+                    "B": ColumnRole(role="sl_no"),
+                    "C": ColumnRole(role="description"),
+                    "D": ColumnRole(role="unit"),
+                    "E": ColumnRole(role="qty", area="L1"),
+                    "F": ColumnRole(role="qty", area="L2"),
+                    "G": ColumnRole(role="qty_total"),
+                    "H": ColumnRole(role="rate_supply"),
+                    "I": ColumnRole(role="rate_install"),
+                    "J": ColumnRole(role="rate_combined"),
+                    "K": ColumnRole(role="amount_supply"),
+                    "L": ColumnRole(role="amount_install"),
+                    "M": ColumnRole(role="amount_total"),
+                },
+            ),
+            SheetConfig(sheet_name="Lowside", skip=True, column_role_map={}),
+            SheetConfig(sheet_name="Additional work", skip=True, column_role_map={}),
+        ],
+    )
+
+
+class TestBug10VrfSameRowSumIntegration(unittest.TestCase):
+    """
+    Bug 10 (sec 9 #86) -- real-fixture integration test against the VRF System
+    sheet from (Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx.
+
+    Pre-fix: 57 line items misclassified as SUBTOTAL_MARKER because column M
+    carries =SUM(K<row>:L<row>) (supply amount + install amount, same row).
+    Post-fix: _is_cross_row_sum() gate identifies same-row references and rows
+    correctly classify as LINE_ITEM.
+
+    Per agreement #29 (real-fixture integration required for new pattern logic).
+    Per sec 12 unpriced-BoQ workflow: STRUCTURE assertions only -- no rate/amount values.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.result = parse_boq(str(_VRF_FIXTURE), _vrf_config())
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        cls._RC = RowClassification
+        vrf = next(s for s in cls.result.sheets if s.sheet_name == "VRF System")
+        cls.vrf_sheet = vrf
+        cls.resolved = vrf.resolved_rows
+
+    def test_vrf_fixture_exists(self):
+        """Smoke: fixture file exists and parse_boq() returned a VRF System sheet."""
+        self.assertTrue(_VRF_FIXTURE.exists(), f"VRF fixture missing: {_VRF_FIXTURE}")
+        self.assertIsNotNone(self.result)
+        self.assertIsNotNone(self.vrf_sheet)
+
+    def test_vrf_row_1_1_classifies_as_line_item(self):
+        """
+        Excel row 20 (sl_no='1.1', '5 TR at 36 C ambient') has M20=SUM(K20:L20).
+        After Bug 10 fix this row must classify as LINE_ITEM not SUBTOTAL_MARKER.
+        """
+        matches = [
+            rr for rr in self.resolved
+            if rr.classified_row.sl_no_value == "1.1"
+        ]
+        self.assertGreaterEqual(len(matches), 1, "Row with sl_no='1.1' not found in VRF System")
+        row = matches[0]
+        self.assertEqual(
+            row.classified_row.classification,
+            self._RC.LINE_ITEM,
+            f"sl_no='1.1' must be LINE_ITEM after Bug 10 fix, got "
+            f"{row.classified_row.classification}",
+        )
+
+    def test_vrf_row_1_2_classifies_as_line_item(self):
+        """
+        Excel row 21 (sl_no='1.2', '8 TR at 36 C ambient') has M21=SUM(K21:L21).
+        After Bug 10 fix this row must classify as LINE_ITEM not SUBTOTAL_MARKER.
+        """
+        matches = [
+            rr for rr in self.resolved
+            if rr.classified_row.sl_no_value == "1.2"
+        ]
+        self.assertGreaterEqual(len(matches), 1, "Row with sl_no='1.2' not found in VRF System")
+        row = matches[0]
+        self.assertEqual(
+            row.classified_row.classification,
+            self._RC.LINE_ITEM,
+            f"sl_no='1.2' must be LINE_ITEM after Bug 10 fix, got "
+            f"{row.classified_row.classification}",
+        )
+
+    def test_vrf_line_item_count_increased(self):
+        """
+        Pre-fix: 57 rows misfired as SUBTOTAL_MARKER, leaving very few LINE_ITEMs.
+        Post-fix: at least 30 LINE_ITEMs expected in the VRF System sheet.
+        """
+        line_item_count = sum(
+            1 for rr in self.resolved
+            if rr.classified_row.classification == self._RC.LINE_ITEM
+        )
+        self.assertGreaterEqual(
+            line_item_count, 30,
+            f"Expected >= 30 LINE_ITEMs post Bug 10 fix, got {line_item_count}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

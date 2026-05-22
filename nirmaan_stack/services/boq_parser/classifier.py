@@ -208,6 +208,9 @@ _SUBTOTAL_RE: list[re.Pattern] = [
 
 _AMOUNT_ROLES = frozenset({"amount_supply", "amount_install", "amount_total"})
 
+# Matches a bare cell reference like "A1" or "BC123" (uppercase only, no $ or sheet qualifier).
+_CELL_REF_RE = re.compile(r"^([A-Z]+)(\d+)$")
+
 # Maps rate_*_by_area ColumnRole → inner dict key used in rate_by_area_raw
 _RATE_ROLE_TO_KIND: dict[str, str] = {
     "rate_supply_by_area": "supply_rate",
@@ -249,6 +252,53 @@ def _to_str(value: Any) -> str:
 def _norm_desc(text: str) -> str:
     """Strip and collapse internal whitespace runs to a single space."""
     return re.sub(r"\s+", " ", text.strip())
+
+
+def _is_cross_row_sum(formula: str, current_row: int) -> bool:
+    """Return True iff the SUM() range references at least one cell in a row != current_row.
+
+    Used to distinguish cross-row subtotals (genuine SUBTOTAL_MARKER) from same-row
+    inline aggregations (e.g. =SUM(K20:L20) combining supply + install amounts on row 20).
+
+    Conservative default: if the formula cannot be parsed unambiguously, return True
+    (treat as cross-row, preserving current behaviour and erring on the safe side).
+    """
+    stripped = formula.lstrip("+").upper()
+    if not stripped.startswith("=SUM("):
+        return True  # not a SUM formula; conservative
+    paren_end = stripped.rfind(")")
+    if paren_end < 5:
+        return True  # no closing paren; malformed
+    inside = stripped[5:paren_end].strip()
+    if not inside:
+        return True  # empty: =SUM()
+    if "!" in inside:
+        return True  # cross-sheet reference; conservative
+    all_same_row = True
+    found_any_ref = False
+    for token in inside.split(","):
+        token = token.strip().replace("$", "")
+        if not token:
+            continue
+        if ":" in token:
+            lo, _, hi = token.partition(":")
+            for part in (lo, hi):
+                m = _CELL_REF_RE.match(part)
+                if m is None:
+                    return True  # unparseable endpoint; conservative
+                found_any_ref = True
+                if int(m.group(2)) != current_row:
+                    all_same_row = False
+        else:
+            m = _CELL_REF_RE.match(token)
+            if m is None:
+                return True  # named range or unparseable; conservative
+            found_any_ref = True
+            if int(m.group(2)) != current_row:
+                all_same_row = False
+    if not found_any_ref:
+        return True  # no cell refs parsed; conservative
+    return not all_same_row
 
 
 # ------------------------------------------------------------------
@@ -489,7 +539,8 @@ def classify_row(
                 continue
             c = raw_row.get_cell(col_letter)
             if c and c.is_formula and c.formula:
-                if c.formula.lstrip("+").upper().startswith("=SUM("):
+                if (c.formula.lstrip("+").upper().startswith("=SUM(")
+                        and _is_cross_row_sum(c.formula, raw_row.row_number)):
                     is_subtotal = True
                     break
 

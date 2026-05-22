@@ -6,6 +6,7 @@ import unittest
 from nirmaan_stack.services.boq_parser.classifier import (
     ClassifiedRow,
     RowClassification,
+    _is_cross_row_sum,
     classify_row,
 )
 from nirmaan_stack.services.boq_parser.config import (
@@ -2326,6 +2327,165 @@ class TestBug9AmountCombinedExtraction(unittest.TestCase):
             SheetConfig(**config.model_dump())
         except Exception as exc:
             self.fail(f"SheetConfig with amount_combined raised unexpectedly: {exc!r}")
+
+
+# ================================================================ #
+# Bug 10 (sec 9 #86) -- _is_cross_row_sum() unit tests             #
+# ================================================================ #
+
+class TestBug10CrossRowSum(unittest.TestCase):
+    """
+    Bug 10 (sec 9 #86) -- unit tests for _is_cross_row_sum() helper.
+
+    Returns False for same-row inline aggregations (e.g. =SUM(K20:L20) on row 20)
+    and True for genuine cross-row subtotal SUM formulas (or unparseable formulas).
+    """
+
+    # -- same-row cases (expect False) --
+
+    def test_same_row_single_cell(self):
+        """=SUM(K20) on row 20 -- single-cell, same row -- False."""
+        self.assertFalse(_is_cross_row_sum("=SUM(K20)", 20))
+
+    def test_same_row_range(self):
+        """=SUM(K20:L20) on row 20 -- same-row range -- False (VRF System pattern)."""
+        self.assertFalse(_is_cross_row_sum("=SUM(K20:L20)", 20))
+
+    def test_same_row_range_absolute_refs(self):
+        """=SUM($K$20:$L$20) with absolute $ refs on row 20 -- same-row -- False."""
+        self.assertFalse(_is_cross_row_sum("=SUM($K$20:$L$20)", 20))
+
+    def test_multi_range_all_same_row(self):
+        """=SUM(K20:L20,M20) -- both operands on row 20 -- False."""
+        self.assertFalse(_is_cross_row_sum("=SUM(K20:L20,M20)", 20))
+
+    def test_leading_plus_form(self):
+        """+=SUM(K20:L20) -- leading + stripped before parse -- False."""
+        self.assertFalse(_is_cross_row_sum("+=SUM(K20:L20)", 20))
+
+    def test_lowercase_sum(self):
+        """=sum(K20:L20) -- lowercase SUM token -- case-insensitive parse -- False."""
+        self.assertFalse(_is_cross_row_sum("=sum(K20:L20)", 20))
+
+    # -- cross-row cases (expect True) --
+
+    def test_cross_row_range(self):
+        """=SUM(B5:B49) on row 50 -- range spans rows 5-49, not row 50 -- True."""
+        self.assertTrue(_is_cross_row_sum("=SUM(B5:B49)", 50))
+
+    def test_current_row_is_endpoint_of_range(self):
+        """=SUM(B5:B49) on row 49 -- row 5 differs from current_row=49 -- True."""
+        self.assertTrue(_is_cross_row_sum("=SUM(B5:B49)", 49))
+
+    def test_mixed_same_and_cross_row(self):
+        """=SUM(K20:L20,M5:M19) on row 20 -- M5:M19 is cross-row -- True."""
+        self.assertTrue(_is_cross_row_sum("=SUM(K20:L20,M5:M19)", 20))
+
+    # -- conservative/unparseable cases (expect True) --
+
+    def test_named_range_conservative(self):
+        """=SUM(MyRange) -- cannot extract row number -- conservative True."""
+        self.assertTrue(_is_cross_row_sum("=SUM(MyRange)", 20))
+
+    def test_cross_sheet_conservative(self):
+        """=SUM(Sheet1!A1:A10) -- sheet qualifier -- conservative True."""
+        self.assertTrue(_is_cross_row_sum("=SUM(Sheet1!A1:A10)", 20))
+
+    def test_empty_sum(self):
+        """=SUM() -- empty inside -- conservative True."""
+        self.assertTrue(_is_cross_row_sum("=SUM()", 20))
+
+    def test_non_sum_formula_conservative(self):
+        """=A1+B1 -- not a SUM formula -- conservative True."""
+        self.assertTrue(_is_cross_row_sum("=A1+B1", 20))
+
+
+# ================================================================ #
+# Bug 10 (sec 9 #86) -- classify_row() gating integration tests    #
+# ================================================================ #
+
+class TestBug10ClassifyRowGating(unittest.TestCase):
+    """
+    Bug 10 (sec 9 #86) -- classify_row() integration tests verifying that the
+    _is_cross_row_sum() gate is correctly wired into the FORMULA-path SUBTOTAL_MARKER
+    check. Text-regex path is verified to remain untouched.
+    """
+
+    def _config_with_amount_total(self) -> SheetConfig:
+        """A=sl_no, B=desc, C=unit, D=qty, E=amount_supply, F=amount_install, G=amount_total."""
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="unit"),
+                "D": ColumnRole(role="qty"),
+                "E": ColumnRole(role="amount_supply"),
+                "F": ColumnRole(role="amount_install"),
+                "G": ColumnRole(role="amount_total"),
+            },
+        )
+
+    def test_same_row_sum_in_amount_col_is_not_subtotal(self):
+        """
+        Row 20 with amount_total col G formula =SUM(E20:F20) -- same-row --
+        must NOT classify as SUBTOTAL_MARKER after Bug 10 fix.
+        With qty=1.0, row classifies as LINE_ITEM.
+        """
+        config = self._config_with_amount_total()
+        row = _make_row(20, {
+            "A": {"value": "1.1"},
+            "B": {"value": "VRF Unit 5TR"},
+            "C": {"value": "Sets"},
+            "D": {"value": 1.0},
+            "E": {"value": 152400.0},
+            "F": {"value": 6000.0},
+            "G": {"value": 158400.0, "formula": "=SUM(E20:F20)", "is_formula": True},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertNotEqual(
+            result.classification, RowClassification.SUBTOTAL_MARKER,
+            "Same-row =SUM() must NOT be SUBTOTAL_MARKER after Bug 10 fix",
+        )
+        self.assertEqual(
+            result.classification, RowClassification.LINE_ITEM,
+            "Row with qty=1.0 and same-row SUM must be LINE_ITEM",
+        )
+
+    def test_cross_row_sum_in_amount_col_is_still_subtotal(self):
+        """
+        Row 50 with amount_total col G formula =SUM(G12:G49) -- cross-row --
+        must still classify as SUBTOTAL_MARKER (existing behaviour preserved).
+        """
+        config = self._config_with_amount_total()
+        row = _make_row(50, {
+            "B": {"value": "Subtotal A"},
+            "G": {"value": 500000.0, "formula": "=SUM(G12:G49)", "is_formula": True},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(
+            result.classification, RowClassification.SUBTOTAL_MARKER,
+            "Cross-row =SUM() must still classify as SUBTOTAL_MARKER",
+        )
+
+    def test_text_regex_path_overrides_same_row_sum(self):
+        """
+        Row whose description matches 'Grand Total' → text-regex fires first →
+        SUBTOTAL_MARKER even when the amount column carries a same-row =SUM().
+        Verifies the text-regex path is byte-identical and untouched by Bug 10.
+        """
+        config = self._config_with_amount_total()
+        row = _make_row(20, {
+            "B": {"value": "Grand Total"},
+            "D": {"value": 1.0},
+            "G": {"value": 158400.0, "formula": "=SUM(E20:F20)", "is_formula": True},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(
+            result.classification, RowClassification.SUBTOTAL_MARKER,
+            "Text-regex SUBTOTAL pattern must still fire when description matches",
+        )
 
 
 if __name__ == "__main__":
