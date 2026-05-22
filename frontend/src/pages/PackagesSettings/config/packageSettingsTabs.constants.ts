@@ -64,7 +64,7 @@ export interface PackageSettingsTabOption {
 
 export const PACKAGE_SETTINGS_TAB_OPTIONS: PackageSettingsTabOption[] = [
   {
-    label: "DPR Packages",
+    label: "Milestones Packages",
     value: PACKAGE_SETTINGS_TABS.MILESTONE_PACKAGES,
     component: WorkHeaderMilestones,
   },
