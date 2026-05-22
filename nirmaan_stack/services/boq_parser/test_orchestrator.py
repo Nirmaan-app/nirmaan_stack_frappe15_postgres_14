@@ -1599,5 +1599,188 @@ class TestBug10VrfSameRowSumIntegration(unittest.TestCase):
         )
 
 
+# ================================================================ #
+# Bug 10 (sec 9 #86) -- Societe Generale HVAC real-fixture test   #
+# ================================================================ #
+
+_SG_HVAC_FIXTURE = (
+    _FIXTURES
+    / "RFQ_Societe Generale_Bangalore_HVAC_BOQ-26-02-2026 (1).xlsx"
+)
+
+
+def _societe_hvac_config() -> MappingConfig:
+    """
+    MappingConfig for the 'BOQ_HVAC Lowside works' sheet from the
+    Societe Generale Bangalore HVAC workbook.
+
+    Header rows 2-3 (2-row header; header_row=3 is the bottom row).
+    Column layout (row 3 sub-header):
+      A=SL.No, B=Description, C=Unit,
+      D=GF qty (Voyager area), E=2F (Office) qty (Victor area),
+      F=2F(Cafeteria) qty (Victor area), G=Total Qty,
+      H=Supply (rate), I=Installation (rate),
+      J=Supply (amount_supply), K=Installation (amount_install),
+      L=Total Amount (amount_total), M=Remarks (append_to_notes).
+
+    Column L carries =SUM(J<row>:K<row>) on every line item -- the Bug 10
+    misfire pattern (same-row sum over supply+install amounts).
+    Pre-fix: 73 rows misfired as SUBTOTAL_MARKER.
+    Post-fix: _is_cross_row_sum() gate correctly classifies these as LINE_ITEM.
+
+    Area names taken from row-3 sub-headers under the merged top-row groups:
+    'Voyager (Qty)' -> 'GF'; 'Victor (Qty)' -> '2F (Office)', '2F(Cafeteria)'.
+    """
+    return MappingConfig(
+        project="sg_hvac_bug10_test",
+        master_boq=MasterBoqMetadata(boq_name="Societe Generale HVAC Bug10 Test"),
+        sheets=[
+            SheetConfig(sheet_name="Summary", skip=True, column_role_map={}),
+            SheetConfig(
+                sheet_name="BOQ_HVAC Lowside works",
+                header_row=3,
+                header_row_count=2,
+                area_dimensions=["GF", "2F (Office)", "2F(Cafeteria)"],
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="description"),
+                    "C": ColumnRole(role="unit"),
+                    "D": ColumnRole(role="qty", area="GF"),
+                    "E": ColumnRole(role="qty", area="2F (Office)"),
+                    "F": ColumnRole(role="qty", area="2F(Cafeteria)"),
+                    "G": ColumnRole(role="qty_total"),
+                    "H": ColumnRole(role="rate_supply"),
+                    "I": ColumnRole(role="rate_install"),
+                    "J": ColumnRole(role="amount_supply"),
+                    "K": ColumnRole(role="amount_install"),
+                    "L": ColumnRole(role="amount_total"),
+                    "M": ColumnRole(role="append_to_notes"),
+                },
+            ),
+            SheetConfig(sheet_name="BOQ_HVAC LEED & WELL", skip=True, column_role_map={}),
+            SheetConfig(sheet_name="BOQ_LEED", skip=True, column_role_map={}),
+            SheetConfig(sheet_name="Make List", skip=True, column_role_map={}),
+        ],
+    )
+
+
+class TestBug10SocieteGeneraleHvacIntegration(unittest.TestCase):
+    """
+    Bug 10 (sec 9 #86) coverage extension -- real-fixture integration test
+    against the 'BOQ_HVAC Lowside works' sheet from the Societe Generale
+    Bangalore HVAC workbook.
+
+    Pre-fix: 73 line items misfired as SUBTOTAL_MARKER because column L
+    carries =SUM(J<row>:K<row>) (supply amount + install amount, same row).
+    Post-fix (feat 798f4fd2): _is_cross_row_sum() gate identifies same-row
+    references; rows correctly classify as LINE_ITEM.
+
+    VRF System (57 misfires) was already covered by TestBug10VrfSameRowSumIntegration
+    (feat 798f4fd2). This class closes the coverage gap for the 74-row Societe
+    Generale half of the 131-misfire Bug 10 surface.
+
+    Per agreement #29 (real-fixture integration required for new pattern/routing
+    logic -- Bug 10 closure coverage extension).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.result = parse_boq(str(_SG_HVAC_FIXTURE), _societe_hvac_config())
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        cls._RC = RowClassification
+        hvac = next(
+            s for s in cls.result.sheets
+            if s.sheet_name == "BOQ_HVAC Lowside works"
+        )
+        cls.hvac_sheet = hvac
+        cls.resolved = hvac.resolved_rows
+
+    def test_societe_hvac_fixture_exists(self):
+        """Smoke: fixture file exists and parse_boq() returned a BOQ_HVAC Lowside works sheet."""
+        self.assertTrue(
+            _SG_HVAC_FIXTURE.exists(),
+            f"Societe Generale HVAC fixture missing: {_SG_HVAC_FIXTURE}",
+        )
+        self.assertIsNotNone(self.result)
+        self.assertIsNotNone(self.hvac_sheet)
+
+    def test_societe_hvac_row_1_03_classifies_as_line_item(self):
+        """
+        Excel row 23 (sl_no='1.03', elliptical duct item) has L23=SUM(J23:K23).
+        After Bug 10 fix this row must classify as LINE_ITEM not SUBTOTAL_MARKER.
+        """
+        matches = [
+            rr for rr in self.resolved
+            if rr.classified_row.sl_no_value == "1.03"
+        ]
+        self.assertGreaterEqual(
+            len(matches), 1, "Row with sl_no='1.03' not found in BOQ_HVAC Lowside works"
+        )
+        row = matches[0]
+        self.assertEqual(
+            row.classified_row.classification,
+            self._RC.LINE_ITEM,
+            f"sl_no='1.03' must be LINE_ITEM after Bug 10 fix, got "
+            f"{row.classified_row.classification}",
+        )
+
+    def test_societe_hvac_row_1_04_classifies_as_line_item(self):
+        """
+        Excel row 25 (sl_no='1.04', elliptical duct item) has L25=SUM(J25:K25).
+        After Bug 10 fix this row must classify as LINE_ITEM not SUBTOTAL_MARKER.
+        """
+        matches = [
+            rr for rr in self.resolved
+            if rr.classified_row.sl_no_value == "1.04"
+        ]
+        self.assertGreaterEqual(
+            len(matches), 1, "Row with sl_no='1.04' not found in BOQ_HVAC Lowside works"
+        )
+        row = matches[0]
+        self.assertEqual(
+            row.classified_row.classification,
+            self._RC.LINE_ITEM,
+            f"sl_no='1.04' must be LINE_ITEM after Bug 10 fix, got "
+            f"{row.classified_row.classification}",
+        )
+
+    def test_societe_hvac_row_1_05_classifies_as_line_item(self):
+        """
+        Excel row 27 (sl_no='1.05', factory-made elliptical duct) has L27=SUM(J27:K27).
+        After Bug 10 fix this row must classify as LINE_ITEM not SUBTOTAL_MARKER.
+        """
+        matches = [
+            rr for rr in self.resolved
+            if rr.classified_row.sl_no_value == "1.05"
+        ]
+        self.assertGreaterEqual(
+            len(matches), 1, "Row with sl_no='1.05' not found in BOQ_HVAC Lowside works"
+        )
+        row = matches[0]
+        self.assertEqual(
+            row.classified_row.classification,
+            self._RC.LINE_ITEM,
+            f"sl_no='1.05' must be LINE_ITEM after Bug 10 fix, got "
+            f"{row.classified_row.classification}",
+        )
+
+    def test_societe_hvac_line_item_count_threshold(self):
+        """
+        Pre-fix: 73 rows misfired as SUBTOTAL_MARKER (~282 - 73 = ~209 LINE_ITEMs).
+        Post-fix: 282 LINE_ITEMs verified empirically.
+        Threshold >= 230 is safely above the pre-fix ~209 and below the post-fix 282.
+        """
+        line_item_count = sum(
+            1 for rr in self.resolved
+            if rr.classified_row.classification == self._RC.LINE_ITEM
+        )
+        self.assertGreaterEqual(
+            line_item_count,
+            230,
+            f"Expected >= 230 LINE_ITEMs post Bug 10 fix, got {line_item_count}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
