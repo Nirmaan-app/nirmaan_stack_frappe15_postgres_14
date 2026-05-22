@@ -8,9 +8,10 @@ import {
   FrappeConfig,
   FrappeContext,
   useFrappeDocTypeEventListener,
+  useFrappeGetCall,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
-import { useContext } from "react";
+import { useContext, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { ProcurementRequestsSkeleton } from "../ui/skeleton";
@@ -48,23 +49,44 @@ export default function ListPR() {
 
   useFrappeDocTypeEventListener("Procurement Requests", async () => {
     await prListMutate();
+    await prTagsMutate();
   });
 
+  const prNames = useMemo(
+    () => (procurement_request_list || []).map((p) => p.name),
+    [procurement_request_list]
+  );
 
-  const handleChange = (selectedItem: {label : string, value : string}) => {
-      setSelectedProject(selectedItem ? selectedItem.value : null);
-      if(selectedItem) {
-        sessionStorage.setItem(
-          "selectedProject",
-          JSON.stringify(selectedItem.value)
-        );
-      } else {
-        sessionStorage.removeItem("selectedProject");
-      }
+  const { data: prTagsResponse, mutate: prTagsMutate } = useFrappeGetCall<{
+    message: Record<string, { tag_header: string; tag_package: string }[]>;
+  }>(
+    "nirmaan_stack.api.projects.pr_summary.get_pr_tags_by_names",
+    { pr_names: JSON.stringify(prNames) },
+    selectedProject && prNames.length > 0
+      ? `PR Tags ${selectedProject} ${prNames.length}`
+      : null
+  );
+
+  const tagsByPR = useMemo(
+    () => prTagsResponse?.message ?? {},
+    [prTagsResponse]
+  );
+
+
+  const handleChange = (selectedItem: { label: string, value: string } | null) => {
+    setSelectedProject(selectedItem ? selectedItem.value : null);
+    if (selectedItem) {
+      sessionStorage.setItem(
+        "selectedProject",
+        JSON.stringify(selectedItem.value)
+      );
+    } else {
+      sessionStorage.removeItem("selectedProject");
+    }
   };
 
   const { db } = useContext(FrappeContext) as FrappeConfig;
-  const handleRejectPRSeen = (notification : NotificationType | undefined) => {
+  const handleRejectPRSeen = (notification: NotificationType | undefined) => {
     if (notification) {
       mark_seen_notification(db, notification);
     }
@@ -89,7 +111,7 @@ export default function ListPR() {
                     PR no.
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
-                    Package
+                    Headers
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
                     Status
@@ -120,8 +142,8 @@ export default function ListPR() {
                             </span>
                           </Link>
                         </TableCell>
-                        <TableCell className={`text-sm text-center ${!item.work_package && "text-primary"}`}>
-                          {item.work_package || "Custom"}
+                        <TableCell className="text-sm text-center">
+                          <PRHeadersCell item={item} tags={tagsByPR[item.name]} />
                         </TableCell>
                         <TableCell className="text-sm text-center">
                           <RenderStatusBadge item={item} selectedProject={selectedProject} />
@@ -147,7 +169,7 @@ export default function ListPR() {
                     PR no.
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
-                    Package
+                    Headers
                   </TableHead>
                   <TableHead className="w-[35%] text-center font-extrabold">
                     Status
@@ -163,6 +185,8 @@ export default function ListPR() {
                         i.seen === "false" &&
                         i.event_id === "pr:rejected"
                     );
+
+                    console.log("procurement_request_list", procurement_request_list)
                     return (
                       <TableRow key={item.name} className={`${!item.work_package && "bg-gray-100"}`}>
                         <TableCell className="text-sm text-center">
@@ -178,8 +202,8 @@ export default function ListPR() {
                             </span>
                           </Link>
                         </TableCell>
-                        <TableCell className={`text-sm text-center ${!item.work_package && "text-primary"}`}>
-                          {item.work_package || "Custom"}
+                        <TableCell className="text-sm text-center">
+                          <PRHeadersCell item={item} tags={tagsByPR[item.name]} />
                         </TableCell>
                         <TableCell className="text-sm text-center">
                           <RenderStatusBadge item={item} selectedProject={selectedProject} />
@@ -197,13 +221,36 @@ export default function ListPR() {
   );
 }
 
+const PRHeadersCell: React.FC<{
+  item: ProcurementRequest;
+  tags?: { tag_header: string; tag_package: string }[];
+}> = ({ item, tags }) => {
+  const resolved = tags ?? item.pr_tag_list ?? [];
+  if (resolved.length === 0) {
+    return (
+      <span className={!item.work_package ? "text-primary" : undefined}>
+        {item.work_package || "Custom"}
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap justify-center gap-1">
+      {resolved.map((tag, index) => (
+        <Badge key={index} variant="outline" className="bg-white">
+          {tag.tag_header}
+        </Badge>
+      ))}
+    </div>
+  );
+};
+
 
 interface StatusBadgeProps {
   item: ProcurementRequest;
   selectedProject: string;
 }
 
-const RenderStatusBadge : React.FC<StatusBadgeProps> = ({ item, selectedProject }) => {
+const RenderStatusBadge: React.FC<StatusBadgeProps> = ({ item, selectedProject }) => {
 
   const { data: procurementOrdersList } = useFrappeGetDocList<ProcurementOrder>(
     "Procurement Orders",
@@ -215,61 +262,61 @@ const RenderStatusBadge : React.FC<StatusBadgeProps> = ({ item, selectedProject 
     selectedProject ? `Procurement Orders ${selectedProject}` : null
   );
 
-  const checkPoToPr = (prId : string) => {
+  const checkPoToPr = (prId: string) => {
     return procurementOrdersList?.some((po) => po.procurement_request === prId);
   };
   return (
-      <Badge
-          variant={`${[
-              "RFQ Generated",
-              "Quote Updated",
-              "Vendor Selected",
-            ].includes(item.workflow_state)
+    <Badge
+      variant={`${[
+        "RFQ Generated",
+        "Quote Updated",
+        "Vendor Selected",
+      ].includes(item.workflow_state)
+        ? "orange"
+        : [
+          "Partially Approved",
+          "Vendor Approved",
+        ].includes(item.workflow_state)
+          ? "darkGreen"
+          : ["Delayed", "Sent Back"].includes(
+            item.workflow_state
+          ) && checkPoToPr(item.name)
+            ? "darkGreen"
+            : ["Delayed", "Sent Back"].includes(
+              item.workflow_state
+            ) && !checkPoToPr(item.name)
               ? "orange"
-              : [
-                "Partially Approved",
-                "Vendor Approved",
-              ].includes(item.workflow_state)
-                ? "darkGreen"
-                : ["Delayed", "Sent Back"].includes(
-                  item.workflow_state
-                ) && checkPoToPr(item.name)
-                  ? "darkGreen"
-                  : ["Delayed", "Sent Back"].includes(
-                    item.workflow_state
-                  ) && !checkPoToPr(item.name)
-                    ? "orange"
-                    : item.workflow_state === "Rejected"
-                      ? "red"
-                      : item.workflow_state === "Pending"
-                        ? "yellow"
-                        : item.workflow_state === "Approved"
-                          ? "green"
-                          : "secondary"
-            }`}
-        >
-          {[
-            "RFQ Generated",
-            "Quote Updated",
-            "Vendor Selected",
-          ].includes(item.workflow_state)
-            ? "In Progress"
-            : [
-              "Partially Approved",
-              "Vendor Approved",
-            ].includes(item.workflow_state)
-              ? "Ordered"
-              : ["Delayed", "Sent Back"].includes(
-                item.workflow_state
-              ) && checkPoToPr(item.name)
-                ? "Ordered"
-                : ["Delayed", "Sent Back"].includes(
-                  item.workflow_state
-                ) && !checkPoToPr(item.name)
-                  ? "In Progress"
-                  : item.workflow_state === "Pending"
-                    ? "Approval Pending"
-                    : item.workflow_state}
-        </Badge>
+              : item.workflow_state === "Rejected"
+                ? "red"
+                : item.workflow_state === "Pending"
+                  ? "yellow"
+                  : item.workflow_state === "Approved"
+                    ? "green"
+                    : "secondary"
+        }`}
+    >
+      {[
+        "RFQ Generated",
+        "Quote Updated",
+        "Vendor Selected",
+      ].includes(item.workflow_state)
+        ? "In Progress"
+        : [
+          "Partially Approved",
+          "Vendor Approved",
+        ].includes(item.workflow_state)
+          ? "Ordered"
+          : ["Delayed", "Sent Back"].includes(
+            item.workflow_state
+          ) && checkPoToPr(item.name)
+            ? "Ordered"
+            : ["Delayed", "Sent Back"].includes(
+              item.workflow_state
+            ) && !checkPoToPr(item.name)
+              ? "In Progress"
+              : item.workflow_state === "Pending"
+                ? "Approval Pending"
+                : item.workflow_state}
+    </Badge>
   )
 }
