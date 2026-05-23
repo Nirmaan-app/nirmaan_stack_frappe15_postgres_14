@@ -1003,7 +1003,7 @@ classifier.py treats same-row supply+install aggregation formulas as cross-row s
 
 **Coverage extension (feat 94706b5c):** TestBug10SocieteGeneraleHvacIntegration added in test_orchestrator.py. 73-row Societe Generale Bug 10 misfire surface now covered (VRF 57 rows covered by feat 798f4fd2 already). Areas: GF / 2F (Office) / 2F(Cafeteria). Per-row assertions: sl_no=1.03, 1.04, 1.05 (rows 23, 25, 27 with L=SUM(Jx:Kx)). Aggregate threshold >= 230 (post-fix empirical: 282; pre-fix ~209). Parser tests 429 -> 434. Suite verdict OK.
 
-### 17.27 #87 [PARKED v5.22] — Pattern-consistency mismatch in PREAMBLE vs LINE_ITEM (Bug 11)
+### 17.27 #87 [CLOSED v5.25 via A1+A2 land] -- Pattern-consistency mismatch in PREAMBLE vs LINE_ITEM (Bug 11)
 
 **MISFRAMED — PARKED.** Original framing: classifier ignores sl_no pattern_depth; 240+ rows affected in BoQ Elec alone; fix was orchestrator post-pass with asymmetric depth rule. Implemented in feat fb89bf44 / docs f9bd1e70, then reverted (feat f1839b1e, docs debd5186) after diagnostic revealed root cause is hierarchy RESOLVER (parenting), not classifier.
 
@@ -1012,6 +1012,16 @@ classifier.py treats same-row supply+install aggregation formulas as cross-row s
 - **11b — Letter-sequence cascade (§17.9):** a/b/c letter-suffix rows chained stack_depth+1 each instead of equi-depth siblings under numbered ancestor.
 
 **Why parked.** Snitch diagnostic confirmed 124/124 depth-1 lowercase-letter ('l' sig) rows in '6. Electrical' are genuine enumerated sub-items (cable variants, socket types, conduit sizes under numbered PREAMBLEs). Depth-≤1 auto-promote nets −95 LINE_ITEMs — a regression. Fix belongs in hierarchy resolver layer; deferred to Phase 3+ AI review per agreement #33. Parser tests stable at 434. Full detail: handover §9 #87.
+
+**Update 2026-05-23 (post-hoc recognition):** Bug 11a + Bug 11b were structurally resolved by Rule A1 + Rule A2-reframed landing (feat 8f960a2b, sec 9 #99, §17.40). The connection was not recognized in the A1+A2 land docs commit (ea60a03f) and was identified during v5.25 housekeeping preparation review.
+
+**Bug 11a -> Rule A2-reframed.** A2 fires at LINE_ITEM attachment when LINE_ITEM sl_no has same pattern_signature as stack-top PREAMBLE AND a different first_numeric_token (both non-None). Attaches to stack-top's parent (sibling, not child). This is exactly the Bug 11a canonical case: "1.0 PREAMBLE + 2.0 LINE_ITEM with qty -- resolver parents 2.0 under 1.0; should be SIBLING of 1.0 (same pattern signature D.D, same depth)". Empirical evidence: A2 audit (sec 9 #99, feat 16647958) captured 27 A2 firings in Snitch + 31 A2 firings in BoQ ELV -- every firing is the Bug 11a case. All landed correctly post-A1+A2 (parser tests 440 -> 464 confirm).
+
+**Bug 11b -> Rule A1.** A1 fires in _determine_preamble_level when sl_no (after rstrip) is all-lowercase, scans stack reversed for first non-lowercase ancestor, returns anchor.level + 1. This is exactly the Bug 11b cascade case: "a/b/c letter-suffix children should sibling under numbered ancestor; resolver chains them via stack_depth + 1". Empirical evidence: A1 audit captured 3 A1 firings in Snitch (xlsx rows 458/475/491, sl_no b/c/d). Before A1: level 5/6/7 (cascade). After A1: all at level 4 (siblings under numbered parent). The §17.9 lowercase-letter cascade (root cause of Bug 11b) is structurally resolved.
+
+**Snitch LINE_ITEM caveat.** Snitch diagnostic (2026-05-22 on tip f9bd1e70) showed 124/129 depth-1 lowercase-letter rows are GENUINE LINE_ITEMs (cable variants, socket types, conduit sizes). LINE_ITEMs do not go through _determine_preamble_level so A1 does not affect them. Those 124 rows attach to stack-top numbered PREAMBLE naturally without cascade. A1 handles the remaining 5 PREAMBLE anomalies that exhibited the cascade.
+
+**Status:** **CLOSED v5.25.** Both manifestations structurally resolved. The 47 tests added in the reverted v5.22 attempt (feat fb89bf44 + docs f9bd1e70, reverted via debd5186 + f1839b1e) are NOT restored -- they tested classifier-layer auto-promotion logic that A1+A2 supersedes (resolver-layer fix). Original v5.22 commits preserved in git history for archaeology.
 
 ### 17.28 #88 [OPEN v5.21, TARGET NEXT] — Section heads pinned at L1, intermediate hierarchy traversal lost (Bug 12)
 
@@ -1136,6 +1146,8 @@ are warranted or should be permanently prohibited).
 
 **Update 2026-05-23:** Working agreement #40 now codified in §14 -- see §17.41.
 
+**Update 2026-05-23 (post-hoc recognition):** A1+A2 land also structurally resolved Bug 11a + Bug 11b -- see §17.27 status update.
+
 ---
 
 ### 17.41 [LANDED v5.25] -- SUB HEAD detection + universal subtotal-reset (sec 9 #100 + #101 CLOSED, feat 25a43617)
@@ -1197,6 +1209,39 @@ Working agreement #40 governs -- park to Phase 3+ AI review layer.
 ## Decisions log
 
 Newest at the top.
+
+---
+
+### 2026-05-23 -- Bug 11 closure recognition (sec 9 #87 CLOSED v5.25 via A1+A2 land)
+
+**Context.** During v5.25 housekeeping preparation review, the user identified that Bug 11a +
+Bug 11b (sec 9 #87, PARKED v5.22 pending deep rule review) were structurally resolved by Rule A1
++ Rule A2-reframed landing (feat 8f960a2b, sec 9 #99, §17.40). The connection was not recognized
+in the A1+A2 land docs commit and is captured here post-hoc.
+
+**Bug 11a -> Rule A2-reframed.** Canonical Bug 11a case ("1.0 PREAMBLE + 2.0 LINE_ITEM with qty
+parents under 1.0 instead of siblinging") matches Rule A2-reframed's trigger condition (same
+pattern_signature + different first_numeric_token + both non-None) and action (attach to
+stack-top's parent). Empirical: 27 A2 firings in Snitch + 31 A2 firings in BoQ ELV (sec 9 #99
+audit) are all Bug 11a cases, all resolved post-land.
+
+**Bug 11b -> Rule A1.** Canonical Bug 11b case ("a/b/c letter-suffix children chain via
+stack_depth+1") matches Rule A1's trigger (all-lowercase sl_no) and action (scan stack for
+non-lowercase ancestor, return anchor.level + 1). Empirical: 3 A1 firings in Snitch (rows
+458/475/491, sl_no b/c/d) -- pre-A1 level 5/6/7 cascade, post-A1 all at level 4 siblings. The
+§17.9 lowercase-letter cascade (root cause of Bug 11b) is structurally resolved.
+
+**Implication for working agreement #40.** The §14 working agreement #40 text already lists
+A1/A2-reframed (sec 9 #99) as one of the four closing examples of the Bug 13
+deterministic-unambiguous bar. Bug 11 closure reinforces this -- the parser-layer deterministic
+fixes have closed two multi-fixture hierarchy bugs (Bug 11a + 11b) plus the BoQ-ELV-specific
+SUB HEAD fix plus the universal subtotal-reset. No change to working agreement #40 wording.
+
+**No code changes, no test runs.** Docs-only commit. CLAUDE.md + boq-upload-plan.md updated.
+v5.22 Bug 11 commits remain reverted; their 47 tests are NOT restored (classifier-layer logic
+superseded by resolver-layer A1+A2).
+
+**Agreements cited.** None new. This is a single docs commit, not a two-commit shape.
 
 ---
 
