@@ -75,7 +75,12 @@ class ResolvedSheet:
 # Constants
 # ------------------------------------------------------------------
 
-# Mid-sheet section-reset: "TOTAL ITEM NO. 5" clears the preamble stack.
+# Preserved for in-repo audit-script imports (approach_a_reframed_audit.py
+# sec 9 #99 feat 16647958, boq_electrical_elv_rows_4_22_audit.py
+# sec 9 #98 feat 3b0790f0). NO LONGER used by resolve_hierarchy (sec 9
+# #101 universal subtotal-reset, feat <this commit>). Both audit scripts
+# are committed reference artifacts; do not delete this constant without
+# also archiving or updating those scripts.
 _MID_SHEET_RESET_RE = re.compile(
     r"^\s*total\s+item\s+no\.?\s+\d+", re.IGNORECASE
 )
@@ -92,6 +97,15 @@ _RE_NUMERIC = re.compile(r"^\d+(\.0)?$")             # e.g. "1", "1.0", "30"
 
 _L1_STYLES = frozenset(("letter", "roman", "numeric", "part"))
 _ALPHANUMERIC_RE = re.compile(r"[A-Za-z0-9]")
+
+# SUB HEAD section-marker pattern (sec 9 #100 / Phase 2c bug-fix close).
+# Matches: "SUB HEAD A", "SUB HEAD K1", "SUB\nHEAD F" (embedded newline),
+# "sub head b" (case-insensitive). Trailing identifier is single letter +
+# optional digit (covers BoQ ELV A-V plus K1 variants observed in corpus).
+_SUB_HEAD_RE = re.compile(
+    r"^\s*sub\s+head\s+[a-z][0-9]?\s*$",
+    re.IGNORECASE,
+)
 
 
 def pattern_signature(sl_no: str) -> str:
@@ -126,6 +140,14 @@ def first_numeric_token(sl_no: str) -> int | None:
         else:
             break
     return int(prefix) if prefix else None
+
+
+def _is_sub_head_marker(sl_no: str) -> bool:
+    """Return True if sl_no matches the SUB HEAD section-marker pattern.
+    Tolerates embedded whitespace (incl. newlines)."""
+    if not sl_no:
+        return False
+    return bool(_SUB_HEAD_RE.match(sl_no))
 
 
 # ------------------------------------------------------------------
@@ -289,13 +311,14 @@ def _determine_preamble_level(
     and current stack state. Returns (level, warnings_for_this_row).
 
     Decision table (first match wins):
-      0. Rule A1 (approach_a_enabled): all-lowercase code after strip → anchor.level + 1
-      1. empty sl_no              → stack_depth + 1  (with warning)
-      2. lowercase_letter         → stack_depth + 1  (inherently sub-code)
-      3. multi_dot_numeric        → 1 + dot_count    (emit Pattern Y warning if ambiguous)
-      4. style == level_1_style   → 1                (matches sheet's top-level convention)
-      5. other recognized style   → 2                (different top-level style → sub-level)
-      6. unknown                  → indent fallback, then stack_depth + 1
+      0. SUB HEAD section marker  → 1                (force level 1; sec 9 #100)
+      1. Rule A1 (approach_a_enabled): all-lowercase code after strip → anchor.level + 1
+      2. empty sl_no              → stack_depth + 1  (with warning)
+      3. lowercase_letter         → stack_depth + 1  (inherently sub-code)
+      4. multi_dot_numeric        → 1 + dot_count    (emit Pattern Y warning if ambiguous)
+      5. style == level_1_style   → 1                (matches sheet's top-level convention)
+      6. other recognized style   → 2                (different top-level style → sub-level)
+      7. unknown                  → indent fallback, then stack_depth + 1
     """
     from nirmaan_stack.services.boq_parser.reader import RawRow as _RawRow  # local to avoid top-level cycle
     rr: _RawRow = raw_row  # type: ignore[assignment]
@@ -303,6 +326,12 @@ def _determine_preamble_level(
     sl_no = (classified_row.sl_no_value or "").strip()
     row_num = rr.row_number
     warns: list[str] = []
+
+    # SUB HEAD section marker (sec 9 #100): force level=1 unconditionally.
+    # Section markers like "SUB HEAD A" / "SUB HEAD K1" / "SUB\nHEAD F" are
+    # always section roots, regardless of stack state.
+    if sl_no and _is_sub_head_marker(sl_no):
+        return 1, []
 
     # Rule A1: lowercase-letter cascade fix.
     # Fires only when the sl_no (after stripping trailing punctuation) consists
@@ -461,15 +490,17 @@ def resolve_hierarchy(
         # SUBTOTAL_MARKER                                              #
         # ---------------------------------------------------------- #
         if cls == RowClassification.SUBTOTAL_MARKER:
-            desc = classified_row.description or ""
-            if _MID_SHEET_RESET_RE.match(desc):
-                stack.clear()
-                # Re-detect level_1_style from the next section's first preamble.
-                # Only re-detect if no override is in effect.
-                if sheet_config.level_1_style_override is None:
-                    new_style = _detect_level_1_style(classified_rows, current_index + 1)
-                    if new_style is not None:
-                        level_1_style = new_style
+            # Universal stack reset (sec 9 #101). Drops the _MID_SHEET_RESET_RE
+            # regex guard. Cross-fixture audit (6 fixtures, 46 subtotals: BoQ ELV
+            # 21, Snitch 9, Inovalon 11, SG HVAC 4, Raheja 0, D-Tech 1) confirmed
+            # zero mid-section subtotals — universal reset is safe.
+            stack.clear()
+            # Re-detect level_1_style from the next section's first preamble.
+            # Only re-detect if no override is in effect.
+            if sheet_config.level_1_style_override is None:
+                new_style = _detect_level_1_style(classified_rows, current_index + 1)
+                if new_style is not None:
+                    level_1_style = new_style
             resolved.append(ResolvedRow(classified_row=classified_row))
             continue
 
