@@ -1,8 +1,8 @@
 {
   "_notes": {
-    "preamble_level_transitions_definition": "First preamble at each distinct level (Option alpha — all 7 levels present after B2d demotion)",
-    "regenerated_after": "B2f-hierarchy zero-children PREAMBLE demotion (§7.29)",
-    "regenerated_date": "2026-05-14"
+    "preamble_level_transitions_definition": "First preamble at each distinct level (Option alpha -- post-A1/A2-reframed, sec 9 #99)",
+    "regenerated_after": "Approach A-reframed land - Rule A1 + Rule A2-reframed (sec 9 #99)",
+    "regenerated_date": "2026-05-23"
   },
   "workbook_assertions": {
     "parsed_sheet_count_after_skip_filter": 2,
@@ -18,9 +18,9 @@
     "6. Electrical": {
       "total_resolved_row_count": 521,
       "count_by_classification": {
-        "LINE_ITEM": 176,
-        "PREAMBLE": 43,
+        "LINE_ITEM": 177,
         "NOTE": 287,
+        "PREAMBLE": 42,
         "SPACER": 6,
         "SUBTOTAL_MARKER": 9
       },
@@ -52,7 +52,7 @@
           "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS PVC insulated copper conductor wire in concealed/exposed PVC conduit and earthing",
           "unit": "Nos.",
           "qty": 350.0,
-          "path": "12/22/27",
+          "path": "12/27",
           "level": null
         },
         {
@@ -145,51 +145,30 @@
         {
           "resolved_idx": 1,
           "sl_no_value": "A.",
-          "description": "POINT WIRING",
           "level": 1,
-          "path": "1"
+          "path": "1",
+          "description": "POINT WIRING"
         },
         {
           "resolved_idx": 22,
           "sl_no_value": "1.0",
-          "description_contains_substring": "Wiring for the following light points",
           "level": 2,
-          "path": "12/22"
+          "path": "12/22",
+          "description_contains_substring": "Wiring for the following light points"
         },
         {
           "resolved_idx": 350,
           "sl_no_value": "a",
-          "description": "Light & Power Distribution Board",
           "level": 3,
-          "path": "345/347/350"
+          "path": "345/347/350",
+          "description": "Light & Power Distribution Board"
         },
         {
           "resolved_idx": 433,
           "sl_no_value": "a",
-          "description": "The SDB-1 Light & power 32nd Floor shall consists of :",
           "level": 4,
-          "path": "394/396/406/433"
-        },
-        {
-          "resolved_idx": 456,
-          "sl_no_value": "b",
-          "description": "THE UPS Output Panel shall consists of :",
-          "level": 5,
-          "path": "394/396/406/433/456"
-        },
-        {
-          "resolved_idx": 473,
-          "sl_no_value": "c",
-          "description": "THE UPS PDU-01 Panel shall consists of :",
-          "level": 6,
-          "path": "394/396/406/433/456/473"
-        },
-        {
-          "resolved_idx": 489,
-          "sl_no_value": "d",
-          "description": "The Fabricated VTPN DB shall consists of :",
-          "level": 7,
-          "path": "394/396/406/433/456/473/489"
+          "path": "394/396/406/433",
+          "description": "The SDB-1 Light & power 32nd Floor shall consists of :"
         }
       ]
     },
@@ -197,8 +176,6 @@
       "total_resolved_row_count": 15,
       "count_by_classification": {
         "LINE_ITEM": 14,
-        "PREAMBLE": 0,
-        "NOTE": 0,
         "SUBTOTAL_MARKER": 1
       },
       "first_5_line_items": [

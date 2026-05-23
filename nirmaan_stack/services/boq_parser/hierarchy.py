@@ -94,6 +94,40 @@ _L1_STYLES = frozenset(("letter", "roman", "numeric", "part"))
 _ALPHANUMERIC_RE = re.compile(r"[A-Za-z0-9]")
 
 
+def pattern_signature(sl_no: str) -> str:
+    """
+    Map each character of sl_no to a type token:
+      digit → 'D', uppercase → 'U', lowercase → 'l', other → literal char.
+    Examples: "1.0"->"D.D", "a."->"l.", "10.3"->"DD.D", "1a"->"Dl", "A."->"U.".
+    """
+    result = []
+    for ch in sl_no:
+        if ch.isdigit():
+            result.append("D")
+        elif ch.isupper():
+            result.append("U")
+        elif ch.islower():
+            result.append("l")
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def first_numeric_token(sl_no: str) -> int | None:
+    """
+    Return the longest digit-only prefix of sl_no after stripping leading
+    whitespace, as an int.  Returns None if no leading digit exists.
+    Examples: "1.0"->1, "10.3"->10, "a."->None, "1a"->1, "  2.0"->2.
+    """
+    prefix = ""
+    for ch in sl_no.lstrip():
+        if ch.isdigit():
+            prefix += ch
+        else:
+            break
+    return int(prefix) if prefix else None
+
+
 # ------------------------------------------------------------------
 # Private helpers
 # ------------------------------------------------------------------
@@ -245,12 +279,17 @@ def _determine_preamble_level(
     classified_rows: list[ClassifiedRow],
     raw_row: object,  # RawRow — typed as object to avoid circular complexity
     sheet_config: SheetConfig,
+    *,
+    approach_a_enabled: bool = True,
+    stack: list[int | None] | None = None,
+    resolved: list[ResolvedRow] | None = None,
 ) -> tuple[int, list[str]]:
     """
     Determine the level of a PREAMBLE row given the sheet's level_1_style
     and current stack state. Returns (level, warnings_for_this_row).
 
     Decision table (first match wins):
+      0. Rule A1 (approach_a_enabled): all-lowercase code after strip → anchor.level + 1
       1. empty sl_no              → stack_depth + 1  (with warning)
       2. lowercase_letter         → stack_depth + 1  (inherently sub-code)
       3. multi_dot_numeric        → 1 + dot_count    (emit Pattern Y warning if ambiguous)
@@ -264,6 +303,25 @@ def _determine_preamble_level(
     sl_no = (classified_row.sl_no_value or "").strip()
     row_num = rr.row_number
     warns: list[str] = []
+
+    # Rule A1: lowercase-letter cascade fix.
+    # Fires only when the sl_no (after stripping trailing punctuation) consists
+    # ENTIRELY of lowercase characters — e.g. "a", "b.", "c.", "iv." — which
+    # are genuine section-letter codes.  Multi-char codes containing digits or
+    # special characters (e.g. "a1", "custom-code-xyz") fall through to the
+    # standard unknown-sl_no warning path instead.
+    if approach_a_enabled and sl_no and stack is not None and resolved is not None:
+        stripped = sl_no.rstrip(".,):;]")
+        sig_stripped = pattern_signature(stripped)
+        if sig_stripped and all(c == "l" for c in sig_stripped):
+            for entry_idx in reversed(stack):
+                if entry_idx is None:
+                    continue
+                entry_row = resolved[entry_idx]
+                entry_sl = (entry_row.classified_row.sl_no_value or "").strip()
+                if not pattern_signature(entry_sl).startswith("l"):
+                    return entry_row.level + 1, []
+            # No non-lowercase ancestor found — fall through to standard logic.
 
     if not sl_no:
         level = stack_depth + 1
@@ -356,6 +414,8 @@ def resolve_hierarchy(
     classified_rows: list[ClassifiedRow],
     sheet_config: SheetConfig,
     global_settings: GlobalSettings,
+    *,
+    approach_a_enabled: bool = True,
 ) -> ResolvedSheet:
     """
     Walk classified rows in order and build the preamble/line-item tree.
@@ -426,6 +486,9 @@ def resolve_hierarchy(
                 classified_rows,
                 classified_row.raw_row,
                 sheet_config,
+                approach_a_enabled=approach_a_enabled,
+                stack=stack,
+                resolved=resolved,
             )
             sheet_warnings.extend(row_warns)
 
@@ -456,12 +519,32 @@ def resolve_hierarchy(
         # LINE_ITEM                                                    #
         # ---------------------------------------------------------- #
         if cls == RowClassification.LINE_ITEM:
-            parent_index = _top_non_none(stack)
-            if parent_index is None:
-                sheet_warnings.append(
-                    f"Row {classified_row.raw_row.row_number}: "
-                    f"standalone line item with no preamble parent"
-                )
+            # Rule A2-reframed: if the LINE_ITEM's sl_no has the same pattern
+            # signature as the stack top and a different leading numeric token,
+            # they are siblings (not parent/child) — attach to the top's parent.
+            a2_handled = False
+            if approach_a_enabled and stack:
+                top_idx = stack[-1]
+                if top_idx is not None:
+                    li_sl = (classified_row.sl_no_value or "").strip()
+                    top_sl = (resolved[top_idx].classified_row.sl_no_value or "").strip()
+                    if li_sl and top_sl:
+                        li_sig = pattern_signature(li_sl)
+                        top_sig = pattern_signature(top_sl)
+                        li_fnt = first_numeric_token(li_sl)
+                        top_fnt = first_numeric_token(top_sl)
+                        if (li_sig == top_sig
+                                and li_fnt is not None and top_fnt is not None
+                                and li_fnt != top_fnt):
+                            parent_index = resolved[top_idx].parent_index
+                            a2_handled = True
+            if not a2_handled:
+                parent_index = _top_non_none(stack)
+                if parent_index is None:
+                    sheet_warnings.append(
+                        f"Row {classified_row.raw_row.row_number}: "
+                        f"standalone line item with no preamble parent"
+                    )
             path = str(idx) if parent_index is None else path_cache[parent_index] + "/" + str(idx)
             path_cache[idx] = path
             resolved.append(ResolvedRow(

@@ -783,17 +783,29 @@ class TestSnitchIntegration(unittest.TestCase):
     # Test 12 — Light Fixtures row 16 PREAMBLE anomaly                 #
     # ---------------------------------------------------------------- #
 
-    def test_snitch_row_500_flagged_for_priced_preamble_with_children_review(self):
-        """§9 #45: Snitch Electrical row 500 (sl_no=2.0, unit=LS, 5 children)
-        must be flagged for wizard review by the §9 #45 post-pass."""
+    def test_snitch_row_500_demoted_to_line_item_post_a2(self):
+        """
+        Section 9 #45 originally flagged this row (xlsx ~502, sl_no=2.0) as a
+        priced PREAMBLE with 5 children for user review.  Post-A1/A2 (sec 9 #99)
+        + sec 7.29 zero-children demotion: Rule A2-reframed reparents the 5
+        children at xlsx rows 504/506/508/510/512 to section header G, leaving
+        2.0 childless.  Sec 7.29 then demotes 2.0 to LINE_ITEM, structurally
+        resolving the ambiguity.  Review flag no longer applies.
+        """
         from nirmaan_stack.services.boq_parser.classifier import RowClassification
         row = self.elec_sheet.resolved_rows[500]
-        self.assertEqual(row.classified_row.classification, RowClassification.PREAMBLE,
-                         "row 500 must remain PREAMBLE — not demoted")
-        self.assertTrue(row.needs_classification_review,
-                        "row 500 must have needs_classification_review=True")
-        self.assertEqual(row.review_reason, "priced_preamble_with_children",
-                         "review_reason must be 'priced_preamble_with_children'")
+        cr = row.classified_row
+        self.assertEqual(cr.sl_no_value, "2.0",
+                         "resolved_idx 500 must be the sl_no=2.0 row")
+        self.assertEqual(cr.classification, RowClassification.LINE_ITEM,
+                         "row 500 must be LINE_ITEM after A2 reparents all 5 children + sec 7.29 demotion")
+        self.assertFalse(row.needs_classification_review,
+                         "row 500 review flag must be False (ambiguity structurally resolved)")
+        # Parent must be section header G (A2 left 2.0 as a direct child of G)
+        self.assertIsNotNone(row.parent_index, "row 500 must have a parent (section G)")
+        parent_row = self.elec_sheet.resolved_rows[row.parent_index]
+        self.assertEqual(parent_row.classified_row.sl_no_value, "G",
+                         "row 500 parent must be section header G")
 
     def test_snitch_light_fixtures_row_16_preamble_anomaly(self):
         """
