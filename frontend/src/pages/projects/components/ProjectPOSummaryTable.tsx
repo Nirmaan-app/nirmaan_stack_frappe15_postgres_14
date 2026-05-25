@@ -332,8 +332,9 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
   const [selectedCriticalPO, setSelectedCriticalPO] = useState<Set<string>>(new Set());
 
-  type POValueBucket = "all" | "lt5000" | "gte5000";
-  const [poValueBucket, setPoValueBucket] = useState<POValueBucket>("all");
+  // ₹5K threshold (DISABLED — uncomment to re-enable): PO value bucket filter (All / < ₹5,000 / ≥ ₹5,000).
+  // type POValueBucket = "all" | "lt5000" | "gte5000";
+  // const [poValueBucket, setPoValueBucket] = useState<POValueBucket>("all");
 
   const dynamicFilters = useMemo(() => {
     const base: Array<[string, string, any]> = (() => {
@@ -365,10 +366,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       return [...staticFilters, ["name", "not in", nonMatchingLinkedPOs]];
     })();
 
-    if (poValueBucket === "lt5000") return [...base, ["total_amount", "<", 5000]];
-    if (poValueBucket === "gte5000") return [...base, ["total_amount", ">=", 5000]];
+    // ₹5K threshold (DISABLED — uncomment to re-enable): compose value bucket onto critical-PO base filters.
+    // if (poValueBucket === "lt5000") return [...base, ["total_amount", "<", 5000]];
+    // if (poValueBucket === "gte5000") return [...base, ["total_amount", ">=", 5000]];
     return base;
-  }, [selectedCriticalPO, staticFilters, criticalTasksByPO, poValueBucket]);
+  }, [selectedCriticalPO, staticFilters, criticalTasksByPO /*, poValueBucket — ₹5K threshold (DISABLED) */]);
 
   // --- Critical PO facet options ---
   const criticalPOFacetOptions = useMemo(() => {
@@ -387,18 +389,18 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     return options;
   }, [criticalTasksByPO]);
 
-  // --- PO value bucket absolute counts (independent of other column filters) ---
-  const poValueCounts = useMemo(() => {
-    const counts = { all: 0, lt5000: 0, gte5000: 0 };
-    if (!poAmountsDict) return counts;
-    for (const po of Object.values(poAmountsDict)) {
-      const total = parseNumber((po as any)?.total_incl_gst);
-      counts.all++;
-      if (total < 5000) counts.lt5000++;
-      else counts.gte5000++;
-    }
-    return counts;
-  }, [poAmountsDict]);
+  // ₹5K threshold (DISABLED — uncomment to re-enable): absolute project counts for the bucket chips (independent of other column filters).
+  // const poValueCounts = useMemo(() => {
+  //   const counts = { all: 0, lt5000: 0, gte5000: 0 };
+  //   if (!poAmountsDict) return counts;
+  //   for (const po of Object.values(poAmountsDict)) {
+  //     const total = parseNumber((po as any)?.total_incl_gst);
+  //     counts.all++;
+  //     if (total < 5000) counts.lt5000++;
+  //     else counts.gte5000++;
+  //   }
+  //   return counts;
+  // }, [poAmountsDict]);
 
   // --- Helper function to calculate total liabilities ---
   const calculateTotalLiabilities = useCallback((row: ProcurementOrder): number => {
@@ -739,7 +741,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    setPagination,
+    // setPagination, // ₹5K threshold (DISABLED — uncomment to re-enable): needed to reset page on bucket chip click.
   } = useServerDataTable<ProcurementOrder>({
     doctype: DOCTYPE,
     columns: columns, // Columns are defined below
@@ -927,7 +929,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 </CardContent>
             </Card> */}
 
-      {/* PO Value bucket chips */}
+      {/* ₹5K threshold (DISABLED — uncomment the block below to re-enable): PO value bucket chips (All / Below ₹5K / ₹5K & Above) */}
+      {/*
       <div className="flex flex-wrap items-center gap-1.5">
         {([
           { value: "all", label: "All POs", count: poValueCounts.all },
@@ -941,6 +944,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
               type="button"
               onClick={() => {
                 setPoValueBucket(b.value);
+                // ₹5K threshold: reset to page 1 — additionalFilters change doesn't auto-reset pagination.
                 setPagination(p => ({ ...p, pageIndex: 0 }));
               }}
               className={cn(
@@ -958,6 +962,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           );
         })}
       </div>
+      */}
 
       {/* Critical PO Filter Bar */}
       {criticalPOFacetOptions.length > 1 && (
