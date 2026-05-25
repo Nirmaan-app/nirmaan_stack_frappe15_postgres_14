@@ -25,6 +25,7 @@ export default function Login() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting }
   } = useForm<LoginInputs>();
 
@@ -36,6 +37,24 @@ export default function Login() {
       setError(err as FrappeError);
     }
   }
+
+  // Switch the first-field label/placeholder based on what the user is typing:
+  // all-digits -> mobile, anything with a non-digit -> email/username, empty -> default.
+  const identifier = watch("email") ?? "";
+  const identifierMode: "mobile" | "email" | "default" =
+    identifier === "" ? "default" : /^\d+$/.test(identifier) ? "mobile" : "email";
+  const identifierLabel =
+    identifierMode === "mobile"
+      ? "Mobile number"
+      : identifierMode === "email"
+        ? "Email or username"
+        : "Email, username, or mobile";
+  const identifierPlaceholder =
+    identifierMode === "mobile"
+      ? "10-digit mobile number"
+      : identifierMode === "email"
+        ? "you@company.com"
+        : "you@company.com or 10-digit mobile";
 
   // Redirect if already authenticated
   if (currentUser) {
@@ -57,20 +76,20 @@ export default function Login() {
 
         {/* Login Form */}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-          {/* Email Field */}
+          {/* Email / Username / Mobile Field */}
           <FormField
             id="email"
-            label="Email or Username"
+            label={identifierLabel}
             required
             error={errors.email?.message}
           >
             <Input
               {...register("email", {
-                required: "Email or username is required"
+                required: "Email, username, or mobile is required"
               })}
               id="email"
               type="text"
-              placeholder="you@company.com"
+              placeholder={identifierPlaceholder}
               autoComplete="username"
               autoFocus
               disabled={isSubmitting}

@@ -1,3 +1,5 @@
+import re
+
 import frappe
 from frappe import _
 from frappe.model.rename_doc import rename_doc
@@ -45,6 +47,19 @@ def create_user(
     # Check if user already exists
     if frappe.db.exists("User", email):
         frappe.throw(_("User with email {0} already exists").format(email))
+
+    # Mobile number is the login key for phone-based login, so it must be
+    # exactly 10 digits and unique across users.
+    if mobile_no:
+        if not re.fullmatch(r"\d{10}", mobile_no):
+            frappe.throw(_("Mobile number must be exactly 10 digits"))
+        existing_mobile_user = frappe.db.get_value("User", {"mobile_no": mobile_no}, "name")
+        if existing_mobile_user:
+            frappe.throw(
+                _("User with mobile number {0} already exists ({1})").format(
+                    mobile_no, existing_mobile_user
+                )
+            )
 
     user_doc = None
     full_name = first_name  # Default fallback

@@ -113,20 +113,60 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
     }
   };
 
-  const handleLogin = async (username: string, password: string) => {
+  const handleLogin = async (
+    usernameOrMobile: string,
+    password: string,
+  ): Promise<AuthResponse> => {
+    const trimmed = usernameOrMobile.trim();
+    const isMobile = /^\d{10}$/.test(trimmed);
+
+    if (isMobile) {
+      // Custom endpoint (api/phone_login.py) resolves the mobile number to a
+      // User then runs the same LoginManager flow as /api/method/login. No
+      // CSRF header needed: allow_guest=True endpoint called pre-session,
+      // mirroring /api/method/login (see frappe/auth.py validate_csrf_token).
+      const res = await fetch(
+        "/api/method/nirmaan_stack.api.phone_login.login_with_mobile",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ mobile_no: trimmed, password }),
+        },
+      );
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({} as any));
+        let message = "Login failed";
+        try {
+          if (errBody?._server_messages) {
+            const arr = JSON.parse(errBody._server_messages);
+            if (arr?.length) {
+              message = JSON.parse(arr[0])?.message || message;
+            }
+          } else if (errBody?.message) {
+            message = errBody.message;
+          } else if (errBody?.exc) {
+            message = "Invalid credentials";
+          }
+        } catch {
+          /* keep default */
+        }
+        throw { message };
+      }
+
+      // SDK's updateCurrentUser is not exercised against custom endpoints in
+      // this codebase. A full reload re-bootstraps auth from the freshly-set
+      // sid cookie via useFrappeAuth — same fallback pattern as handleLogout.
+      const basePath = import.meta.env.VITE_BASE_NAME || "";
+      window.location.assign(basePath ? `/${basePath}/` : "/");
+      return { message: "Logged In", home_page: "/" };
+    }
+
     return login({
-      username,
+      username: trimmed,
       password,
     });
-    // .then(() => {
-    //     // //Reload the page so that the boot info is fetched again
-    //     // const URL = import.meta.env.VITE_BASE_NAME ? `/${import.meta.env.VITE_BASE_NAME}` : ``
-    //     // window.location.replace(`${URL}/`)
-    //     window.location.reload()
-    // })
-
-    // await login({username, password})
-    // setAuthStatus('loggedIn')
   };
   return (
     <UserContext.Provider
