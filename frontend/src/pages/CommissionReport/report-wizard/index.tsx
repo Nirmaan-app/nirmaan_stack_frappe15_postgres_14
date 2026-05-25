@@ -9,7 +9,7 @@
 //   5. Draft autosave (localStorage)
 //   6. Optimistic-concurrency conflict UI
 
-import { useFrappeAuth } from 'frappe-react-sdk';
+import { useFrappeAuth, useFrappeGetDocList } from 'frappe-react-sdk';
 import { ArrowLeft, ArrowRight, Loader2, Printer, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
@@ -538,6 +538,7 @@ export const CommissionReportWizard: React.FC = () => {
                                     parentName={parentName}
                                     childRowName={childRowName}
                                     projectId={projectId}
+                                    templateId={template.templateId}
                                     forceReadonly={mode === 'view'}
                                     onAttachmentCreated={(fileDoc) => {
                                         track(fileDoc);
@@ -547,7 +548,11 @@ export const CommissionReportWizard: React.FC = () => {
                             );
                         })
                     ) : (
-                        <ReviewSummary template={template} formValues={form.getValues()} />
+                        <ReviewSummary
+                            template={template}
+                            formValues={form.getValues()}
+                            projectId={projectId}
+                        />
                     )}
                 </main>
 
@@ -665,10 +670,131 @@ const ResultBadge: React.FC<{ value?: string }> = ({ value }) => {
     );
 };
 
-const ReviewSummary: React.FC<{ template: ReportTemplate; formValues: FormShape }> = ({
-    template,
-    formValues,
-}) => {
+// Review-mode summary of which signatures will print. Live-derives the project's
+// enabled roles from `Project TDS Setting`, then marks each as Included/Omitted
+// based on the wizard's saved disabled list. Mirrors the keys+labels in
+// SignaturesSection.tsx — keep them in sync with the Jinja `render_signatures` macro.
+interface ProjectTDSSettingRow {
+    name: string;
+    enable_client: 0 | 1;
+    enable_manager: 0 | 1;
+    enable_consultant: 0 | 1;
+    enable_gc_contractor: 0 | 1;
+    enable_mep_contractor: 0 | 1;
+}
+const SignaturesReviewBlock: React.FC<{
+    title: string;
+    projectId: string;
+    templateId: string;
+    disabledKeys: string[];
+}> = ({ title, projectId, templateId, disabledKeys }) => {
+    const { data, isLoading } = useFrappeGetDocList<ProjectTDSSettingRow>(
+        'Project TDS Setting',
+        {
+            fields: [
+                'name',
+                'enable_client',
+                'enable_manager',
+                'enable_consultant',
+                'enable_gc_contractor',
+                'enable_mep_contractor',
+            ],
+            filters: projectId ? [['tds_project_id', '=', projectId]] : undefined,
+            limit: 1,
+        },
+        projectId ? ['project-tds-setting', projectId] : null,
+    );
+    const tds = data?.[0];
+
+    const roles: { key: string; label: string }[] = (() => {
+        if (!tds) return [];
+        const out: { key: string; label: string }[] = [];
+        if (templateId === 'demo-training-certificate') {
+            if (tds.enable_manager) out.push({ key: 'manager', label: 'PROJECT MANAGER' });
+            if (tds.enable_mep_contractor) out.push({ key: 'mep_contractor', label: 'VENDOR' });
+            if (tds.enable_client) out.push({ key: 'client', label: 'CLIENT' });
+            if (tds.enable_gc_contractor) out.push({ key: 'gc_contractor', label: 'GC CONTRACTOR' });
+            return out;
+        }
+        if (tds.enable_manager) out.push({ key: 'manager', label: 'PROJECT MANAGER' });
+        if (tds.enable_consultant) out.push({ key: 'consultant', label: 'CONSULTANT' });
+        if (tds.enable_client) out.push({ key: 'client', label: 'CLIENT' });
+        if (tds.enable_gc_contractor) out.push({ key: 'gc_contractor', label: 'GC CONTRACTOR' });
+        if (tds.enable_mep_contractor) out.push({ key: 'mep_contractor', label: 'NIRMAAN' });
+        return out;
+    })();
+
+    const included = roles.filter((r) => !disabledKeys.includes(r.key));
+    const omitted = roles.filter((r) => disabledKeys.includes(r.key));
+
+    return (
+        <div className="rounded-md border p-3">
+            <div className="mb-3 flex items-center justify-between">
+                <div>
+                    <h3 className="text-sm font-medium">{title}</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                        Signatures that will appear on the printed PDF.
+                    </p>
+                </div>
+                {!isLoading && tds && (
+                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        {included.length} of {roles.length} included
+                    </span>
+                )}
+            </div>
+            {!projectId || !tds ? (
+                <p className="text-xs italic text-muted-foreground">
+                    Project TDS Setting unavailable — signatures will be resolved at print time.
+                </p>
+            ) : roles.length === 0 ? (
+                <p className="text-xs italic text-muted-foreground">
+                    No signatory roles are enabled for this project.
+                </p>
+            ) : (
+                <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                        {included.length === 0 ? (
+                            <span className="text-xs italic text-amber-700">
+                                No signatures will be printed.
+                            </span>
+                        ) : (
+                            included.map((r) => (
+                                <span
+                                    key={r.key}
+                                    className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700"
+                                >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                                    {r.label}
+                                </span>
+                            ))
+                        )}
+                    </div>
+                    {omitted.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                Omitted:
+                            </span>
+                            {omitted.map((r) => (
+                                <span
+                                    key={r.key}
+                                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-rose-400/50 bg-rose-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-rose-700 line-through decoration-rose-400/70"
+                                >
+                                    {r.label}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ReviewSummary: React.FC<{
+    template: ReportTemplate;
+    formValues: FormShape;
+    projectId: string;
+}> = ({ template, formValues, projectId }) => {
     return (
         <div className="space-y-4">
             <div>
@@ -679,7 +805,22 @@ const ReviewSummary: React.FC<{ template: ReportTemplate; formValues: FormShape 
             </div>
 
             {template.sections.map((section) => {
-                if (section.type === 'process' || section.type === 'signatures') return null;
+                if (section.type === 'process') return null;
+
+                if (section.type === 'signatures') {
+                    const sigValue = (formValues.responses?.[section.id] || {}) as {
+                        disabled?: string[];
+                    };
+                    return (
+                        <SignaturesReviewBlock
+                            key={section.id}
+                            title={section.title || 'Signatures'}
+                            projectId={projectId}
+                            templateId={template.templateId}
+                            disabledKeys={Array.isArray(sigValue.disabled) ? sigValue.disabled : []}
+                        />
+                    );
+                }
 
                 if (section.type === 'header' || section.type === 'fields') {
                     const sectionValues = (formValues.responses?.[section.id] || {}) as Record<string, unknown>;

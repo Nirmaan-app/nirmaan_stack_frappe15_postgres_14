@@ -93,6 +93,47 @@ tr { page-break-inside: avoid; }
 thead { display: table-header-group; }
 </style>
 
+{#
+  ===== render_signatures(template_id, project_id, disabled_keys) =====
+  Dynamic signature row driven by Project TDS Setting, with a per-report
+  override (`disabled_keys` — list of role keys the user unticked in the
+  wizard's Signatures step).
+
+    - demo-training-certificate → 4 roles:
+        PROJECT MANAGER (manager) · VENDOR (mep_contractor)
+        · CLIENT (client) · GC CONTRACTOR (gc_contractor)
+    - everything else → 5 roles:
+        PROJECT MANAGER · CONSULTANT · CLIENT · GC CONTRACTOR · NIRMAAN(MEP)
+
+  A role is printed iff (tds.enable_<key> = 1) AND (key not in disabled_keys).
+  No TDS Setting → red error banner asking the admin to configure it.
+#}
+{% macro render_signatures(template_id, project_id, disabled_keys=[]) -%}
+    {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
+    {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
+    {%- if not tds -%}
+        <div class="cv-error">⚠ Please set up <strong>Project TDS Setting</strong> for signatures before printing. (Projects → TDS Repository)</div>
+    {%- else -%}
+        {%- set dk = disabled_keys or [] -%}
+        {%- set ns_sigs = namespace(items=[]) -%}
+        {%- if template_id == "demo-training-certificate" -%}
+            {%- if tds.enable_manager        and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if tds.enable_mep_contractor and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("VENDOR")          -%}{%- endif -%}
+            {%- if tds.enable_client         and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
+            {%- if tds.enable_gc_contractor  and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
+        {%- else -%}
+            {%- if tds.enable_manager        and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if tds.enable_consultant     and "consultant"     not in dk -%}{%- set _ = ns_sigs.items.append("CONSULTANT")      -%}{%- endif -%}
+            {%- if tds.enable_client         and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
+            {%- if tds.enable_gc_contractor  and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
+            {%- if tds.enable_mep_contractor and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
+        {%- endif -%}
+        {%- if ns_sigs.items | length > 0 -%}
+            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr></table>
+        {%- endif -%}
+    {%- endif -%}
+{%- endmacro %}
+
 <div id="header-html">
     <div style="text-align: center; border-bottom: 1.5px solid #000; background: #fff;font-family: 'Inter', Helvetica, Arial, sans-serif;  line-height: 22px;">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1056 1056"
@@ -140,6 +181,8 @@ thead { display: table-header-group; }
         {%- set proc_section  = (tpl.sections | selectattr("type", "equalto", "process") | list | first) -%}
         {%- set img_section   = (tpl.sections | selectattr("type", "equalto", "image_attachments") | list | first) -%}
         {%- set sig_section   = (tpl.sections | selectattr("type", "equalto", "signatures") | list | first) -%}
+        {# Per-report disabled signature keys, written by the wizard's Signatures step. #}
+        {%- set sig_disabled = (((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {}).get("disabled") or [] -%}
 
         {% if tpl.templateId == "sprinkler-pressure-test" %}
 
@@ -248,7 +291,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -307,7 +350,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -350,7 +393,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -424,7 +467,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -481,7 +524,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -554,7 +597,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -637,7 +680,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -701,7 +744,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -812,7 +855,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -870,7 +913,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -951,7 +994,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -1020,7 +1063,7 @@ thead { display: table-header-group; }
 
                     </td></tr>
                     <tr><td class="cv-bottom-cell">
-                        {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                     </td></tr>
                 </table>
             {% endif %}
@@ -1079,7 +1122,7 @@ thead { display: table-header-group; }
 
                     </td></tr>
                     <tr><td class="cv-bottom-cell">
-                        {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                     </td></tr>
                 </table>
             {% endif %}
@@ -1193,7 +1236,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 
@@ -1279,7 +1322,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {% if sig_section %}<table class="cv-sigs"><tr>{% for block in (sig_section.blocks or []) %}<td>{{ block.label }}</td>{% endfor %}</tr></table>{% endif %}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
                 </td></tr>
             </table>
 

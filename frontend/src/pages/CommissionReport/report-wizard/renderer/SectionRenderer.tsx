@@ -19,6 +19,8 @@ export interface SectionRendererProps {
     parentName?: string;
     childRowName?: string;
     projectId?: string;
+    /** Drives signatures preview — see SignaturesSection. */
+    templateId?: string;
     forceReadonly?: boolean;
     onAttachmentCreated?: (attachmentName: string) => void;
 }
@@ -28,6 +30,7 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
     parentName,
     childRowName,
     projectId,
+    templateId,
     forceReadonly,
     onAttachmentCreated,
 }) => {
@@ -60,7 +63,14 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
             );
         }
         case 'signatures':
-            return <SignaturesSection section={section} />;
+            return (
+                <SignaturesSection
+                    section={section}
+                    projectId={projectId}
+                    templateId={templateId}
+                    forceReadonly={forceReadonly}
+                />
+            );
         case 'trainees_data_table':
             return <TraineesDataTableSection section={section} forceReadonly={forceReadonly} />;
         case 'measurement_matrix':
