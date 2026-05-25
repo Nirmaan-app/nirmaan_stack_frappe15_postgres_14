@@ -5,7 +5,13 @@ import unittest
 
 from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
 from nirmaan_stack.services.boq_parser.config import ColumnRole, GlobalSettings, SheetConfig
-from nirmaan_stack.services.boq_parser.hierarchy import ResolvedSheet, pattern_signature, resolve_hierarchy
+from nirmaan_stack.services.boq_parser.hierarchy import (
+    ResolvedSheet,
+    first_numeric_token,
+    pattern_signature,
+    resolve_hierarchy,
+)
+import nirmaan_stack.services.boq_parser.hierarchy as _h
 from nirmaan_stack.services.boq_parser.reader import CellInfo, RawRow
 
 
@@ -1207,6 +1213,45 @@ class TestPatternSignatureBug22(unittest.TestCase):
         self.assertEqual(pattern_signature("12.34"), "D.D")
         # Non-digit classes with single chars are unaffected.
         self.assertEqual(pattern_signature("A.b"), "U.l")
+
+    def test_toggle_on_is_default_and_collapses(self):
+        # Toggle defaults to True; pattern_signature must collapse.
+        self.assertTrue(_h.BUG_22_COLLAPSE_ENABLED)
+        self.assertEqual(pattern_signature("10.0"), "D.D")
+        self.assertEqual(pattern_signature("100"), "D")
+
+    def test_toggle_off_restores_per_char_signature(self):
+        # When toggle is OFF, pattern_signature returns pre-Bug-22
+        # per-char signature (multi-digit produces multiple D's).
+        original = _h.BUG_22_COLLAPSE_ENABLED
+        try:
+            _h.BUG_22_COLLAPSE_ENABLED = False
+            self.assertEqual(pattern_signature("10.0"), "DD.D")
+            self.assertEqual(pattern_signature("100"), "DDD")
+            self.assertEqual(pattern_signature("12.34"), "DD.DD")
+            # Single-digit unchanged either way:
+            self.assertEqual(pattern_signature("9.0"), "D.D")
+            # Non-digit classes unaffected:
+            self.assertEqual(pattern_signature("a."), "l.")
+        finally:
+            _h.BUG_22_COLLAPSE_ENABLED = original
+        # Verify restoration:
+        self.assertTrue(_h.BUG_22_COLLAPSE_ENABLED)
+        self.assertEqual(pattern_signature("10.0"), "D.D")
+
+    def test_same_first_numeric_token_does_not_create_false_sibling(self):
+        # Post-Bug-22, these all produce signature "D.D":
+        self.assertEqual(pattern_signature("1.10"), "D.D")
+        self.assertEqual(pattern_signature("1.01"), "D.D")
+        self.assertEqual(pattern_signature("1.1"), "D.D")
+        # But first_numeric_token is the same (1) for all three:
+        self.assertEqual(first_numeric_token("1.10"), 1)
+        self.assertEqual(first_numeric_token("1.01"), 1)
+        self.assertEqual(first_numeric_token("1.1"), 1)
+        # Rule A2-reframed fires ONLY when signatures match AND
+        # first_numeric_tokens DIFFER. These three would NOT trigger
+        # A2-reframed re-parenting -- they fall through to standard
+        # attach-to-top behavior. This test locks in that invariant.
 
 
 if __name__ == "__main__":

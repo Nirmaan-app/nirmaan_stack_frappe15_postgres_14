@@ -107,6 +107,16 @@ _SUB_HEAD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Bug 22 toggle (v5.26a session 1.5) -- default True (collapse consecutive
+# digit runs in pattern_signature per Bug 22 fix feat 4e5561d3). Set to False
+# for regression isolation if cycle 3 validation re-run (session 7) surfaces
+# a Bug 22-induced misfire that wasn't anticipated by the spec. Mirrors
+# v5.25 approach_a_enabled precedent in intent (default-on toggle for
+# regression isolation); uses a module-level constant rather than a function
+# kwarg because pattern_signature is called from inside Rule A2-reframed and
+# threading a kwarg through every call site is awkward.
+BUG_22_COLLAPSE_ENABLED: bool = True
+
 
 def pattern_signature(sl_no: str) -> str:
     """
@@ -117,6 +127,8 @@ def pattern_signature(sl_no: str) -> str:
     This allows Rule A2-reframed signature equality to fire across single-digit /
     multi-digit boundaries (e.g. sl_no '9.0' and '10.0' are signature-equal).
     Examples: "1.0"->"D.D", "a."->"l.", "10.3"->"D.D", "1a"->"Dl", "A."->"U.".
+    The collapse step is gated on BUG_22_COLLAPSE_ENABLED (default True). Flip
+    to False for regression isolation.
     """
     result = []
     for ch in sl_no:
@@ -129,7 +141,9 @@ def pattern_signature(sl_no: str) -> str:
         else:
             result.append(ch)
     signature = "".join(result)
-    return re.sub(r"D+", "D", signature)
+    if BUG_22_COLLAPSE_ENABLED:
+        signature = re.sub(r"D+", "D", signature)
+    return signature
 
 
 def first_numeric_token(sl_no: str) -> int | None:
