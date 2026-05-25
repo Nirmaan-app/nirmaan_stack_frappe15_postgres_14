@@ -684,6 +684,7 @@ export function NewSidebar() {
     'help-repository',
     "work-order-rate-card",
     "pmo-dashboard",
+    'commission-tracker',
 
   ]), [])
 
