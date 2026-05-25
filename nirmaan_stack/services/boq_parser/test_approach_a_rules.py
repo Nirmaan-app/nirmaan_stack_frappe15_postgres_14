@@ -189,7 +189,7 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(pattern_signature("1.0"), "D.D")
         self.assertEqual(pattern_signature("a."), "l.")
         self.assertEqual(pattern_signature("A."), "U.")
-        self.assertEqual(pattern_signature("10.3"), "DD.D")
+        self.assertEqual(pattern_signature("10.3"), "D.D")
         self.assertEqual(pattern_signature("1a"), "Dl")
 
     def test_pattern_signature_empty(self):

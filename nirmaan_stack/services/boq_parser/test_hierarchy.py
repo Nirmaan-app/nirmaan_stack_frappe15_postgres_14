@@ -5,7 +5,7 @@ import unittest
 
 from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
 from nirmaan_stack.services.boq_parser.config import ColumnRole, GlobalSettings, SheetConfig
-from nirmaan_stack.services.boq_parser.hierarchy import ResolvedSheet, resolve_hierarchy
+from nirmaan_stack.services.boq_parser.hierarchy import ResolvedSheet, pattern_signature, resolve_hierarchy
 from nirmaan_stack.services.boq_parser.reader import CellInfo, RawRow
 
 
@@ -1179,6 +1179,34 @@ class TestPricedPreambleWithChildrenReviewFlag(unittest.TestCase):
         ]
         self._run(rows)
         self.assertFalse(rows[0].needs_classification_review)
+
+
+class TestPatternSignatureBug22(unittest.TestCase):
+    """Bug 22 (v5.26a): consecutive digit runs collapse to a single 'D' token."""
+
+    def test_multi_digit_collapses_to_single_token(self):
+        # 2-digit and 3-digit integer parts all produce same signature as 1-digit.
+        self.assertEqual(pattern_signature("10.0"), "D.D")
+        self.assertEqual(pattern_signature("11.0"), "D.D")
+        self.assertEqual(pattern_signature("99.99"), "D.D")
+        self.assertEqual(pattern_signature("100.0"), "D.D")
+        self.assertEqual(pattern_signature("100"), "D")
+
+    def test_single_digit_signature_unchanged(self):
+        # Single-digit inputs must produce identical output before and after fix.
+        self.assertEqual(pattern_signature("9.0"), "D.D")
+        self.assertEqual(pattern_signature("1.0"), "D.D")
+        self.assertEqual(pattern_signature("a."), "l.")
+        self.assertEqual(pattern_signature("A."), "U.")
+
+    def test_mixed_class_runs_each_class_collapses_independently(self):
+        # Only D+ is collapsed (Bug 22 scope); U and l single-char inputs unchanged.
+        # Multi-digit prefix + letter suffix: digits collapse, letter preserved.
+        self.assertEqual(pattern_signature("10a"), "Dl")
+        # Digit-dot-digit (multi on both sides): both collapse.
+        self.assertEqual(pattern_signature("12.34"), "D.D")
+        # Non-digit classes with single chars are unaffected.
+        self.assertEqual(pattern_signature("A.b"), "U.l")
 
 
 if __name__ == "__main__":

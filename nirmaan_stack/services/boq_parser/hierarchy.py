@@ -111,8 +111,12 @@ _SUB_HEAD_RE = re.compile(
 def pattern_signature(sl_no: str) -> str:
     """
     Map each character of sl_no to a type token:
-      digit → 'D', uppercase → 'U', lowercase → 'l', other → literal char.
-    Examples: "1.0"->"D.D", "a."->"l.", "10.3"->"DD.D", "1a"->"Dl", "A."->"U.".
+      digit -> 'D', uppercase -> 'U', lowercase -> 'l', other -> literal char.
+    Then collapse consecutive same-class runs to a single token (Bug 22, v5.26a):
+      '10.0' -> 'D.D' (not 'DD.D'); '100' -> 'D' (not 'DDD').
+    This allows Rule A2-reframed signature equality to fire across single-digit /
+    multi-digit boundaries (e.g. sl_no '9.0' and '10.0' are signature-equal).
+    Examples: "1.0"->"D.D", "a."->"l.", "10.3"->"D.D", "1a"->"Dl", "A."->"U.".
     """
     result = []
     for ch in sl_no:
@@ -124,7 +128,8 @@ def pattern_signature(sl_no: str) -> str:
             result.append("l")
         else:
             result.append(ch)
-    return "".join(result)
+    signature = "".join(result)
+    return re.sub(r"D+", "D", signature)
 
 
 def first_numeric_token(sl_no: str) -> int | None:
