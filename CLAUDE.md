@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** [hash pending -- fix in next housekeeping cycle] IST (cycle 3 deep dive findings + agreement #43 + E4->E5 + 9-fix queue; Bug 12 SPLIT v5.26; parser tests 484 unchanged)
+**Last updated:** 2026-05-25 (v5.26 housekeeping cycle)
 
 ## Overview
 
