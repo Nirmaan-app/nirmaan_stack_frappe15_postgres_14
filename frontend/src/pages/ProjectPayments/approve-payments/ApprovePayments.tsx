@@ -34,6 +34,8 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import {
   DOC_TYPES,
   PAYMENT_STATUS,
@@ -45,7 +47,11 @@ import PaymentSummaryCards from "../PaymentSummaryCards";
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import {
+  formatToApproxLakhs,
+  formatToLakhsNumber,
+  formatToRoundedIndianRupee,
+} from "@/utils/FormatPrice";
 // import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -115,7 +121,18 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // --- Supporting Data Fetches (Keep these for lookups/calculations) ---
-  const projectsFetchOptions = getProjectListOptions();
+  // CEO Pending tab also surfaces Project Value; request that field only in
+  // CEO mode so the regular Approve Payments tab keeps its minimal projects
+  // fetch (and its existing shared SWR cache).
+  const projectsFetchOptions = useMemo(
+    () =>
+      getProjectListOptions(
+        isCEOMode
+          ? { fields: ["name", "project_name", "creation", "project_value"] }
+          : undefined
+      ),
+    [isCEOMode]
+  );
 
   // --- Generate Query Keys ---
   const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
@@ -152,11 +169,13 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     {
       fields: [
         "name",
+        "project",
         "status",
         "total_amount",
         "loading_charges",
         "freight_charges",
         "po_amount_delivered",
+        "amount_paid",
       ],
       limit: 100000,
     },
@@ -175,7 +194,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     },
     "SRs_ApprovePay"
   );
-  // For "Amt Paid" - fetch all paid payments for relevant documents
+  // For "Amt Paid" - fetch all paid payments for relevant documents.
+  // `project` is also needed in CEO mode to compute per-project outflow for
+  // the Cashflow Gap column.
   const {
     data: allPaidPayments,
     isLoading: paidPaymentsLoading,
@@ -183,11 +204,29 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   } = useFrappeGetDocList<ProjectPayments>(
     DOC_TYPES.PROJECT_PAYMENTS,
     {
-      fields: ["name", "document_name", "amount"],
+      fields: ["name", "document_name", "amount", "project"],
       filters: [["status", "=", PAYMENT_STATUS.PAID]],
       limit: 100000,
     },
     "AllPaidPayments_ApprovePay"
+  );
+
+  // --- CEO-Only Fetches for Cashflow Gap ---
+  // Match the formula on the master Projects list (projects.tsx):
+  //   cashflow_gap = (paid payments + expenses) + liabilities − inflow
+  // Liabilities are derived from `purchaseOrders` (po_amount_delivered vs
+  // amount_paid). Expenses and inflows are project-wide rollups, so we fetch
+  // them here gated to CEO mode only — the regular Approve Payments tab
+  // makes zero extra requests.
+  const { data: projectExpenses } = useFrappeGetDocList<ProjectExpenses>(
+    "Project Expenses",
+    { fields: ["projects", "amount"], limit: 100000 },
+    isCEOMode ? "ProjectExpenses_CEOPending" : null
+  );
+  const { data: projectInflows } = useFrappeGetDocList<ProjectInflows>(
+    "Project Inflows",
+    { fields: ["project", "amount"], limit: 100000 },
+    isCEOMode ? "ProjectInflows_CEOPending" : null
   );
 
   // --- Zustand Store & Memoized Lookups ---
@@ -274,6 +313,54 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       }, (docName: string, docType: string) => `${docName}-${docType}`),
     [purchaseOrders]
   );
+
+  // --- CEO Pending: Project Value + Cashflow Gap lookups ---
+  const getProjectValue = useMemo(() => {
+    const map = new Map<string, number>();
+    projects?.forEach((p) =>
+      map.set(p.name, parseNumber((p as Projects).project_value))
+    );
+    return (projectId?: string) =>
+      (projectId && map.get(projectId)) || 0;
+  }, [projects]);
+
+  const getProjectCashflowGap = useMemo(() => {
+    if (!isCEOMode) return () => 0;
+    const outflow = new Map<string, number>();
+    const liabilities = new Map<string, number>();
+    const inflow = new Map<string, number>();
+
+    allPaidPayments?.forEach((p) => {
+      if (!p.project) return;
+      outflow.set(p.project, (outflow.get(p.project) || 0) + parseNumber(p.amount));
+    });
+    projectExpenses?.forEach((e) => {
+      const proj = (e as any).projects;
+      if (!proj) return;
+      outflow.set(proj, (outflow.get(proj) || 0) + parseNumber(e.amount));
+    });
+    purchaseOrders?.forEach((po) => {
+      const proj = (po as any).project;
+      if (!proj) return;
+      const delivered = parseNumber(po.po_amount_delivered);
+      const paid = parseNumber((po as any).amount_paid);
+      const liability = Math.max(0, delivered - Math.min(paid, delivered));
+      if (liability) liabilities.set(proj, (liabilities.get(proj) || 0) + liability);
+    });
+    projectInflows?.forEach((i) => {
+      if (!i.project) return;
+      inflow.set(i.project, (inflow.get(i.project) || 0) + parseNumber(i.amount));
+    });
+
+    return (projectId?: string) => {
+      if (!projectId) return 0;
+      return (
+        (outflow.get(projectId) || 0) +
+        (liabilities.get(projectId) || 0) -
+        (inflow.get(projectId) || 0)
+      );
+    };
+  }, [isCEOMode, allPaidPayments, projectExpenses, purchaseOrders, projectInflows]);
 
   // --- Callbacks ---
   const handleNewPaymentSeen = useCallback(
@@ -384,7 +471,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             {formatDate(row.getValue("creation"))}
           </div>
         ),
-        size: 150,
+        size: 100,
         meta: {
           exportHeaderName: "Requested On",
           exportValue: (row: ProjectPayments) => formatDate(row.creation),
@@ -438,6 +525,56 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             row.project,
         },
       },
+      ...(isCEOMode
+        ? ([
+            {
+              id: "project_value",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Project Value" />
+              ),
+              cell: ({ row }) => {
+                const value = getProjectValue(row.original.project);
+                return (
+                  <div className="font-medium pr-2 tabular-nums">
+                    {value ? formatToApproxLakhs(value) : "N/A"}
+                  </div>
+                );
+              },
+              size: 100,
+              enableSorting: false,
+              meta: {
+                exportHeaderName: "Project Value (in Lakhs)",
+                exportValue: (row: ProjectPayments) =>
+                  formatToLakhsNumber(getProjectValue(row.project)),
+              },
+            },
+            {
+              id: "cashflow_gap",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Cashflow Gap" />
+              ),
+              cell: ({ row }) => {
+                const gap = getProjectCashflowGap(row.original.project);
+                return (
+                  <div
+                    className={`font-medium pr-2 tabular-nums ${
+                      gap > 0 ? "text-red-600" : "text-green-600"
+                    }`}
+                  >
+                    {formatToApproxLakhs(gap)}
+                  </div>
+                );
+              },
+              size: 100,
+              enableSorting: false,
+              meta: {
+                exportHeaderName: "Cashflow Gap (in Lakhs)",
+                exportValue: (row: ProjectPayments) =>
+                  formatToLakhsNumber(getProjectCashflowGap(row.project)),
+              },
+            },
+          ] as ColumnDef<ProjectPayments>[])
+        : []),
       {
         id: "po_value",
         header: ({ column }) => (
@@ -606,6 +743,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       getDocumentTotal,
       getAmountPaid,
       getPoAmountDelivered,
+      getProjectValue,
+      getProjectCashflowGap,
       allPaidPayments,
       readOnly,
       isCEOMode,
