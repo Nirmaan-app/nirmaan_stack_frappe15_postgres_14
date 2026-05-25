@@ -128,7 +128,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     () =>
       getProjectListOptions(
         isCEOMode
-          ? { fields: ["name", "project_name", "creation", "project_value"] }
+          ? { fields: ["name", "project_name", "creation", "project_value_gst"] }
           : undefined
       ),
     [isCEOMode]
@@ -318,7 +318,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const getProjectValue = useMemo(() => {
     const map = new Map<string, number>();
     projects?.forEach((p) =>
-      map.set(p.name, parseNumber((p as Projects).project_value))
+      map.set(p.name, parseNumber((p as Projects).project_value_gst))
     );
     return (projectId?: string) =>
       (projectId && map.get(projectId)) || 0;
@@ -530,7 +530,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             {
               id: "project_value",
               header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Project Value" />
+                <DataTableColumnHeader column={column} title="Project Value (incl.GST)" />
               ),
               cell: ({ row }) => {
                 const value = getProjectValue(row.original.project);
@@ -543,7 +543,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
               size: 100,
               enableSorting: false,
               meta: {
-                exportHeaderName: "Project Value (in Lakhs)",
+                exportHeaderName: "Project Value (incl.GST)",
                 exportValue: (row: ProjectPayments) =>
                   formatToLakhsNumber(getProjectValue(row.project)),
               },
