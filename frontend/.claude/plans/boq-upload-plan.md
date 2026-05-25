@@ -2,9 +2,9 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json). Phase 1.9f Stage 1 ✅ COMPLETE — multi-area triage diagnostic (chore c42eec9a + docs 458bed3d). Observability only; +0 parser tests. Phase 1.9g ✅ COMPLETE — pre-header rows skip fix (feat 40fb555c + docs 9b9bb664). Closes §17 #71. +3 parser tests. Phase 1.9h ✅ COMPLETE — auto-guess per-area column-role assignment (feat f9a3121e + docs 7e842385). Closes §17 #72. +14 parser tests (277 → 291). Phase 1.9i ✅ COMPLETE — single-area-targeted diagnostic (chore 7d588976 + docs c3b2ed1d). Observability only. Phase 1.9j ✅ COMPLETE — Mode C metric fix (chore 68befb2e + docs b2fbbb7e). Diagnostic metric repair. Phase 1.9k ✅ COMPLETE — Mode B + F + F3c broadened (feat 3cc3819c + docs 7ecee053). Parser keyword + punctuation work. Phase 1.9l ✅ COMPLETE — Mode D longest-match precedence (feat f00cc6ca + docs 900078d5). Supply/install keyword family. Phase 1.9m ✅ COMPLETE — Mode A auto-detect 2-row headers (feat c08ebd13 + docs cb3f8694). Phase 1.9n ✅ COMPLETE — re-run diagnostic + metric correction (chore 3af8e828 + docs 287ca670). Closes Phase 1.9j-1.9n locked cycle. Cumulative +46 parser tests across cycle (291 → 337). Pre-1.9o ✅ COMPLETE — 4 synthetic multi-area fixtures added (chore a97ff170 + docs e55d1691). Phase 1.9o ✅ COMPLETE — Tier A-merged pattern recognizer (feat 6f6214ba + docs 62e676e0). +20 parser tests (337 → 357). Phase 1.9p ✅ COMPLETE — append_to_notes keyword auto-assignment, 12 reference-code entries (feat 5d348e4a + docs 7fdbf764). +18 parser tests (357 → 375). First carve-out from "never auto-detect" rule of §7.34. Diagnostic Chore #1 ✅ COMPLETE — source_present_but_unparsed 4th metric bucket (chore 78ea7d49). Mitigates §17 #75. Diagnostic Chore #2 ✅ COMPLETE — two-mode output Mode 1 hrc=None + Mode 2 hrc=1 (chore 63bead94). Mitigates §17 #74. Diagnostic metric repair docs ✅ COMPLETE — combined Chore #1 + #2 documentation (docs 9fedf079). Expanded-subset retest ✅ COMPLETE — TARGETS 11 → 15, diagnostic_snapshots/ folder introduced (chore 9d4abf36 + docs 483b53bd + chore c8c9f234 + docs bf043492). Two-commit correction round-trip per agreement #32 codification. Bug 6 fix ✅ COMPLETE — convenience field summation (feat 47090d7d). Closes §17 #84. Bug 7 + Bug 9 + CRLF remediation ✅ COMPLETE — keyword word-order variants + CRLF normalization (feat 9a5b16cb + docs fe18b337). Closes §17 #85 + §17 #79 (reframed as Bug 9). v5.21 execution-layer experiment ✅ COMPLETE (in-chat, NOT committed per agreement #30) — Sequence C2 + E2 across 8 fixtures, 100% schema acceptance, Option 3 STRUCTURALLY VALIDATED. Surfaced Bugs 10-14 + Findings 15-16 + 4 operational learnings. **Bug 10 fix ✅ COMPLETE — same-row =SUM() SUBTOTAL_MARKER misfire closed (feat 798f4fd2 + docs 81efb8c5). Closes §17 #86. _is_cross_row_sum() helper in classifier.py gates FORMULA-path; text-regex path untouched. 131 expected misfires closed (VRF 57 + Societe Generale 74). Parser tests 409 → 429. Bug 10 coverage extension ✅ COMPLETE — TestBug10SocieteGeneraleHvacIntegration added (feat 94706b5c). Parser tests 429 → 434. Closes 73-row Societe Generale Bug 10 coverage gap. Bug 11 PARKED v5.22 (see §17.27) — misframed as classifier; root cause is hierarchy resolver parenting (11a: numeric-peer sibling gap, 11b: letter-sequence cascade §17.9). feat reverted f1839b1e, docs reverted debd5186. §7.28 orphan-children audit ✅ COMPLETE (feat 8a126846 + docs 5a440fc9): 47/82 target rows have ≥1 real-orphan descendant; 196 total; max 9 on single row. Informs parented-PREAMBLE blanket rule. Bug 13 Excel error literals normalization ✅ COMPLETE (feat 5ff93064): EXCEL_ERROR_LITERALS frozenset + _is_excel_error() helper in reader.py; all seven error strings (#REF!, #VALUE!, #NAME?, #DIV/0!, #NULL!, #N/A, #NUM!) normalized to None at iter_rows() cell-read time; 6 new tests in TestExcelErrorLiterals (4 unit + 2 integration); parser tests 434 -> 440. Closes §17.29 / sec 9 #89. Bill Of Quantities Electrical & ELV rows 4-22 audit ✅ COMPLETE (feat 3b0790f0): 0/19 rows differ between current and Approach A; 1 Bug 12 candidate (row 4 "SUB HEAD A"); Rule A1+A2 each fire 0 times in range; LINE_ITEM parenting (Bug 11a) unreachable by Approach A. Phase 2c next (unblocked). **Approach A-reframed audit ✅ COMPLETE (feat 16647958): Snitch A1=3/A2=27/indirect=0 total=30 of 521 rows; BoQ-ELV A1=0/A2=31/indirect=0 total=31 of 1186 rows. User sample review next (sec 9 #99 gating, exit criterion E3). Approach A-reframed land ✅ COMPLETE (feat 8f960a2b + docs see git log): Rule A1 (lowercase cascade fix, F5-tightened all-lowercase trigger) + Rule A2-reframed (sibling numeric peer fix) landed in hierarchy.py; approach_a_enabled: bool = True toggle; pattern_signature() + first_numeric_token() helpers; snitch_electrical_expected.json regenerated (LINE_ITEM 176->177, PREAMBLE 43->42, preamble_level_transitions 7->4 entries); test_approach_a_rules.py +24 tests; parser tests 440->464. Sec 9 #99 CLOSED. Working agreement #40 deferred pending Bug 12 diagnostic on 2 fixtures. Phase 2c next (unblocked). **SUB HEAD detection + universal subtotal-reset landing COMPLETE (feat 25a43617); sec 9 #100 + #101 CLOSED; working agreement #40 codified; Bug 12 + Bug 15 parked to Phase 3+ AI layer; PHASE 2c BUG-FIX CYCLE CLOSED; Phase 2c body next.**
 **Owner:** Internal team.
-**Last updated:** 2026-05-23 IST (SUB HEAD detection + universal subtotal-reset feat 25a43617; sec 9 #100 + #101 CLOSED; working agreement #40 codified; PHASE 2c BUG-FIX CYCLE CLOSED; parser tests 464->484; Phase 2c body next)
+**Last updated:** 2026-05-25 IST (cycle 3 deep dive findings + agreement #43 + E4->E5 + 9-fix queue; multi_area_merged_header_v1 dropped from reference set; Bug 12 SPLIT v5.26; parser tests 484 unchanged)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** SUB HEAD + universal subtotal-reset land — feat `25a43617` + docs see git log.
+**Latest commit:** [hash pending -- fix in next housekeeping cycle]
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -1206,9 +1206,560 @@ Working agreement #40 governs -- park to Phase 3+ AI review layer.
 
 ---
 
+### 17.44 [CYCLE 3 DEEP DIVE -- 9 DETERMINISTIC FIXES -- FIX QUEUE v5.26]
+
+Cycle 3 deep dive walked 7 fixtures (sg_hvac, safron, inovalon,
+bill_of_quantities, alorica 2row+1row A/B, snitch, raheja_commerzone_hvac;
+multi_area_merged_header_v1 dropped per Section 1A decisions log entry). 9 deterministic
+parser fixes identified, all meeting working agreement #40 deterministic-unambiguous
+bar. Implementation queued per agreement #43 (one cycle + validation).
+
+For each bug below: SYMPTOM (current behavior), CANONICAL FIXTURE EXAMPLES
+(rows from cycle 3 walk), ROOT CAUSE (parser layer + mechanism), FIX SPEC
+(what changes, in which module), EXPECTED POST-FIX BEHAVIOR (same rows
+after fix), CROSS-FIXTURE SAFETY.
+
+----------------------------------------------------------------------
+Bug 16 -- LINE_ITEM-without-unit demotion (symmetric inverse of §7.28)
+Layer: classifier.py
+----------------------------------------------------------------------
+
+SYMPTOM: Rows with no unit string but with sl_no + description + zero qty
+(typically from SUM-formula over blank cells or explicit 0 typed by author)
+classify as LINE_ITEM. These rows are structurally either sub-section
+headers (should be PREAMBLE) or spacer/separator rows (should be SPACER).
+
+CANONICAL FIXTURE EXAMPLES:
+- sg_hvac rows 12, 16, 29: sl_no=1.01/1.02/1.06, description present
+  (e.g., "Supply, fabrication... site fabricated rectangular ducts"),
+  unit blank, qty_total cell contains "=SUM(D:F)" evaluating to 0 over
+  blank D/E/F. Classify as LINE_ITEM, parent under r6 sl=1.0. Should be
+  sub-section header PREAMBLEs at level 2 under r5 SUB HEAD A AIR
+  DISTRIBUTION.
+- sg_hvac rows 11, 15, 22, 24, 26, 28, 32, 34, 36 (and many more): visually
+  blank rows with G="=SUM(D:F)" evaluating to 0 over blank D/E/F.
+  Classify as LINE_ITEM with qty=0.0. Should be SPACER.
+- safron: 0 catches across 61 rows. Every LINE_ITEM has unit; every
+  PREAMBLE has no unit. Rule does not misfire on this fixture.
+
+ROOT CAUSE: Classifier 5-stage evaluation step 5 (PREAMBLE/LINE_ITEM/NOTE
+decision) routes to LINE_ITEM whenever any numeric cell is present
+(qty/rate/amount). Policy X (§7.25) preserves explicit zero as 0.0 in
+qty/rate/amount, so SUM-of-blanks evaluating to 0 is "present". The
+classifier rule does not check unit column presence. §7.28 (unit-based
+PREAMBLE demotion) handles the opposite case (PREAMBLE-with-unit->
+LINE_ITEM); the symmetric inverse (LINE_ITEM-without-unit->demote-out)
+was missing.
+
+FIX SPEC: Add new classifier post-pass in classifier.py:
+`_apply_unit_blank_demotion_post_pass(classified_rows)`. Runs after
+§7.28 unit-based PREAMBLE demotion, before preamble candidate scoring.
+For each LINE_ITEM row where `unit is None or unit == ""`: route through
+re-classification:
+  - If qty/rate/amount all None or all 0.0 AND description blank -> SPACER
+  - If description present AND sl_no present -> PREAMBLE
+  - If description present AND sl_no blank -> NOTE
+Together with §7.28, the rule pair forms the biconditional: a row is
+LINE_ITEM if and only if it has a unit (modulo SPACER/HEADER_REPEAT/
+SUBTOTAL_MARKER caught at earlier classifier steps).
+
+EXPECTED POST-FIX BEHAVIOR:
+- sg_hvac r12 (sl=1.01, no unit): classifies as PREAMBLE level 2,
+  parents under sub-section header (after Bug 20 fix; otherwise rootless
+  level 2). Currently buried as LINE_ITEM under r6.
+- sg_hvac r11 (blank, no unit, qty=0 via SUM): classifies as SPACER.
+  Currently LINE_ITEM with qty=0.0.
+- safron: no change (rule doesn't fire on any row -- every LINE_ITEM
+  already has unit).
+
+CROSS-FIXTURE SAFETY: Verified across 7 fixtures during cycle 3 deep dive.
+Every LINE_ITEM with real data has unit. No misfires. Rule is strictly
+additive -- only re-routes rows that don't meet LINE_ITEM criteria already.
+
+----------------------------------------------------------------------
+Bug 17 -- Reader-layer auto-trim for text-role columns
+Layer: reader.py
+----------------------------------------------------------------------
+
+IMPLEMENTATION-DESIGN NOTE: This fix introduces column-role awareness in
+reader.py (text-role columns use cell.number_format formatting; numeric-role
+columns keep raw float). Currently reader.py does not know column roles --
+it returns CellInfo with raw values. Cross-layer plumbing required. Flagged
+during Checklist C audit C7. Decide approach at fix-prompt drafting time:
+(a) reader takes role-map at construction, (b) post-read transformation
+in orchestrator before classifier, (c) classifier-side text-coercion using
+format string. All three achieve the same outcome.
+
+SYMPTOM: sl_no (and other text-role columns like append_to_notes) read as
+Python str() of float, losing user-intended display formatting. Two
+failure modes:
+(i) Trailing zero trim: BoQ author types "1.10" in numeric-formatted cell,
+    Excel stores as float 1.1, str(1.1) returns "1.1". Author's "1.10" intent
+    lost.
+(ii) Float precision noise: BoQ author writes a formula like =A30+0.1,
+     Excel evaluates to 2.3000000000000003 (IEEE 754), openpyxl returns
+     the float, str(2.3000000000000003) returns the full precision string.
+
+CANONICAL FIXTURE EXAMPLES:
+- alorica r31: sl_no="2.3000000000000003" (formula result, intended "2.3"
+  or "2.30")
+- alorica r33: sl_no="2.4000000000000004" (intended "2.4")
+- alorica r45: sl_no="3.0199999999999996" (intended "3.02")
+- alorica r52: sl_no="3.0299999999999994" (intended "3.03")
+- sg_hvac r39: sl_no="1.1" (sequence is 1.07, 1.08, 1.09, 1.1, 1.11, 1.12 --
+  likely author typed "1.10" but Excel stored as 1.1 because default numeric
+  formatting trims trailing zeros)
+
+ROOT CAUSE: reader.py iter_rows() uses openpyxl data_only=True mode and
+passes cell.value through. str() coercion happens downstream (classifier.py
+reads cell value for sl_no). For floats, str() loses both trailing zeros
+(from Excel's display format) and exposes IEEE 754 precision artifacts
+(from formula evaluation).
+
+FIX SPEC: Add helper to reader.py:
+`_format_numeric_as_displayed(value, number_format) -> str`. Logic:
+  - If value is int or value is None: return str(value) or "" respectively.
+  - If value is float AND number_format matches a known precision pattern
+    (e.g., "0.0", "0.00", "0.000"): use Python format-spec, e.g.,
+    format(2.3000000000000003, ".2f") -> "2.30".
+  - If value is float AND number_format is "General": apply
+    conservative rounding (e.g., round(value, 10) then strip trailing zeros
+    with care to preserve at least 1 decimal if format hints).
+  - If value is str: pass through unchanged.
+Apply to text-role columns only (sl_no, append_to_notes, description, unit,
+make_model) -- NOT to numeric-role columns (qty/rate/amount which need raw
+float for math).
+
+EXPECTED POST-FIX BEHAVIOR:
+- alorica r31: sl_no="2.30" (or "2.3" depending on cell number_format)
+- alorica r45: sl_no="3.02"
+- sg_hvac r39: sl_no="1.10" if number_format is "0.00", or "1.1" if
+  "General" -- depending on what's actually in source cell format.
+
+CROSS-FIXTURE SAFETY: Bug 17 fixes can only IMPROVE output, never regress --
+the worst case is a no-op (number_format is "General" and value already
+cleanly formatted). Cross-checked across 6 walked fixtures: snitch, raheja,
+boq, safron, inovalon all use clean sl_nos with no precision noise; sg_hvac
+and alorica are the catches.
+
+----------------------------------------------------------------------
+Bug 18 -- Merged-cell banner rows produce false LINE_ITEMs
+Layer: reader.py + classifier.py
+----------------------------------------------------------------------
+
+IMPLEMENTATION-DESIGN NOTE: Like Bug 17, introduces cross-layer awareness
+(is_merged_origin flag propagation from reader to classifier). Same Checklist
+C7 concern. Decide at fix-prompt drafting time.
+
+PRE-IMPLEMENTATION VERIFICATION PENDING: Excel verification of safron r41
+banner type (single merged cell spanning columns A-G? or single cell in B
+with rest blank?) not yet performed at v5.26 housekeeping time. Implementation
+prompt should re-verify against source xlsx before coding.
+
+SYMPTOM: When BoQ author uses a banner-style section header that spans
+multiple columns via merged cells, the per-cell merge propagation logic
+(Phase 2b.2 Part A1, v5.10) copies the banner text into every covered cell.
+Classifier then sees the same string in A (sl_no), B (description), C (unit),
+etc. and routes to LINE_ITEM.
+
+CANONICAL FIXTURE EXAMPLE:
+- safron r41: PART-2 INSULATION banner. CSV shows raw_A="PART- 2 INSULATION",
+  raw_B="PART- 2 INSULATION", raw_C="PART- 2 INSULATION" (and likely more
+  columns). Classifies as LINE_ITEM with sl_no="PART- 2 INSULATION",
+  unit="PART- 2 INSULATION", qty=0.0. Semantically a section-header banner.
+
+ROOT CAUSE: Part A1 (v5.10) extended iter_rows() so cells covered by a
+merged range inherit the origin cell's value. The is_merged_origin flag
+distinguishes origin from covered, but downstream consumers (classifier)
+don't currently see this flag -- they read CellInfo.value and treat every
+cell equivalently. When the banner is the only content on the row, the
+inheritance produces "same string everywhere" which trips multiple role
+checks.
+
+FIX SPEC: Two-part:
+(1) reader.py CellInfo already carries is_merged_origin: bool -- confirm
+    it's available. (Verify in classify_row signature what fields are
+    passed; may already be accessible via the row dict.)
+(2) classifier.py: add check at top of classify_row() (after SPACER/
+    HEADER_REPEAT/SUBTOTAL detection): if all populated cells in the row
+    have identical value AND are covered cells of the same merged range
+    (not the origin), AND no numeric data anywhere -> classify as NOTE
+    (section-header NOTE). This NOTE then gets caught by Bug 20 anchor 1/2/3
+    rules and promoted to PREAMBLE.
+
+EXPECTED POST-FIX BEHAVIOR:
+- safron r41: classifies as NOTE first, then Bug 20 anchor 2 fires
+  (preceded by SUBTOTAL_MARKER at r39) -> promoted to section-header
+  PREAMBLE level 0. r43 ACCOUSTIC INSULATION (also NOTE banner) then
+  promoted via Bug 20 anchor 3 (post-promoted-PREAMBLE).
+
+CROSS-FIXTURE SAFETY: Banner-style section headers seen only in safron r41
+among walked fixtures. SUB HEAD pattern in BoQ is single-cell (sl_no="SUB
+HEAD A" in column A only); different pattern, handled by existing v5.25
+§17.41 SUB HEAD detection. Cross-fixture check during cycle 3 re-run will
+validate Bug 18 doesn't misfire on legitimate same-value-across-cells cases
+(unlikely to exist but worth confirming).
+
+----------------------------------------------------------------------
+Bug 19 -- Priced-PREAMBLE detection via sl_no signature (LINE_ITEM step)
+Bug 19-ext -- Same logic extended to PREAMBLE attachment step
+Layer: hierarchy.py
+----------------------------------------------------------------------
+
+SYMPTOM: LINE_ITEMs with sl_no signature matching nearby PREAMBLE family
+but having quantitative data (so classifier correctly tags LINE_ITEM)
+attach to wrong parent because hierarchy resolver attaches LINE_ITEMs to
+top-of-stack only.
+
+CANONICAL FIXTURE EXAMPLES:
+- sg_hvac r25: sl_no="1.04" LINE_ITEM (real qty data, "plenum with Double
+  skin AHU"). Parents under r6 (sl=1.0 PREAMBLE) which is a section-content
+  parent. Should be sibling-of-r6, parented under r5 SUB HEAD A
+  AIR DISTRIBUTION.
+- safron r34 (sl=8.0), r35 (sl=9), r37 (sl=10.0): all LINE_ITEMs with real
+  data. Parent under r30 (sl=7.0 PREAMBLE) instead of being level-1
+  sibling sections.
+- inovalon r22: sl_no="1.3" PREAMBLE parented under r19 (sl=2.0)
+  PREAMBLE instead of r6 (sl=1.0) EQUIPMENTS -- same-family sibling gap at
+  the PREAMBLE attachment step. This is Bug 19-ext.
+
+ROOT CAUSE: v5.25 Rule A2-reframed fires at LINE_ITEM attachment with
+`pattern_signature(LINE_ITEM.sl_no) == pattern_signature(top.sl_no)` AND
+`first_numeric_token(LINE_ITEM.sl_no) != first_numeric_token(top.sl_no)`.
+Two extensions needed:
+(a) Bug 19: A2-reframed currently only re-parents to top's parent (one
+    level up). It should also flag the LINE_ITEM as `needs_classification_
+    review = True` with `review_reason = "priced_preamble_with_children"`
+    analogue, so wizard can surface for user review (similar to §7.30).
+(b) Bug 19-ext: A2-style logic at LINE_ITEM step doesn't apply to
+    PREAMBLEs. The PREAMBLE-PREAMBLE case (inovalon r22 sl=1.3 should
+    parent under r6 sl=1.0 instead of r19 sl=2.0) is unaddressed.
+
+FIX SPEC:
+(a) Bug 19: extend A2-reframed action to also set
+    `needs_classification_review=True` + `review_reason=
+    "priced_preamble_via_signature"` on the re-parented LINE_ITEM. Wizard
+    reads this in review pass.
+(b) Bug 19-ext: in `_determine_preamble_level`, after Rule A1 fires (or if
+    A1 doesn't apply), check stack for entries with same pattern_signature
+    AND different first_numeric_token. If found, set level to that entry's
+    level and parent to that entry's parent (sibling-under-grandparent
+    pattern, mirroring A2-reframed).
+
+EXPECTED POST-FIX BEHAVIOR:
+- sg_hvac r25 sl=1.04: A2-reframed already fires here (re-parents to None
+  if r6's parent is None; with Bug 20-ext, r6 parents under r5 so r25
+  becomes sibling of r6 under r5). Bug 19 adds review flag.
+- safron r34/35/37: A2-reframed fires, re-parents to None (rootless). Bug 19
+  adds review flag.
+- inovalon r22: Bug 19-ext fires in _determine_preamble_level. Scans stack
+  for signature match with different first_token. Finds r6 (sl=1.0,
+  signature "D.D", first_token 1). r22 (sl=1.3, signature "D.D",
+  first_token 1) -- wait, same first_token. Doesn't fire on this rule;
+  actually correctly parents under r6 (already L1 PREAMBLE) at level 2.
+  The Inovalon r22 issue is different: it should parent under r6 (sl=1.0)
+  not r19 (sl=2.0); but the current resolver pops r6 when r19 enters
+  (same level). After r19 pops r6, r22 sees only r19 on stack.
+  THE FIX: Bug 19-ext applies when r22 enters -- it should scan FULL stack
+  history (not just top), find r6 in the path (lookback), and re-parent
+  to r6. This requires a stack-history scan, more complex than A2's
+  top-only check. Implementation detail to be worked out in fix-prompt
+  drafting.
+
+CROSS-FIXTURE SAFETY: A2-reframed firing pattern already validated in
+v5.25 (61 firings across Snitch + BoQ ELV, all correct). Extension to add
+review flag is strictly additive -- no behavior change for the parenting
+itself. Bug 19-ext extension to PREAMBLE step requires careful audit
+before locking spec.
+
+----------------------------------------------------------------------
+Bug 20 anchor 1 + 2 + 3 -- Section-header NOTE -> PREAMBLE
+Layer: classifier.py + hierarchy.py
+----------------------------------------------------------------------
+
+SYMPTOM: BoQ section-header rows that have only description text (no
+sl_no, no numeric data) classify as NOTE per classifier rules
+(description-only with no sl_no -> NOTE). They should be PREAMBLEs at
+the section-root level, with subsequent numeric PREAMBLEs / LINE_ITEMs
+parenting under them.
+
+CANONICAL FIXTURE EXAMPLES:
+- safron r5: "PART-1 AIR DISTRIBUTION SYSTEM" NOTE (no sl_no, no
+  numeric). First non-spacer non-header row after header. Should be
+  section-header PREAMBLE. Subsequent rows r7-r39 (sl=1.0 through 8.0
+  and SUBTOTAL r39) all rootless level-1; should be children of r5.
+- safron r41: "PART-2 INSULATION" (currently false LINE_ITEM per
+  Bug 18 due to merged-cell banner; after Bug 18 fix becomes NOTE).
+  First non-spacer after SUBTOTAL r39. Should be section-header
+  PREAMBLE. Subsequent r44 (sl=1.0), r46 (sl=2.0) and r48 SUBTOTAL
+  should be children.
+- safron r43: "ACCOUSTIC INSULATION" NOTE. First non-spacer after
+  promoted PREAMBLE r41 (anchor 3 -- post-promoted-section-header).
+  Should be sub-section-header PREAMBLE under r41. Subsequent r44/r46
+  parent under r43, which parents under r41.
+- bill_of_quantities r4: "SUB HEAD A WIRING IN STEEL & PVC CONDUIT"
+  already classifies as PREAMBLE per v5.25 §17.41 SUB HEAD detection.
+  Bug 20 anchors don't change this -- SUB HEAD rule fires first. Bug
+  20-ext level-0 applies (see next bug).
+
+ROOT CAUSE: Classifier rule "description-only with no sl_no -> NOTE" is
+correct for inline notes but mislabels banner-style section headers.
+Hierarchy resolver then treats NOTE as content (attaches to topmost
+PREAMBLE), not as structural element.
+
+FIX SPEC: Add new hierarchy.py post-pass
+`_apply_section_header_note_promotion_post_pass(classified_rows)`. Three
+anchor patterns:
+(1) Anchor 1 -- header: First non-spacer non-header row after the header
+    row, where row is NOTE-classified with no sl_no, no numeric data.
+    Promote to PREAMBLE at level 0.
+(2) Anchor 2 -- subtotal: First non-spacer row after a SUBTOTAL_MARKER,
+    same NOTE criteria. Promote to PREAMBLE at level 0.
+(3) Anchor 3 -- post-promoted-section-header: First non-spacer row after
+    a PREAMBLE that was just promoted via anchor 1 or 2 (one-step
+    recursive), same NOTE criteria. Promote to PREAMBLE at level 1
+    under the just-promoted ancestor.
+Run BEFORE existing v5.25 SUB HEAD detection (so SUB HEAD takes priority
+if applicable).
+
+EXPECTED POST-FIX BEHAVIOR:
+- safron r5: anchor 1 fires -> PREAMBLE level 0. r7/r13/r17/.../r37
+  (level-1 sections 1.0 through 8.0) parent under r5.
+- safron r41: Bug 18 demotes from LINE_ITEM to NOTE first; then anchor 2
+  fires (preceded by SUBTOTAL r39) -> PREAMBLE level 0. r44/r46 (sl=1.0
+  and 2.0) parent under r41.
+- safron r43: anchor 3 fires (post-promoted r41) -> PREAMBLE level 1
+  under r41. r44/r46 parent under r43.
+
+CROSS-FIXTURE SAFETY:
+- sg_hvac: r5 SUB HEAD-style is already PREAMBLE via sl_no=A -> existing
+  rule covers, Bug 20 doesn't fire (no NOTE preceding).
+- inovalon: r36-r40 cluster ("Central Air Cleaner for AHUs", etc.) NOT
+  caught by any of the 3 anchors -- no header/subtotal/promoted-PREAMBLE
+  immediately precedes. STAYS PARKED to Phase 3+ AI per agreement #43.
+- snitch: pre-section INDEX (rows 3-10 PREAMBLEs + r11 SUBTOTAL) already
+  works under universal subtotal-reset; Bug 20 anchors don't fire (no
+  NOTE-classified section headers).
+- raheja: section markers are PREAMBLEs (sl=1/2/3/4), not NOTEs. Bug 20
+  doesn't fire.
+
+----------------------------------------------------------------------
+Bug 20-ext -- Section-header PREAMBLEs at LEVEL 0 (closes v5.25 §17.41
+             PARKED limitation)
+Layer: hierarchy.py
+----------------------------------------------------------------------
+
+SYMPTOM: Section-header PREAMBLEs (detected via SUB HEAD pattern v5.25,
+or via Bug 20 anchors 1-3 newly above) are assigned level=1. Subsequent
+numeric PREAMBLEs (sl_no like "1.0", "2.0") also resolve to level=1.
+Stack-walk rule "pop while top.level >= candidate.level" pops the
+section-header PREAMBLE when a level-1 numeric PREAMBLE enters. Section
+headers become functionally useless as parents -- numeric PREAMBLEs become
+rootless.
+
+CANONICAL FIXTURE EXAMPLE:
+- bill_of_quantities r4: SUB HEAD A WIRING IN STEEL & PVC CONDUIT,
+  currently level=1, rootless.
+- bill_of_quantities r6 sl=1.0, r9 sl=2.0, r11 sl=3.0, r13 sl=4.0,
+  r25 sl=7.0, r30 sl=8.0, r38 sl=10.0, r43 sl=11.0, r52 sl=14.0:
+  all level=1, all rootless. None parent under r4 SUB HEAD A.
+
+ROOT CAUSE: v5.25 §17.41 explicitly set SUB HEAD to level=1 with the
+reasoning that level=0 would break existing tests asserting level=1 +
+parent=None for the 21 SUB HEAD rows. The PARKED rationale was
+"Parenting numeric PREAMBLEs under SUB HEAD section markers requires
+stateful section-aware level overrides -- fuzzy logic, violates working
+agreement #40." But the fix is NOT fuzzy -- it's a single level-assignment
+change.
+
+FIX SPEC: Modify hierarchy.py SUB HEAD detection branch and Bug 20
+anchors 1-3 promotion logic: section-header PREAMBLEs (whether detected
+via SUB HEAD regex or via Bug 20 anchors 1-3) get `level=0` instead of
+`level=1`. Numeric/letter PREAMBLEs continue to resolve to level=1+ via
+existing 10-priority logic; stack-walk pop rule unchanged. Result:
+level=0 section headers do not get popped by level=1 numeric PREAMBLEs;
+numeric PREAMBLEs correctly parent under the level=0 section header.
+
+Test calibration: 21 SUB HEAD rows in BoQ ELV currently asserted at
+level=1 + parent=None. After fix: level=0 + parent=None (still rootless
+at section-root level). Test JSONs need regeneration. NOT a regression
+-- it's an explicit calibration update for the corrected behavior.
+
+EXPECTED POST-FIX BEHAVIOR:
+- bill_of_quantities r4 SUB HEAD A: level=0, parent=None.
+- bill_of_quantities r6 sl=1.0: level=1, parent=r4. (Currently
+  level=1, parent=None.)
+- bill_of_quantities r9 sl=2.0: level=1, parent=r4 (A2-reframed
+  re-parents from r6's parent which is now r4).
+- All sl=1.0 through 14.0 PREAMBLEs/LINE_ITEMs in section A parent
+  under r4 SUB HEAD A. Section structure correctly modeled.
+
+CROSS-FIXTURE SAFETY:
+- bill_of_quantities is the high-impact case. Closes v5.25 §17.41
+  PARKED limitation.
+- safron r5/r41 (post Bug 20 anchor 1+2): also become level=0, get
+  correct children.
+- sg_hvac r5 (already PREAMBLE level=1 via sl_no=A): unaffected -- only
+  promoted-via-anchor section headers get level=0. Existing PREAMBLEs
+  with explicit sl_no keep their level.
+- inovalon, snitch, raheja: no SUB HEAD pattern, no Bug 20 anchor
+  promotions -> unaffected.
+
+----------------------------------------------------------------------
+Bug 22 -- Token-based pattern_signature (collapses consecutive digits)
+Layer: hierarchy.py
+----------------------------------------------------------------------
+
+SYMPTOM: v5.25 `pattern_signature(sl_no)` is per-character: digits->D,
+uppercase->U, lowercase->l, other chars literal. This means "9.0" produces
+"D.D" but "10.0" produces "DD.D". Rule A2-reframed requires signature
+equality between LINE_ITEM and stack-top PREAMBLE. When section
+numbering crosses single-digit->multi-digit boundary, A2 stops firing.
+
+CANONICAL FIXTURE EXAMPLE:
+- snitch r48 sl_no="10.0" LINE_ITEM: stack at processing has
+  [r14(A., L1), r31(3.0, L2)]. pattern_signature("10.0")="DD.D",
+  pattern_signature("3.0")="D.D" -- DIFFERENT. A2-reframed does not fire.
+  r48 attaches to top of stack = r31. Should be sibling of r6 sl=1.0,
+  r9 sl=2.0, etc. (all parent under r14).
+- snitch r50 sl_no="11.0": same issue, also parents under r31.
+
+ROOT CAUSE: pattern_signature implementation maps each character
+independently. Multi-digit integers produce N consecutive D's, breaking
+equivalence with single-digit-prefix counterparts.
+
+FIX SPEC: Modify `pattern_signature` to collapse consecutive same-class
+characters into a single token. Two equivalent implementations:
+(a) Regex-based: `re.sub(r"D+", "D", signature)` after current per-char
+    mapping. "DD.D" -> "D.D", "DDD.DD" -> "D.D".
+(b) Token-iteration: split by separator characters ("."), classify each
+    token as "numeric"/"alpha"/"mixed" using the token's character classes.
+    "10.0" -> ["numeric","numeric"], "3.0" -> ["numeric","numeric"]. Match.
+
+Implementation choice: option (a) is the smaller change -- one line of
+regex post-processing on existing function output. Tests need updating:
+pattern_signature unit tests asserting "DD.D" for "10.0" should assert
+"D.D" instead.
+
+EXPECTED POST-FIX BEHAVIOR:
+- snitch r48 sl_no="10.0": pattern_signature now "D.D" matches r31's
+  "D.D". A2-reframed fires: same signature, first_token differs
+  (10 != 3). Re-parent to r31's parent. r31's parent is r14 (sl=A.).
+  r48 attaches to r14. Correct.
+- snitch r50 sl_no="11.0": same, parents under r14.
+- Same fix benefits any BoQ section with >=10 numbered items where the
+  10+ items are LINE_ITEMs.
+
+CROSS-FIXTURE SAFETY: STRICTLY ADDITIVE. The change only enables
+additional A2-reframed firings (previously blocked by signature
+mismatch). Existing firings (where signatures already matched, e.g.,
+Snitch sl=2.0 through 9.0, BoQ ELV sl=2.0/3.0 vs 1.0) continue to fire
+identically -- "D.D" still equals "D.D" under the new signature. No
+existing-correct case becomes wrong. Test count: pattern_signature
+unit tests need recalibration (~5-8 assertions), no integration test
+regression expected.
+
+----------------------------------------------------------------------
+Cross-bug interactions and implementation ordering
+----------------------------------------------------------------------
+
+Implementation will be batched per agreement #43 time-box (5-7 sessions
+for all 9 fixes + cycle 3 validation re-run). Recommended cluster split:
+
+CLUSTER 1 -- classifier.py + reader.py (~3 sessions):
+- Bug 16 (classifier post-pass -- unit-blank demotion)
+- Bug 17 (reader format helper + classifier integration)
+- Bug 18 (merged-cell banner detection -- depends on Bug 17 architecture
+  decision for cross-layer plumbing)
+
+CLUSTER 2 -- hierarchy.py (~3 sessions):
+- Bug 22 (pattern_signature token-collapse -- smallest, lands first)
+- Bug 19 (review flag on A2-reframed firings)
+- Bug 19-ext (PREAMBLE-step signature siblings)
+- Bug 20 anchors 1 + 2 + 3 (new post-pass)
+- Bug 20-ext (level-0 framing -- needs Bug 20 anchors landed first)
+
+VALIDATION -- cycle 3 re-run (~1 session):
+- Re-run cycle 3 against 8 fixtures (multi_v1 dropped)
+- Manual review of resolved-row outputs vs current baseline
+- Confirm no regressions on 484 parser tests (or accept calibrated
+  test JSON updates for Bug 20-ext / Bug 22 / Bug 19)
+
+Cross-bug interactions to watch:
+- Bug 16 + Bug 18: both re-route rows out of LINE_ITEM. Bug 18 fires
+  earlier (in classify_row body); Bug 16 fires later (post-pass). No
+  conflict.
+- Bug 16 + Bug 20: Bug 16 may demote a LINE_ITEM to PREAMBLE
+  (description+sl_no, no unit). Bug 20 anchors then fire on NOTE rows
+  (Bug 16 doesn't produce NOTE from LINE_ITEM unless sl_no blank).
+  No conflict.
+- Bug 20 + Bug 20-ext: must fire in order -- anchors 1/2/3 promote NOTE
+  to PREAMBLE first, then level-0 framing applies to those PREAMBLEs.
+- Bug 22 + Rule A2-reframed: Bug 22 only changes signature output;
+  A2-reframed's match logic unchanged. Bug 22 strictly adds firings.
+- Bug 19 + §7.30: similar review flag namespace. Reason strings differ
+  (priced_preamble_via_signature vs priced_preamble_with_children).
+  One-writer-per-review_reason invariant (§22.11 invariant 5) preserved.
+
+---
+
 ## Decisions log
 
 Newest at the top.
+
+---
+
+### 2026-05-25 -- Cycle 3 deep dive + boundary-setting + 9-fix queue
+
+**[DECISION] Working agreement #43 codified:** "Parser-fix work is bounded.
+One round of deterministic fixes per identified-bug-batch + one validation
+cycle. New bugs surfacing post-validation go to Phase 3+ AI resolution
+layer, unless something strikingly deterministic and high-impact emerges.
+Handwritten BoQs have infinite error combinations; we accept parser
+limitations and rely on AI for residual disambiguation." Extends agreements
+#34 (cycle termination) and #40 (no fuzzy parser rules) by bounding the
+number of fix cycles per bug-batch to one + validation.
+
+**[DECISION] Phase exit criterion E4 (v5.25) SUPERSEDED by E5 (v5.26):**
+"All 9 deterministic fixes from cycle 3 deep dive landed AND cycle 3 re-run
+validates against the 8 fixtures (multi_v1 dropped) AND activity 2b-3
+schema migration started." Three binary, measurable components. Replaces
+E4's "Phase 2c body sub-phase scoped or first sub-phase started OR Phase 2c
+officially closed and wizard phase started, with explicit rationale."
+
+**[DECISION] Cycle 3 fix-cycle time-box:** 5-7 working sessions total for all
+9 deterministic fixes + cycle 3 validation re-run, batched implementation
+(~4 fixes per cluster + 1 validation pass). Hard cap at 7 sessions; if
+exceeded, accept what landed and move to activity 2b-3.
+
+**[DECISION] multi_area_merged_header_v1 fixture DROPPED from cycle 3 /
+wizard-design reference set.** Confirmed as synthetic stress test (extra
+blank column inserted at position E into BoQ source xlsx, declared as
+Area 1 in config, original qty column re-declared as Area 2). Byte-identical
+classification distributions with bill_of_quantities because classification
+doesn't depend on which column holds qty. Keep as test-suite fixture for
+multi-area regression coverage; remove from cycle 3 reference set.
+
+**[DECISION] AI-upfronting for Phase 2c body wizard scoping: NOT NEEDED.**
+9 deterministic parser fixes cover the bulk of classification and hierarchy
+issues observed across 7 fixtures. Wizard scoping work proceeds without AI
+dependency. AI layer scoped to Phase 3+ for residual handwritten-BoQ
+disambiguation per agreement #43.
+
+**[DECISION] Bug 12 (sec 9 #88) disposition SPLIT v5.26:** deterministic portion
+(section-header NOTEs detectable via positional anchors) goes to FIX QUEUE
+as Bug 20 anchors 1-3 + Bug 20-ext level-0. Residual (Inovalon mid-section
+uppercase NOTE clusters at r36-r40 with no positional anchor) stays Phase 3+
+AI per agreement #43. Bug 14 (letter-suffix cosmetic), Bug 15 (sl_no semantic
+repeats), and LINE_ITEM-as-missing-ancestor (alorica r35->r37) all stay
+Phase 3+ AI; no further parser-layer attempts.
+
+**[DECISION] Checklist C audit at v5.26 close -- all 7 items dispositioned:**
+C1 PASS-with-tightening (E4->E5), C2 PASS at 5-item ceiling, C3 PASS
+(power-user framing), C4 PASS (declarative wizard Option 3b confirmed),
+C5 PASS (cycle 3 done, next check in E5), C6 PASS-with-time-box (5-7
+sessions), C7 PASS (wizard spec exists, deep dive validated mapping;
+Bug 17 + Bug 18 layering notes flagged for fix-prompt drafting time).
 
 ---
 
