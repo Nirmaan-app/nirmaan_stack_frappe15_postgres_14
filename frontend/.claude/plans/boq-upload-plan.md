@@ -2,9 +2,9 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json). Phase 1.9f Stage 1 ✅ COMPLETE — multi-area triage diagnostic (chore c42eec9a + docs 458bed3d). Observability only; +0 parser tests. Phase 1.9g ✅ COMPLETE — pre-header rows skip fix (feat 40fb555c + docs 9b9bb664). Closes §17 #71. +3 parser tests. Phase 1.9h ✅ COMPLETE — auto-guess per-area column-role assignment (feat f9a3121e + docs 7e842385). Closes §17 #72. +14 parser tests (277 → 291). Phase 1.9i ✅ COMPLETE — single-area-targeted diagnostic (chore 7d588976 + docs c3b2ed1d). Observability only. Phase 1.9j ✅ COMPLETE — Mode C metric fix (chore 68befb2e + docs b2fbbb7e). Diagnostic metric repair. Phase 1.9k ✅ COMPLETE — Mode B + F + F3c broadened (feat 3cc3819c + docs 7ecee053). Parser keyword + punctuation work. Phase 1.9l ✅ COMPLETE — Mode D longest-match precedence (feat f00cc6ca + docs 900078d5). Supply/install keyword family. Phase 1.9m ✅ COMPLETE — Mode A auto-detect 2-row headers (feat c08ebd13 + docs cb3f8694). Phase 1.9n ✅ COMPLETE — re-run diagnostic + metric correction (chore 3af8e828 + docs 287ca670). Closes Phase 1.9j-1.9n locked cycle. Cumulative +46 parser tests across cycle (291 → 337). Pre-1.9o ✅ COMPLETE — 4 synthetic multi-area fixtures added (chore a97ff170 + docs e55d1691). Phase 1.9o ✅ COMPLETE — Tier A-merged pattern recognizer (feat 6f6214ba + docs 62e676e0). +20 parser tests (337 → 357). Phase 1.9p ✅ COMPLETE — append_to_notes keyword auto-assignment, 12 reference-code entries (feat 5d348e4a + docs 7fdbf764). +18 parser tests (357 → 375). First carve-out from "never auto-detect" rule of §7.34. Diagnostic Chore #1 ✅ COMPLETE — source_present_but_unparsed 4th metric bucket (chore 78ea7d49). Mitigates §17 #75. Diagnostic Chore #2 ✅ COMPLETE — two-mode output Mode 1 hrc=None + Mode 2 hrc=1 (chore 63bead94). Mitigates §17 #74. Diagnostic metric repair docs ✅ COMPLETE — combined Chore #1 + #2 documentation (docs 9fedf079). Expanded-subset retest ✅ COMPLETE — TARGETS 11 → 15, diagnostic_snapshots/ folder introduced (chore 9d4abf36 + docs 483b53bd + chore c8c9f234 + docs bf043492). Two-commit correction round-trip per agreement #32 codification. Bug 6 fix ✅ COMPLETE — convenience field summation (feat 47090d7d). Closes §17 #84. Bug 7 + Bug 9 + CRLF remediation ✅ COMPLETE — keyword word-order variants + CRLF normalization (feat 9a5b16cb + docs fe18b337). Closes §17 #85 + §17 #79 (reframed as Bug 9). v5.21 execution-layer experiment ✅ COMPLETE (in-chat, NOT committed per agreement #30) — Sequence C2 + E2 across 8 fixtures, 100% schema acceptance, Option 3 STRUCTURALLY VALIDATED. Surfaced Bugs 10-14 + Findings 15-16 + 4 operational learnings. **Bug 10 fix ✅ COMPLETE — same-row =SUM() SUBTOTAL_MARKER misfire closed (feat 798f4fd2 + docs 81efb8c5). Closes §17 #86. _is_cross_row_sum() helper in classifier.py gates FORMULA-path; text-regex path untouched. 131 expected misfires closed (VRF 57 + Societe Generale 74). Parser tests 409 → 429. Bug 10 coverage extension ✅ COMPLETE — TestBug10SocieteGeneraleHvacIntegration added (feat 94706b5c). Parser tests 429 → 434. Closes 73-row Societe Generale Bug 10 coverage gap. Bug 11 PARKED v5.22 (see §17.27) — misframed as classifier; root cause is hierarchy resolver parenting (11a: numeric-peer sibling gap, 11b: letter-sequence cascade §17.9). feat reverted f1839b1e, docs reverted debd5186. §7.28 orphan-children audit ✅ COMPLETE (feat 8a126846 + docs 5a440fc9): 47/82 target rows have ≥1 real-orphan descendant; 196 total; max 9 on single row. Informs parented-PREAMBLE blanket rule. Bug 13 Excel error literals normalization ✅ COMPLETE (feat 5ff93064): EXCEL_ERROR_LITERALS frozenset + _is_excel_error() helper in reader.py; all seven error strings (#REF!, #VALUE!, #NAME?, #DIV/0!, #NULL!, #N/A, #NUM!) normalized to None at iter_rows() cell-read time; 6 new tests in TestExcelErrorLiterals (4 unit + 2 integration); parser tests 434 -> 440. Closes §17.29 / sec 9 #89. Bill Of Quantities Electrical & ELV rows 4-22 audit ✅ COMPLETE (feat 3b0790f0): 0/19 rows differ between current and Approach A; 1 Bug 12 candidate (row 4 "SUB HEAD A"); Rule A1+A2 each fire 0 times in range; LINE_ITEM parenting (Bug 11a) unreachable by Approach A. Phase 2c next (unblocked). **Approach A-reframed audit ✅ COMPLETE (feat 16647958): Snitch A1=3/A2=27/indirect=0 total=30 of 521 rows; BoQ-ELV A1=0/A2=31/indirect=0 total=31 of 1186 rows. User sample review next (sec 9 #99 gating, exit criterion E3). Approach A-reframed land ✅ COMPLETE (feat 8f960a2b + docs see git log): Rule A1 (lowercase cascade fix, F5-tightened all-lowercase trigger) + Rule A2-reframed (sibling numeric peer fix) landed in hierarchy.py; approach_a_enabled: bool = True toggle; pattern_signature() + first_numeric_token() helpers; snitch_electrical_expected.json regenerated (LINE_ITEM 176->177, PREAMBLE 43->42, preamble_level_transitions 7->4 entries); test_approach_a_rules.py +24 tests; parser tests 440->464. Sec 9 #99 CLOSED. Working agreement #40 deferred pending Bug 12 diagnostic on 2 fixtures. Phase 2c next (unblocked). **SUB HEAD detection + universal subtotal-reset landing COMPLETE (feat 25a43617); sec 9 #100 + #101 CLOSED; working agreement #40 codified; Bug 12 + Bug 15 parked to Phase 3+ AI layer; PHASE 2c BUG-FIX CYCLE CLOSED; Phase 2c body next.**
 **Owner:** Internal team.
-**Last updated:** 2026-05-25 (Bug 22 toggle + canonical command fix -- session 1.5; tip a2ce8a0d)
+**Last updated:** 2026-05-26 (Bug 16 LANDED -- cluster 1 session 2; tip 68cfc57d)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** a2ce8a0d
+**Latest commit:** 68cfc57d
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -1220,61 +1220,85 @@ For each bug below: SYMPTOM (current behavior), CANONICAL FIXTURE EXAMPLES
 after fix), CROSS-FIXTURE SAFETY.
 
 ----------------------------------------------------------------------
-Bug 16 -- LINE_ITEM-without-unit demotion (symmetric inverse of §7.28)
-Layer: classifier.py
+Bug 16 -- classifier unit invariant (in-classifier flow)
+LANDED v5.27 (this session). Commit: 68cfc57d.
 ----------------------------------------------------------------------
 
-SYMPTOM: Rows with no unit string but with sl_no + description + zero qty
-(typically from SUM-formula over blank cells or explicit 0 typed by author)
-classify as LINE_ITEM. These rows are structurally either sub-section
-headers (should be PREAMBLE) or spacer/separator rows (should be SPACER).
+ROOT CAUSE: classifier's classification decision step routes to
+LINE_ITEM whenever qty/rate/amount is present. Policy X (sec 7.25)
+preserves explicit zero, so =SUM(blanks)=0.0 counts as "qty present."
+sg_hvac and Snitch authors use ghost formulas (=SUM(blanks),
+=N(...)*N(...)) on visually-blank rows, producing rows with
+qty=0.0 but no semantic content. The classifier had no check on
+unit presence.
 
-CANONICAL FIXTURE EXAMPLES:
-- sg_hvac rows 12, 16, 29: sl_no=1.01/1.02/1.06, description present
-  (e.g., "Supply, fabrication... site fabricated rectangular ducts"),
-  unit blank, qty_total cell contains "=SUM(D:F)" evaluating to 0 over
-  blank D/E/F. Classify as LINE_ITEM, parent under r6 sl=1.0. Should be
-  sub-section header PREAMBLEs at level 2 under r5 SUB HEAD A AIR
-  DISTRIBUTION.
-- sg_hvac rows 11, 15, 22, 24, 26, 28, 32, 34, 36 (and many more): visually
-  blank rows with G="=SUM(D:F)" evaluating to 0 over blank D/E/F.
-  Classify as LINE_ITEM with qty=0.0. Should be SPACER.
-- safron: 0 catches across 61 rows. Every LINE_ITEM has unit; every
-  PREAMBLE has no unit. Rule does not misfire on this fixture.
+FIX: in-classifier two-clause block in classify_row(), inserted
+AFTER the existing four-way classification decision and BEFORE
+the existing emptiness guard. Single toggle BUG_16_UNIT_INVARIANT_
+ENABLED (default True) gates both clauses.
 
-ROOT CAUSE: Classifier 5-stage evaluation step 5 (PREAMBLE/LINE_ITEM/NOTE
-decision) routes to LINE_ITEM whenever any numeric cell is present
-(qty/rate/amount). Policy X (§7.25) preserves explicit zero as 0.0 in
-qty/rate/amount, so SUM-of-blanks evaluating to 0 is "present". The
-classifier rule does not check unit column presence. §7.28 (unit-based
-PREAMBLE demotion) handles the opposite case (PREAMBLE-with-unit->
-LINE_ITEM); the symmetric inverse (LINE_ITEM-without-unit->demote-out)
-was missing.
+Clause 1 (SPACER broadening): if sl_no AND description AND unit
+are all blank-or-junk, classify as SPACER. Overrides whatever the
+four-way decision produced.
 
-FIX SPEC: Add new classifier post-pass in classifier.py:
-`_apply_unit_blank_demotion_post_pass(classified_rows)`. Runs after
-§7.28 unit-based PREAMBLE demotion, before preamble candidate scoring.
-For each LINE_ITEM row where `unit is None or unit == ""`: route through
-re-classification:
-  - If qty/rate/amount all None or all 0.0 AND description blank -> SPACER
-  - If description present AND sl_no present -> PREAMBLE
-  - If description present AND sl_no blank -> NOTE
-Together with §7.28, the rule pair forms the biconditional: a row is
-LINE_ITEM if and only if it has a unit (modulo SPACER/HEADER_REPEAT/
-SUBTOTAL_MARKER caught at earlier classifier steps).
+Clause 2 (LINE_ITEM unit gate): if the four-way decision produced
+LINE_ITEM but unit is blank-or-junk, re-evaluate via PREAMBLE /
+NOTE rules (same logic as the four-way decision but without the
+LINE_ITEM option).
 
-EXPECTED POST-FIX BEHAVIOR:
-- sg_hvac r12 (sl=1.01, no unit): classifies as PREAMBLE level 2,
-  parents under sub-section header (after Bug 20 fix; otherwise rootless
-  level 2). Currently buried as LINE_ITEM under r6.
-- sg_hvac r11 (blank, no unit, qty=0 via SUM): classifies as SPACER.
-  Currently LINE_ITEM with qty=0.0.
-- safron: no change (rule doesn't fire on any row -- every LINE_ITEM
-  already has unit).
+Three field-specific blank-or-junk helpers:
+- _is_unit_blank_or_junk: trimmed empty OR contains no alphabetic
+  characters. Rejects "", "-", "0", "123". Accepts "Nos.", "m**2", "LS".
+- _is_sl_no_blank_or_junk: trimmed empty OR contains no alphanumeric
+  characters. Accepts "1.0", "A.", "IV". Rejects "*", arrows.
+- _is_description_blank_or_junk: delegates to _is_sl_no_blank_or_junk.
 
-CROSS-FIXTURE SAFETY: Verified across 7 fixtures during cycle 3 deep dive.
-Every LINE_ITEM with real data has unit. No misfires. Rule is strictly
-additive -- only re-routes rows that don't meet LINE_ITEM criteria already.
+INVARIANT: together with sec 7.28 (unit-based PREAMBLE demotion)
+and sec 7.29 (zero-children PREAMBLE demotion), Bug 16 closes the
+biconditional: a row is LINE_ITEM if and only if it has a real
+unit (modulo SPACER / HEADER_REPEAT / SUBTOTAL_MARKER caught at
+earlier classifier steps).
+
+CROSS-FIXTURE IMPACT (Phase 0 diagnostic this session):
+- sg_hvac BOQ_HVAC Lowside works: 132 LINE_ITEM reclassifications
+  (74 via Clause 1 to SPACER, 58 via Clause 2 to PREAMBLE/NOTE).
+- Snitch 6. Electrical: 190 NOTE -> SPACER via Clause 1.
+- VRF System: 1 Clause 1 + 1 Clause 2 hit.
+- Inovalon HVAC: unchanged.
+- Bill of Quantities ELV: unchanged.
+
+CALIBRATION UPDATES TO EXISTING TESTS:
+- test_classifier.py: 8 synthetic rows gained explicit unit="Nos"
+  (were missing units; under old behavior LINE_ITEM, under Bug 16
+  PREAMBLE).
+- test_orchestrator.py: Snitch NOTE expectation 287 -> 97;
+  Societe HVAC LINE_ITEM threshold relaxed; 2 Pattern 2 column-role
+  maps shifted right by one to accommodate new unit column.
+- generate_synthetic.py: Pattern 2 fixtures (synthetic_multi_area_
+  2row.xlsx, synthetic_pattern_2_rate.xlsx) regenerated with a unit
+  column (C) and unit="Nos" on data rows.
+
+TODO/CLEANUP: Clause 2's fall-through duplicates the PREAMBLE/NOTE
+logic from the four-way decision above (lines 766-789). If that
+logic changes in a future fix, this block must be updated in
+lockstep. Flagged for a future cleanup session: extract the
+PREAMBLE/NOTE decision into a private helper called by both the
+main path and Clause 2's fall-through.
+
+ARCHITECTURAL ASYMMETRY: Bug 16 sits in classify_row() body
+(in-classifier). Sec 7.28 and sec 7.29 sit as post-passes. The
+biconditional invariant is therefore enforced in two places: the
+classifier blocks LINE_ITEM at classify time when unit is missing
+(Bug 16), and the post-passes catch PREAMBLEs with units at
+post-classify time (sec 7.28/7.29). Acknowledged; not addressed
+this session. Future cleanup may consolidate into one location.
+
+PARKED BUG 16 ALTERNATIVE (FROM v5.26): the original v5.26 spec
+proposed _apply_unit_blank_demotion_post_pass running after
+sec 7.28. This session reframed to in-classifier flow. Rationale:
+cleaner architecture (no intermediate "LINE_ITEM-that-is-not-
+really-LINE_ITEM" state); enforces the invariant from the start.
+The original post-pass framing is not implemented and will not be.
 
 ----------------------------------------------------------------------
 Bug 17 -- Reader-layer auto-trim for text-role columns
@@ -1815,6 +1839,23 @@ rootless-row review flags; no parser-layer fix attempted.
 ## Decisions log
 
 Newest at the top.
+
+---
+
+### 2026-05-26 -- Bug 16 reframed to in-classifier flow, LANDED v5.27
+
+[DECISION] Bug 16 reframed from post-pass to in-classifier flow,
+landed v5.27. The v5.26 spec proposed a post-pass demotion of
+unit-less LINE_ITEMs to PREAMBLE/NOTE/SPACER. User reframed the
+spec mid-session to a hard classifier invariant: no row can be
+LINE_ITEM without a real (non-junk) unit. Two clauses gated by
+single toggle. Three field-specific blank-or-junk helpers using
+deterministic alphabetic/alphanumeric tests (no maintained unit
+allowlist). Cross-fixture Phase 0 diagnostic verified empirically
+across 5 fixtures before implementation. Calibrations to 12
+existing tests landed in same commit (8 inline rows gained units,
+2 fixtures regenerated, 2 count assertions updated). Commit
+68cfc57d. Closes sec 9 #103.
 
 ---
 

@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-25 (feat a2ce8a0d -- Bug 22 toggle + canonical command fix session 1.5)
+**Last updated:** 2026-05-26 (feat 68cfc57d -- Bug 16 LANDED -- cluster 1 session 2)
 
 ## Overview
 
