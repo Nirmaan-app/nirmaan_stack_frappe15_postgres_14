@@ -2,9 +2,9 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json). Phase 1.9f Stage 1 ✅ COMPLETE — multi-area triage diagnostic (chore c42eec9a + docs 458bed3d). Observability only; +0 parser tests. Phase 1.9g ✅ COMPLETE — pre-header rows skip fix (feat 40fb555c + docs 9b9bb664). Closes §17 #71. +3 parser tests. Phase 1.9h ✅ COMPLETE — auto-guess per-area column-role assignment (feat f9a3121e + docs 7e842385). Closes §17 #72. +14 parser tests (277 → 291). Phase 1.9i ✅ COMPLETE — single-area-targeted diagnostic (chore 7d588976 + docs c3b2ed1d). Observability only. Phase 1.9j ✅ COMPLETE — Mode C metric fix (chore 68befb2e + docs b2fbbb7e). Diagnostic metric repair. Phase 1.9k ✅ COMPLETE — Mode B + F + F3c broadened (feat 3cc3819c + docs 7ecee053). Parser keyword + punctuation work. Phase 1.9l ✅ COMPLETE — Mode D longest-match precedence (feat f00cc6ca + docs 900078d5). Supply/install keyword family. Phase 1.9m ✅ COMPLETE — Mode A auto-detect 2-row headers (feat c08ebd13 + docs cb3f8694). Phase 1.9n ✅ COMPLETE — re-run diagnostic + metric correction (chore 3af8e828 + docs 287ca670). Closes Phase 1.9j-1.9n locked cycle. Cumulative +46 parser tests across cycle (291 → 337). Pre-1.9o ✅ COMPLETE — 4 synthetic multi-area fixtures added (chore a97ff170 + docs e55d1691). Phase 1.9o ✅ COMPLETE — Tier A-merged pattern recognizer (feat 6f6214ba + docs 62e676e0). +20 parser tests (337 → 357). Phase 1.9p ✅ COMPLETE — append_to_notes keyword auto-assignment, 12 reference-code entries (feat 5d348e4a + docs 7fdbf764). +18 parser tests (357 → 375). First carve-out from "never auto-detect" rule of §7.34. Diagnostic Chore #1 ✅ COMPLETE — source_present_but_unparsed 4th metric bucket (chore 78ea7d49). Mitigates §17 #75. Diagnostic Chore #2 ✅ COMPLETE — two-mode output Mode 1 hrc=None + Mode 2 hrc=1 (chore 63bead94). Mitigates §17 #74. Diagnostic metric repair docs ✅ COMPLETE — combined Chore #1 + #2 documentation (docs 9fedf079). Expanded-subset retest ✅ COMPLETE — TARGETS 11 → 15, diagnostic_snapshots/ folder introduced (chore 9d4abf36 + docs 483b53bd + chore c8c9f234 + docs bf043492). Two-commit correction round-trip per agreement #32 codification. Bug 6 fix ✅ COMPLETE — convenience field summation (feat 47090d7d). Closes §17 #84. Bug 7 + Bug 9 + CRLF remediation ✅ COMPLETE — keyword word-order variants + CRLF normalization (feat 9a5b16cb + docs fe18b337). Closes §17 #85 + §17 #79 (reframed as Bug 9). v5.21 execution-layer experiment ✅ COMPLETE (in-chat, NOT committed per agreement #30) — Sequence C2 + E2 across 8 fixtures, 100% schema acceptance, Option 3 STRUCTURALLY VALIDATED. Surfaced Bugs 10-14 + Findings 15-16 + 4 operational learnings. **Bug 10 fix ✅ COMPLETE — same-row =SUM() SUBTOTAL_MARKER misfire closed (feat 798f4fd2 + docs 81efb8c5). Closes §17 #86. _is_cross_row_sum() helper in classifier.py gates FORMULA-path; text-regex path untouched. 131 expected misfires closed (VRF 57 + Societe Generale 74). Parser tests 409 → 429. Bug 10 coverage extension ✅ COMPLETE — TestBug10SocieteGeneraleHvacIntegration added (feat 94706b5c). Parser tests 429 → 434. Closes 73-row Societe Generale Bug 10 coverage gap. Bug 11 PARKED v5.22 (see §17.27) — misframed as classifier; root cause is hierarchy resolver parenting (11a: numeric-peer sibling gap, 11b: letter-sequence cascade §17.9). feat reverted f1839b1e, docs reverted debd5186. §7.28 orphan-children audit ✅ COMPLETE (feat 8a126846 + docs 5a440fc9): 47/82 target rows have ≥1 real-orphan descendant; 196 total; max 9 on single row. Informs parented-PREAMBLE blanket rule. Bug 13 Excel error literals normalization ✅ COMPLETE (feat 5ff93064): EXCEL_ERROR_LITERALS frozenset + _is_excel_error() helper in reader.py; all seven error strings (#REF!, #VALUE!, #NAME?, #DIV/0!, #NULL!, #N/A, #NUM!) normalized to None at iter_rows() cell-read time; 6 new tests in TestExcelErrorLiterals (4 unit + 2 integration); parser tests 434 -> 440. Closes §17.29 / sec 9 #89. Bill Of Quantities Electrical & ELV rows 4-22 audit ✅ COMPLETE (feat 3b0790f0): 0/19 rows differ between current and Approach A; 1 Bug 12 candidate (row 4 "SUB HEAD A"); Rule A1+A2 each fire 0 times in range; LINE_ITEM parenting (Bug 11a) unreachable by Approach A. Phase 2c next (unblocked). **Approach A-reframed audit ✅ COMPLETE (feat 16647958): Snitch A1=3/A2=27/indirect=0 total=30 of 521 rows; BoQ-ELV A1=0/A2=31/indirect=0 total=31 of 1186 rows. User sample review next (sec 9 #99 gating, exit criterion E3). Approach A-reframed land ✅ COMPLETE (feat 8f960a2b + docs see git log): Rule A1 (lowercase cascade fix, F5-tightened all-lowercase trigger) + Rule A2-reframed (sibling numeric peer fix) landed in hierarchy.py; approach_a_enabled: bool = True toggle; pattern_signature() + first_numeric_token() helpers; snitch_electrical_expected.json regenerated (LINE_ITEM 176->177, PREAMBLE 43->42, preamble_level_transitions 7->4 entries); test_approach_a_rules.py +24 tests; parser tests 440->464. Sec 9 #99 CLOSED. Working agreement #40 deferred pending Bug 12 diagnostic on 2 fixtures. Phase 2c next (unblocked). **SUB HEAD detection + universal subtotal-reset landing COMPLETE (feat 25a43617); sec 9 #100 + #101 CLOSED; working agreement #40 codified; Bug 12 + Bug 15 parked to Phase 3+ AI layer; PHASE 2c BUG-FIX CYCLE CLOSED; Phase 2c body next.**
 **Owner:** Internal team.
-**Last updated:** 2026-05-26 (Bug 17 LANDED -- cluster 1 session 3; tip 30b6045b)
+**Last updated:** 2026-05-27 (Bug 18 LANDED -- cluster 1 session 4; tip 41a86cd9)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** 68cfc57d
+**Latest commit:** 34701b9a
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -1377,61 +1377,51 @@ columns separately.
 
 ----------------------------------------------------------------------
 Bug 18 -- Merged-cell banner rows produce false LINE_ITEMs
-Layer: reader.py + classifier.py
+Layer: reader.py
 ----------------------------------------------------------------------
 
-IMPLEMENTATION-DESIGN NOTE: Like Bug 17, introduces cross-layer awareness
-(is_merged_origin flag propagation from reader to classifier). Same Checklist
-C7 concern. Decide at fix-prompt drafting time.
+LANDED v5.28 -- cluster 1 session 4 (feat 41a86cd9)
 
-PRE-IMPLEMENTATION VERIFICATION PENDING: Excel verification of safron r41
-banner type (single merged cell spanning columns A-G? or single cell in B
-with rest blank?) not yet performed at v5.26 housekeeping time. Implementation
-prompt should re-verify against source xlsx before coding.
+IMPLEMENTATION NOTES:
+- Architecture path (a) chosen: fix inside iter_rows() reusing Bug 17
+  text_role_columns wiring. No classifier.py changes. No orchestrator
+  changes. CellInfo.is_merged_origin and covered_lookup already present
+  in reader.py; covered is not None correctly identifies propagated cells.
+- New constant BUG_18_MERGE_PROPAGATION_BLANK_ENABLED (default True) in
+  reader.py, placed immediately after Bug 17 helper section.
+- Suppression logic: after Bug 17 formatting block, if toggle AND
+  text_role_columns AND col_letter in text_role_columns AND covered is
+  not None -> computed_value = None. Non-text-role covered cells
+  (qty, rate, amount) are NOT suppressed -- area-header merge
+  propagation continues to work.
+- Fix selection (path a vs b vs c): path (a) chosen per chat-Claude
+  2026-05-26 architectural discussion; rationale: Bug 17 consistency +
+  zero new parameters or orchestrator changes. See agreement #39.
+- Excel verification of safron r41: A41:G41 merge confirmed, cell text
+  "PART- 2 INSULATION" (space after dash), no stray numeric data.
+- +7 tests (523->530): 5 synthetic unit (TestBug18SyntheticMergeBanner)
+  + 2 safron real-fixture integration (TestBug18SafronIntegration --
+  r41 reader-level covered cell blank + classify_row NOTE assertion).
+  0 existing-test calibrations. Cluster 1 complete (3 of 3:
+  Bug 16 + Bug 17 + Bug 18 landed).
+- Feat hash: 41a86cd9. Docs hash: see §14 decisions log.
 
-SYMPTOM: When BoQ author uses a banner-style section header that spans
-multiple columns via merged cells, the per-cell merge propagation logic
-(Phase 2b.2 Part A1, v5.10) copies the banner text into every covered cell.
-Classifier then sees the same string in A (sl_no), B (description), C (unit),
-etc. and routes to LINE_ITEM.
+ORIGINAL SYMPTOM: When BoQ author uses a banner-style section header that
+spans multiple columns via merged cells, the per-cell merge propagation
+logic (Phase 2b.2 Part A1, v5.10) copies the banner text into every
+covered cell. Classifier then sees the same string in A (sl_no),
+B (description), C (unit), etc. and routes to LINE_ITEM.
 
 CANONICAL FIXTURE EXAMPLE:
-- safron r41: PART-2 INSULATION banner. CSV shows raw_A="PART- 2 INSULATION",
-  raw_B="PART- 2 INSULATION", raw_C="PART- 2 INSULATION" (and likely more
-  columns). Classifies as LINE_ITEM with sl_no="PART- 2 INSULATION",
-  unit="PART- 2 INSULATION", qty=0.0. Semantically a section-header banner.
-
-ROOT CAUSE: Part A1 (v5.10) extended iter_rows() so cells covered by a
-merged range inherit the origin cell's value. The is_merged_origin flag
-distinguishes origin from covered, but downstream consumers (classifier)
-don't currently see this flag -- they read CellInfo.value and treat every
-cell equivalently. When the banner is the only content on the row, the
-inheritance produces "same string everywhere" which trips multiple role
-checks.
-
-FIX SPEC: Two-part:
-(1) reader.py CellInfo already carries is_merged_origin: bool -- confirm
-    it's available. (Verify in classify_row signature what fields are
-    passed; may already be accessible via the row dict.)
-(2) classifier.py: add check at top of classify_row() (after SPACER/
-    HEADER_REPEAT/SUBTOTAL detection): if all populated cells in the row
-    have identical value AND are covered cells of the same merged range
-    (not the origin), AND no numeric data anywhere -> classify as NOTE
-    (section-header NOTE). This NOTE then gets caught by Bug 20 anchor 1/2/3
-    rules and promoted to PREAMBLE.
-
-EXPECTED POST-FIX BEHAVIOR:
-- safron r41: classifies as NOTE first, then Bug 20 anchor 2 fires
-  (preceded by SUBTOTAL_MARKER at r39) -> promoted to section-header
-  PREAMBLE level 0. r43 ACCOUSTIC INSULATION (also NOTE banner) then
-  promoted via Bug 20 anchor 3 (post-promoted-PREAMBLE).
+- safron r41: PART-2 INSULATION banner. Merge A41:G41. After fix:
+  A41 retains "PART- 2 INSULATION"; B41/C41 (text-role) -> None.
+  D41-G41 (numeric-role) still carry propagated text -> treated as
+  non-numeric qty=0.0 rate-only. Bug 16 Clause 2 then fires (unit=None
+  is junk + desc=None is blank) -> NOTE.
 
 CROSS-FIXTURE SAFETY: Banner-style section headers seen only in safron r41
-among walked fixtures. SUB HEAD pattern in BoQ is single-cell (sl_no="SUB
-HEAD A" in column A only); different pattern, handled by existing v5.25
-§17.41 SUB HEAD detection. Cross-fixture check during cycle 3 re-run will
-validate Bug 18 doesn't misfire on legitimate same-value-across-cells cases
-(unlikely to exist but worth confirming).
+among walked fixtures. Non-text-role covered cells unaffected.
+Cross-fixture check during cycle 3 re-run will confirm no misfires.
 
 ----------------------------------------------------------------------
 Bug 19 -- Priced-PREAMBLE detection via sl_no signature (LINE_ITEM step)
@@ -1867,6 +1857,38 @@ formats 1.1 as "1.10" (acceptable, spec said no-op is also acceptable).
 compat (TestIterRowsTextRoleColumns) + 5 integration (TestBug17AloricaIntegration
 -- alorica "low side" sheet, header_row=6). Closes sec 9 #__ (Bug 17).
 Previous commit: 68cfc57d (Bug 16).
+
+---
+
+### 2026-05-27 -- Bug 18 LANDED v5.28 (cluster 1 session 4)
+
+Feat commit 41a86cd9 (feat(boq): Bug 18 -- reader merge-propagation
+blanking for text-role columns).
+
+[DECISION] Bug 18 implemented via path (a): reader-side suppression
+of propagated values for text-role columns, reusing Bug 17 plumbing.
+Pre-implementation verification confirmed safron r41 is A41:G41 merge
+with text "PART- 2 INSULATION" (space after dash). Architecture path
+(a) chosen per chat-Claude 2026-05-26 architectural discussion; rationale:
+Bug 17 consistency + zero new parameters + no orchestrator/classifier
+changes. Path (b) orchestrator-side post-pass not chosen (more plumbing,
+separate pass). Path (c) classifier-side not chosen (harder to maintain
+cross-field merge awareness in classifier context).
+
+Fix: BUG_18_MERGE_PROPAGATION_BLANK_ENABLED toggle (default True) +
+suppression in iter_rows() after Bug 17 block: covered is not None AND
+col_letter in text_role_columns -> computed_value = None. Origin cell
+retains banner text. Non-text-role covered cells (qty, rate, amount)
+NOT suppressed -- area-header merge propagation unaffected.
+
++7 tests (523->530): 5 synthetic unit + 2 safron integration. 0 existing-
+test calibrations. Cluster 1 complete (Bug 16 + Bug 17 + Bug 18 landed).
+
+[OVERRIDE #43 v5.28 cycle] Agreement #43 hard cap extended from 7 to 8
+working sessions for cycle 3 fix batch. Risk accepted: any subsequent
+extension request faces a weakened precedent bar; future cap discipline
+depends on holding the line at 8. Override accepted by Nitesh at v5.27
+to v5.28 transition. Logged per agreement #38 override mechanics.
 
 ---
 
