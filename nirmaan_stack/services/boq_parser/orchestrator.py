@@ -31,6 +31,12 @@ from nirmaan_stack.services.boq_parser.hierarchy import (
 from nirmaan_stack.services.boq_parser.multi_area_detection import MultiAreaPattern, detect_multi_area_pattern
 from nirmaan_stack.services.boq_parser.reader import BoqReader
 
+# Column roles whose values are text visible to the user — numeric cell values
+# in these columns should be formatted as the author saw them on screen (Bug 17).
+TEXT_ROLE_ROLES: frozenset[str] = frozenset({
+    "sl_no", "description", "unit", "make_model", "append_to_notes"
+})
+
 
 # ------------------------------------------------------------------
 # Return-shape models
@@ -187,8 +193,18 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
                 skip_rows.add(header_row + 1)
         skip_rows.update(sheet_config.skip_top_rows_after_header)
 
+        # Bug 17: derive text-role column letters for display-string formatting
+        text_role_columns: set[str] | None = None
+        if sheet_config.column_role_map:
+            cols = {
+                col for col, cr in sheet_config.column_role_map.items()
+                if cr.role in TEXT_ROLE_ROLES
+            }
+            if cols:
+                text_role_columns = cols
+
         raw_rows = [
-            rr for rr in reader.iter_rows(sheet_name)
+            rr for rr in reader.iter_rows(sheet_name, text_role_columns=text_role_columns)
             if rr.row_number not in skip_rows
             and (header_row is None or rr.row_number >= header_row)
         ]

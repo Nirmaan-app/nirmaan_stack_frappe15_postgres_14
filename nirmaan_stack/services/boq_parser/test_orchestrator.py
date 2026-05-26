@@ -1800,5 +1800,121 @@ class TestBug10SocieteGeneraleHvacIntegration(unittest.TestCase):
         )
 
 
+# ================================================================ #
+# Bug 17 -- alorica real-fixture integration test                   #
+# ================================================================ #
+
+_ALORICA_FIXTURE = _FIXTURES / "alorica_pri_tech_hvac.xlsx"
+
+
+def _alorica_lowside_config() -> MappingConfig:
+    """
+    MappingConfig for the 'low side' sheet from the Alorica HVAC workbook.
+
+    Header row 6 layout (A=sl_no, B=description, C=unit, D=qty,
+    E=rate_supply, F=rate_install, G=amount_total).
+
+    Rows 31, 33 use numFmtId=0 ("General") — IEEE 754 noise from =A+0.1
+    chains (2.3000000000000003, 2.4000000000000004). Bug 17 rounds these.
+    Rows 45, 52 use numFmtId=2 ("0.00") — noise removed by format(".2f")
+    (3.0199999999999996 -> "3.02", 3.0299999999999994 -> "3.03").
+    """
+    return MappingConfig(
+        project="alorica_bug17_test",
+        master_boq=MasterBoqMetadata(boq_name="Alorica Bug17 Test"),
+        sheets=[
+            SheetConfig(sheet_name="Summary", skip=True, column_role_map={}),
+            SheetConfig(
+                sheet_name="low side",
+                header_row=6,
+                column_role_map={
+                    "A": ColumnRole(role="sl_no"),
+                    "B": ColumnRole(role="description"),
+                    "C": ColumnRole(role="unit"),
+                    "D": ColumnRole(role="qty"),
+                    "E": ColumnRole(role="rate_supply"),
+                    "F": ColumnRole(role="rate_install"),
+                    "G": ColumnRole(role="amount_total"),
+                },
+            ),
+            SheetConfig(sheet_name="csu unit", skip=True, column_role_map={}),
+            SheetConfig(sheet_name="make", skip=True, column_role_map={}),
+        ],
+    )
+
+
+class TestBug17AloricaIntegration(unittest.TestCase):
+    """
+    Bug 17 real-fixture integration test against the 'low side' sheet of the
+    Alorica HVAC workbook.
+
+    Canonical failure rows before fix:
+      r31: sl_no="2.3000000000000003" (General format, =A29+0.1 chain)
+      r33: sl_no="2.4000000000000004" (General format)
+      r45: sl_no="3.0199999999999996" ("0.00" format, =A37+0.01 chain)
+      r52: sl_no="3.0299999999999994" ("0.00" format)
+
+    Post-fix expectations:
+      r31 -> "2.3"   (round-to-10 removes noise)
+      r33 -> "2.4"
+      r45 -> "3.02"  (format(".2f") from "0.00" number_format)
+      r52 -> "3.03"
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.resolved = []
+        if not _ALORICA_FIXTURE.exists():
+            return
+        cls.result = parse_boq(str(_ALORICA_FIXTURE), _alorica_lowside_config())
+        lowside = next(
+            (s for s in cls.result.sheets if s.sheet_name == "low side"),
+            None,
+        )
+        cls.lowside = lowside
+        cls.resolved = lowside.resolved_rows if lowside else []
+
+    def _sl_no_for_row(self, row_number: int) -> str | None:
+        for rr in self.resolved:
+            if rr.classified_row.raw_row.row_number == row_number:
+                return rr.classified_row.sl_no_value
+        return None
+
+    def test_alorica_fixture_exists(self):
+        self.assertTrue(
+            _ALORICA_FIXTURE.exists(),
+            f"Alorica fixture missing: {_ALORICA_FIXTURE}",
+        )
+
+    def test_row31_sl_no_general_format_noise_removed(self):
+        """r31: General format, =A29+0.1 -> "2.3" not "2.3000000000000003"."""
+        if not _ALORICA_FIXTURE.exists():
+            self.skipTest("alorica fixture missing")
+        val = self._sl_no_for_row(31)
+        self.assertEqual(val, "2.3", f"Expected '2.3', got {val!r}")
+
+    def test_row33_sl_no_general_format_noise_removed(self):
+        """r33: General format, =A31+0.1 -> "2.4" not "2.4000000000000004"."""
+        if not _ALORICA_FIXTURE.exists():
+            self.skipTest("alorica fixture missing")
+        val = self._sl_no_for_row(33)
+        self.assertEqual(val, "2.4", f"Expected '2.4', got {val!r}")
+
+    def test_row45_sl_no_0_00_format_rounded(self):
+        """r45: '0.00' format, =A37+0.01 -> "3.02" not "3.0199999999999996"."""
+        if not _ALORICA_FIXTURE.exists():
+            self.skipTest("alorica fixture missing")
+        val = self._sl_no_for_row(45)
+        self.assertEqual(val, "3.02", f"Expected '3.02', got {val!r}")
+
+    def test_row52_sl_no_0_00_format_rounded(self):
+        """r52: '0.00' format, =A45+0.01 -> "3.03" not "3.0299999999999994"."""
+        if not _ALORICA_FIXTURE.exists():
+            self.skipTest("alorica fixture missing")
+        val = self._sl_no_for_row(52)
+        self.assertEqual(val, "3.03", f"Expected '3.03', got {val!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

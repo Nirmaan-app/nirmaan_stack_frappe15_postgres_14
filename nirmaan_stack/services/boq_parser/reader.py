@@ -21,6 +21,50 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 
 # ------------------------------------------------------------------
+# Bug 17: numeric-to-display-string helper for text-role columns
+# ------------------------------------------------------------------
+
+# Matches the decimal-precision specifier inside an Excel number format string.
+# Handles "0.00", "#,##0.00", "0.00%", "_ * #,##0.00_ ;...", etc.
+# Scientific-notation formats ("0.00E+00") contain "E" — callers guard against
+# those separately if needed (BoQ sl_no fields never use scientific notation).
+_PRECISION_FMT_RE = re.compile(r"0\.(0+)")
+
+
+def _format_numeric_as_displayed(value: Any, number_format: str | None) -> Any:
+    """
+    Return the string a BoQ author would have seen on screen for a numeric cell.
+
+    Applies only to text-role columns (sl_no, description, unit, make_model,
+    append_to_notes). Numeric-role columns keep raw float for downstream math.
+
+    Rules:
+      None  → None    (blank-cell semantics preserved; do NOT return "")
+      bool  → str()   (bool is int subclass in Python; guard before int check)
+      str   → pass-through
+      int/float:
+        If number_format contains "0.<zeros>" precision specifier, apply
+        format(value, ".Nf") where N = len(zeros).
+        Otherwise (including "General"): str(round(value, 10)) — removes the
+        15th-16th digit IEEE 754 noise typical of =A+0.1 chain formulas.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        fmt = number_format or "General"
+        m = _PRECISION_FMT_RE.search(fmt)
+        if m:
+            n_decimals = len(m.group(1))
+            return format(value, f".{n_decimals}f")
+        # No decimal-precision specifier: strip IEEE 754 noise via round-to-10
+        return str(round(value, 10))
+    return str(value)
+
+# ------------------------------------------------------------------
 # Data structures
 # ------------------------------------------------------------------
 
@@ -166,6 +210,7 @@ class BoqReader:
         sheet_name: str,
         start_row: int = 1,
         end_row: int | None = None,
+        text_role_columns: set[str] | None = None,
     ) -> Iterator[RawRow]:
         """
         Yield one RawRow per row, lazy.
@@ -177,6 +222,11 @@ class BoqReader:
         the origin's value, formula text, and merged_range string.  Formatting
         fields (font_bold, fill_color_rgb, indent) always reflect the covered
         cell's own data — they are never inherited from the origin.
+
+        text_role_columns: optional set of column letters (e.g. {"A", "C"}) for
+        which numeric values are formatted as the author saw them on screen, using
+        the cell's number_format. Pass None (default) for unchanged behavior.
+        See _format_numeric_as_displayed() for the conversion rules (Bug 17).
         """
         ws_val = self._wb_values[sheet_name]
         ws_fml = self._wb_formulas[sheet_name]
@@ -184,8 +234,9 @@ class BoqReader:
 
         # Build a per-invocation lookup for covered cells (inside a merge but
         # not the origin).  Key: (row, col) integer tuple.
-        # Value: (range_str, origin_value, origin_formula_text, origin_is_formula)
-        covered_lookup: dict[tuple[int, int], tuple[str, Any, str | None, bool]] = {}
+        # Value: (range_str, origin_value, origin_formula_text, origin_is_formula,
+        #         origin_number_format)
+        covered_lookup: dict[tuple[int, int], tuple[str, Any, str | None, bool, str | None]] = {}
         for rng in ws_val.merged_cells.ranges:
             origin_row, origin_col = rng.min_row, rng.min_col
             origin_cell_val = ws_val.cell(origin_row, origin_col)
@@ -196,6 +247,7 @@ class BoqReader:
                 isinstance(origin_raw_fml, str) and origin_raw_fml.startswith("=")
             )
             origin_formula_text = origin_raw_fml if origin_is_formula else None
+            origin_number_format: str | None = getattr(origin_cell_val, "number_format", None)
             range_str = str(rng)
             for r in range(rng.min_row, rng.max_row + 1):
                 for c in range(rng.min_col, rng.max_col + 1):
@@ -206,6 +258,7 @@ class BoqReader:
                         origin_value,
                         origin_formula_text,
                         origin_is_formula,
+                        origin_number_format,
                     )
 
         if end_row is None:
@@ -229,12 +282,13 @@ class BoqReader:
                 covered = covered_lookup.get(coord)
                 if covered is not None:
                     # Covered cell: propagate value, formula, and range from origin.
-                    range_str, origin_value, origin_formula_text, origin_is_formula = covered
+                    range_str, origin_value, origin_formula_text, origin_is_formula, origin_number_format = covered
                     computed_value = origin_value
                     formula_text = origin_formula_text
                     is_formula = origin_is_formula
                     is_origin = False
                     merged_range_val = range_str
+                    cell_number_format = origin_number_format
                 else:
                     # Non-covered cell (origin or unmerged): existing behavior.
                     cell_fml = ws_fml[cell_key]
@@ -244,10 +298,17 @@ class BoqReader:
                     computed_value = cell_val.value
                     is_origin = cell_key in origins
                     merged_range_val = origins.get(cell_key)
+                    cell_number_format = getattr(cell_val, "number_format", None)
 
                 # Normalize Excel error literals to None (Bug 13, sec 9 #89)
                 if _is_excel_error(computed_value):
                     computed_value = None
+
+                # Bug 17: format numeric values as displayed for text-role columns
+                if text_role_columns is not None and col_letter in text_role_columns:
+                    computed_value = _format_numeric_as_displayed(
+                        computed_value, cell_number_format
+                    )
 
                 # Formatting — always the covered cell's own, never inherited from origin.
                 font_bold = bool(cell_val.font and cell_val.font.bold)

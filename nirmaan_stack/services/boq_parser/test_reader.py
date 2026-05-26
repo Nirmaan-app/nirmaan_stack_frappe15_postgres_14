@@ -647,5 +647,123 @@ class TestExcelErrorLiterals(unittest.TestCase):
             self.assertTrue(rows[1].is_blank(), "Row with only #DIV/0! should be blank after normalisation")
 
 
+class TestFormatNumericAsDisplayed(unittest.TestCase):
+    """Bug 17 -- unit tests for _format_numeric_as_displayed()."""
+
+    def setUp(self):
+        from nirmaan_stack.services.boq_parser.reader import _format_numeric_as_displayed
+        self.fn = _format_numeric_as_displayed
+
+    def test_none_returns_none(self):
+        self.assertIsNone(self.fn(None, "0.00"))
+
+    def test_none_general_returns_none(self):
+        self.assertIsNone(self.fn(None, "General"))
+
+    def test_str_passthrough(self):
+        self.assertEqual(self.fn("1.10", "0.00"), "1.10")
+
+    def test_bool_true_guard(self):
+        # bool is a subclass of int; must not fall through to int path
+        self.assertEqual(self.fn(True, "General"), "True")
+
+    def test_bool_false_guard(self):
+        self.assertEqual(self.fn(False, "0.00"), "False")
+
+    def test_int_general(self):
+        self.assertEqual(self.fn(5, "General"), "5")
+
+    def test_int_format_0_00(self):
+        self.assertEqual(self.fn(2, "0.00"), "2.00")
+
+    def test_float_0_00_precision_match(self):
+        # 3.0199999999999996 with "0.00" -> "3.02"
+        self.assertEqual(self.fn(3.0199999999999996, "0.00"), "3.02")
+
+    def test_float_general_ieee_noise(self):
+        # IEEE 754 noise from =A29+0.1 chain: round-to-10 removes noise
+        self.assertEqual(self.fn(2.3000000000000003, "General"), "2.3")
+
+    def test_float_general_ieee_noise_2(self):
+        self.assertEqual(self.fn(2.4000000000000004, "General"), "2.4")
+
+    def test_float_general_clean(self):
+        self.assertEqual(self.fn(1.5, "General"), "1.5")
+
+    def test_float_0_000_three_decimal(self):
+        self.assertEqual(self.fn(3.0199999999999996, "0.000"), "3.020")
+
+    def test_float_hash_comma_0_00(self):
+        # "#,##0.00" contains "0.00" precision specifier -> 2 decimals
+        self.assertEqual(self.fn(1.1, "#,##0.00"), "1.10")
+
+    def test_none_number_format(self):
+        # None number_format treated as "General"
+        self.assertEqual(self.fn(2.3000000000000003, None), "2.3")
+
+
+class TestIterRowsTextRoleColumns(unittest.TestCase):
+    """Bug 17 -- iter_rows() text_role_columns parameter."""
+
+    def setUp(self):
+        import os
+        import tempfile
+        import openpyxl
+
+        fd, self._path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+
+        # A1: sl_no-style cell — float with "General" format (default)
+        ws["A1"] = 2.3000000000000003
+        # B1: amount cell — float with "General" (numeric role, should be untouched)
+        ws["B1"] = 1234.5678
+        # A2: sl_no cell with "0.00" number format
+        ws["A2"] = 3.0199999999999996
+        ws["A2"].number_format = "0.00"
+        # B2: text description
+        ws["B2"] = "Some item"
+
+        wb.save(self._path)
+
+    def tearDown(self):
+        import os
+        if os.path.exists(self._path):
+            os.unlink(self._path)
+
+    def test_no_param_backward_compat(self):
+        """iter_rows() without text_role_columns leaves float values as raw float, not string."""
+        reader = BoqReader(self._path)
+        rows = {r.row_number: r for r in reader.iter_rows("Sheet1")}
+        a1 = rows[1].get_cell("A")
+        self.assertIsNotNone(a1)
+        # Without the param, raw float is preserved — not converted to string
+        self.assertIsInstance(a1.value, float)
+
+    def test_text_role_cells_formatted_numeric_untouched(self):
+        """iter_rows() with text_role_columns={"A"} formats A cells, leaves B cells alone."""
+        reader = BoqReader(self._path)
+        rows = {r.row_number: r for r in reader.iter_rows("Sheet1", text_role_columns={"A"})}
+
+        # A1: "General" format, IEEE noise -> cleaned string
+        a1 = rows[1].get_cell("A")
+        self.assertEqual(a1.value, "2.3")
+
+        # A2: "0.00" format -> "3.02"
+        a2 = rows[2].get_cell("A")
+        self.assertEqual(a2.value, "3.02")
+
+        # B1: NOT in text_role_columns -> raw float preserved
+        b1 = rows[1].get_cell("B")
+        self.assertIsInstance(b1.value, float)
+
+        # B2: string value -> pass-through (also not in text_role_columns)
+        b2 = rows[2].get_cell("B")
+        self.assertEqual(b2.value, "Some item")
+
+
 if __name__ == "__main__":
     unittest.main()
