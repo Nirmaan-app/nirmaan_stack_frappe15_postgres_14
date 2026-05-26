@@ -107,6 +107,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(2, {
             "A": {"value": "a."},
             "B": {"value": "First point"},
+            "C": {"value": "Nos"},
             "D": {"value": 15.0},
             "E": {"value": 100.0},
         })
@@ -125,6 +126,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(3, {
             "A": {"value": "1."},
             "B": {"value": "Cable laying"},
+            "C": {"value": "Nos"},
             "D": {"value": "RO"},
             "E": {"value": 250},
         })
@@ -142,6 +144,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(4, {
             "A": {"value": "2."},
             "B": {"value": "Item"},
+            "C": {"value": "Nos"},
             "D": {"value": None},  # cell present but blank
             "E": {"value": 100},
         })
@@ -235,6 +238,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(11, {
             "A": {"value": "3."},
             "B": {"value": "Cable tray"},
+            "C": {"value": "Nos"},
             "D": {"value": 5.0},
             "E": {"value": 200.0},
             "H": {"value": "Schneider XYZ-100"},
@@ -253,6 +257,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(12, {
             "A": {"value": "4."},
             "B": {"value": "Conduit"},
+            "C": {"value": "Nos"},
             "D": {"value": 10.0},
             "E": {"value": 50.0},
             "H": {"value": "Coordinate with Civil contractor"},
@@ -285,6 +290,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(14, {
             "A": {"value": "1."},
             "B": {"value": "Item"},
+            "C": {"value": "Nos"},
             "D": {"value": "TBD"},
             "E": {"value": 100.0},
         })
@@ -350,6 +356,7 @@ class TestClassifier(unittest.TestCase):
         row = _make_row(18, {
             "A": {"value": "2."},
             "B": {"value": "HV cable"},
+            "C": {"value": "Nos"},
             "D": {"value": "QUOTE"},
             "E": {"value": 500.0},
         })
@@ -2177,6 +2184,7 @@ class TestBug6ConvenienceFieldSummation(unittest.TestCase):
         row = _make_row(13, {
             "A": {"value": "1."},
             "B": {"value": "Item"},
+            "C": {"value": "Nos"},
             "D": {"value": None},   # blank qty
             "E": {"value": 40.0},   # rate_supply
             "F": {"value": 50.0},   # rate_install

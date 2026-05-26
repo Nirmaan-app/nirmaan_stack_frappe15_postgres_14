@@ -19,9 +19,9 @@
       "total_resolved_row_count": 521,
       "count_by_classification": {
         "LINE_ITEM": 177,
-        "NOTE": 287,
+        "NOTE": 97,
         "PREAMBLE": 42,
-        "SPACER": 6,
+        "SPACER": 196,
         "SUBTOTAL_MARKER": 9
       },
       "first_5_line_items": [

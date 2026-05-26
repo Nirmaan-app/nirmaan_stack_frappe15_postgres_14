@@ -448,6 +448,38 @@ def _apply_unit_based_demotion_post_pass(classified_rows: list[ClassifiedRow]) -
             row.is_rate_only = True
 
 
+BUG_16_UNIT_INVARIANT_ENABLED: bool = True
+# Bug 16 (cluster 1 session 2): classifier invariant -- LINE_ITEM
+# requires a non-junk unit. Two clauses gated by this toggle:
+# (a) SPACER broadening -- sl_no AND description AND unit all junk -> SPACER;
+# (b) LINE_ITEM unit gate -- unit junk -> re-evaluate without LINE_ITEM.
+# See plan-doc sec 17.44.
+
+
+def _is_unit_blank_or_junk(value) -> bool:
+    """Trimmed empty OR no alphabetic characters."""
+    if value is None:
+        return True
+    s = str(value).strip()
+    if not s:
+        return True
+    return not any(c.isalpha() for c in s)
+
+
+def _is_sl_no_blank_or_junk(value) -> bool:
+    """Trimmed empty OR no alphanumeric characters."""
+    if value is None:
+        return True
+    s = str(value).strip()
+    if not s:
+        return True
+    return not any(c.isalnum() for c in s)
+
+
+def _is_description_blank_or_junk(value) -> bool:
+    return _is_sl_no_blank_or_junk(value)
+
+
 # ------------------------------------------------------------------
 # classify_row()
 # ------------------------------------------------------------------
@@ -777,6 +809,26 @@ def classify_row(
         warnings.append(
             f"Row {raw_row.row_number}: has unclear classification — defaulted to note."
         )
+
+    # ---------------------------------------------------------------- #
+    # Bug 16 -- classifier unit invariant                                #
+    # ---------------------------------------------------------------- #
+    if BUG_16_UNIT_INVARIANT_ENABLED:
+        if (_is_sl_no_blank_or_junk(sl_no_value)
+                and _is_description_blank_or_junk(desc_text)
+                and _is_unit_blank_or_junk(unit)):
+            classification = RowClassification.SPACER
+            warnings = []
+        elif classification == RowClassification.LINE_ITEM and _is_unit_blank_or_junk(unit):
+            if sl_no_value and desc_text:
+                classification = RowClassification.PREAMBLE
+            elif desc_text and not sl_no_value and not has_nonzero_rate:
+                classification = RowClassification.NOTE
+            else:
+                classification = RowClassification.NOTE
+                warnings.append(
+                    f"Row {raw_row.row_number}: LINE_ITEM blocked by unit invariant."
+                )
 
     # ---------------------------------------------------------------- #
     # Post-extraction emptiness guard                                    #

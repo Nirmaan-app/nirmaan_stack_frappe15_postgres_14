@@ -414,11 +414,11 @@ def generate_multi_area_2row() -> Path:
     (header_row_count=2 routing, §9 #43 coverage gap).
 
     Row 1 (top header): area labels merged across pairs of columns.
-      A1="Sl.No."  B1="Description"  C1:D1="Block A"  E1:F1="Block B"
-      G1="Rate"  H1="Total"
+      A1="Sl.No."  B1="Description"  C1="Unit"  D1:E1="Block A"  F1:G1="Block B"
+      H1="Rate"  I1="Total"
     Row 2 (bottom header, header_row=2): column sub-labels.
-      A2="Sl.No."  B2="Description"  C2="Qty"  D2="Amount"
-      E2="Qty"  F2="Amount"  G2="Rate"  H2="Total"
+      A2="Sl.No."  B2="Description"  C2="Unit"  D2="Qty"  E2="Amount"
+      F2="Qty"  G2="Amount"  H2="Rate"  I2="Total"
     Row 3: empty (skipped as header_row+1 by orchestrator)
     Rows 4–6: three LINE_ITEM data rows.
     """
@@ -426,57 +426,62 @@ def generate_multi_area_2row() -> Path:
     ws = wb.active
     ws.title = "Multi Area 2Row"
 
-    # Row 1 — top header: area labels, two merged pairs
+    # Row 1 — top header: area labels, two merged pairs (shifted right by 1 for unit col)
     ws["A1"] = "Sl.No."
     ws["B1"] = "Description"
-    ws["C1"] = "Block A"
-    ws.merge_cells("C1:D1")
-    ws["E1"] = "Block B"
-    ws.merge_cells("E1:F1")
-    ws["G1"] = "Rate"
-    ws["H1"] = "Total"
+    ws["C1"] = "Unit"
+    ws["D1"] = "Block A"
+    ws.merge_cells("D1:E1")
+    ws["F1"] = "Block B"
+    ws.merge_cells("F1:G1")
+    ws["H1"] = "Rate"
+    ws["I1"] = "Total"
 
     # Row 2 — bottom header: qty/amount sub-labels (= header_row)
     ws["A2"] = "Sl.No."
     ws["B2"] = "Description"
-    ws["C2"] = "Qty"
-    ws["D2"] = "Amount"
-    ws["E2"] = "Qty"
-    ws["F2"] = "Amount"
-    ws["G2"] = "Rate"
-    ws["H2"] = "Total"
+    ws["C2"] = "Unit"
+    ws["D2"] = "Qty"
+    ws["E2"] = "Amount"
+    ws["F2"] = "Qty"
+    ws["G2"] = "Amount"
+    ws["H2"] = "Rate"
+    ws["I2"] = "Total"
 
     # Row 3 — empty (skipped by orchestrator as header_row+1)
 
     # Row 4 — first data row
     ws["A4"] = 1.0
     ws["B4"] = "Electrical works"
-    ws["C4"] = 5.0    # Block A qty
-    ws["D4"] = 500.0  # Block A amount
-    ws["E4"] = 3.0    # Block B qty
-    ws["F4"] = 300.0  # Block B amount
-    ws["G4"] = 100.0
-    ws["H4"] = 800.0
+    ws["C4"] = "Nos"
+    ws["D4"] = 5.0    # Block A qty
+    ws["E4"] = 500.0  # Block A amount
+    ws["F4"] = 3.0    # Block B qty
+    ws["G4"] = 300.0  # Block B amount
+    ws["H4"] = 100.0
+    ws["I4"] = 800.0
 
     # Row 5
     ws["A5"] = 2.0
     ws["B5"] = "Civil works"
-    ws["C5"] = 10.0
-    ws["D5"] = 1000.0
-    ws["E5"] = 7.0
-    ws["F5"] = 700.0
-    ws["G5"] = 120.0
-    ws["H5"] = 1700.0
+    ws["C5"] = "Nos"
+    ws["D5"] = 10.0
+    ws["E5"] = 1000.0
+    ws["F5"] = 7.0
+    ws["G5"] = 700.0
+    ws["H5"] = 120.0
+    ws["I5"] = 1700.0
 
     # Row 6
     ws["A6"] = 3.0
     ws["B6"] = "HVAC works"
-    ws["C6"] = 2.0
-    ws["D6"] = 200.0
-    ws["E6"] = 1.0
-    ws["F6"] = 100.0
-    ws["G6"] = 150.0
-    ws["H6"] = 300.0
+    ws["C6"] = "Nos"
+    ws["D6"] = 2.0
+    ws["E6"] = 200.0
+    ws["F6"] = 1.0
+    ws["G6"] = 100.0
+    ws["H6"] = 150.0
+    ws["I6"] = 300.0
 
     path = _path("synthetic_multi_area_2row.xlsx")
     wb.save(str(path))
@@ -492,57 +497,61 @@ def generate_pattern_2_rate() -> Path:
     Pattern 2-rate: two-row merged header with 3-col clusters [Qty | Rate | Amount].
 
     Row 1 (top header): area labels merged across 3 columns each.
-      A1="Sl.No."  B1="Description"  C1:E1="PHASE-1"  F1:H1="PHASE-2"
+      A1="Sl.No."  B1="Description"  C1="Unit"  D1:F1="PHASE-1"  G1:I1="PHASE-2"
     Row 2 (bottom header, header_row=2): column sub-labels.
-      A2="Sl.No."  B2="Description"
-      C2="Qty"  D2="Rate"  E2="Amount"
-      F2="Qty"  G2="Rate"  H2="Amount"
-    Row 3 — data: qty/rate/amount diverge across phases to exercise per-area rate logic.
+      A2="Sl.No."  B2="Description"  C2="Unit"
+      D2="Qty"  E2="Rate"  F2="Amount"
+      G2="Qty"  H2="Rate"  I2="Amount"
+    Row 3 -- data: qty/rate/amount diverge across phases to exercise per-area rate logic.
       PHASE-1: qty=10, rate=100, amt=1000
       PHASE-2: qty=20, rate=110, amt=2200
-    Row 4 — second data row for completeness.
+    Row 4 -- second data row for completeness.
     """
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Pattern 2 Rate"
 
-    # Row 1 — top header: 3-col merges for each area
+    # Row 1 -- top header: 3-col merges for each area (shifted right by 1 for unit col)
     ws["A1"] = "Sl.No."
     ws["B1"] = "Description"
-    ws["C1"] = "PHASE-1"
-    ws.merge_cells("C1:E1")
-    ws["F1"] = "PHASE-2"
-    ws.merge_cells("F1:H1")
+    ws["C1"] = "Unit"
+    ws["D1"] = "PHASE-1"
+    ws.merge_cells("D1:F1")
+    ws["G1"] = "PHASE-2"
+    ws.merge_cells("G1:I1")
 
-    # Row 2 — bottom header (= header_row): qty/rate/amount sub-labels
+    # Row 2 -- bottom header (= header_row): qty/rate/amount sub-labels
     ws["A2"] = "Sl.No."
     ws["B2"] = "Description"
-    ws["C2"] = "Qty"
-    ws["D2"] = "Rate"
-    ws["E2"] = "Amount"
-    ws["F2"] = "Qty"
-    ws["G2"] = "Rate"
-    ws["H2"] = "Amount"
+    ws["C2"] = "Unit"
+    ws["D2"] = "Qty"
+    ws["E2"] = "Rate"
+    ws["F2"] = "Amount"
+    ws["G2"] = "Qty"
+    ws["H2"] = "Rate"
+    ws["I2"] = "Amount"
 
-    # Row 3 — first data row
+    # Row 3 -- first data row
     ws["A3"] = 1.0
     ws["B3"] = "Electrical works"
-    ws["C3"] = 10.0    # PHASE-1 qty
-    ws["D3"] = 100.0   # PHASE-1 rate
-    ws["E3"] = 1000.0  # PHASE-1 amount (10 × 100)
-    ws["F3"] = 20.0    # PHASE-2 qty
-    ws["G3"] = 110.0   # PHASE-2 rate
-    ws["H3"] = 2200.0  # PHASE-2 amount (20 × 110)
+    ws["C3"] = "Nos"
+    ws["D3"] = 10.0    # PHASE-1 qty
+    ws["E3"] = 100.0   # PHASE-1 rate
+    ws["F3"] = 1000.0  # PHASE-1 amount (10 x 100)
+    ws["G3"] = 20.0    # PHASE-2 qty
+    ws["H3"] = 110.0   # PHASE-2 rate
+    ws["I3"] = 2200.0  # PHASE-2 amount (20 x 110)
 
-    # Row 4 — second data row
+    # Row 4 -- second data row
     ws["A4"] = 2.0
     ws["B4"] = "Civil works"
-    ws["C4"] = 5.0
-    ws["D4"] = 200.0
-    ws["E4"] = 1000.0
-    ws["F4"] = 8.0
-    ws["G4"] = 200.0
-    ws["H4"] = 1600.0
+    ws["C4"] = "Nos"
+    ws["D4"] = 5.0
+    ws["E4"] = 200.0
+    ws["F4"] = 1000.0
+    ws["G4"] = 8.0
+    ws["H4"] = 200.0
+    ws["I4"] = 1600.0
 
     path = _path("synthetic_pattern_2_rate.xlsx")
     wb.save(str(path))

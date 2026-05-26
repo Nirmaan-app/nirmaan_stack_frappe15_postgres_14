@@ -201,12 +201,13 @@ def _multi_area_2row_config() -> MappingConfig:
             column_role_map={
                 "A": ColumnRole(role="sl_no"),
                 "B": ColumnRole(role="description"),
-                "C": ColumnRole(role="qty", area="Block A"),
-                "D": ColumnRole(role="amount_by_area", area="Block A"),
-                "E": ColumnRole(role="qty", area="Block B"),
-                "F": ColumnRole(role="amount_by_area", area="Block B"),
-                "G": ColumnRole(role="rate_supply"),
-                "H": ColumnRole(role="amount_total"),
+                "C": ColumnRole(role="unit"),
+                "D": ColumnRole(role="qty", area="Block A"),
+                "E": ColumnRole(role="amount_by_area", area="Block A"),
+                "F": ColumnRole(role="qty", area="Block B"),
+                "G": ColumnRole(role="amount_by_area", area="Block B"),
+                "H": ColumnRole(role="rate_supply"),
+                "I": ColumnRole(role="amount_total"),
             },
         )],
     )
@@ -661,6 +662,8 @@ class TestSnitchIntegration(unittest.TestCase):
         exp = self.expected["sheets"]["6. Electrical"]["count_by_classification"]
         self.assertEqual(counts.get(RowClassification.LINE_ITEM, 0), exp["LINE_ITEM"])
         self.assertEqual(counts.get(RowClassification.PREAMBLE, 0), exp["PREAMBLE"])
+        # Updated for Bug 16 Clause 1: 190 NOTE rows reclassified to SPACER
+        # (=N(...)*N(...) template formulas in Snitch '6. Electrical'). Total 287 - 190 = 97.
         self.assertEqual(counts.get(RowClassification.NOTE, 0), exp["NOTE"])
         self.assertEqual(counts.get(RowClassification.SPACER, 0), exp["SPACER"])
         self.assertEqual(counts.get(RowClassification.SUBTOTAL_MARKER, 0), exp["SUBTOTAL_MARKER"])
@@ -917,12 +920,13 @@ def _pattern_2_rate_config() -> MappingConfig:
             column_role_map={
                 "A": ColumnRole(role="sl_no"),
                 "B": ColumnRole(role="description"),
-                "C": ColumnRole(role="qty", area="PHASE-1"),
-                "D": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
-                "E": ColumnRole(role="amount_by_area", area="PHASE-1"),
-                "F": ColumnRole(role="qty", area="PHASE-2"),
-                "G": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
-                "H": ColumnRole(role="amount_by_area", area="PHASE-2"),
+                "C": ColumnRole(role="unit"),
+                "D": ColumnRole(role="qty", area="PHASE-1"),
+                "E": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
+                "F": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                "G": ColumnRole(role="qty", area="PHASE-2"),
+                "H": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
+                "I": ColumnRole(role="amount_by_area", area="PHASE-2"),
             },
         )],
     )
@@ -1780,8 +1784,10 @@ class TestBug10SocieteGeneraleHvacIntegration(unittest.TestCase):
     def test_societe_hvac_line_item_count_threshold(self):
         """
         Pre-fix: 73 rows misfired as SUBTOTAL_MARKER (~282 - 73 = ~209 LINE_ITEMs).
-        Post-fix: 282 LINE_ITEMs verified empirically.
-        Threshold >= 230 is safely above the pre-fix ~209 and below the post-fix 282.
+        Post-fix (Bug 10): 282 LINE_ITEMs verified empirically.
+        # Updated for Bug 16 Clause 2: 132 LINE_ITEMs reclassified to PREAMBLE/NOTE/SPACER
+        # due to missing units in sg_hvac BOQ_HVAC Lowside works sheet.
+        # Post Bug 16: actual = 150; threshold >= 145 is conservatively below actual.
         """
         line_item_count = sum(
             1 for rr in self.resolved
@@ -1789,8 +1795,8 @@ class TestBug10SocieteGeneraleHvacIntegration(unittest.TestCase):
         )
         self.assertGreaterEqual(
             line_item_count,
-            230,
-            f"Expected >= 230 LINE_ITEMs post Bug 10 fix, got {line_item_count}",
+            145,
+            f"Expected >= 145 LINE_ITEMs post Bug 10+16 fix, got {line_item_count}",
         )
 
 
