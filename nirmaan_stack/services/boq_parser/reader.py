@@ -65,6 +65,18 @@ def _format_numeric_as_displayed(value: Any, number_format: str | None) -> Any:
     return str(value)
 
 # ------------------------------------------------------------------
+# Bug 18: merge-propagation blanking for text-role columns
+# ------------------------------------------------------------------
+# When True, covered cells (inside a merged range but not the top-left
+# origin) that fall in text_role_columns report None instead of the
+# propagated origin value. This prevents banner-style merged section
+# headers (e.g. "PART- 2 INSULATION" merged across A:G) from being
+# classified as LINE_ITEM because the propagated text fills sl_no,
+# description, AND unit columns simultaneously.
+# Set False for regression isolation only.
+BUG_18_MERGE_PROPAGATION_BLANK_ENABLED: bool = True
+
+# ------------------------------------------------------------------
 # Data structures
 # ------------------------------------------------------------------
 
@@ -309,6 +321,19 @@ class BoqReader:
                     computed_value = _format_numeric_as_displayed(
                         computed_value, cell_number_format
                     )
+
+                # Bug 18: suppress propagated values for text-role columns.
+                # Covered cells (inside a merge but not the origin) carry the origin's
+                # text into every column of the merge. For text-role columns this causes
+                # banner-style section headers to appear in description and unit, making
+                # the classifier misidentify the row as a LINE_ITEM.
+                if (
+                    BUG_18_MERGE_PROPAGATION_BLANK_ENABLED
+                    and text_role_columns is not None
+                    and col_letter in text_role_columns
+                    and covered is not None  # non-origin covered cell
+                ):
+                    computed_value = None
 
                 # Formatting — always the covered cell's own, never inherited from origin.
                 font_bold = bool(cell_val.font and cell_val.font.bold)
