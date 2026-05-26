@@ -17,6 +17,7 @@ from pathlib import Path
 from nirmaan_stack.services.boq_parser.classifier import (
     ClassifiedRow,
     RowClassification,
+    _apply_section_header_note_promotion_post_pass,
     _apply_unit_based_demotion_post_pass,
     classify_row,
     populate_preamble_candidate_scores,
@@ -29,6 +30,7 @@ from nirmaan_stack.services.boq_parser.config import (
     SheetConfig,
 )
 from nirmaan_stack.services.boq_parser.hierarchy import (
+    _is_sub_head_marker,
     first_numeric_token,
     pattern_signature,
     resolve_hierarchy,
@@ -152,6 +154,7 @@ def _run_elv_pipeline(approach_a_enabled: bool):
     classified = [classify_row(rr, sheet_config, global_settings) for rr in raw_rows]
     _apply_unit_based_demotion_post_pass(classified)
     populate_preamble_candidate_scores(classified, sheet_config)
+    _apply_section_header_note_promotion_post_pass(classified)  # Bug 20 post-pass
     return resolve_hierarchy(
         classified, sheet_config, global_settings,
         approach_a_enabled=approach_a_enabled,
@@ -504,22 +507,30 @@ class TestBoqElvIntegration(unittest.TestCase):
     Audit reference: diagnostic_snapshots/approach_a_reframed_audit_bill_of_quantities.json
       - 31 total firings: A1=0, A2=31.
       - First firing: xlsx row 9, sl_no '2.0', current_parent='1.0', proposed_parent=''
-        (empty proposed_parent means parent_index=None after A2).
+        (empty proposed_parent means parent_index=None after A2 without Bug 20-ext).
     """
 
     def test_boq_elv_a2_first_firing_root_level(self):
         """
         xlsx row 9: sl_no '2.0' LINE_ITEM.
-        A2 fires: sig match + fnt diff -> parent_index = '1.0'.parent_index = None.
-        With A2 ON, '2.0' must have parent_index=None (root level).
+        A2 fires: sig match + fnt diff -> parent_index = '1.0'.parent_index.
+        Bug 20-ext calibration: SUB HEAD A (xlsx r4) is level=0 (level0_ancestor),
+        so '1.0'.parent_index = SUB HEAD A. Via A2, '2.0' inherits SUB HEAD A as parent.
+        With A2 ON + Bug20-ext, '2.0' must parent to SUB HEAD A (not root-level None).
         """
         resolved = _run_elv_pipeline(approach_a_enabled=True)
         rr = _find_by_xlsx_row(resolved, 9)
         self.assertIsNotNone(rr, "xlsx row 9 not found in resolved rows")
         self.assertEqual(rr.classified_row.sl_no_value, "2.0")
-        self.assertIsNone(
+        # Bug 20-ext calibration -- SUB HEAD now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED
+        self.assertIsNotNone(
             rr.parent_index,
-            f"Expected root-level (parent_index=None) after A2, got {rr.parent_index}",
+            "After A2 + Bug20-ext, '2.0' must parent to SUB HEAD A (not root-level None)",
+        )
+        parent_rr = resolved[rr.parent_index]
+        self.assertTrue(
+            _is_sub_head_marker((parent_rr.classified_row.sl_no_value or "").strip()),
+            f"Parent of '2.0' must be a SUB HEAD; got {parent_rr.classified_row.sl_no_value!r}",
         )
 
     def test_boq_elv_approach_a_off_nested(self):

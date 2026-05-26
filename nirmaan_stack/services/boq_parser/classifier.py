@@ -89,6 +89,13 @@ class ClassifiedRow:
     preamble_candidate_score: int = 0
     preamble_candidate_signals: list[str] = field(default_factory=list)
 
+    # Bug 20 (sec 9 #108): when set by _apply_section_header_note_promotion_post_pass,
+    # resolve_hierarchy uses this value directly as the PREAMBLE level, bypassing
+    # _determine_preamble_level. Set to 0 for anchor-promoted section-header rows.
+    # Session 6 anchor 3 uses level=0 on ResolvedRow (derived from this) to detect
+    # prior-promoted section headers. Leave None for all other rows.
+    preamble_level_override: int | None = None
+
 
 # ------------------------------------------------------------------
 # Constants
@@ -454,6 +461,89 @@ BUG_16_UNIT_INVARIANT_ENABLED: bool = True
 # (a) SPACER broadening -- sl_no AND description AND unit all junk -> SPACER;
 # (b) LINE_ITEM unit gate -- unit junk -> re-evaluate without LINE_ITEM.
 # See plan-doc sec 17.44.
+
+BUG_20_SECTION_HEADER_PROMOTION_ENABLED: bool = True
+# Bug 20 anchors 1+2 (cluster 2 session 2, sec 9 #108): promote NOTE rows to
+# PREAMBLE level=0 when they appear at positional anchor points (first non-SPACER
+# after header row; first non-SPACER after each SUBTOTAL_MARKER). Captures section
+# banner rows like "PART-1 AIR DISTRIBUTION SYSTEM" that the classifier puts in
+# NOTE because they lack a qty. Anchor 3 (recursive) is deferred to session 6.
+# Set False for regression isolation.
+
+# Regex that matches sl_no values that look like genuine section-number codes.
+# Used by _is_section_header_candidate to avoid promoting numbered items.
+# Covers: numeric ("1", "1.0"), single-letter ("A", "A."), Roman numerals
+# ("II", "XIV."), and PART-style codes ("PART-A", "PART-B").
+_SECTION_NUMBER_RE = re.compile(
+    r"^(\d+\.?\d*|[A-Z]\.?|[IVXLCDM]+\.?|PART-[A-Za-z]+)$",
+    re.IGNORECASE,
+)
+
+
+def _first_non_spacer_idx(rows: list, start: int) -> int | None:
+    """Return index of first non-SPACER row at or after `start`. None if not found."""
+    for i in range(start, len(rows)):
+        if rows[i].classification != RowClassification.SPACER:
+            return i
+    return None
+
+
+def _is_section_header_candidate(row: "ClassifiedRow") -> bool:
+    """
+    True iff this row qualifies as a positional section-header banner.
+
+    Accepts NOTE rows that have text content in their description column
+    (standard case) or — when description is blank due to merge propagation —
+    in their sl_no column, provided the sl_no text does not look like a
+    genuine section-number code (numeric, letter, Roman, PART-X).
+    """
+    if row.classification != RowClassification.NOTE:
+        return False
+    if row.description and row.description.strip():
+        return True
+    sl = (row.sl_no_value or "").strip()
+    if sl and not _SECTION_NUMBER_RE.match(sl):
+        return True
+    return False
+
+
+def _promote_section_header(row: "ClassifiedRow") -> None:
+    """Promote a NOTE section-header candidate to PREAMBLE level=0 in place."""
+    assert row.classification != RowClassification.PREAMBLE
+    row.classification = RowClassification.PREAMBLE
+    row.preamble_level_override = 0
+
+
+def _apply_section_header_note_promotion_post_pass(
+    classified_rows: list["ClassifiedRow"],
+) -> None:
+    """
+    Promote NOTE section-banner rows to PREAMBLE level=0 via positional anchors.
+
+    Anchor 1: first non-SPACER row in classified_rows (header row is already
+    excluded by the orchestrator before this pass is called).
+    Anchor 2: first non-SPACER row after each SUBTOTAL_MARKER.
+
+    Anchors are independent — a row cannot match both. Promoted rows receive
+    preamble_level_override=0 so resolve_hierarchy bypasses _determine_preamble_level
+    and assigns level=0 directly (section 6 will detect these by rr.level == 0).
+
+    Bug 20 anchors 1+2 (sec 9 #108 / cluster 2 session 2). Anchor 3 deferred.
+    """
+    if not BUG_20_SECTION_HEADER_PROMOTION_ENABLED:
+        return
+
+    # Anchor 1: first non-spacer at sheet start
+    idx = _first_non_spacer_idx(classified_rows, 0)
+    if idx is not None and _is_section_header_candidate(classified_rows[idx]):
+        _promote_section_header(classified_rows[idx])
+
+    # Anchor 2: first non-spacer after each SUBTOTAL_MARKER
+    for i, row in enumerate(classified_rows):
+        if row.classification == RowClassification.SUBTOTAL_MARKER:
+            idx = _first_non_spacer_idx(classified_rows, i + 1)
+            if idx is not None and _is_section_header_candidate(classified_rows[idx]):
+                _promote_section_header(classified_rows[idx])
 
 
 def _is_unit_blank_or_junk(value) -> bool:

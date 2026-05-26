@@ -16,6 +16,7 @@ from pathlib import Path
 from nirmaan_stack.services.boq_parser.classifier import (
     ClassifiedRow,
     RowClassification,
+    _apply_section_header_note_promotion_post_pass,
     _apply_unit_based_demotion_post_pass,
     classify_row,
     populate_preamble_candidate_scores,
@@ -124,6 +125,7 @@ def _run_elv_pipeline():
     classified = [classify_row(rr, sheet_config, global_settings) for rr in raw_rows]
     _apply_unit_based_demotion_post_pass(classified)
     populate_preamble_candidate_scores(classified, sheet_config)
+    _apply_section_header_note_promotion_post_pass(classified)  # Bug 20 post-pass
     return resolve_hierarchy(
         classified, sheet_config, global_settings, approach_a_enabled=True,
     ).rows
@@ -196,11 +198,11 @@ class TestFix1SubHeadLevel1(unittest.TestCase):
 
     def test_sub_head_forces_level_1_with_empty_stack(self):
         level, warns = self._call_determine("SUB HEAD A", stack=[], resolved=[])
-        self.assertEqual(level, 1)
+        self.assertEqual(level, 0)  # Bug 20-ext calibration -- SUB HEAD now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED
         self.assertEqual(warns, [])
 
     def test_sub_head_forces_level_1_with_non_empty_stack(self):
-        # Stack already has L1 + L2 entries; "SUB HEAD B" must still return level 1.
+        # Stack already has L1 + L2 entries; "SUB HEAD B" must still return level 0.
         p1 = _make_preamble_cr("1.0", row_num=1)
         p2 = _make_preamble_cr("1.1", row_num=2)
         rr1 = ResolvedRow(classified_row=p1, level=1, parent_index=None, path="0")
@@ -211,12 +213,12 @@ class TestFix1SubHeadLevel1(unittest.TestCase):
             resolved=[rr1, rr2],
             stack_depth=2,
         )
-        self.assertEqual(level, 1)
+        self.assertEqual(level, 0)  # Bug 20-ext calibration -- SUB HEAD now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED
         self.assertEqual(warns, [])
 
     def test_sub_head_with_embedded_newline_still_level_1(self):
         level, warns = self._call_determine("SUB\nHEAD F", stack=[], resolved=[])
-        self.assertEqual(level, 1)
+        self.assertEqual(level, 0)  # Bug 20-ext calibration -- SUB HEAD now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED
         self.assertEqual(warns, [])
 
     def test_sub_head_returns_empty_warnings(self):
@@ -334,25 +336,28 @@ class TestBoqElvIntegration(unittest.TestCase):
         cls.resolved = _run_elv_pipeline()
 
     def test_boq_elv_sub_head_b_at_level_1(self):
-        """xlsx row 62 sl='SUB HEAD B' -> level=1, parent_index=None."""
+        """xlsx row 62 sl='SUB HEAD B' -> level=0, parent_index=None.
+        Bug 20-ext calibration -- SUB HEAD now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED."""
         rr = _find_by_xlsx_row(self.resolved, 62)
         self.assertIsNotNone(rr, "Row 62 not found in resolved output")
         self.assertEqual(rr.classified_row.sl_no_value, "SUB HEAD B")
-        self.assertEqual(rr.level, 1)
+        self.assertEqual(rr.level, 0)  # Bug 20-ext calibration -- was level=1
         self.assertIsNone(rr.parent_index)
 
     def test_boq_elv_sub_head_with_newline_at_level_1(self):
-        """xlsx row 272 sl='SUB\\nHEAD F' (embedded newline) -> level=1, parent_index=None."""
+        """xlsx row 272 sl='SUB\\nHEAD F' (embedded newline) -> level=0, parent_index=None.
+        Bug 20-ext calibration -- SUB HEAD now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED."""
         rr = _find_by_xlsx_row(self.resolved, 272)
         self.assertIsNotNone(rr, "Row 272 not found in resolved output")
         sl = rr.classified_row.sl_no_value or ""
         self.assertIn("\n", sl, f"Row 272 sl_no has no embedded newline: {sl!r}")
         self.assertTrue(_is_sub_head_marker(sl.strip()))
-        self.assertEqual(rr.level, 1)
+        self.assertEqual(rr.level, 0)  # Bug 20-ext calibration -- was level=1
         self.assertIsNone(rr.parent_index)
 
     def test_boq_elv_all_sub_heads_at_level_1(self):
-        """Every PREAMBLE matching _is_sub_head_marker has level=1 and parent_index=None."""
+        """Every PREAMBLE matching _is_sub_head_marker has level=0 and parent_index=None.
+        Bug 20-ext calibration -- all 21 SUB HEAD rows now level=0 per BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED."""
         sub_heads = [
             rr for rr in self.resolved
             if rr.classified_row.classification == RowClassification.PREAMBLE
@@ -365,7 +370,7 @@ class TestBoqElvIntegration(unittest.TestCase):
         for rr in sub_heads:
             row_num = rr.classified_row.raw_row.row_number
             with self.subTest(xlsx_row=row_num, sl=rr.classified_row.sl_no_value):
-                self.assertEqual(rr.level, 1)
+                self.assertEqual(rr.level, 0)  # Bug 20-ext calibration -- was level=1
                 self.assertIsNone(rr.parent_index)
 
     def test_boq_elv_subtotal_reset_decouples_sections(self):
@@ -394,18 +399,23 @@ class TestBoqElvIntegration(unittest.TestCase):
 
     def test_boq_elv_numeric_preamble_after_sub_head_b_is_clean_root(self):
         """
-        xlsx row 64 sl='1.0' -> level=1, parent_index=None.
+        xlsx row 64 sl='1.0' -> level=1, parent is SUB HEAD B (row 62).
 
-        Verifies that section B's first numeric preamble starts clean at root
-        level, not nested under a stale section-A ancestor.  The numeric style
-        matches level_1_style='numeric' so the row is always level 1; the
-        stack reset (Fix 2) ensures no stale ancestor lingers in the path cache.
+        Bug 20-ext calibration: previously parent_index=None (rootless). Now sl='1.0'
+        correctly parents under the preceding level=0 SUB HEAD B via level0_ancestor
+        tracking in resolve_hierarchy (BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED).
         """
         rr = _find_by_xlsx_row(self.resolved, 64)
         self.assertIsNotNone(rr, "Numeric preamble at row 64 not found")
         self.assertEqual(rr.classified_row.sl_no_value, "1.0")
         self.assertEqual(rr.level, 1)
-        self.assertIsNone(rr.parent_index)
+        # Bug 20-ext calibration -- parent_index was None; now points to SUB HEAD B
+        self.assertIsNotNone(rr.parent_index, "Row 64 sl='1.0' should parent under SUB HEAD B (level=0)")
+        parent_rr = self.resolved[rr.parent_index]
+        self.assertTrue(
+            _is_sub_head_marker((parent_rr.classified_row.sl_no_value or "").strip()),
+            f"Parent of sl='1.0' must be a SUB HEAD; got {parent_rr.classified_row.sl_no_value!r}",
+        )
 
 
 if __name__ == "__main__":

@@ -117,6 +117,14 @@ _SUB_HEAD_RE = re.compile(
 # threading a kwarg through every call site is awkward.
 BUG_22_COLLAPSE_ENABLED: bool = True
 
+BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED: bool = True
+# Bug 20-ext (cluster 2 session 2, sec 9 #108): SUB HEAD section markers are
+# assigned level=0 instead of level=1 so subsequent numeric PREAMBLEs (sl=1.0,
+# 2.0, ...) correctly parent under them. resolve_hierarchy tracks the most recent
+# level=0 PREAMBLE as level0_ancestor and uses it as the parent for level=1 rows
+# that would otherwise be rootless (parent=None). Set False for regression isolation;
+# reverts SUB HEAD to the original level=1 behaviour (sec 9 #100).
+
 
 def pattern_signature(sl_no: str) -> str:
     """
@@ -330,7 +338,7 @@ def _determine_preamble_level(
     and current stack state. Returns (level, warnings_for_this_row).
 
     Decision table (first match wins):
-      0. SUB HEAD section marker  → 1                (force level 1; sec 9 #100)
+      0. SUB HEAD section marker  → 0                (force level 0; Bug 20-ext sec 9 #108, was 1 per sec 9 #100)
       1. Rule A1 (approach_a_enabled): all-lowercase code after strip → anchor.level + 1
       2. empty sl_no              → stack_depth + 1  (with warning)
       3. lowercase_letter         → stack_depth + 1  (inherently sub-code)
@@ -346,11 +354,12 @@ def _determine_preamble_level(
     row_num = rr.row_number
     warns: list[str] = []
 
-    # SUB HEAD section marker (sec 9 #100): force level=1 unconditionally.
-    # Section markers like "SUB HEAD A" / "SUB HEAD K1" / "SUB\nHEAD F" are
-    # always section roots, regardless of stack state.
+    # SUB HEAD section marker: force level=0 (Bug 20-ext, sec 9 #108) or level=1
+    # (pre-fix behaviour sec 9 #100) depending on toggle. Level=0 makes subsequent
+    # numeric PREAMBLEs (sl=1.0, 2.0, ...) parent under the section marker via
+    # the level0_ancestor tracker in resolve_hierarchy.
     if sl_no and _is_sub_head_marker(sl_no):
-        return 1, []
+        return (0 if BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED else 1), []
 
     # Rule A1: lowercase-letter cascade fix.
     # Fires only when the sl_no (after stripping trailing punctuation) consists
@@ -485,6 +494,12 @@ def resolve_hierarchy(
     notes_to_attach: dict[int, list[str]] = {}
     master_preamble_notes: list[str] = []
     sheet_warnings: list[str] = []
+    # Bug 20-ext (sec 9 #108): resolved-row index of the most recent level=0
+    # PREAMBLE (SUB HEAD or anchor-promoted section header). Level-1 PREAMBLEs
+    # that would otherwise be rootless (empty stack after truncation) use this as
+    # their parent, making them children of the enclosing section header.
+    # Reset to None on each SUBTOTAL_MARKER (universal section boundary).
+    level0_ancestor: int | None = None
 
     # Determine level_1_style: use the override if provided, else auto-detect.
     if sheet_config.level_1_style_override is not None:
@@ -514,6 +529,7 @@ def resolve_hierarchy(
             # 21, Snitch 9, Inovalon 11, SG HVAC 4, Raheja 0, D-Tech 1) confirmed
             # zero mid-section subtotals — universal reset is safe.
             stack.clear()
+            level0_ancestor = None  # Bug 20-ext: reset section anchor at each boundary
             # Re-detect level_1_style from the next section's first preamble.
             # Only re-detect if no override is in effect.
             if sheet_config.level_1_style_override is None:
@@ -528,34 +544,55 @@ def resolve_hierarchy(
         # ---------------------------------------------------------- #
         if cls == RowClassification.PREAMBLE:
             stack_top_index = _top_non_none(stack)
-            level, row_warns = _determine_preamble_level(
-                classified_row,
-                level_1_style,
-                len(stack),
-                stack_top_index,
-                classified_rows,
-                classified_row.raw_row,
-                sheet_config,
-                approach_a_enabled=approach_a_enabled,
-                stack=stack,
-                resolved=resolved,
-            )
+            # Bug 20 (sec 9 #108): anchor-promoted rows carry preamble_level_override=0
+            # set by _apply_section_header_note_promotion_post_pass. Use it directly
+            # to skip _determine_preamble_level (which would return wrong answer for
+            # NOTE-promoted rows that have no standard sl_no).
+            if classified_row.preamble_level_override is not None:
+                level = classified_row.preamble_level_override
+                row_warns: list[str] = []
+            else:
+                level, row_warns = _determine_preamble_level(
+                    classified_row,
+                    level_1_style,
+                    len(stack),
+                    stack_top_index,
+                    classified_rows,
+                    classified_row.raw_row,
+                    sheet_config,
+                    approach_a_enabled=approach_a_enabled,
+                    stack=stack,
+                    resolved=resolved,
+                )
             sheet_warnings.extend(row_warns)
 
-            # Truncate stack to keep only ancestors (levels 1 .. level-1)
-            stack = stack[:level - 1]
-            # Pad with None if stack was shorter than level-1
-            while len(stack) < level - 1:
-                stack.append(None)
+            if level == 0:
+                # Level-0 (section header): absolute root above all other levels.
+                # Clears the stack and records itself as the current section ancestor
+                # so level-1 PREAMBLEs can parent under it (Bug 20-ext, sec 9 #108).
+                stack.clear()
+                level0_ancestor = idx
+                parent_index = None
+            else:
+                # Standard stack logic for level >= 1.
+                # Truncate stack to keep only ancestors (levels 1 .. level-1)
+                stack = stack[:level - 1]
+                # Pad with None if stack was shorter than level-1
+                while len(stack) < level - 1:
+                    stack.append(None)
 
-            parent_index = stack[-1] if stack and stack[-1] is not None else None
+                parent_index = stack[-1] if stack and stack[-1] is not None else None
+                # Bug 20-ext: level-1 PREAMBLEs with no stack parent inherit the
+                # current section ancestor (level=0 SUB HEAD or anchor-promoted row).
+                if parent_index is None and level == 1:
+                    parent_index = level0_ancestor
+
+                # Extend stack to hold this level, then place this row
+                while len(stack) < level:
+                    stack.append(None)
+                stack[level - 1] = idx
+
             path = str(idx) if parent_index is None else path_cache[parent_index] + "/" + str(idx)
-
-            # Extend stack to hold this level, then place this row
-            while len(stack) < level:
-                stack.append(None)
-            stack[level - 1] = idx
-
             path_cache[idx] = path
             resolved.append(ResolvedRow(
                 classified_row=classified_row,

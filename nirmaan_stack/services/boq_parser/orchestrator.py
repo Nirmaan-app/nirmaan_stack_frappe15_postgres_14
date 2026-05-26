@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from nirmaan_stack.services.boq_parser.classifier import (
     RowClassification,
+    _apply_section_header_note_promotion_post_pass,
     _apply_unit_based_demotion_post_pass,
     classify_row,
     populate_preamble_candidate_scores,
@@ -220,6 +221,12 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
         # Step 3: Preamble candidate scoring post-pass (mutates in place)
         populate_preamble_candidate_scores(classified_rows, sheet_config)
+
+        # Step 3b: Section-header NOTE promotion post-pass — Bug 20 anchors 1+2
+        # (sec 9 #108). Promotes NOTE rows at positional anchors (sheet start and
+        # after each SUBTOTAL_MARKER) to PREAMBLE level=0. Must run after all
+        # classifier passes (classifications are settled) and before resolve_hierarchy.
+        _apply_section_header_note_promotion_post_pass(classified_rows)
 
         # Step 4: Hierarchy resolution
         resolved_sheet = resolve_hierarchy(classified_rows, sheet_config, global_settings)
