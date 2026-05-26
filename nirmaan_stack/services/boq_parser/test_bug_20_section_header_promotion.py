@@ -48,7 +48,7 @@ from nirmaan_stack.services.boq_parser.reader import BoqReader, RawRow
 _FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 _SAFRON_FIXTURE = _FIXTURES / "safron_hvac_2026-04-11.xlsx"
 _SAFRON_SHEET = "Low Side Works R2 11.4.26"
-_SAFRON_HEADER_ROW = 5
+_SAFRON_HEADER_ROW = 3
 _SAFRON_R41_ROW = 41   # "PART- 2 INSULATION" (anchor 2 target)
 _SAFRON_R43_ROW = 43   # "ACCOUSTIC INSULATION" (anchor 3 -- NOT promoted this session)
 
@@ -380,27 +380,29 @@ class TestSafronIntegration(unittest.TestCase):
     def _find(self, xlsx_row: int):
         return _find_by_xlsx_row(self.resolved, xlsx_row)
 
-    def test_safron_anchor1_skips_when_first_row_already_preamble(self):
+    def test_safron_anchor1_promotes_r5_part1_to_preamble_level0(self):
         """
-        In the safron 'Low Side Works R2 11.4.26' sheet the first non-SPACER data row
-        (r7, sl='1.00') is already classified as PREAMBLE (not NOTE), so Anchor 1
-        silently skips — no preamble_level_override is set on r7.
+        Excel row 5 is 'PART-1 AIR DISTRIBUTION SYSTEM' — a NOTE with no numeric data,
+        the first non-SPACER data row after the true header (r3). Anchor 1 must promote
+        it to PREAMBLE level=0.
+
+        Previous test used header_row=5 (copied from Bug 17/18 pattern), which caused
+        the parser to treat r5 itself as the header row and exclude it from the data
+        stream. Corrected to header_row=3 (actual safron column-title row).
         """
-        # First non-SPACER is r7 (xl row after SPACER at r6).
-        first_non_spacer = next(
-            (rr for rr in self.resolved
-             if rr.classified_row.classification != RowClassification.SPACER),
-            None,
-        )
-        self.assertIsNotNone(first_non_spacer, "No non-SPACER row found in safron resolved output")
+        rr = self._find(5)
+        self.assertIsNotNone(rr, "Excel row 5 (PART-1 AIR DISTRIBUTION SYSTEM) not found in resolved output")
         self.assertEqual(
-            first_non_spacer.classified_row.classification, RowClassification.PREAMBLE,
-            "First non-SPACER in safron is expected to be PREAMBLE already",
+            rr.classified_row.classification, RowClassification.PREAMBLE,
+            f"Row 5 must be PREAMBLE after Anchor 1 promotion; got {rr.classified_row.classification}",
         )
-        # Anchor 1 must NOT have mutated it (preamble_level_override stays None).
-        self.assertIsNone(
-            first_non_spacer.classified_row.preamble_level_override,
-            "Anchor 1 must not set preamble_level_override on a row that was already PREAMBLE",
+        self.assertEqual(rr.level, 0, "Anchor 1 promoted row must have level=0")
+        self.assertIsNone(rr.parent_index, "Level-0 section header must have no parent")
+        desc = rr.classified_row.sl_no_value or rr.classified_row.description or ""
+        self.assertIn(
+            "PART-1",
+            desc,
+            f"Row 5 must carry 'PART-1 AIR DISTRIBUTION SYSTEM' text; got {desc!r}",
         )
 
     def test_safron_anchor2_r41_promoted_to_preamble_level0(self):
