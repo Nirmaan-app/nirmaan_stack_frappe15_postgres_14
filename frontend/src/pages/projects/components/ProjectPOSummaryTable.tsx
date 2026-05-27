@@ -426,7 +426,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 >
                   {po.name}
                 </Link>
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                   <ItemsHoverCard
                     parentDoc={po}
                     parentDoctype={DOCTYPE}

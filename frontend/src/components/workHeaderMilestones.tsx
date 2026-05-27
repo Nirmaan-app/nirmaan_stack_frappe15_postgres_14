@@ -488,7 +488,7 @@ export const WorkHeaderMilestones: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold text-slate-900 tracking-tight">
-                DPR Work Headers & Milestones
+                Milestones & Work Headers
               </h1>
               <p className="text-sm text-slate-500 mt-0.5">
                 Configure work categories and their milestones

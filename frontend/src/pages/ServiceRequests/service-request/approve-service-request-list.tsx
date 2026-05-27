@@ -232,7 +232,7 @@ export const ApproveSelectSR: React.FC = () => {
               >
                 {srId?.slice(-5)}
               </Link>
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
                   parentDoc={data}
                   parentDoctype="Service Requests"
