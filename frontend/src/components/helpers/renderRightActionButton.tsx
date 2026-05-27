@@ -52,6 +52,9 @@ export const RenderRightActionButton = ({
   const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
+     if (locationPath === "/projects" && role === "Nirmaan Project Manager Profile") {
+      return null;
+    }
     const routeInfo = newButtonRoutes[locationPath];
     return (
       <Button
