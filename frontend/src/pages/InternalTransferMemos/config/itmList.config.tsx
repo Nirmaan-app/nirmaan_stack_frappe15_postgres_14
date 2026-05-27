@@ -8,16 +8,6 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
 import { ITMStatusBadge } from "../components/ITMStatusBadge";
-import { ITMRowDeleteAction } from "../components/ITMRowDeleteAction";
-
-/**
- * Optional table-level callback consumed by the row delete action so the
- * Approved-tab list refreshes after a successful delete. Wire it via
- * ``useITMList({ ..., meta: { onItemDeleted: refetch } })``.
- */
-export interface ITMListTableMeta {
-  onItemDeleted?: () => void;
-}
 
 
 /**
@@ -46,6 +36,9 @@ export interface ITMListRow {
   requested_by_full_name?: string | null;
   approved_by?: string | null;
   approved_on?: string | null;
+  dispatched_by?: string | null;
+  dispatched_on?: string | null;
+  latest_delivery_date?: string | null;
   owner?: string | null;
 }
 
@@ -92,6 +85,18 @@ export const ITM_FETCH_FIELDS: (keyof ITMListRow)[] = [
 ];
 
 export const ITM_DATE_COLUMNS: string[] = ["creation"];
+
+/**
+ * Facet options for the Status column. Used on the "All Requests" tab so
+ * users can narrow the cross-status view. Order mirrors the lifecycle:
+ * Approved → Dispatched → Partially Delivered → Delivered.
+ */
+export const ITM_STATUS_FACET_OPTIONS: { label: string; value: string }[] = [
+  { label: "Approved", value: "Approved" },
+  { label: "Dispatched", value: "Dispatched" },
+  { label: "Partially Delivered", value: "Partially Delivered" },
+  { label: "Delivered", value: "Delivered" },
+];
 
 // ---- ITM-specific config (Transfer Memo tabs) ----
 
@@ -183,7 +188,11 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
   {
     accessorKey: "estimated_value",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Est Value" />
+      <DataTableColumnHeader
+        column={column}
+        title="Est Value"
+        className="flex-1 justify-end pr-2"
+      />
     ),
     cell: ({ row }) => (
       <div className="font-medium pr-2 text-right tabular-nums">
@@ -203,7 +212,7 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
       <DataTableColumnHeader
         column={column}
         title="Total Items"
-        className="justify-end"
+        className="flex-1 justify-end pr-2"
       />
     ),
     cell: ({ row }) => (
@@ -223,7 +232,7 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
       <DataTableColumnHeader
         column={column}
         title="Total Qty"
-        className="justify-end"
+        className="flex-1 justify-end pr-2"
       />
     ),
     cell: ({ row }) => {
@@ -283,43 +292,19 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
         "",
     },
   },
-  {
-    id: "actions",
-    header: () => null,
-    cell: ({ row, table }) => {
-      const onItemDeleted = (table.options.meta as ITMListTableMeta | undefined)?.onItemDeleted;
-      return (
-        <div className="flex justify-end pr-1">
-          <ITMRowDeleteAction
-            itmName={row.original.name}
-            itmStatus={row.original.status}
-            onDeleted={onItemDeleted}
-          />
-        </div>
-      );
-    },
-    enableSorting: false,
-    enableColumnFilter: false,
-    size: 56,
-    meta: {
-      // Skip in CSV export.
-      exportValue: () => "",
-    },
-  },
 ];
 
 /**
  * Per-tab column visibility. Status is hidden where the tab name already
- * implies the value (Approved / Dispatched / Delivered) and shown on the
- * catch-all "All Memos" tab where rows span every status. The Actions
- * column carries the row-level Delete button, which only renders on
- * Approved rows; we keep it visible on Approved + All (where it appears
- * conditionally per row) and hide it on Dispatched / Delivered to tighten
- * the layout — those tabs cannot have a deletable row by construction.
+ * implies the value (Approved / Dispatched / Partially Delivered / Delivered)
+ * and shown on the catch-all "All Requests" tab where rows span every status.
+ * Delete is intentionally not exposed in the list — it lives only on the ITM
+ * detail page.
  */
 export const itmTabColumnVisibility: Record<string, VisibilityState> = {
   Approved: { status: false },
-  Dispatched: { status: false, actions: false },
-  Delivered: { status: false, actions: false },
+  Dispatched: { status: false },
+  "Partially Delivered": { status: false },
+  Delivered: { status: false },
   All: {},
 };

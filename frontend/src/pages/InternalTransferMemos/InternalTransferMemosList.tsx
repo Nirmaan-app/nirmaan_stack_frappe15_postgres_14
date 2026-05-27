@@ -14,10 +14,10 @@ import { ITM_VIEW_ROLES } from "@/constants/itm";
 import {
   ITM_DATE_COLUMNS,
   ITM_SEARCHABLE_FIELDS,
+  ITM_STATUS_FACET_OPTIONS,
   itmListColumns,
   itmTabColumnVisibility,
   type ITMListRow,
-  type ITMListTableMeta,
 } from "./config/itmList.config";
 import { useITMList, type ITMStatusFilter } from "./hooks/useITMList";
 
@@ -26,12 +26,8 @@ import { useITMList, type ITMStatusFilter } from "./hooks/useITMList";
  *
  * After the ITR collapse there is no separate approval step — every ITM is
  * born in `Approved` status by `create_itms`. Tabs reflect the dispatch /
- * delivery lifecycle only: Approved → Dispatched → Delivered.
- *
- * Approved-tab rows expose a row-level Delete action (see
- * ``ITMRowDeleteAction``) gated by ``ITM_DELETE_ROLES``; a successful
- * delete triggers ``refetch`` via the table ``meta`` callback so the list
- * re-renders without the deleted row.
+ * delivery lifecycle: Approved → Dispatched → Partially Delivered → Delivered.
+ * Delete is exposed on the ITM detail page only — never inline in the list.
  */
 
 interface TabConfig {
@@ -51,8 +47,14 @@ const ITM_TABS: readonly TabConfig[] = [
   {
     value: "Dispatched",
     label: "Dispatched",
-    statusFilter: ["in", ["Dispatched", "Partially Delivered"]],
+    statusFilter: ["=", "Dispatched"],
     urlSyncKey: "itm_dispatched",
+  },
+  {
+    value: "Partially Delivered",
+    label: "Partially Delivered",
+    statusFilter: ["=", "Partially Delivered"],
+    urlSyncKey: "itm_partially_delivered",
   },
   {
     value: "Delivered",
@@ -62,7 +64,7 @@ const ITM_TABS: readonly TabConfig[] = [
   },
   {
     // Catch-all view across every status. Sits last so the lifecycle order
-    // reads left-to-right (Approved → Dispatched → Delivered → All).
+    // reads left-to-right (Approved → Dispatched → Partially Delivered → Delivered → All).
     value: "All",
     label: "All Requests",
     statusFilter: null,
@@ -121,14 +123,20 @@ export const InternalTransferMemosList: React.FC = () => {
       </div>
 
       <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
-        <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
-          {ITM_TABS.map((t) => (
-            <TabButton
-              key={t.value}
-              label={t.label}
-              isActive={tab === t.value}
-              onClick={() => handleTabClick(t.value)}
-            />
+        <div className="flex items-center gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+          {ITM_TABS.map((t, idx) => (
+            <React.Fragment key={t.value}>
+              {/* Visual separator between lifecycle tabs and the catch-all
+                  "All Requests" tab — mirrors the PR list divider pattern. */}
+              {t.value === "All" && idx > 0 && (
+                <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+              )}
+              <TabButton
+                label={t.label}
+                isActive={tab === t.value}
+                onClick={() => handleTabClick(t.value)}
+              />
+            </React.Fragment>
           ))}
         </div>
       </div>
@@ -162,16 +170,6 @@ interface ITMListBodyProps {
 }
 
 const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
-  // Forward declaration so the meta callback can call `refetch` after a
-  // successful row-level delete. The actual `refetch` reference is wired
-  // in below via `useITMList`.
-  const refetchRef = React.useRef<(() => void) | null>(null);
-
-  const meta = useMemo<ITMListTableMeta>(
-    () => ({ onItemDeleted: () => refetchRef.current?.() }),
-    []
-  );
-
   const {
     table,
     totalCount,
@@ -183,14 +181,10 @@ const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
     setSelectedSearchField,
     exportAllRows,
     isExporting,
-    refetch,
   } = useITMList({
     statusFilter: config.statusFilter,
     urlSyncKey: config.urlSyncKey,
-    meta,
   });
-
-  refetchRef.current = refetch;
 
   useEffect(() => {
     const visibility = itmTabColumnVisibility[config.value] ?? {};
@@ -203,6 +197,17 @@ const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
       `ITMs_${config.value.replace(/\s+/g, "_")}_${new Date()
         .toLocaleDateString("en-GB")
         .replace(/\//g, "-")}`,
+    [config.value]
+  );
+
+  // Status facet is only meaningful on the catch-all "All Requests" tab,
+  // where rows span every status. Other tabs are already pre-filtered to
+  // a single status by the server-side ``statusFilter``.
+  const facetFilterOptions = useMemo(
+    () =>
+      config.value === "All"
+        ? { status: { title: "Status", options: ITM_STATUS_FACET_OPTIONS } }
+        : undefined,
     [config.value]
   );
 
@@ -230,6 +235,7 @@ const ITMListBody: React.FC<ITMListBodyProps> = ({ config }) => {
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           dateFilterColumns={ITM_DATE_COLUMNS}
+          facetFilterOptions={facetFilterOptions}
           showExportButton={true}
           onExport={"default"}
           onExportAll={exportAllRows}

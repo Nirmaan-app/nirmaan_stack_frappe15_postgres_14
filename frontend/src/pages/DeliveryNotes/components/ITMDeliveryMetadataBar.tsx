@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -40,6 +41,8 @@ export function ITMDeliveryMetadataBar({
   targetProjectName,
   dnCount,
 }: ITMDeliveryMetadataBarProps) {
+  const navigate = useNavigate();
+
   const sourceLabel =
     itm.source_type === "Warehouse"
       ? "Warehouse"
@@ -58,7 +61,12 @@ export function ITMDeliveryMetadataBar({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
         <div className="flex items-center gap-1.5">
           <Package className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="font-medium">{itm.name}</span>
+          <span
+            className="font-medium text-primary cursor-pointer hover:underline"
+            onClick={() => navigate(`/internal-transfer-memos/${itm.name}`)}
+          >
+            {itm.name}
+          </span>
         </div>
 
         <Separator orientation="vertical" className="h-4 hidden sm:block" />

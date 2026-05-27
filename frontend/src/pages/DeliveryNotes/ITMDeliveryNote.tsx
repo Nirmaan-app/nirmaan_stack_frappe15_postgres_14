@@ -568,8 +568,20 @@ const ITMDeliveryNote: React.FC = () => {
               {itemRows.map((row) => {
                 const k = rowKey(row.item_id, row.make);
                 const remaining = row.transfer_quantity - row.total_received;
+                // Row tinting mirrors the PO pivot table (`bg-green-50` when
+                // fully received, `bg-amber-50` when over-received) — only in
+                // non-create modes, so the entry form stays neutral.
+                const rowTintClass =
+                  viewMode === "create"
+                    ? ""
+                    : row.total_received > row.transfer_quantity
+                      ? "bg-amber-50 dark:bg-amber-950/30"
+                      : row.transfer_quantity > 0 &&
+                          row.total_received >= row.transfer_quantity
+                        ? "bg-green-50 dark:bg-green-950/30"
+                        : "";
                 return (
-                  <TableRow key={k}>
+                  <TableRow key={k} className={rowTintClass}>
                     <TableCell className="text-sm max-w-[260px]">
                       <div className="line-clamp-2 break-words">
                         <span className="font-medium">{row.item_name}</span>

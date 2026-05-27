@@ -47,6 +47,7 @@ _ORDER_BY_FIELDS = {
 	"requested_by": "itm.requested_by",
 	"requested_by_full_name": "usr.full_name",
 	"approved_on": "itm.approved_on",
+	"dispatched_on": "itm.dispatched_on",
 }
 
 # Frappe filter field → SQL expression, constrains which fields the
