@@ -137,6 +137,18 @@ BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED: bool = True
 # that would otherwise be rootless (parent=None). Set False for regression isolation;
 # reverts SUB HEAD to the original level=1 behaviour (sec 9 #100).
 
+BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED: bool = True
+# Bug 23 (cycle 4 session 1): LINE_ITEMs with an empty stack inherit level0_ancestor
+# as parent when it is set. Fixes orphan LINE_ITEMs that immediately follow a
+# level=0 PREAMBLE (SUB HEAD or anchor-promoted row) which clears the stack.
+# Set False for regression isolation.
+
+BUG_24_NOTE_PARENT_INDEX_ENABLED: bool = True
+# Bug 24 (cycle 4 session 1): NOTE rows receive parent_index in the tree structure.
+# When a PREAMBLE is on the stack, parent_index mirrors attached_to_index.
+# When the stack is empty but level0_ancestor is set, parent_index = level0_ancestor.
+# Set False for regression isolation; gates only parent_index, not attached_to_index.
+
 
 def pattern_signature(sl_no: str) -> str:
     """
@@ -668,6 +680,8 @@ def resolve_hierarchy(
                             a2_handled = True
             if not a2_handled:
                 parent_index = _top_non_none(stack)
+                if parent_index is None and BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED:
+                    parent_index = level0_ancestor
                 if parent_index is None:
                     sheet_warnings.append(
                         f"Row {classified_row.raw_row.row_number}: "
@@ -695,12 +709,17 @@ def resolve_hierarchy(
             if preamble_index is not None:
                 notes_to_attach.setdefault(preamble_index, []).append(note_text)
                 attached_to_index = preamble_index
+                note_parent_index = preamble_index
             else:
                 master_preamble_notes.append(note_text)
                 attached_to_index = None
+                note_parent_index = level0_ancestor
+            if not BUG_24_NOTE_PARENT_INDEX_ENABLED:
+                note_parent_index = None
             resolved.append(ResolvedRow(
                 classified_row=classified_row,
                 attached_to_index=attached_to_index,
+                parent_index=note_parent_index,
             ))
             continue
 
