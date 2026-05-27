@@ -345,12 +345,12 @@ const DeliveryNotes: React.FC = () => {
             onClick={() => navigateToView("view_existing")}
             className="bg-green-500 hover:bg-green-600"
           />
-          <DashboardCard
+          {/* <DashboardCard
             title="Pending DN"
             icon={<ClipboardList className="h-10 w-10" />}
             onClick={() => navigate("/reports")}
             className="bg-orange-500 hover:bg-orange-600"
-          />
+          /> */}
         </div>
       )}
 
