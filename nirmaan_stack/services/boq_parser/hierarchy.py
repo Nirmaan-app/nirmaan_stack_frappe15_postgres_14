@@ -93,7 +93,7 @@ _RE_UPPER   = re.compile(r"^[A-Z]$")                # single uppercase letter
 _RE_LOWER   = re.compile(r"^[a-z]$")                # single lowercase letter
 _RE_MULTI1  = re.compile(r"^\d+\.\d+(\.\d+)+$")    # e.g. "1.1.4"
 _RE_MULTI2  = re.compile(r"^\d+\.\d+$")             # e.g. "1.1"
-_RE_NUMERIC = re.compile(r"^\d+(\.0)?$")             # e.g. "1", "1.0", "30"
+_RE_NUMERIC = re.compile(r"^\d+(\.0+)?$")            # e.g. "1", "1.0", "1.00", "30"
 
 _L1_STYLES = frozenset(("letter", "roman", "numeric", "part"))
 _ALPHANUMERIC_RE = re.compile(r"[A-Za-z0-9]")
