@@ -127,13 +127,13 @@ def _serialize_boq(boq) -> dict:
 
     ParsedBoq and ParsedSheet are Pydantic models; ResolvedRow and
     ClassifiedRow are dataclasses. Uses dataclasses.asdict() for the
-    dataclass tree and model_dump() for MultiAreaPattern.
+    dataclass tree and for MultiAreaPattern.
     """
     sheets = []
     for sheet in boq.sheets:
         multi = None
         if sheet.multi_area_pattern is not None:
-            multi = sheet.multi_area_pattern.model_dump()
+            multi = dataclasses.asdict(sheet.multi_area_pattern)  # MultiAreaPattern is a dataclass, not a Pydantic model
         rows = [dataclasses.asdict(rr) for rr in sheet.resolved_rows]
         sheets.append({
             "sheet_name": sheet.sheet_name,
