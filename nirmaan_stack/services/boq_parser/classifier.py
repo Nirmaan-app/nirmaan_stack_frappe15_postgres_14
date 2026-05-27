@@ -96,6 +96,12 @@ class ClassifiedRow:
     # prior-promoted section headers. Leave None for all other rows.
     preamble_level_override: int | None = None
 
+    # Bug 19 (sec 9 #106): set True when _apply_priced_preamble_promotion promotes
+    # this row from LINE_ITEM to PREAMBLE. Used by
+    # _apply_zero_children_preamble_demotion_post_pass to skip these rows — priced
+    # section headers legitimately have a unit/qty even as leaf PREAMBLEs.
+    promoted_from_line_item: bool = False
+
 
 # ------------------------------------------------------------------
 # Constants
@@ -564,6 +570,108 @@ def _apply_section_header_note_promotion_post_pass(
             idx = _first_non_spacer_idx(classified_rows, i + 1)
             if idx is not None and _is_section_header_candidate(classified_rows[idx]):
                 _promote_sub_section_header(classified_rows[idx])
+
+
+BUG_19_PRICED_PREAMBLE_PROMOTION_ENABLED: bool = True
+# Bug 19 (sec 9 #106): promote LINE_ITEM rows whose sl_no belongs to the
+# PREAMBLE signature family in their region. Fires when the target's
+# first_numeric_token extends monotonically beyond the max fnt seen among
+# nearby PREAMBLEs with the same pattern_signature (±20-row window).
+# Catches safron "priced section headers" 8.0, 9, 10.0. Set False for
+# regression isolation.
+
+
+def _apply_priced_preamble_promotion(
+    classified_rows: list["ClassifiedRow"],
+    window_size: int = 20,
+) -> None:
+    """
+    Promote LINE_ITEM rows whose sl_no extends a PREAMBLE section sequence.
+
+    Fires only when ALL three conditions hold in the backward (preceding)
+    window of size window_size:
+      1. At least 2 PREAMBLE rows share the same pattern_signature as target.
+      2. Their first_numeric_token values form a gap-free consecutive sequence
+         (e.g. {3,4,5,6,7} — no skipped integers).
+      3. The target's fnt is exactly max(preamble_fnts) + 1 (one-step extension).
+
+    Backward-only scan: PREAMBLEs ahead of the target belong to future sections
+    and must not contribute to the anchor set. Forward rows are excluded.
+    Rows are processed in document order so earlier promotions inform later
+    ones (e.g. safron 8.00 promoted before 9.00 is evaluated, then 9.00 is
+    in the backward window when 10.00 is checked).
+
+    Safety: isolated PREAMBLE anchors (len=1), non-contiguous sequences, or
+    target fnt ≠ max+1 all block promotion — prevents false promotions in
+    sheets where X.0 items are genuine LINE_ITEMs (e.g. snitch electrical).
+
+    Bug 19 (sec 9 #106).
+    """
+    if not BUG_19_PRICED_PREAMBLE_PROMOTION_ENABLED:
+        return
+
+    # Local import avoids circular dependency (hierarchy imports classifier).
+    from nirmaan_stack.services.boq_parser.hierarchy import (  # noqa: PLC0415
+        first_numeric_token,
+        pattern_signature,
+    )
+
+    n = len(classified_rows)
+    for idx, row in enumerate(classified_rows):
+        if row.classification != RowClassification.LINE_ITEM:
+            continue
+
+        sl_no = (row.sl_no_value or "").strip()
+        if not sl_no:
+            continue
+
+        fnt = first_numeric_token(sl_no)
+        if fnt is None:
+            continue  # non-numeric sl_no — not a section-level code
+
+        sig = pattern_signature(sl_no)
+        if not sig:
+            continue
+
+        # Collect fnt values of PREAMBLEs with same sig in the BACKWARD window
+        # only. We ask "does this row extend a previously-established sequence?"
+        # — forward rows belong to future sections and must be excluded.
+        # Promotions earlier in this pass are reflected (8.0 promoted before
+        # 9.0 is evaluated), so the backward scan builds the sequence correctly.
+        start = max(0, idx - window_size)
+
+        preamble_fnts: set[int] = set()
+        for i in range(start, idx):
+            r = classified_rows[i]
+            if r.classification != RowClassification.PREAMBLE:
+                continue
+            r_sl = (r.sl_no_value or "").strip()
+            if not r_sl:
+                continue
+            r_sig = pattern_signature(r_sl)
+            if r_sig != sig:
+                continue
+            r_fnt = first_numeric_token(r_sl)
+            if r_fnt is not None:
+                preamble_fnts.add(r_fnt)
+
+        if not preamble_fnts:
+            continue  # no PREAMBLE anchor with matching sig — cannot infer
+
+        # Strict adjacent-extension rule: promote only when the PREAMBLE fnts
+        # in the window form a gap-free consecutive sequence (e.g. {3,4,5,6,7}),
+        # at least two anchors are present, and the target's fnt is exactly one
+        # beyond the current max. This prevents false promotions in sheets where
+        # X.0 items can be genuine LINE_ITEMs (e.g. snitch electrical 3.0–12.0
+        # after PREAMBLE 2.0 — preamble_fnts={2}, len=1 → blocked).
+        sorted_fnts = sorted(preamble_fnts)
+        max_p_fnt = sorted_fnts[-1]
+        is_contiguous = (max_p_fnt - sorted_fnts[0]) == (len(sorted_fnts) - 1)
+        if not (len(sorted_fnts) >= 2 and is_contiguous and fnt == max_p_fnt + 1):
+            continue
+
+        row.classification = RowClassification.PREAMBLE
+        row.promoted_from_line_item = True
 
 
 def _is_unit_blank_or_junk(value) -> bool:

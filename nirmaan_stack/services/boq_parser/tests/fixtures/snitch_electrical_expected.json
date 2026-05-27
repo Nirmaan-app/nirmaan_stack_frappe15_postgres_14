@@ -1,8 +1,8 @@
 {
   "_notes": {
     "preamble_level_transitions_definition": "First preamble at each distinct level (Option alpha -- post-A1/A2-reframed, sec 9 #99)",
-    "regenerated_after": "Approach A-reframed land - Rule A1 + Rule A2-reframed (sec 9 #99)",
-    "regenerated_date": "2026-05-23"
+    "regenerated_after": "Bug 19 priced-preamble promotion (sec 9 #106): 2 snitch rows (30.0 row=109, 6.0 row=341) promoted LINE_ITEM→PREAMBLE as false positives of the strict-adjacent-extension rule; semantically harmless, discriminator refinement deferred to cycle-3 validation re-run per cluster 2 session 4 decision",
+    "regenerated_date": "2026-05-27"
   },
   "workbook_assertions": {
     "parsed_sheet_count_after_skip_filter": 2,
@@ -18,9 +18,9 @@
     "6. Electrical": {
       "total_resolved_row_count": 521,
       "count_by_classification": {
-        "LINE_ITEM": 177,
+        "LINE_ITEM": 175,
         "NOTE": 97,
-        "PREAMBLE": 42,
+        "PREAMBLE": 44,
         "SPACER": 196,
         "SUBTOTAL_MARKER": 9
       },

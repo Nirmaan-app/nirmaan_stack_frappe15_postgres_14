@@ -117,6 +117,18 @@ _SUB_HEAD_RE = re.compile(
 # threading a kwarg through every call site is awkward.
 BUG_22_COLLAPSE_ENABLED: bool = True
 
+BUG_19_EXT_PREAMBLE_REPARENT_ENABLED: bool = True
+# Bug 19-ext (sec 9 #107): when a PREAMBLE row would naturally parent under
+# a stack-top entry from a different section (different first_numeric_token),
+# scan resolved rows backwards for a PREAMBLE with matching pattern_signature
+# AND first_numeric_token at level-1. Fixes Inovalon 1.3 parenting under 2.0
+# when the correct parent 1.0 was evicted from the stack by the intervening
+# 2.0 row. Set False for regression isolation.
+# TODO: A2-reframed (LINE_ITEM) applies similar family-matching logic but
+# checks only stack[-1]. Bug 19-ext must scan all resolved rows because the
+# correct parent may have been evicted from the stack already. The two
+# mechanisms are structurally divergent and are implemented in parallel.
+
 BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED: bool = True
 # Bug 20-ext (cluster 2 session 2, sec 9 #108): SUB HEAD section markers are
 # assigned level=0 instead of level=1 so subsequent numeric PREAMBLEs (sl=1.0,
@@ -587,6 +599,35 @@ def resolve_hierarchy(
                 if parent_index is None and level == 1:
                     parent_index = level0_ancestor
 
+                # Bug 19-ext (sec 9 #107): reparent to the most recent resolved
+                # PREAMBLE with matching (pattern_signature, first_numeric_token)
+                # at level-1 when the natural stack parent belongs to a different
+                # section family. Fixes Inovalon 1.3 incorrectly parenting under
+                # 2.0 because 1.0 was evicted from the stack by 2.0.
+                # TODO: A2-reframed uses similar family-matching for LINE_ITEMs but
+                # only checks stack[-1] — the two fixes are structurally divergent
+                # (stack-only vs full-resolved-scan) and implemented in parallel.
+                if BUG_19_EXT_PREAMBLE_REPARENT_ENABLED and approach_a_enabled:
+                    cand_sl = (classified_row.sl_no_value or "").strip()
+                    cand_sig = pattern_signature(cand_sl) if cand_sl else ""
+                    cand_fnt = first_numeric_token(cand_sl) if cand_sl else None
+                    if cand_fnt is not None and cand_sig:
+                        for prev_idx in range(len(resolved) - 1, -1, -1):
+                            prev = resolved[prev_idx]
+                            if prev.level is None or prev.level != level - 1:
+                                continue
+                            if prev.classified_row.classification != RowClassification.PREAMBLE:
+                                continue
+                            prev_sl = (prev.classified_row.sl_no_value or "").strip()
+                            if not prev_sl:
+                                continue
+                            prev_sig = pattern_signature(prev_sl)
+                            prev_fnt = first_numeric_token(prev_sl)
+                            if prev_sig == cand_sig and prev_fnt == cand_fnt:
+                                if prev_idx != parent_index:
+                                    parent_index = prev_idx
+                                break
+
                 # Extend stack to hold this level, then place this row
                 while len(stack) < level:
                     stack.append(None)
@@ -703,6 +744,10 @@ def _apply_zero_children_preamble_demotion_post_pass(resolved_rows: list[Resolve
         if cr.classification != RowClassification.PREAMBLE:
             continue
         if row.path in paths_with_descendants:
+            continue
+        # Bug 19 (sec 9 #106): priced section headers promoted from LINE_ITEM
+        # legitimately carry a unit/qty as leaf PREAMBLEs — do not demote them.
+        if cr.promoted_from_line_item:
             continue
         has_unit = cr.unit is not None and cr.unit.strip() != ""
         has_rate = (

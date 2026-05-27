@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from nirmaan_stack.services.boq_parser.classifier import (
     RowClassification,
+    _apply_priced_preamble_promotion,
     _apply_section_header_note_promotion_post_pass,
     _apply_unit_based_demotion_post_pass,
     classify_row,
@@ -227,6 +228,13 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
         # after each SUBTOTAL_MARKER) to PREAMBLE level=0. Must run after all
         # classifier passes (classifications are settled) and before resolve_hierarchy.
         _apply_section_header_note_promotion_post_pass(classified_rows)
+
+        # Step 3c: Priced-preamble promotion post-pass — Bug 19 (sec 9 #106).
+        # Promotes LINE_ITEM rows whose sl_no extends the PREAMBLE section sequence
+        # monotonically (fnt > max preamble fnt in ±20-row window with same sig).
+        # Must run after Bug 20 (so anchor-promoted PREAMBLEs are visible) and
+        # before resolve_hierarchy (classifications must be settled at hierarchy time).
+        _apply_priced_preamble_promotion(classified_rows)
 
         # Step 4: Hierarchy resolution
         resolved_sheet = resolve_hierarchy(classified_rows, sheet_config, global_settings)
