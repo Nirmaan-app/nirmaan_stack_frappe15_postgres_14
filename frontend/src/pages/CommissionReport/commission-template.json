@@ -6757,7 +6757,7 @@
       {
         "id": "hdr",
         "type": "header",
-        "title": "COMMISSIONING REPORT - GAS SUPPRESSION SYSTEM",
+        "title": "COMMISSIONING REPORT - VESDA System",
         "fields": [
           {
             "key": "vendor",

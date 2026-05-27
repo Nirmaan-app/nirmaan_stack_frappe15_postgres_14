@@ -687,7 +687,8 @@ const SignaturesReviewBlock: React.FC<{
     projectId: string;
     templateId: string;
     disabledKeys: string[];
-}> = ({ title, projectId, templateId, disabledKeys }) => {
+    enabledKeys: string[];
+}> = ({ title, projectId, templateId, disabledKeys, enabledKeys }) => {
     const { data, isLoading } = useFrappeGetDocList<ProjectTDSSettingRow>(
         'Project TDS Setting',
         {
@@ -706,26 +707,36 @@ const SignaturesReviewBlock: React.FC<{
     );
     const tds = data?.[0];
 
-    const roles: { key: string; label: string }[] = (() => {
-        if (!tds) return [];
-        const out: { key: string; label: string }[] = [];
+    // Build the full role list for the template, each tagged with inTds.
+    const roles: { key: string; label: string; inTds: boolean }[] = (() => {
+        const flag = (v: 0 | 1 | undefined) => v === 1;
         if (templateId === 'demo-training-certificate') {
-            if (tds.enable_manager) out.push({ key: 'manager', label: 'PROJECT MANAGER' });
-            if (tds.enable_mep_contractor) out.push({ key: 'mep_contractor', label: 'VENDOR' });
-            if (tds.enable_client) out.push({ key: 'client', label: 'CLIENT' });
-            if (tds.enable_gc_contractor) out.push({ key: 'gc_contractor', label: 'GC CONTRACTOR' });
-            return out;
+            return [
+                { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+                { key: 'mep_contractor', label: 'VENDOR', inTds: flag(tds?.enable_mep_contractor) },
+                { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
+                { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
+            ];
         }
-        if (tds.enable_manager) out.push({ key: 'manager', label: 'PROJECT MANAGER' });
-        if (tds.enable_consultant) out.push({ key: 'consultant', label: 'CONSULTANT' });
-        if (tds.enable_client) out.push({ key: 'client', label: 'CLIENT' });
-        if (tds.enable_gc_contractor) out.push({ key: 'gc_contractor', label: 'GC CONTRACTOR' });
-        if (tds.enable_mep_contractor) out.push({ key: 'mep_contractor', label: 'NIRMAAN' });
-        return out;
+        return [
+            { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+            { key: 'consultant', label: 'CONSULTANT', inTds: flag(tds?.enable_consultant) },
+            { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
+            { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
+            { key: 'mep_contractor', label: 'NIRMAAN', inTds: flag(tds?.enable_mep_contractor) },
+        ];
     })();
 
-    const included = roles.filter((r) => !disabledKeys.includes(r.key));
-    const omitted = roles.filter((r) => disabledKeys.includes(r.key));
+    // Final per-row state: included (TDS or manual) vs omitted, keeping the
+    // "manual" distinction so the pill can render differently.
+    const rowState = roles.map((r) => {
+        const includedByTds = r.inTds && !disabledKeys.includes(r.key);
+        const includedByManual = !r.inTds && enabledKeys.includes(r.key);
+        const included = includedByTds || includedByManual;
+        return { ...r, included, manualOn: includedByManual };
+    });
+    const includedRows = rowState.filter((r) => r.included);
+    const omittedTdsRows = rowState.filter((r) => !r.included && r.inTds);
 
     return (
         <div className="rounded-md border p-3">
@@ -738,7 +749,7 @@ const SignaturesReviewBlock: React.FC<{
                 </div>
                 {!isLoading && tds && (
                     <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                        {included.length} of {roles.length} included
+                        {includedRows.length} of {roles.length} included
                     </span>
                 )}
             </div>
@@ -746,35 +757,47 @@ const SignaturesReviewBlock: React.FC<{
                 <p className="text-xs italic text-muted-foreground">
                     Project TDS Setting unavailable — signatures will be resolved at print time.
                 </p>
-            ) : roles.length === 0 ? (
-                <p className="text-xs italic text-muted-foreground">
-                    No signatory roles are enabled for this project.
-                </p>
             ) : (
                 <div className="space-y-2">
                     <div className="flex flex-wrap gap-1.5">
-                        {included.length === 0 ? (
+                        {includedRows.length === 0 ? (
                             <span className="text-xs italic text-amber-700">
                                 No signatures will be printed.
                             </span>
                         ) : (
-                            included.map((r) => (
+                            includedRows.map((r) => (
                                 <span
                                     key={r.key}
-                                    className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700"
+                                    className={[
+                                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide',
+                                        r.manualOn
+                                            ? 'border-sky-500/40 bg-sky-500/10 text-sky-700'
+                                            : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700',
+                                    ].join(' ')}
+                                    title={r.manualOn ? 'Manually included (not in project TDS)' : undefined}
                                 >
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                                    <span
+                                        className={[
+                                            'h-1.5 w-1.5 rounded-full',
+                                            r.manualOn ? 'bg-sky-600' : 'bg-emerald-600',
+                                        ].join(' ')}
+                                    />
                                     {r.label}
+                                    {r.manualOn && (
+                                        <span className="ml-1 text-[9px] font-normal opacity-80">
+                                            (manual)
+                                        </span>
+                                    )}
                                 </span>
                             ))
                         )}
                     </div>
-                    {omitted.length > 0 && (
+                    {omittedTdsRows.length > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5">
                             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                                 Omitted:
                             </span>
-                            {omitted.map((r) => (
+                            {omittedTdsRows.map((r) => (
                                 <span
                                     key={r.key}
                                     className="inline-flex items-center gap-1 rounded-full border border-dashed border-rose-400/50 bg-rose-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-rose-700 line-through decoration-rose-400/70"
@@ -810,6 +833,7 @@ const ReviewSummary: React.FC<{
                 if (section.type === 'signatures') {
                     const sigValue = (formValues.responses?.[section.id] || {}) as {
                         disabled?: string[];
+                        enabled?: string[];
                     };
                     return (
                         <SignaturesReviewBlock
@@ -818,6 +842,7 @@ const ReviewSummary: React.FC<{
                             projectId={projectId}
                             templateId={template.templateId}
                             disabledKeys={Array.isArray(sigValue.disabled) ? sigValue.disabled : []}
+                            enabledKeys={Array.isArray(sigValue.enabled) ? sigValue.enabled : []}
                         />
                     );
                 }

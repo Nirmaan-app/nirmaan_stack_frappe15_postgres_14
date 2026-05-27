@@ -1,10 +1,16 @@
-// Per-report signature picker. Defaults to "all project-TDS-enabled roles on";
-// user can untick to exclude a role from this specific report. The unticked
-// keys are persisted under `responses[section.id].disabled` and the print
-// format's `render_signatures` macro skips them. Mirrors that macro's
-// templateId branching exactly — keep them in sync.
+// Per-report signature picker. Shows ALL roles for the template; the ones
+// enabled in Project TDS Setting are ticked by default, the rest are unticked
+// but selectable so the user can manually override.
+//
+// Persistence is additive:
+//   responses[section.id] = {
+//     disabled: [...]   // TDS-enabled roles the user unticked
+//     enabled:  [...]   // TDS-disabled roles the user ticked (manual override)
+//   }
+// Final printed roles = (TDS-enabled MINUS disabled) UNION enabled.
+// Keep keys+order in lockstep with the Jinja `render_signatures` macro.
 
-import React, { useMemo } from 'react';
+import React from 'react';
 
 import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { AlertCircle, Info, Loader2 } from 'lucide-react';
@@ -24,11 +30,14 @@ interface ProjectTDSSettingRow {
     enable_mep_contractor: 0 | 1;
 }
 
+type RoleKey = 'manager' | 'consultant' | 'client' | 'gc_contractor' | 'mep_contractor';
+
 interface RoleRow {
-    /** Key persisted to `responses[sigSectionId].disabled`. Matches the keys the
-     *  Jinja `render_signatures` macro checks. */
-    key: 'manager' | 'consultant' | 'client' | 'gc_contractor' | 'mep_contractor';
+    key: RoleKey;
     label: string;
+    /** Is this role enabled in Project TDS Setting? Drives default-ticked state
+     *  and the "Not in project TDS" hint. */
+    inTds: boolean;
 }
 
 interface Props {
@@ -38,21 +47,28 @@ interface Props {
     forceReadonly?: boolean;
 }
 
-const computeRoles = (tds: ProjectTDSSettingRow, templateId?: string): RoleRow[] => {
-    const out: RoleRow[] = [];
+/** Returns the full ordered role list for the template, regardless of TDS.
+ *  Each row carries an `inTds` flag derived from the project's TDS Setting. */
+const computeAllRoles = (
+    tds: ProjectTDSSettingRow | undefined,
+    templateId?: string,
+): RoleRow[] => {
+    const flag = (v: 0 | 1 | undefined) => v === 1;
     if (templateId === 'demo-training-certificate') {
-        if (tds.enable_manager) out.push({ key: 'manager', label: 'PROJECT MANAGER' });
-        if (tds.enable_mep_contractor) out.push({ key: 'mep_contractor', label: 'VENDOR' });
-        if (tds.enable_client) out.push({ key: 'client', label: 'CLIENT' });
-        if (tds.enable_gc_contractor) out.push({ key: 'gc_contractor', label: 'GC CONTRACTOR' });
-        return out;
+        return [
+            { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+            { key: 'mep_contractor', label: 'VENDOR', inTds: flag(tds?.enable_mep_contractor) },
+            { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
+            { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
+        ];
     }
-    if (tds.enable_manager) out.push({ key: 'manager', label: 'PROJECT MANAGER' });
-    if (tds.enable_consultant) out.push({ key: 'consultant', label: 'CONSULTANT' });
-    if (tds.enable_client) out.push({ key: 'client', label: 'CLIENT' });
-    if (tds.enable_gc_contractor) out.push({ key: 'gc_contractor', label: 'GC CONTRACTOR' });
-    if (tds.enable_mep_contractor) out.push({ key: 'mep_contractor', label: 'NIRMAAN' });
-    return out;
+    return [
+        { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+        { key: 'consultant', label: 'CONSULTANT', inTds: flag(tds?.enable_consultant) },
+        { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
+        { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
+        { key: 'mep_contractor', label: 'NIRMAAN', inTds: flag(tds?.enable_mep_contractor) },
+    ];
 };
 
 export const SignaturesSection: React.FC<Props> = ({
@@ -80,7 +96,7 @@ export const SignaturesSection: React.FC<Props> = ({
     );
 
     const tds = data?.[0];
-    const roles = useMemo(() => (tds ? computeRoles(tds, templateId) : []), [tds, templateId]);
+    const roles = computeAllRoles(tds, templateId);
 
     return (
         <section className="space-y-3">
@@ -97,8 +113,6 @@ export const SignaturesSection: React.FC<Props> = ({
                 </div>
             ) : !tds ? (
                 <NoTdsBanner />
-            ) : roles.length === 0 ? (
-                <NoEnabledRolesBanner />
             ) : (
                 <SignaturesPicker
                     sectionId={section.id}
@@ -116,22 +130,39 @@ const SignaturesPicker: React.FC<{
     forceReadonly?: boolean;
 }> = ({ sectionId, roles, forceReadonly }) => {
     const { control } = useFormContext();
-    const fieldName = `responses.${sectionId}.disabled`;
+    const fieldName = `responses.${sectionId}`;
 
     return (
         <Controller
             control={control}
             name={fieldName}
-            defaultValue={[]}
+            defaultValue={{ disabled: [], enabled: [] }}
             render={({ field }) => {
-                const disabled: string[] = Array.isArray(field.value) ? field.value : [];
-                const enabledCount = roles.length - disabled.filter((k) => roles.some((r) => r.key === k)).length;
+                const value = (field.value || {}) as { disabled?: string[]; enabled?: string[] };
+                const disabledList: string[] = Array.isArray(value.disabled) ? value.disabled : [];
+                const enabledList: string[] = Array.isArray(value.enabled) ? value.enabled : [];
 
-                const toggle = (key: string, checked: boolean) => {
-                    const next = checked
-                        ? disabled.filter((k) => k !== key)
-                        : [...new Set([...disabled, key])];
-                    field.onChange(next);
+                const isChecked = (r: RoleRow): boolean =>
+                    r.inTds ? !disabledList.includes(r.key) : enabledList.includes(r.key);
+
+                const includedCount = roles.filter(isChecked).length;
+                const totalCount = roles.length;
+                const tdsOnCount = roles.filter((r) => r.inTds).length;
+                const manualOnCount = roles.filter((r) => !r.inTds && enabledList.includes(r.key)).length;
+
+                const toggle = (r: RoleRow, nextChecked: boolean) => {
+                    let nextDisabled = disabledList.slice();
+                    let nextEnabled = enabledList.slice();
+                    if (r.inTds) {
+                        nextDisabled = nextChecked
+                            ? nextDisabled.filter((k) => k !== r.key)
+                            : [...new Set([...nextDisabled, r.key])];
+                    } else {
+                        nextEnabled = nextChecked
+                            ? [...new Set([...nextEnabled, r.key])]
+                            : nextEnabled.filter((k) => k !== r.key);
+                    }
+                    field.onChange({ disabled: nextDisabled, enabled: nextEnabled });
                 };
 
                 return (
@@ -143,19 +174,38 @@ const SignaturesPicker: React.FC<{
                                         Signatures on the printed report
                                     </h4>
                                     <p className="mt-0.5 text-xs text-muted-foreground">
-                                        Selected signatures will appear on the printed PDF. Click a
-                                        card to toggle. All project-enabled roles are on by default.
+                                        Roles enabled in <span className="font-medium">Projects → TDS Repository</span>{' '}
+                                        are pre-selected. You can untick any to omit, or tick a non-TDS
+                                        role to manually include it for this report.
                                     </p>
                                 </div>
-                                <span className="shrink-0 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                                    {enabledCount} of {roles.length} included
-                                </span>
+                                <div className="shrink-0 space-y-1 text-right">
+                                    <span className="inline-block rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                        {includedCount} of {totalCount} included
+                                    </span>
+                                    {manualOnCount > 0 && (
+                                        <span className="ml-1 inline-block rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                                            +{manualOnCount} manual
+                                        </span>
+                                    )}
+                                </div>
                             </div>
+                            {tdsOnCount === 0 && (
+                                <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+                                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+                                    <span className="text-[11px] text-amber-700">
+                                        No roles are enabled in Project TDS Setting — pick the ones to
+                                        print manually below.
+                                    </span>
+                                </div>
+                            )}
                         </div>
+
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             {roles.map((r) => {
-                                const checked = !disabled.includes(r.key);
+                                const checked = isChecked(r);
                                 const id = `${fieldName}.${r.key}`;
+                                const manualOn = !r.inTds && checked;
                                 return (
                                     <div
                                         key={r.key}
@@ -163,45 +213,55 @@ const SignaturesPicker: React.FC<{
                                         aria-checked={checked}
                                         aria-disabled={forceReadonly}
                                         tabIndex={forceReadonly ? -1 : 0}
-                                        onClick={() => !forceReadonly && toggle(r.key, !checked)}
+                                        onClick={() => !forceReadonly && toggle(r, !checked)}
                                         onKeyDown={(e) => {
                                             if (forceReadonly) return;
                                             if (e.key === ' ' || e.key === 'Enter') {
                                                 e.preventDefault();
-                                                toggle(r.key, !checked);
+                                                toggle(r, !checked);
                                             }
                                         }}
                                         className={[
                                             'group relative flex h-32 cursor-pointer flex-col items-center justify-end rounded-lg border-2 p-3 text-left transition select-none',
                                             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                                             checked
-                                                ? 'border-emerald-500 bg-emerald-50/70 shadow-sm hover:bg-emerald-50'
+                                                ? manualOn
+                                                    ? 'border-sky-500 bg-sky-50/70 shadow-sm hover:bg-sky-50'
+                                                    : 'border-emerald-500 bg-emerald-50/70 shadow-sm hover:bg-emerald-50'
                                                 : 'border-dashed border-rose-300 bg-rose-50/60 hover:border-rose-400 hover:bg-rose-50',
                                             forceReadonly && 'cursor-not-allowed opacity-60',
                                         ]
                                             .filter(Boolean)
                                             .join(' ')}
                                     >
-                                        {/* Real checkbox in top-left as the primary affordance */}
                                         <Checkbox
                                             id={id}
                                             checked={checked}
                                             disabled={forceReadonly}
-                                            onCheckedChange={(v) => toggle(r.key, v === true)}
+                                            onCheckedChange={(v) => toggle(r, v === true)}
                                             onClick={(e) => e.stopPropagation()}
                                             className={[
                                                 'absolute left-2 top-2 h-5 w-5',
                                                 checked
-                                                    ? 'border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white'
+                                                    ? manualOn
+                                                        ? 'border-sky-600 data-[state=checked]:bg-sky-600 data-[state=checked]:text-white'
+                                                        : 'border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white'
                                                     : 'border-rose-400',
                                             ].join(' ')}
                                             aria-label={`${checked ? 'Disable' : 'Enable'} ${r.label} signature`}
                                         />
 
-                                        {/* Status badge in top-right */}
+                                        {/* Top-right status badge */}
                                         {checked ? (
-                                            <span className="absolute right-2 top-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                                                Included
+                                            <span
+                                                className={[
+                                                    'absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                                                    manualOn
+                                                        ? 'bg-sky-500/15 text-sky-700'
+                                                        : 'bg-emerald-500/15 text-emerald-700',
+                                                ].join(' ')}
+                                            >
+                                                {manualOn ? 'Manual' : 'Included'}
                                             </span>
                                         ) : (
                                             <span className="absolute right-2 top-2 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700">
@@ -213,7 +273,11 @@ const SignaturesPicker: React.FC<{
                                         <div
                                             className={[
                                                 'mb-1 w-full border-t',
-                                                checked ? 'border-emerald-700/60' : 'border-rose-400/50',
+                                                checked
+                                                    ? manualOn
+                                                        ? 'border-sky-700/60'
+                                                        : 'border-emerald-700/60'
+                                                    : 'border-rose-400/50',
                                             ].join(' ')}
                                         />
                                         <span
@@ -229,20 +293,34 @@ const SignaturesPicker: React.FC<{
                                         <span
                                             className={[
                                                 'text-[10px]',
-                                                checked ? 'text-muted-foreground' : 'text-rose-700/60',
+                                                checked
+                                                    ? 'text-muted-foreground'
+                                                    : 'text-rose-700/60',
                                             ].join(' ')}
                                         >
                                             (Signature &amp; Stamp)
                                         </span>
+
+                                        {/* "Not in TDS" hint sits below the checkbox so it doesn't
+                                            overlap the signature placeholder text. */}
+                                        {!r.inTds && (
+                                            <span
+                                                className="absolute left-2 top-9 rounded-sm border border-sky-300/60 bg-sky-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-sky-700"
+                                                title="This role is not enabled in Project TDS Setting"
+                                            >
+                                                Not in TDS
+                                            </span>
+                                        )}
                                     </div>
                                 );
                             })}
                         </div>
-                        {enabledCount === 0 && (
+
+                        {includedCount === 0 && (
                             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
                                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                                 <span className="text-xs text-amber-700">
-                                    No signatures are enabled — the printed report will have no
+                                    No signatures are selected — the printed report will have no
                                     signature row.
                                 </span>
                             </div>
@@ -279,22 +357,6 @@ const NoTdsBanner: React.FC = () => (
             <p className="text-xs text-muted-foreground">
                 Set up signatories under <span className="font-medium">Projects → TDS Repository</span>{' '}
                 before printing — the PDF will refuse to render the signature row otherwise.
-            </p>
-        </div>
-    </div>
-);
-
-const NoEnabledRolesBanner: React.FC = () => (
-    <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-4">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-        <div className="space-y-1 text-sm">
-            <p className="font-medium text-amber-700">
-                No signatory roles are enabled for this template.
-            </p>
-            <p className="text-xs text-muted-foreground">
-                Enable at least one role under{' '}
-                <span className="font-medium">Projects → TDS Repository</span>. The PDF will print
-                with no signature row until then.
             </p>
         </div>
     </div>

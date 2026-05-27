@@ -94,10 +94,9 @@ thead { display: table-header-group; }
 </style>
 
 {#
-  ===== render_signatures(template_id, project_id, disabled_keys) =====
-  Dynamic signature row driven by Project TDS Setting, with a per-report
-  override (`disabled_keys` — list of role keys the user unticked in the
-  wizard's Signatures step).
+  ===== render_signatures(template_id, project_id, disabled_keys, enabled_keys) =====
+  Dynamic signature row driven by Project TDS Setting + per-report overrides
+  from the wizard's Signatures step.
 
     - demo-training-certificate → 4 roles:
         PROJECT MANAGER (manager) · VENDOR (mep_contractor)
@@ -105,28 +104,34 @@ thead { display: table-header-group; }
     - everything else → 5 roles:
         PROJECT MANAGER · CONSULTANT · CLIENT · GC CONTRACTOR · NIRMAAN(MEP)
 
-  A role is printed iff (tds.enable_<key> = 1) AND (key not in disabled_keys).
+  Final printed set per role:
+      include = (tds.enable_<key> = 1 OR key in enabled_keys)
+                AND (key not in disabled_keys)
+
+  - `disabled_keys` = roles the user unticked in the wizard (TDS-on overridden off)
+  - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
   No TDS Setting → red error banner asking the admin to configure it.
 #}
-{% macro render_signatures(template_id, project_id, disabled_keys=[]) -%}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[]) -%}
     {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
     {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
     {%- if not tds -%}
         <div class="cv-error">⚠ Please set up <strong>Project TDS Setting</strong> for signatures before printing. (Projects → TDS Repository)</div>
     {%- else -%}
         {%- set dk = disabled_keys or [] -%}
+        {%- set ek = enabled_keys  or [] -%}
         {%- set ns_sigs = namespace(items=[]) -%}
         {%- if template_id == "demo-training-certificate" -%}
-            {%- if tds.enable_manager        and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
-            {%- if tds.enable_mep_contractor and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("VENDOR")          -%}{%- endif -%}
-            {%- if tds.enable_client         and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
-            {%- if tds.enable_gc_contractor  and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
+            {%- if (tds.enable_manager        or "manager"        in ek) and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("VENDOR")          -%}{%- endif -%}
+            {%- if (tds.enable_client         or "client"         in ek) and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
+            {%- if (tds.enable_gc_contractor  or "gc_contractor"  in ek) and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
         {%- else -%}
-            {%- if tds.enable_manager        and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
-            {%- if tds.enable_consultant     and "consultant"     not in dk -%}{%- set _ = ns_sigs.items.append("CONSULTANT")      -%}{%- endif -%}
-            {%- if tds.enable_client         and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
-            {%- if tds.enable_gc_contractor  and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
-            {%- if tds.enable_mep_contractor and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
+            {%- if (tds.enable_manager        or "manager"        in ek) and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if (tds.enable_consultant     or "consultant"     in ek) and "consultant"     not in dk -%}{%- set _ = ns_sigs.items.append("CONSULTANT")      -%}{%- endif -%}
+            {%- if (tds.enable_client         or "client"         in ek) and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
+            {%- if (tds.enable_gc_contractor  or "gc_contractor"  in ek) and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
+            {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
             <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr></table>
@@ -181,8 +186,12 @@ thead { display: table-header-group; }
         {%- set proc_section  = (tpl.sections | selectattr("type", "equalto", "process") | list | first) -%}
         {%- set img_section   = (tpl.sections | selectattr("type", "equalto", "image_attachments") | list | first) -%}
         {%- set sig_section   = (tpl.sections | selectattr("type", "equalto", "signatures") | list | first) -%}
-        {# Per-report disabled signature keys, written by the wizard's Signatures step. #}
-        {%- set sig_disabled = (((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {}).get("disabled") or [] -%}
+        {# Per-report signature overrides written by the wizard's Signatures step.
+           `sig_disabled` = TDS-on roles the user unticked.
+           `sig_enabled`  = TDS-off roles the user ticked (manual override). #}
+        {%- set _sig_rd = ((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {} -%}
+        {%- set sig_disabled = _sig_rd.get("disabled") or [] -%}
+        {%- set sig_enabled  = _sig_rd.get("enabled")  or [] -%}
 
         {% if tpl.templateId == "sprinkler-pressure-test" %}
 
@@ -291,7 +300,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -350,7 +359,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -393,7 +402,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -467,7 +476,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -524,7 +533,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -597,7 +606,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -680,7 +689,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -744,7 +753,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -855,7 +864,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -913,7 +922,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -994,7 +1003,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -1063,7 +1072,7 @@ thead { display: table-header-group; }
 
                     </td></tr>
                     <tr><td class="cv-bottom-cell">
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                     </td></tr>
                 </table>
             {% endif %}
@@ -1122,7 +1131,7 @@ thead { display: table-header-group; }
 
                     </td></tr>
                     <tr><td class="cv-bottom-cell">
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                     </td></tr>
                 </table>
             {% endif %}
@@ -1236,7 +1245,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
@@ -1322,7 +1331,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
 
