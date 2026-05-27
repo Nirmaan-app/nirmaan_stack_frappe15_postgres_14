@@ -2,9 +2,9 @@
 
 **Status:** Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl. preamble candidate scoring). Phase 2b.2 Part A1 (reader merged-cell propagation) complete. Part A2 (ColumnRole multi-area extensions + validation) complete. Session 1 (Pattern-4 integration test) complete. Part A3a (multi-area detection module + smoke tests) complete. Part A3b (comprehensive detection tests) complete. Part A3c (covered-cell skip fix + regression tests) complete. Session 4 verification complete (Pattern 3: PASS; Pattern 2: deferred — see §17.5). Part B1 (classifier `amount_by_area_raw` + orchestrator + return models) complete. **Part B2a (Policy X §7.25, per-area totals on ResolvedRow, `_apply_multi_area_post_pass`, synthetic_multi_area fixture, +17 tests) complete.** **Part B2b-keywords (reserved keyword expansion — false-positive fix) complete.** **Part B2c (Snitch real fixture + integration test, §7.25 wording correction) complete.** **Part B2d (unit-based PREAMBLE demotion post-pass, §7.28, +9 tests) complete.** **Part B2e-snitch-refresh (Snitch expected JSON regenerated, max preamble level 21→7, all 182 tests green) complete.** **Part B2f (zero-children PREAMBLE demotion post-pass, §7.29, +8 tests) complete. All 190 tests green.** Phase 2c next. **Phase 2c kickoff fixture commits (24 real BoQ files added to tests/fixtures/, §9 #40 CLOSED) complete.** **Phase 2c keyword expansion (§9 #44 CLOSED — 49→120 reserved keywords + _is_reserved whitespace normalization + parenthetical strip) complete. 205 tests passing.** **Phase 2c keyword targeted additions (§17.10 CLOSED — 120→191 entries) complete.** **Phase 2c caveats #2 + #4 cleanup (§9 #42 + §9 #43 reframed, §17.11 CLOSED) complete. 207 tests passing.** **Phase 2c §9 #45 priced-PREAMBLE-with-children review flag (feat 7ff4ce55, §17.11.C CLOSED) complete. 217 tests passing.** **Phase 2c §9 #49 reader sheet_state exposure (feat 3e9eafe0, §17.11.D CLOSED) complete. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary audit half (chore f89e2478, §17.11.E CLOSED) complete. 2999 unique unclassified header strings surfaced. 221 tests passing.** **Phase 2c §9 #48 classifier-dictionary + multi-area keyword expansion (feat a0d2b4a5, §17.11.F CLOSED) complete. 237 tests passing. DB commit + version cascade next.** **Phase 1.8 + 1.9 planned (per-area rate+amount schema extension) — sequenced BEFORE Phase 2c kickoff.** **make_model field confirmed already present on BOQ Nodes (position 25) — Phase 1.8 scope reduced; audit-tracking gap flagged (make_model absent from _write_audit tracked fields).** **append_to_notes ColumnRole designed (§7.34) for user-curated preservation of long-tail column data into notes field — parser-side wiring lands in 1.9 expanded scope; commit-time merge in 2c; wizard UX in Phase 3.** **Phase 1.8 (per-area rate + amount schema extension) ✅ COMPLETE. 88 Phase 1.x Frappe tests passing (60 boq_nodes + 28 boqs). Phase 1.9 next.** **Phase 1.9a (per-area rate parser support — Pattern 2-rate detection) ✅ COMPLETE. 249 parser tests passing. Phase 1.9b (append_to_notes parser) next.** **Phase 1.9b (append_to_notes parser support) ✅ COMPLETE. 257 parser tests passing. Phase 1.9c ✅ COMPLETE. 267 parser tests passing (expectedFailure=2: F3b RATES-plural + F5 HVAC header gap). Phase 2c next (unblocked). Phase 1.8.1 (F1 + F2 cleanup) ✅ COMPLETE. 91 Phase 1.x Frappe tests passing (63 boq_nodes + 28 boqs). Audit now fires on Desk saves without explicit edit_reason (defaults to "Desk edit"). Phase 2c next (unblocked). **Phase 1.9d design-locked (F3b regex widening + F5-b `top_header_rows_override: list[int]` field on `SheetConfig` + F7 standing-pattern doc-only). Pattern 6 future shape locked as forward-compat extension of same field. §17.13 NEW — wizard-load review pending parking entry. Implementation prompts to follow. **Phase 1.9d (F3b + F5-b implementation) ✅ COMPLETE. 274 parser tests passing (was 267 + 7 new F5-b validation + RATES-plural unit tests; 0 expected failures, was 2). Raheja Electrical now detects Pattern 2-rate directly; Raheja HVAC now detects PHASE-1 / PHASE-2 via top_header_rows_override=[2]. F7 standing pattern doc-only (no code change). Pattern 6 forward-compat captured in field shape. Phase 1.9e (real-fixture stress test) next.****** Phase 1.9e ✅ COMPLETE (68 sheets parsed across 25 workbooks; 62 rate-synonym variations surfaced; output at real_fixture_stress_test_output.json). Phase 1.9f Stage 1 ✅ COMPLETE — multi-area triage diagnostic (chore c42eec9a + docs 458bed3d). Observability only; +0 parser tests. Phase 1.9g ✅ COMPLETE — pre-header rows skip fix (feat 40fb555c + docs 9b9bb664). Closes §17 #71. +3 parser tests. Phase 1.9h ✅ COMPLETE — auto-guess per-area column-role assignment (feat f9a3121e + docs 7e842385). Closes §17 #72. +14 parser tests (277 → 291). Phase 1.9i ✅ COMPLETE — single-area-targeted diagnostic (chore 7d588976 + docs c3b2ed1d). Observability only. Phase 1.9j ✅ COMPLETE — Mode C metric fix (chore 68befb2e + docs b2fbbb7e). Diagnostic metric repair. Phase 1.9k ✅ COMPLETE — Mode B + F + F3c broadened (feat 3cc3819c + docs 7ecee053). Parser keyword + punctuation work. Phase 1.9l ✅ COMPLETE — Mode D longest-match precedence (feat f00cc6ca + docs 900078d5). Supply/install keyword family. Phase 1.9m ✅ COMPLETE — Mode A auto-detect 2-row headers (feat c08ebd13 + docs cb3f8694). Phase 1.9n ✅ COMPLETE — re-run diagnostic + metric correction (chore 3af8e828 + docs 287ca670). Closes Phase 1.9j-1.9n locked cycle. Cumulative +46 parser tests across cycle (291 → 337). Pre-1.9o ✅ COMPLETE — 4 synthetic multi-area fixtures added (chore a97ff170 + docs e55d1691). Phase 1.9o ✅ COMPLETE — Tier A-merged pattern recognizer (feat 6f6214ba + docs 62e676e0). +20 parser tests (337 → 357). Phase 1.9p ✅ COMPLETE — append_to_notes keyword auto-assignment, 12 reference-code entries (feat 5d348e4a + docs 7fdbf764). +18 parser tests (357 → 375). First carve-out from "never auto-detect" rule of §7.34. Diagnostic Chore #1 ✅ COMPLETE — source_present_but_unparsed 4th metric bucket (chore 78ea7d49). Mitigates §17 #75. Diagnostic Chore #2 ✅ COMPLETE — two-mode output Mode 1 hrc=None + Mode 2 hrc=1 (chore 63bead94). Mitigates §17 #74. Diagnostic metric repair docs ✅ COMPLETE — combined Chore #1 + #2 documentation (docs 9fedf079). Expanded-subset retest ✅ COMPLETE — TARGETS 11 → 15, diagnostic_snapshots/ folder introduced (chore 9d4abf36 + docs 483b53bd + chore c8c9f234 + docs bf043492). Two-commit correction round-trip per agreement #32 codification. Bug 6 fix ✅ COMPLETE — convenience field summation (feat 47090d7d). Closes §17 #84. Bug 7 + Bug 9 + CRLF remediation ✅ COMPLETE — keyword word-order variants + CRLF normalization (feat 9a5b16cb + docs fe18b337). Closes §17 #85 + §17 #79 (reframed as Bug 9). v5.21 execution-layer experiment ✅ COMPLETE (in-chat, NOT committed per agreement #30) — Sequence C2 + E2 across 8 fixtures, 100% schema acceptance, Option 3 STRUCTURALLY VALIDATED. Surfaced Bugs 10-14 + Findings 15-16 + 4 operational learnings. **Bug 10 fix ✅ COMPLETE — same-row =SUM() SUBTOTAL_MARKER misfire closed (feat 798f4fd2 + docs 81efb8c5). Closes §17 #86. _is_cross_row_sum() helper in classifier.py gates FORMULA-path; text-regex path untouched. 131 expected misfires closed (VRF 57 + Societe Generale 74). Parser tests 409 → 429. Bug 10 coverage extension ✅ COMPLETE — TestBug10SocieteGeneraleHvacIntegration added (feat 94706b5c). Parser tests 429 → 434. Closes 73-row Societe Generale Bug 10 coverage gap. Bug 11 PARKED v5.22 (see §17.27) — misframed as classifier; root cause is hierarchy resolver parenting (11a: numeric-peer sibling gap, 11b: letter-sequence cascade §17.9). feat reverted f1839b1e, docs reverted debd5186. §7.28 orphan-children audit ✅ COMPLETE (feat 8a126846 + docs 5a440fc9): 47/82 target rows have ≥1 real-orphan descendant; 196 total; max 9 on single row. Informs parented-PREAMBLE blanket rule. Bug 13 Excel error literals normalization ✅ COMPLETE (feat 5ff93064): EXCEL_ERROR_LITERALS frozenset + _is_excel_error() helper in reader.py; all seven error strings (#REF!, #VALUE!, #NAME?, #DIV/0!, #NULL!, #N/A, #NUM!) normalized to None at iter_rows() cell-read time; 6 new tests in TestExcelErrorLiterals (4 unit + 2 integration); parser tests 434 -> 440. Closes §17.29 / sec 9 #89. Bill Of Quantities Electrical & ELV rows 4-22 audit ✅ COMPLETE (feat 3b0790f0): 0/19 rows differ between current and Approach A; 1 Bug 12 candidate (row 4 "SUB HEAD A"); Rule A1+A2 each fire 0 times in range; LINE_ITEM parenting (Bug 11a) unreachable by Approach A. Phase 2c next (unblocked). **Approach A-reframed audit ✅ COMPLETE (feat 16647958): Snitch A1=3/A2=27/indirect=0 total=30 of 521 rows; BoQ-ELV A1=0/A2=31/indirect=0 total=31 of 1186 rows. User sample review next (sec 9 #99 gating, exit criterion E3). Approach A-reframed land ✅ COMPLETE (feat 8f960a2b + docs see git log): Rule A1 (lowercase cascade fix, F5-tightened all-lowercase trigger) + Rule A2-reframed (sibling numeric peer fix) landed in hierarchy.py; approach_a_enabled: bool = True toggle; pattern_signature() + first_numeric_token() helpers; snitch_electrical_expected.json regenerated (LINE_ITEM 176->177, PREAMBLE 43->42, preamble_level_transitions 7->4 entries); test_approach_a_rules.py +24 tests; parser tests 440->464. Sec 9 #99 CLOSED. Working agreement #40 deferred pending Bug 12 diagnostic on 2 fixtures. Phase 2c next (unblocked). **SUB HEAD detection + universal subtotal-reset landing COMPLETE (feat 25a43617); sec 9 #100 + #101 CLOSED; working agreement #40 codified; Bug 12 + Bug 15 parked to Phase 3+ AI layer; PHASE 2c BUG-FIX CYCLE CLOSED; Phase 2c body next.**
 **Owner:** Internal team.
-**Last updated:** 2026-05-27 (Bug 19 + Bug 19-ext LANDED -- cluster 2 session 4; tip fbc1d845)
+**Last updated:** 2026-05-27 (Bug 20-ext-v2 + cycle 3 infra -- cluster 2 session 5; tip 78c1b6a1)
 **Active branch:** `feature/boq-phase-2` (branched from `feature/boq-phase-1`)
-**Latest commit:** fbc1d845
+**Latest commit:** 78c1b6a1
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -1889,6 +1889,71 @@ rootless-row review flags; no parser-layer fix attempted.
 ## Decisions log
 
 Newest at the top.
+
+---
+
+### 2026-05-27 -- Bug 20-ext-v2 LANDED + cycle 3 runner infra (cluster 2 session 5)
+
+Feat commit 78c1b6a1 (feat(boq): Bug 20-ext-v2 - _RE_NUMERIC trailing-zero tolerance).
+Feat commit 4a3aedd7 (feat(boq): cycle 3 validation re-run script + 8 locked configs).
+
+**Bug 20-ext-v2.** Root cause: `_RE_NUMERIC = re.compile(r"^\d+(\.0)?$")` at
+hierarchy.py:96 accepted only ONE trailing zero. Safron sl_no values "1.00", "2.00",
+"10.00" etc. fell through to `_RE_MULTI2`, were classified as `multi_dot_numeric`,
+and received level=2. Bug 20-ext's level0_ancestor inheritance only fires at level==1,
+so these rows became rootless (parent_index=None). Regression surfaced during cycle 3
+cycle 1 validation re-run.
+
+Fix: `(\.0)?` changed to `(\.0+)?`. Trailing zeros are cosmetic Excel number
+formatting ("1", "1.0", "1.00" all mean the same semantic level). Conservatively
+additive: more strings match as "numeric", none stop matching.
+
+Empirical verification: safron r7/r13/r17/r20/r23/r27/r30 all now level=1 with
+parent = r5 (PART-1 anchor, ridx=1). r34/r35/r37 (Bug-19 promoted) also level=1
+parent ridx=1, promoted_from_line_item preserved. r50 ("DX 1.00") level=1
+parent=None (correct -- SUBTOTAL_MARKER at r48 resets level0_ancestor per spec).
+
++5 tests in test_bug_20_ext_v2_trailing_zero.py:
+  TestCategorizeTrailingZero (4 unit), TestSafronR7HierarchyCorrect (1 integration).
+Parser tests 565 -> 570. Zero existing-test calibrations.
+
+**Cycle 3 runner infra.** cycle_3_rerun.py -- CLI runner for replaying the 8 locked
+fixtures with --configs-dir / --fixtures-dir / --output-dir / --projects. Emits
+per-project JSON + CSV + _run_summary.json. cycle_3_configs/ -- 8 hand-generated
+MappingConfig snapshots (multi_v1 dropped per v5.26a). Used in cycle 1 (safron +
+alorica_1row verification) and this session's post-fix verification. Sec 9 #110 NEW + CLOSED.
+
+---
+
+### 2026-05-27 -- Bug 19 + Bug 19-ext LANDED (cluster 2 session 4)
+
+Feat commit fbc1d845 (feat(boq): Bug 19 + Bug 19-ext LANDED -- cluster 2 session 4
+(sec 9 #106 + #107)).
+
+**Bug 19 priced-preamble promotion.** New `_apply_priced_preamble_promotion` post-pass
+in classifier.py (Step 3c in orchestrator, after Bug 20 anchors). Backward-only
+window scan: for each LINE_ITEM with a non-None sl_no, scans backward <=20 rows
+to find PREAMBLE rows with the same pattern_signature and contiguous first_numeric_token
+sequence. When a contiguous sequence of length >= 2 is found, promotes all members
+(including the current row) to PREAMBLE via `promoted_from_line_item = True`.
+Adjacent-extension rule: a new LINE_ITEM extending an existing promoted sequence also
+promotes. Gated by `BUG_19_PRICED_PREAMBLE_PROMOTION_ENABLED` toggle (default True).
+
+**Bug 19-ext reparenting.** When a promoted PREAMBLE (level computed as numeric)
+has no stack parent, a backward scan through resolved rows finds the most recent
+PREAMBLE at level-1 with matching (pattern_signature, first_numeric_token). If found,
+reparents to that row rather than inheriting level0_ancestor. Gated by
+`BUG_19_EXT_PREAMBLE_REPARENT_ENABLED` toggle (default True).
+
+**Zero-children demotion guard.** `_apply_zero_children_preamble_demotion_post_pass`
+now skips rows with `promoted_from_line_item=True` to avoid demoting them after
+promotion.
+
+Canonical verification: safron r34/r35/r37 (sl="8.00"/"9.00"/"10.00") promoted
+from LINE_ITEM to PREAMBLE; Inovalon r22 parents under r6 via Bug 19-ext reparent.
+2 snitch false positives (semantically harmless, discriminator deferred).
+
++13 tests in test_priced_preamble_promotion.py. Parser tests 552 -> 565.
 
 ---
 
