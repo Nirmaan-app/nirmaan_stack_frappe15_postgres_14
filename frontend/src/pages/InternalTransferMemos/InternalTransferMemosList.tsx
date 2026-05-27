@@ -123,14 +123,20 @@ export const InternalTransferMemosList: React.FC = () => {
       </div>
 
       <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
-        <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
-          {ITM_TABS.map((t) => (
-            <TabButton
-              key={t.value}
-              label={t.label}
-              isActive={tab === t.value}
-              onClick={() => handleTabClick(t.value)}
-            />
+        <div className="flex items-center gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+          {ITM_TABS.map((t, idx) => (
+            <React.Fragment key={t.value}>
+              {/* Visual separator between lifecycle tabs and the catch-all
+                  "All Requests" tab — mirrors the PR list divider pattern. */}
+              {t.value === "All" && idx > 0 && (
+                <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+              )}
+              <TabButton
+                label={t.label}
+                isActive={tab === t.value}
+                onClick={() => handleTabClick(t.value)}
+              />
+            </React.Fragment>
           ))}
         </div>
       </div>
