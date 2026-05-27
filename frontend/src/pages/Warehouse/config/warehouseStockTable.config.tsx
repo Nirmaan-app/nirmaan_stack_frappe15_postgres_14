@@ -112,10 +112,10 @@ export const warehouseStockColumns: ColumnDef<WarehouseStockRow>[] = [
   {
     accessorKey: "current_stock",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Current Stock" />
+      <DataTableColumnHeader column={column} title="Current Stock" className="justify-center" />
     ),
     cell: ({ row }) => (
-      <div className="text-right font-medium">{row.original.current_stock}</div>
+      <div className="text-center font-medium">{row.original.current_stock}</div>
     ),
     size: 130,
     meta: {
@@ -126,10 +126,10 @@ export const warehouseStockColumns: ColumnDef<WarehouseStockRow>[] = [
   {
     accessorKey: "total_reserved",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Reserved" />
+      <DataTableColumnHeader column={column} title="Reserved" className="justify-center" />
     ),
     cell: ({ row }) => (
-      <div className="text-right text-amber-600">
+      <div className="text-center text-amber-600">
         {row.original.total_reserved > 0 ? row.original.total_reserved : "-"}
       </div>
     ),
@@ -142,10 +142,10 @@ export const warehouseStockColumns: ColumnDef<WarehouseStockRow>[] = [
   {
     accessorKey: "available_quantity",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Available" />
+      <DataTableColumnHeader column={column} title="Available" className="justify-center" />
     ),
     cell: ({ row }) => (
-      <div className="text-right font-medium">{row.original.available_quantity}</div>
+      <div className="text-center font-medium">{row.original.available_quantity}</div>
     ),
     size: 110,
     meta: {
@@ -156,10 +156,10 @@ export const warehouseStockColumns: ColumnDef<WarehouseStockRow>[] = [
   {
     accessorKey: "estimated_rate",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Est. Rate" />
+      <DataTableColumnHeader column={column} title="Est. Rate" className="justify-center" />
     ),
     cell: ({ row }) => (
-      <div className="text-right">
+      <div className="text-center">
         {formatToRoundedIndianRupee(row.original.estimated_rate)}
       </div>
     ),
@@ -172,10 +172,10 @@ export const warehouseStockColumns: ColumnDef<WarehouseStockRow>[] = [
   {
     accessorKey: "estimated_value",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Est. Value" />
+      <DataTableColumnHeader column={column} title="Est. Value" className="justify-center" />
     ),
     cell: ({ row }) => (
-      <div className="text-right">
+      <div className="text-center">
         {formatToRoundedIndianRupee(row.original.estimated_value)}
       </div>
     ),
