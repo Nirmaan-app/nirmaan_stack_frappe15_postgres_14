@@ -514,21 +514,30 @@ def _promote_section_header(row: "ClassifiedRow") -> None:
     row.preamble_level_override = 0
 
 
+def _promote_sub_section_header(row: "ClassifiedRow") -> None:
+    """Promote a NOTE sub-section-header candidate to PREAMBLE level=1 in place."""
+    assert row.classification != RowClassification.PREAMBLE
+    row.classification = RowClassification.PREAMBLE
+    row.preamble_level_override = 1
+
+
 def _apply_section_header_note_promotion_post_pass(
     classified_rows: list["ClassifiedRow"],
 ) -> None:
     """
-    Promote NOTE section-banner rows to PREAMBLE level=0 via positional anchors.
+    Promote NOTE section-banner rows to PREAMBLE via positional anchors.
 
     Anchor 1: first non-SPACER row in classified_rows (header row is already
-    excluded by the orchestrator before this pass is called).
-    Anchor 2: first non-SPACER row after each SUBTOTAL_MARKER.
+    excluded by the orchestrator before this pass is called). Promotes to level=0.
+    Anchor 2: first non-SPACER row after each SUBTOTAL_MARKER. Promotes to level=0.
+    Anchor 3: first non-SPACER row after each anchor-1/2-promoted PREAMBLE (detected
+    via preamble_level_override==0). Promotes to level=1 (sub-section header). Single-
+    step recursive only (Reading B, §17.44): level=1 rows are NOT themselves anchors.
 
-    Anchors are independent — a row cannot match both. Promoted rows receive
-    preamble_level_override=0 so resolve_hierarchy bypasses _determine_preamble_level
-    and assigns level=0 directly (section 6 will detect these by rr.level == 0).
+    Promoted rows receive preamble_level_override so resolve_hierarchy bypasses
+    _determine_preamble_level and assigns the correct level directly.
 
-    Bug 20 anchors 1+2 (sec 9 #108 / cluster 2 session 2). Anchor 3 deferred.
+    Bug 20 anchors 1+2+3 (sec 9 #108 / cluster 2 sessions 2+3).
     """
     if not BUG_20_SECTION_HEADER_PROMOTION_ENABLED:
         return
@@ -544,6 +553,17 @@ def _apply_section_header_note_promotion_post_pass(
             idx = _first_non_spacer_idx(classified_rows, i + 1)
             if idx is not None and _is_section_header_candidate(classified_rows[idx]):
                 _promote_section_header(classified_rows[idx])
+
+    # Anchor 3: first non-spacer after each anchor-1/2-promoted PREAMBLE (level=0).
+    # Trigger: preamble_level_override==0 (set by anchors 1+2 above). SUB HEAD rows
+    # detected by _determine_preamble_level have preamble_level_override=None at
+    # post-pass time and do NOT trigger anchor 3.
+    for i, row in enumerate(classified_rows):
+        if (row.classification == RowClassification.PREAMBLE
+                and row.preamble_level_override == 0):
+            idx = _first_non_spacer_idx(classified_rows, i + 1)
+            if idx is not None and _is_section_header_candidate(classified_rows[idx]):
+                _promote_sub_section_header(classified_rows[idx])
 
 
 def _is_unit_blank_or_junk(value) -> bool:

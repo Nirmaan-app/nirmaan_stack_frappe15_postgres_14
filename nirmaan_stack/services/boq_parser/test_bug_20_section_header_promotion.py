@@ -1,19 +1,24 @@
 """
-Tests for Bug 20 anchors 1+2 and Bug 20-ext -- cluster 2 session 2, sec 9 #108.
+Tests for Bug 20 anchors 1+2+3 and Bug 20-ext -- cluster 2 sessions 2+3, sec 9 #108.
 
 Bug 20 anchors 1+2: _apply_section_header_note_promotion_post_pass promotes NOTE
 rows at positional anchors (sheet start; after each SUBTOTAL_MARKER) to PREAMBLE
 level=0 when they carry section-banner text (e.g. "PART-1 AIR DISTRIBUTION SYSTEM").
 
+Bug 20 anchor 3: first non-SPACER NOTE after each anchor-1/2-promoted PREAMBLE
+(level=0) is promoted to PREAMBLE level=1 as a sub-section header. Single-step
+recursive (Reading B, §17.44): anchor-3 promotions do not themselves become anchors.
+
 Bug 20-ext: _determine_preamble_level forces level=0 (was 1) for SUB HEAD markers,
 so numeric PREAMBLEs (sl=1.0, 2.0, ...) correctly parent under the SUB HEAD row.
 
-17 tests across 5 groups:
+22 tests across 6 groups:
   TestAnchor1                  (5) -- Anchor 1: first non-SPACER after header
   TestAnchor2                  (4) -- Anchor 2: first non-SPACER after SUBTOTAL
+  TestAnchor3                  (5) -- Anchor 3: first non-SPACER after level=0 promotion
   TestToggles                  (2) -- BUG_20_SECTION_HEADER_PROMOTION_ENABLED,
                                       BUG_20_EXT_SUB_HEAD_LEVEL_ZERO_ENABLED
-  TestSafronIntegration        (3) -- safron r5 (anchor 1), r41 (anchor 2), r43 (NOT promoted)
+  TestSafronIntegration        (3) -- safron r5 (anchor 1), r41 (anchor 2), r43 (anchor 3)
   TestBoqElvBug20Ext           (3) -- BoQ ELV r4 SUB HEAD A, r6 sl=1.0 parent, 21-SUB HEAD count
 """
 from __future__ import annotations
@@ -50,7 +55,7 @@ _SAFRON_FIXTURE = _FIXTURES / "safron_hvac_2026-04-11.xlsx"
 _SAFRON_SHEET = "Low Side Works R2 11.4.26"
 _SAFRON_HEADER_ROW = 3
 _SAFRON_R41_ROW = 41   # "PART- 2 INSULATION" (anchor 2 target)
-_SAFRON_R43_ROW = 43   # "ACCOUSTIC INSULATION" (anchor 3 -- NOT promoted this session)
+_SAFRON_R43_ROW = 43   # "ACCOUSTIC INSULATION" (anchor 3 target)
 
 _GS = GlobalSettings()
 _SAFRON_CONFIG = SheetConfig(
@@ -301,7 +306,75 @@ class TestAnchor2(unittest.TestCase):
 
 
 # ==================================================================
-# Group 3: Toggle tests (2 tests)
+# Group 3: Anchor 3 -- first non-SPACER after level=0 promotion (5 tests)
+# ==================================================================
+
+class TestAnchor3(unittest.TestCase):
+    """Anchor 3 promotes the first non-SPACER NOTE after each anchor-1/2-promoted PREAMBLE."""
+
+    def test_anchor3_fires_after_anchor1_promoted_preamble_with_spacer(self):
+        """anchor-1 promotes rows[0]; spacer; NOTE → anchor-3 promotes to preamble_level_override=1."""
+        rows = [
+            _note(2, description="PART-1 AIR DISTRIBUTION SYSTEM"),  # anchor-1 → override=0
+            _spacer(3),
+            _note(4, description="Sub-section A text"),               # anchor-3 → override=1
+        ]
+        _apply_section_header_note_promotion_post_pass(rows)
+        self.assertEqual(rows[0].classification, RowClassification.PREAMBLE)
+        self.assertEqual(rows[0].preamble_level_override, 0)
+        self.assertEqual(rows[2].classification, RowClassification.PREAMBLE)
+        self.assertEqual(rows[2].preamble_level_override, 1)
+
+    def test_anchor3_fires_after_anchor2_promoted_preamble_no_spacer(self):
+        """SUBTOTAL → NOTE (anchor-2 promotes); NOTE immediately after → anchor-3 promotes."""
+        rows = [
+            _subtotal(2),
+            _note(3, description="PART-2 INSULATION"),   # anchor-2 → override=0
+            _note(4, description="ACOUSTIC TREATMENT"),  # anchor-3 → override=1
+        ]
+        _apply_section_header_note_promotion_post_pass(rows)
+        self.assertEqual(rows[1].preamble_level_override, 0)
+        self.assertEqual(rows[2].classification, RowClassification.PREAMBLE)
+        self.assertEqual(rows[2].preamble_level_override, 1)
+
+    def test_anchor3_skips_spacers(self):
+        """Anchor-3 skips over spacers to reach the next non-SPACER NOTE."""
+        rows = [
+            _subtotal(2),
+            _note(3, description="PART-3 SECTION"),    # anchor-2 → override=0
+            _spacer(4),
+            _spacer(5),
+            _note(6, description="ACOUSTIC TREATMENT"),  # anchor-3 → override=1
+        ]
+        _apply_section_header_note_promotion_post_pass(rows)
+        self.assertEqual(rows[1].preamble_level_override, 0)
+        self.assertEqual(rows[4].classification, RowClassification.PREAMBLE)
+        self.assertEqual(rows[4].preamble_level_override, 1)
+
+    def test_anchor3_no_fire_when_next_row_already_preamble(self):
+        """Anchor-3 does not fire when next non-SPACER is already PREAMBLE (_is_section_header_candidate requires NOTE)."""
+        rows = [
+            _note(2, description="PART-1 SECTION"),  # anchor-1 → override=0
+            _preamble(3, sl_no="A."),                 # already PREAMBLE; anchor-3 skips
+        ]
+        _apply_section_header_note_promotion_post_pass(rows)
+        self.assertEqual(rows[0].preamble_level_override, 0)
+        self.assertIsNone(rows[1].preamble_level_override)
+
+    def test_anchor3_no_fire_for_non_override_preamble(self):
+        """Regular PREAMBLE (preamble_level_override=None) does NOT trigger anchor-3 (trigger requires override==0)."""
+        rows = [
+            _preamble(2, sl_no="A."),                  # ordinary PREAMBLE, override=None
+            _note(3, description="Sub-section text"),  # must NOT be promoted
+        ]
+        _apply_section_header_note_promotion_post_pass(rows)
+        self.assertIsNone(rows[0].preamble_level_override)
+        self.assertEqual(rows[1].classification, RowClassification.NOTE)
+        self.assertIsNone(rows[1].preamble_level_override)
+
+
+# ==================================================================
+# Group 4: Toggle tests (2 tests)
 # ==================================================================
 
 class TestToggles(unittest.TestCase):
@@ -351,7 +424,7 @@ class TestToggles(unittest.TestCase):
 
 
 # ==================================================================
-# Group 4: Safron integration tests (3 tests)
+# Group 5: Safron integration tests (3 tests)
 # ==================================================================
 
 class TestSafronIntegration(unittest.TestCase):
@@ -362,7 +435,7 @@ class TestSafronIntegration(unittest.TestCase):
     "PART-1 AIR DISTRIBUTION SYSTEM" in the description (column B).
     Anchor 2 target: Excel row 41 "PART- 2 INSULATION" (merged A41:G41;
     Bug 18 blanks B41-G41, so text ends up in sl_no column A).
-    Anchor 3 target: Excel row 43 "ACCOUSTIC INSULATION" — NOT promoted this session.
+    Anchor 3 target: Excel row 43 "ACCOUSTIC INSULATION" — promoted to PREAMBLE level=1 by anchor 3.
     """
 
     @classmethod
@@ -420,22 +493,32 @@ class TestSafronIntegration(unittest.TestCase):
         self.assertEqual(rr.level, 0, f"Row {_SAFRON_R41_ROW} must have level=0")
         self.assertIsNone(rr.parent_index, "Level-0 section header must have no parent")
 
-    def test_safron_anchor3_r43_stays_note_not_promoted(self):
+    def test_safron_anchor3_r43_promoted_to_preamble_level1(self):
         """
-        Excel row 43 ('ACCOUSTIC INSULATION') must stay NOTE — anchor 3 is
-        deferred to session 6 and not implemented in this session.
+        Excel row 43 ('ACCOUSTIC INSULATION') must be promoted to PREAMBLE level=1
+        by anchor 3 (first non-SPACER NOTE after r41, which was anchor-2 promoted).
+        Parent must be r41 ('PART- 2 INSULATION', level=0) via level0_ancestor.
         """
         rr = self._find(_SAFRON_R43_ROW)
         self.assertIsNotNone(rr, f"Row {_SAFRON_R43_ROW} not found in resolved output")
         self.assertEqual(
-            rr.classified_row.classification, RowClassification.NOTE,
-            f"Row {_SAFRON_R43_ROW} must stay NOTE (anchor 3 deferred to session 6); "
+            rr.classified_row.classification, RowClassification.PREAMBLE,
+            f"Row {_SAFRON_R43_ROW} must be PREAMBLE after anchor-3 promotion; "
             f"got {rr.classified_row.classification}",
         )
+        self.assertEqual(rr.level, 1, f"Row {_SAFRON_R43_ROW} must have level=1")
+        self.assertIsNotNone(rr.parent_index, f"Row {_SAFRON_R43_ROW} must parent under r41")
+        parent_rr = self.resolved[rr.parent_index]
+        self.assertEqual(
+            parent_rr.classified_row.raw_row.row_number, _SAFRON_R41_ROW,
+            f"Parent of r43 must be r41; got row {parent_rr.classified_row.raw_row.row_number}",
+        )
+        desc = rr.classified_row.sl_no_value or rr.classified_row.description or ""
+        self.assertIn("ACCOUSTIC INSULATION", desc, f"Row 43 text mismatch; got {desc!r}")
 
 
 # ==================================================================
-# Group 5: BoQ ELV Bug 20-ext integration tests (3 tests)
+# Group 6: BoQ ELV Bug 20-ext integration tests (3 tests)
 # ==================================================================
 
 class TestBoqElvBug20Ext(unittest.TestCase):
