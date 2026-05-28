@@ -62,7 +62,8 @@
   {
    "fieldname": "mobile_no",
    "fieldtype": "Data",
-   "label": "Mobile"
+   "label": "Mobile",
+   "unique": 1
   },
   {
    "default": "false",

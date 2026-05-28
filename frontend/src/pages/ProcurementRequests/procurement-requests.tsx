@@ -356,7 +356,7 @@ export const ProcurementRequests: React.FC = () => {
                         )}
                         {/* // Pr_work_Package - Relying on work_package field */}
                         {data.work_package?.toLowerCase() === "custom" && <Badge className="text-xs">Custom</Badge>}
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
                                 parentDoc={data}
                                 parentDoctype={DOCTYPE} // 'Procurement Requests'

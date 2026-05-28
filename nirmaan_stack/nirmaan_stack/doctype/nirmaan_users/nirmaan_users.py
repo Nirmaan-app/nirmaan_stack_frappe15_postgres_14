@@ -56,12 +56,15 @@ def create_user_profile(doc, method=None):
 			"Nirmaan Users Sync"
 		)
 		try:
-			# Fallback: minimal fields only
+			# Fallback: minimal fields only (include mobile_no so it never drifts
+			# from User.mobile_no — required for mobile-number login to stay
+			# consistent with the unique constraint on Nirmaan Users.mobile_no).
 			frappe.get_doc(
 				doctype="Nirmaan Users",
 				first_name=doc.first_name or email.split("@")[0],
 				full_name=doc.full_name or doc.first_name or email.split("@")[0],
-				email=email
+				email=email,
+				mobile_no=doc.mobile_no
 			).insert(ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as fallback_error:

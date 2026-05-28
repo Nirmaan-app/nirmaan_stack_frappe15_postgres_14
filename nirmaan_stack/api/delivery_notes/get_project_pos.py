@@ -18,7 +18,7 @@ def get_project_pos_with_items(project_id, statuses=None):
     pos = frappe.get_all(
         "Procurement Orders",
         filters=filters,
-        fields=["name", "project", "vendor_name", "dispatch_date", "status"],
+        fields=["name", "project", "vendor_name", "dispatch_date", "status", "creation"],
         order_by="creation desc",
         limit_page_length=0,
     )

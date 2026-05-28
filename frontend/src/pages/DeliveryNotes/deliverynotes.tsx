@@ -26,6 +26,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Accordion,
   AccordionContent,
@@ -39,6 +45,8 @@ import {
   Search,
   ChevronRight,
   Download,
+  Filter,
+  FilterX,
 } from "lucide-react";
 import { encodeFrappeId } from "./constants";
 
@@ -50,8 +58,16 @@ interface POWithItems {
   vendor_name: string;
   dispatch_date: string;
   status: string;
+  creation: string;
   items?: { item_name: string; item_id: string; parent: string; is_dispatched?: number }[];
 }
+
+// Discriminated union for the merged CREATE-view table.
+type CreateRow =
+  | { type: "po"; data: POWithItems; creation: string }
+  | { type: "itm"; data: ITMListRow; creation: string };
+
+type CreateTypeFilter = "all" | "po" | "itm";
 
 interface POBasic {
   name: string;
@@ -121,7 +137,7 @@ function SearchInput({
     <div className="relative mb-4">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <Input
-        placeholder="Search PO, vendor, or item..."
+        placeholder="Search PO / ITM, vendor, source project, or item..."
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="pl-9"
@@ -138,10 +154,47 @@ const DeliveryNotes: React.FC = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
-  const [itmSearchQuery, setItmSearchQuery] = useState("");
   const [selectedDN, setSelectedDN] = useState<DeliveryNote | null>(null);
   const [dnDialogOpen, setDnDialogOpen] = useState(false);
   const [viewExistingType, setViewExistingType] = useState<'po' | 'itm'>('po');
+
+  // Type filter for the unified CREATE-view table: All / PO / ITM.
+  // URL-persisted so a refresh keeps the user's last choice.
+  const createTypeFilter: CreateTypeFilter = useMemo(() => {
+    const raw = searchParams.get("type");
+    if (raw === "po" || raw === "itm") return raw;
+    return "all";
+  }, [searchParams]);
+
+  const setCreateTypeFilter = useCallback(
+    (next: CreateTypeFilter) => {
+      const params = new URLSearchParams(searchParams);
+      if (next === "all") {
+        params.delete("type");
+      } else {
+        params.set("type", next);
+      }
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  // Funnel-popover toggle handler — maps two checkboxes onto the
+  // three-state `createTypeFilter`. Unchecking one type narrows to the
+  // other; re-checking a hidden type bounces back to "all".
+  const handleCreateTypeToggle = useCallback(
+    (which: "po" | "itm", checked: boolean) => {
+      const other = which === "po" ? "itm" : "po";
+      if (checked) {
+        if (createTypeFilter === other) {
+          setCreateTypeFilter("all");
+        }
+      } else {
+        setCreateTypeFilter(other);
+      }
+    },
+    [createTypeFilter, setCreateTypeFilter]
+  );
 
   const { data: usersList } = useFrappeGetDocList<NirmaanUsers>(
     "Nirmaan Users",
@@ -218,29 +271,54 @@ const DeliveryNotes: React.FC = () => {
 
   const itmList = useMemo(() => itmResult?.message?.data || [], [itmResult]);
 
-  const filteredITMs = useMemo(() => {
-    if (!itmSearchQuery.trim()) return itmList;
-    const q = itmSearchQuery.toLowerCase();
-    return itmList.filter((itm) =>
-      itm.name.toLowerCase().includes(q) ||
-      itm.source_project_name?.toLowerCase().includes(q) ||
-      itm.source_project?.toLowerCase().includes(q)
-    );
-  }, [itmList, itmSearchQuery]);
+  // Merge PO + ITM rows into a single list and sort by `creation desc`
+  // (the same per-list order both APIs already use, applied globally).
+  const mergedCreateRows: CreateRow[] = useMemo(() => {
+    const rows: CreateRow[] = [
+      ...createPOs.map<CreateRow>((po) => ({
+        type: "po",
+        data: po,
+        creation: po.creation,
+      })),
+      ...itmList.map<CreateRow>((itm) => ({
+        type: "itm",
+        data: itm,
+        creation: itm.creation,
+      })),
+    ];
+    rows.sort((a, b) => (a.creation < b.creation ? 1 : a.creation > b.creation ? -1 : 0));
+    return rows;
+  }, [createPOs, itmList]);
 
-  const filteredCreatePOs = useMemo(() => {
-    if (!searchQuery.trim()) return createPOs;
-    const q = searchQuery.toLowerCase();
-    return createPOs.filter((po) => {
-      if (po.name.toLowerCase().includes(q)) return true;
-      if (po.vendor_name?.toLowerCase().includes(q)) return true;
-      if (
-        po.items?.some((item) => item.item_name.toLowerCase().includes(q))
-      )
-        return true;
+  const filteredCreateRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return mergedCreateRows.filter((row) => {
+      if (createTypeFilter === "po" && row.type !== "po") return false;
+      if (createTypeFilter === "itm" && row.type !== "itm") return false;
+      if (!q) return true;
+      if (row.type === "po") {
+        const po = row.data;
+        if (po.name.toLowerCase().includes(q)) return true;
+        if (po.vendor_name?.toLowerCase().includes(q)) return true;
+        if (po.items?.some((item) => item.item_name.toLowerCase().includes(q))) return true;
+        return false;
+      }
+      const itm = row.data;
+      if (itm.name.toLowerCase().includes(q)) return true;
+      if (itm.source_project_name?.toLowerCase().includes(q)) return true;
+      if (itm.source_project?.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [createPOs, searchQuery]);
+  }, [mergedCreateRows, searchQuery, createTypeFilter]);
+
+  const createCounts = useMemo(
+    () => ({
+      po: mergedCreateRows.filter((r) => r.type === "po").length,
+      itm: mergedCreateRows.filter((r) => r.type === "itm").length,
+      all: mergedCreateRows.length,
+    }),
+    [mergedCreateRows]
+  );
 
   // --- VIEW_EXISTING data ---
   const { data: viewExistingPOs, isLoading: viewExistingLoading } =
@@ -288,14 +366,100 @@ const DeliveryNotes: React.FC = () => {
     });
   }, [enrichedViewPOs, searchQuery]);
 
+  // Fetch ITM statuses for the View Existing accordion header badge.
+  // Uses `get_itms_list` (not useFrappeGetDocList) to bypass per-doc User
+  // Permission filtering — same reasoning as the CREATE-view ITM picker.
+  const shouldFetchViewITMs = activeView === "VIEW_EXISTING" && !!selectedProject;
+  const { data: viewExistingITMsResult } = useFrappeGetCall<{
+    message: { data: ITMListRow[] };
+  }>(
+    "nirmaan_stack.api.internal_transfers.get_itms_list.get_itms_list",
+    shouldFetchViewITMs
+      ? {
+          filters: JSON.stringify([
+            ["target_project", "=", selectedProject],
+            ["status", "in", ["Dispatched", "Partially Delivered", "Delivered"]],
+          ]),
+          order_by: "creation desc",
+          limit_page_length: 10000,
+        }
+      : undefined,
+    shouldFetchViewITMs ? undefined : null
+  );
+
+  const itmStatusByName = useMemo(() => {
+    const map: Record<string, string> = {};
+    (viewExistingITMsResult?.message?.data || []).forEach((itm) => {
+      map[itm.name] = itm.status;
+    });
+    return map;
+  }, [viewExistingITMsResult]);
+
+  // --- CREATE view: pre-fetch eligible project IDs so the project picker
+  // can hide projects that have nothing to act on. Two minimal fetches (PO
+  // + ITM) that pull only the project-link field — payloads stay tiny.
+  const shouldFetchEligibleProjects = activeView === "CREATE";
+
+  const { data: eligiblePOProjectsRaw, isLoading: eligiblePOLoading } =
+    useFrappeGetDocList<{ name: string; project: string }>(
+      "Procurement Orders",
+      {
+        fields: ["project"],
+        filters: [
+          ["status", "in", ["Partially Dispatched", "Dispatched", "Partially Delivered"]],
+        ],
+        limit: 0,
+      },
+      shouldFetchEligibleProjects ? undefined : null
+    );
+
+  // ITM side uses the custom endpoint (bypasses User Permissions) so PMs
+  // don't lose target projects they can legitimately receive into.
+  const { data: eligibleITMResult, isLoading: eligibleITMLoading } =
+    useFrappeGetCall<{ message: { data: ITMListRow[] } }>(
+      "nirmaan_stack.api.internal_transfers.get_itms_list.get_itms_list",
+      shouldFetchEligibleProjects
+        ? {
+            filters: JSON.stringify([
+              ["status", "in", ["Dispatched", "Partially Delivered"]],
+            ]),
+            limit_page_length: 10000,
+          }
+        : undefined,
+      shouldFetchEligibleProjects ? undefined : null
+    );
+
+  // Build the allow-set lazily. Returns `undefined` while either fetch is
+  // still loading so `ProjectSelect` doesn't briefly render an empty list
+  // — once both finish, the populated Set takes over.
+  const eligibleProjectIds = useMemo<Set<string> | undefined>(() => {
+    if (!shouldFetchEligibleProjects) return undefined;
+    if (eligiblePOLoading || eligibleITMLoading) return undefined;
+    const set = new Set<string>();
+    (eligiblePOProjectsRaw || []).forEach((row) => {
+      if (row.project) set.add(row.project);
+    });
+    (eligibleITMResult?.message?.data || []).forEach((itm) => {
+      if (itm.target_project) set.add(itm.target_project);
+    });
+    return set;
+  }, [
+    shouldFetchEligibleProjects,
+    eligiblePOLoading,
+    eligibleITMLoading,
+    eligiblePOProjectsRaw,
+    eligibleITMResult,
+  ]);
+
   // Enriched ITM list for View Existing (ITMs with at least one DN)
   const enrichedViewITMs = useMemo(() => {
     return Object.entries(dnsByITM).map(([itmName, dns]) => ({
       name: itmName,
       dns,
       source_project: dns[0]?.project || "",
+      status: itmStatusByName[itmName] || "",
     }));
-  }, [dnsByITM]);
+  }, [dnsByITM, itmStatusByName]);
 
   // --- Handlers ---
 
@@ -345,12 +509,12 @@ const DeliveryNotes: React.FC = () => {
             onClick={() => navigateToView("view_existing")}
             className="bg-green-500 hover:bg-green-600"
           />
-          <DashboardCard
+          {/* <DashboardCard
             title="Pending DN"
             icon={<ClipboardList className="h-10 w-10" />}
             onClick={() => navigate("/reports")}
             className="bg-orange-500 hover:bg-orange-600"
-          />
+          /> */}
         </div>
       )}
 
@@ -360,175 +524,199 @@ const DeliveryNotes: React.FC = () => {
           <CardHeader>
             <CardTitle>Create New Delivery Note</CardTitle>
             <p className="text-sm text-muted-foreground pt-1">
-              Select a project to see POs ready for new delivery update.
+              Select a project to see POs and ITMs ready for a new delivery update.
             </p>
           </CardHeader>
           <CardContent>
             <div className="mb-4">
-              <ProjectSelect onChange={handleProjectChange} />
+              <ProjectSelect
+                onChange={handleProjectChange}
+                filterByProjects={eligibleProjectIds}
+              />
             </div>
             {selectedProject && (
-              <div className="space-y-8">
-                {/* PO List Section */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">PO List</CardTitle>
-                      {!createLoading && filteredCreatePOs.length > 0 && (
-                        <Badge variant="outline" className="text-xs border-red-300 text-red-600">
-                          {filteredCreatePOs.length} POs
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
+              <div className="space-y-4">
+                {/* Search bar + result count chip — type filter moved into
+                    the funnel popover on the "Type" column header below. */}
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
                     <SearchInput value={searchQuery} onChange={setSearchQuery} />
+                  </div>
+                  {!createLoading && !itmLoading && filteredCreateRows.length > 0 && (
+                    <Badge variant="outline" className="mt-2 text-xs border-red-300 text-red-600 whitespace-nowrap">
+                      {filteredCreateRows.length} results
+                    </Badge>
+                  )}
+                </div>
 
-                    {createLoading && (
-                      <p className="text-center py-4 text-muted-foreground">Loading...</p>
-                    )}
+                {(createLoading || itmLoading) && (
+                  <p className="text-center py-4 text-muted-foreground">Loading...</p>
+                )}
 
-                    {!createLoading && filteredCreatePOs.length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">
-                        No eligible Purchase Orders found.
-                      </p>
-                    )}
+                {!createLoading && !itmLoading && filteredCreateRows.length === 0 && (
+                  <p className="text-center text-muted-foreground py-4">
+                    No eligible Purchase Orders or ITMs found.
+                  </p>
+                )}
 
-                    {!createLoading && filteredCreatePOs.length > 0 && (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>PO No.</TableHead>
-                            <TableHead>Vendor</TableHead>
-                            <TableHead>Dispatch Date</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-center">DNs</TableHead>
-                            <TableHead className="w-[40px]"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredCreatePOs.map((po) => {
-                            const dnCount = dnsByPO[po.name]?.length || 0;
-                            return (
-                              <TableRow key={po.name}>
-                                <TableCell>
-                                  <Link
-                                    className="underline text-blue-600 hover:text-blue-800"
-                                    to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}
-                                  >
-                                    {`PO-${po.name.split("/")[1]}`}
-                                  </Link>
-                                </TableCell>
-                                <TableCell>{po.vendor_name || "N/A"}</TableCell>
-                                <TableCell>{formatDate(po.dispatch_date)}</TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant={
-                                      ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
-                                    }
-                                  >
-                                    {po.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {dnCount > 0 && (
-                                    <Badge variant="secondary">{dnCount}</Badge>
+                {!createLoading && !itmLoading && filteredCreateRows.length > 0 && (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>
+                          <div className="inline-flex items-center gap-1">
+                            <span>Type</span>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <div
+                                  className={cn(
+                                    "cursor-pointer hover:bg-gray-100 px-1 py-1 rounded-md",
+                                    createTypeFilter !== "all" && "bg-gray-200"
                                   )}
-                                </TableCell>
-                                <TableCell>
-                                  <Link to={`/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`}>
-                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                  </Link>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Transfer List Section */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">Transfer List</CardTitle>
-                      {!itmLoading && filteredITMs.length > 0 && (
-                        <Badge variant="outline" className="text-xs border-red-300 text-red-600">
-                          {filteredITMs.length} Transfers
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="relative mb-4">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search item name..."
-                        value={itmSearchQuery}
-                        onChange={(e) => setItmSearchQuery(e.target.value)}
-                        className="pl-9"
-                      />
-                    </div>
-
-                    {itmLoading && (
-                      <p className="text-center py-4 text-muted-foreground">Loading...</p>
-                    )}
-
-                    {!itmLoading && filteredITMs.length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">
-                        No eligible Transfer Memos found.
-                      </p>
-                    )}
-
-                    {!itmLoading && filteredITMs.length > 0 && (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Transfer ID</TableHead>
-                            <TableHead>From Project</TableHead>
-                            <TableHead>Dispatch Date</TableHead>
-                            <TableHead>Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredITMs.map((itm) => (
-                            <TableRow key={itm.name}>
+                                  aria-label="Filter by type"
+                                >
+                                  {createTypeFilter !== "all" ? (
+                                    <FilterX className="text-primary h-4 w-4 animate-bounce" />
+                                  ) : (
+                                    <Filter className="text-primary h-4 w-4" />
+                                  )}
+                                </div>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-44 p-2" align="start">
+                                <div className="text-xs font-semibold mb-2 text-muted-foreground px-1">
+                                  Filter by type
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="flex items-center gap-2 px-1 py-1 text-sm cursor-pointer hover:bg-accent rounded">
+                                    <Checkbox
+                                      checked={createTypeFilter !== "itm"}
+                                      onCheckedChange={(v) => handleCreateTypeToggle("po", !!v)}
+                                    />
+                                    <span>PO</span>
+                                    <span className="ml-auto text-xs text-muted-foreground">
+                                      {createCounts.po}
+                                    </span>
+                                  </label>
+                                  <label className="flex items-center gap-2 px-1 py-1 text-sm cursor-pointer hover:bg-accent rounded">
+                                    <Checkbox
+                                      checked={createTypeFilter !== "po"}
+                                      onCheckedChange={(v) => handleCreateTypeToggle("itm", !!v)}
+                                    />
+                                    <span>ITM</span>
+                                    <span className="ml-auto text-xs text-muted-foreground">
+                                      {createCounts.itm}
+                                    </span>
+                                  </label>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        </TableHead>
+                        <TableHead>Vendor / Source</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-center">DNs</TableHead>
+                        <TableHead className="w-[40px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredCreateRows.map((row) => {
+                        if (row.type === "po") {
+                          const po = row.data;
+                          const dnCount = dnsByPO[po.name]?.length || 0;
+                          const href = `/prs&milestones/delivery-notes/${encodeFrappeId(po.name)}?mode=create`;
+                          return (
+                            <TableRow key={`po:${po.name}`}>
                               <TableCell>
                                 <Link
                                   className="underline text-blue-600 hover:text-blue-800"
-                                  to={`/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`}
+                                  to={href}
                                 >
-                                  {itm.name}
+                                  {`PO-${po.name.split("/")[1]}`}
                                 </Link>
                               </TableCell>
-                              <TableCell
-                                title={
-                                  itm.source_type === "Warehouse"
-                                    ? "Warehouse"
-                                    : itm.source_project ?? undefined
-                                }
-                              >
-                                {itm.source_type === "Warehouse"
-                                  ? "Warehouse"
-                                  : itm.source_project_name ||
-                                    itm.source_project ||
-                                    "--"}
-                              </TableCell>
-                              <TableCell>{formatDate(itm.creation)}</TableCell>
                               <TableCell>
-                                <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
-                                  {itm.status}
+                                <Badge variant="outline" className="bg-sky-50 border-sky-300 text-sky-700">
+                                  PO
                                 </Badge>
                               </TableCell>
+                              <TableCell>{po.vendor_name || "N/A"}</TableCell>
+                              <TableCell>{formatDate(po.dispatch_date)}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
+                                  }
+                                >
+                                  {po.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {dnCount > 0 && (
+                                  <Badge variant="secondary">{dnCount}</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Link to={href}>
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                </Link>
+                              </TableCell>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </CardContent>
-                </Card>
+                          );
+                        }
+                        const itm = row.data;
+                        const dnCount = dnsByITM[itm.name]?.length || 0;
+                        const href = `/prs&milestones/delivery-notes/itm/${encodeFrappeId(itm.name)}?mode=create`;
+                        const sourceLabel = itm.source_type === "Warehouse"
+                          ? "Warehouse"
+                          : itm.source_project_name || itm.source_project || "--";
+                        return (
+                          <TableRow key={`itm:${itm.name}`}>
+                            <TableCell>
+                              <Link
+                                className="underline text-blue-600 hover:text-blue-800"
+                                to={href}
+                              >
+                                {itm.name}
+                              </Link>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="bg-purple-50 border-purple-300 text-purple-700">
+                                ITM
+                              </Badge>
+                            </TableCell>
+                            <TableCell
+                              title={
+                                itm.source_type === "Warehouse"
+                                  ? "Warehouse"
+                                  : itm.source_project ?? undefined
+                              }
+                            >
+                              {sourceLabel}
+                            </TableCell>
+                            <TableCell>{formatDate(itm.creation)}</TableCell>
+                            <TableCell>
+                              <Badge variant={itm.status === "Dispatched" ? "orange" : "green"}>
+                                {itm.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {dnCount > 0 && (
+                                <Badge variant="secondary">{dnCount}</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Link to={href}>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              </Link>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
             )}
           </CardContent>
@@ -843,7 +1031,22 @@ const DeliveryNotes: React.FC = () => {
                               <span className="text-muted-foreground text-xs hidden sm:inline">
                                 {latestDate ? formatDate(latestDate) : "\u2014"}
                               </span>
-                              <span className="text-xs text-muted-foreground whitespace-nowrap ml-auto mr-2">
+                              {itm.status && (
+                                <Badge
+                                  variant={
+                                    itm.status === "Delivered" ? "green" : "orange"
+                                  }
+                                  className="ml-auto mr-2"
+                                >
+                                  {itm.status}
+                                </Badge>
+                              )}
+                              <span
+                                className={cn(
+                                  "text-xs text-muted-foreground whitespace-nowrap",
+                                  !itm.status && "ml-auto mr-2"
+                                )}
+                              >
                                 {dns.length} DN{dns.length !== 1 ? "s" : ""}
                               </span>
                             </div>
@@ -855,12 +1058,8 @@ const DeliveryNotes: React.FC = () => {
                                   <TableRow className="bg-muted/30">
                                     <TableHead className="text-xs">DN Number</TableHead>
                                     <TableHead className="text-xs text-center">Items</TableHead>
-                                    <TableHead className="text-xs">
-                                      <div className="flex flex-col gap-0.5">
-                                        <span>Date</span>
-                                        <span className="text-[10px] font-normal text-muted-foreground">Updated By</span>
-                                      </div>
-                                    </TableHead>
+                                    <TableHead className="text-xs">Date</TableHead>
+                                    <TableHead className="text-xs hidden sm:table-cell">Created By</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -881,12 +1080,10 @@ const DeliveryNotes: React.FC = () => {
                                         {dn.items?.length || 0}
                                       </TableCell>
                                       <TableCell className="text-sm">
-                                        <div className="flex flex-col gap-0.5">
-                                          <span>{formatDate(dn.delivery_date)}</span>
-                                          <span className="text-[10px] text-muted-foreground">
-                                            {resolveUserName(dn.updated_by_user || dn.owner) ? `by ${resolveUserName(dn.updated_by_user || dn.owner)}` : "\u2014"}
-                                          </span>
-                                        </div>
+                                        {formatDate(dn.delivery_date)}
+                                      </TableCell>
+                                      <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                                        {resolveUserName(dn.updated_by_user || dn.owner) || "\u2014"}
                                       </TableCell>
                                     </TableRow>
                                   ))}

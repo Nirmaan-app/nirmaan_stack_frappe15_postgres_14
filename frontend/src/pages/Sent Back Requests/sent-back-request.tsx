@@ -224,7 +224,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                                 {data.type && <Badge variant="secondary" className="text-xs">{data.type}</Badge>}
                             </>
                         )}
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
                                 parentDoc={data}
                                 parentDoctype={DOCTYPE} // 'Sent Back Requests'

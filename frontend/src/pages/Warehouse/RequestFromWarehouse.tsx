@@ -185,18 +185,18 @@ export default function RequestFromWarehouse() {
           ) : stockRows.length === 0 ? (
             <p className="text-muted-foreground text-sm">No items available in warehouse.</p>
           ) : (
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[40px]"></TableHead>
-                    <TableHead>Item Name</TableHead>
-                    <TableHead>Make</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
-                    <TableHead className="text-right">Est. Rate</TableHead>
+                    <TableHead className="min-w-[180px]">Item Name</TableHead>
+                    <TableHead className="min-w-[120px]">Make</TableHead>
+                    <TableHead className="min-w-[140px]">Category</TableHead>
+                    <TableHead className="min-w-[70px]">Unit</TableHead>
+                    <TableHead className="text-right min-w-[90px]">Available</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Quantity</TableHead>
+                    <TableHead className="text-right min-w-[110px]">Est. Rate</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
@@ -45,7 +45,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 
 // --- Types ---
 export interface CriticalPOCategory {
@@ -122,6 +122,63 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
     { fields: ["name", "work_package_name"], limit: 0, orderBy: { field: "work_package_name", order: "asc" } }
   );
 
+  // 4. Fetch the Critical PO Item -> linked Work Milestones map in one call.
+  // Backend joins child table + parent doc and groups, so we avoid two
+  // separate doc-list fetches + client-side stitching.
+  const { data: linksResponse, mutate: mutateLinks } = useFrappeGetCall<{
+    message: Record<string, { name: string; label: string }[]>;
+  }>(
+    "nirmaan_stack.api.milestone.get_critical_po_milestone_links.get_critical_po_milestone_links"
+  );
+
+  // criticalPOItem.name -> [{ name, label }, ...] — preserves ids for diffing
+  const linkedMilestonesByItem = useMemo(() => {
+    const map = new Map<string, { name: string; label: string }[]>();
+    const payload = linksResponse?.message || {};
+    Object.entries(payload).forEach(([itemName, milestones]) => {
+      map.set(itemName, milestones);
+    });
+    return map;
+  }, [linksResponse]);
+
+  const milestonesByItem = useMemo(() => {
+    const map = new Map<string, string[]>();
+    linkedMilestonesByItem.forEach((list, itemName) => {
+      map.set(itemName, list.map((ms) => ms.label || ms.name));
+    });
+    return map;
+  }, [linkedMilestonesByItem]);
+
+  // 5. Fetch all Work Milestones (with their work_header) for the picker
+  // dialog. Used to filter by Work Package via the header chain.
+  const { data: allMilestones } = useFrappeGetDocList<{
+    name: string;
+    work_milestone_name: string;
+    work_header?: string;
+  }>(
+    "Work Milestones",
+    {
+      fields: ["name", "work_milestone_name", "work_header"],
+      limit: 0,
+      orderBy: { field: "work_milestone_name", order: "asc" },
+    }
+  );
+
+  // 6. Fetch all Work Headers so we can resolve milestone -> work_package.
+  const { data: allWorkHeaders } = useFrappeGetDocList<{
+    name: string;
+    work_package_link?: string;
+  }>(
+    "Work Headers",
+    { fields: ["name", "work_package_link"], limit: 0 }
+  );
+
+  const headerToPackage = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    (allWorkHeaders || []).forEach((h) => m.set(h.name, h.work_package_link));
+    return m;
+  }, [allWorkHeaders]);
+
   if (catLoading || itemLoading || wpLoading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -165,6 +222,11 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
               mutateCategories={mutateCategories}
               mutateItems={mutateItems}
               workPackages={workPackages || []}
+              milestonesByItem={milestonesByItem}
+              linkedMilestonesByItem={linkedMilestonesByItem}
+              allMilestones={allMilestones || []}
+              headerToPackage={headerToPackage}
+              mutateLinks={mutateLinks}
             />
           ))
         )}
@@ -672,16 +734,301 @@ const DeleteItemDialog: React.FC<DeleteItemDialogProps> = ({ item, mutate }) => 
   );
 };
 
+// --- Link Milestones Dialog (add/remove links from this side) ---
+interface LinkMilestonesDialogProps {
+  item: CriticalPOItem;
+  categoryWorkPackage?: string;
+  linkedMilestoneIds: string[];
+  allMilestones: { name: string; work_milestone_name: string; work_header?: string }[];
+  headerToPackage: Map<string, string | undefined>;
+  mutateLinks: () => Promise<any>;
+}
+
+const LinkMilestonesDialog: React.FC<LinkMilestonesDialogProps> = ({
+  item,
+  categoryWorkPackage,
+  linkedMilestoneIds,
+  allMilestones,
+  headerToPackage,
+  mutateLinks,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [percentages, setPercentages] = useState<Record<string, number | undefined>>({});
+  const [search, setSearch] = useState("");
+  const { call, loading } = useFrappePostCall(
+    "nirmaan_stack.api.milestone.update_critical_po_milestone_links.update_milestone_links_for_critical_po_item"
+  );
+
+  // Hydrate selection from current links every time the dialog opens.
+  React.useEffect(() => {
+    if (open) {
+      setSelected(new Set(linkedMilestoneIds));
+      setPercentages({});
+      setSearch("");
+    }
+  }, [open, linkedMilestoneIds]);
+
+  // Filter milestones to the same Work Package as the category. Falls back to
+  // all milestones when the category has no work_package set.
+  const eligibleMilestones = useMemo(() => {
+    const list = allMilestones.filter((ms) => {
+      if (!categoryWorkPackage) return true;
+      if (!ms.work_header) return false;
+      return headerToPackage.get(ms.work_header) === categoryWorkPackage;
+    });
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase();
+    return list.filter(
+      (ms) =>
+        ms.work_milestone_name.toLowerCase().includes(q) ||
+        ms.name.toLowerCase().includes(q)
+    );
+  }, [allMilestones, categoryWorkPackage, headerToPackage, search]);
+
+  const initialIds = useMemo(() => new Set(linkedMilestoneIds), [linkedMilestoneIds]);
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else {
+        next.add(id);
+        // Default new-add percentage to 100 if user is freshly checking it.
+        if (!initialIds.has(id)) {
+          setPercentages((p) => ({ ...p, [id]: p[id] ?? 100 }));
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    const links: { milestone_id: string; delivery_percentage?: number }[] = [];
+    for (const mid of selected) {
+      if (initialIds.has(mid)) {
+        // Existing link — backend leaves % unchanged
+        links.push({ milestone_id: mid });
+      } else {
+        const pct = percentages[mid];
+        if (pct == null || pct < 1 || pct > 100) {
+          const ms = allMilestones.find((m) => m.name === mid);
+          toast({
+            title: "Delivery % required",
+            description: `Enter a Delivery % between 1 and 100 for "${
+              ms?.work_milestone_name || mid
+            }".`,
+            variant: "destructive",
+          });
+          return;
+        }
+        links.push({ milestone_id: mid, delivery_percentage: pct });
+      }
+    }
+
+    try {
+      await call({
+        critical_po_item: item.name,
+        links,
+      });
+      toast({
+        title: "Links updated",
+        description: `Synced milestone links for "${item.item_name}".`,
+        variant: "success",
+      });
+      await mutateLinks();
+      setOpen(false);
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to update links.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const addCount = Array.from(selected).filter((id) => !initialIds.has(id)).length;
+  const removeCount = Array.from(initialIds).filter((id) => !selected.has(id)).length;
+  const noChanges = addCount === 0 && removeCount === 0;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-slate-400 hover:text-indigo-600 shrink-0"
+          title="Link milestones"
+        >
+          <PlusCircle className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-slate-800">Link Milestones</DialogTitle>
+          <DialogDescription className="text-slate-500 truncate">
+            {item.item_name}
+            {categoryWorkPackage && (
+              <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-medium">
+                {categoryWorkPackage}
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Input
+          type="text"
+          placeholder="Search milestones..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-9 text-sm"
+        />
+
+        <div className="border rounded-md divide-y max-h-[50vh] overflow-y-auto">
+          {eligibleMilestones.length === 0 ? (
+            <p className="text-xs text-slate-400 italic p-3 text-center">
+              {categoryWorkPackage
+                ? `No milestones in package "${categoryWorkPackage}".`
+                : "No milestones available."}
+            </p>
+          ) : (
+            eligibleMilestones.map((ms) => {
+              const checked = selected.has(ms.name);
+              const wasLinked = initialIds.has(ms.name);
+              const isNewAdd = checked && !wasLinked;
+              const pct = percentages[ms.name];
+              const pctInvalid =
+                isNewAdd && (pct == null || pct < 1 || pct > 100);
+              return (
+                <div
+                  key={ms.name}
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-sm"
+                >
+                  <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(ms.name)}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span className="flex-1 truncate text-slate-800">
+                      {ms.work_milestone_name}
+                    </span>
+                  </label>
+                  {wasLinked && !checked && (
+                    <span className="text-[10px] font-semibold text-red-600 shrink-0">
+                      will remove
+                    </span>
+                  )}
+                  {isNewAdd && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step="0.01"
+                        required
+                        aria-invalid={pctInvalid}
+                        value={pct == null ? "" : pct}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setPercentages((p) => ({
+                            ...p,
+                            [ms.name]: v === "" ? undefined : Number(v),
+                          }));
+                        }}
+                        placeholder="1-100"
+                        className={`h-7 w-16 text-[11px] tabular-nums ${
+                          pctInvalid
+                            ? "border-red-400 focus-visible:ring-red-400"
+                            : ""
+                        }`}
+                      />
+                      <span className="text-[11px] text-slate-500">%</span>
+                      <span
+                        className="text-red-500 text-[11px] font-semibold"
+                        aria-hidden="true"
+                        title="Required"
+                      >
+                        *
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-[11px] text-slate-500">
+            {addCount > 0 || removeCount > 0
+              ? `+${addCount} add · −${removeCount} remove`
+              : "No changes"}
+          </span>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={loading || noChanges}
+              className="bg-slate-900 hover:bg-slate-800"
+            >
+              {loading ? <TailSpin height={16} width={16} color="white" /> : "Save"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// --- Linked Milestones Cell ---
+const LinkedMilestonesCell: React.FC<{ milestones: string[] }> = ({
+  milestones,
+}) => {
+  if (milestones.length === 0) {
+    return <span className="text-xs text-gray-400 italic">None</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {milestones.map((ms) => (
+        <span
+          key={ms}
+          className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[11px] font-medium leading-tight ring-1 ring-inset ring-indigo-100 whitespace-nowrap"
+          title={ms}
+        >
+          {ms}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 // --- 6. Card Component: Category Card ---
+interface MilestoneOption {
+  name: string;
+  work_milestone_name: string;
+  work_header?: string;
+}
+
 interface CategoryCardProps {
   category: CriticalPOCategory;
   items: CriticalPOItem[];
   mutateCategories: () => Promise<any>;
   mutateItems: () => Promise<any>;
   workPackages: WorkPackage[];
+  milestonesByItem: Map<string, string[]>;
+  linkedMilestonesByItem: Map<string, { name: string; label: string }[]>;
+  allMilestones: MilestoneOption[];
+  headerToPackage: Map<string, string | undefined>;
+  mutateLinks: () => Promise<any>;
 }
 
-const CategoryCard: React.FC<CategoryCardProps> = ({ category, items, mutateCategories, mutateItems, workPackages }) => {
+const CategoryCard: React.FC<CategoryCardProps> = ({ category, items, mutateCategories, mutateItems, workPackages, milestonesByItem, linkedMilestonesByItem, allMilestones, headerToPackage, mutateLinks }) => {
   // Look up work package name from ID
   const workPackageName = category.work_package
     ? workPackages.find((wp) => wp.name === category.work_package)?.work_package_name
@@ -713,24 +1060,46 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, items, mutateCate
           <Table>
             <TableHeader className="bg-gray-100">
               <TableRow className="hover:bg-transparent">
-                <TableHead className="w-[40%] pl-4">Item Name</TableHead>
-                <TableHead className="w-[20%] text-center">Sub Category</TableHead>
-                <TableHead className="w-[20%] text-center">Release Timeline Offset (Days)</TableHead>
-                <TableHead className="w-[20%] text-right pr-4">Actions</TableHead>
+                <TableHead className="w-[20%] pl-4">Item Name</TableHead>
+                <TableHead className="w-[14%] text-center">Sub Category</TableHead>
+                <TableHead className="w-[14%] text-center">Release Timeline Offset (Days)</TableHead>
+                <TableHead className="w-[40%] text-left">Linked Milestones</TableHead>
+                <TableHead className="w-[12%] text-right pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.name} className="group">
-                  <TableCell className="pl-4 font-medium text-gray-700">{item.item_name}</TableCell>
-                  <TableCell className="text-center text-gray-500">{item.sub_category || '-'}</TableCell>
-                  <TableCell className="text-center text-gray-500">{item.release_timeline_offset == 0 ? '-' : `T + ${item.release_timeline_offset}`}</TableCell>
-                  <TableCell className="text-right flex items-center justify-end space-x-2">
-                    <EditItemDialog item={item} mutate={mutateItems} />
-                    <DeleteItemDialog item={item} mutate={mutateItems} />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {items.map((item) => {
+                const linkedMilestones = milestonesByItem.get(item.name) || [];
+                const linkedMilestoneIds = (
+                  linkedMilestonesByItem.get(item.name) || []
+                ).map((ms) => ms.name);
+                return (
+                  <TableRow key={item.name} className="group">
+                    <TableCell className="pl-4 font-medium text-gray-700">{item.item_name}</TableCell>
+                    <TableCell className="text-center text-gray-500">{item.sub_category || '-'}</TableCell>
+                    <TableCell className="text-center text-gray-500">{item.release_timeline_offset == 0 ? '-' : `T + ${item.release_timeline_offset}`}</TableCell>
+                    <TableCell className="text-left align-middle">
+                      <div className="flex items-start gap-2">
+                        {/* <LinkMilestonesDialog
+                          item={item}
+                          categoryWorkPackage={category.work_package}
+                          linkedMilestoneIds={linkedMilestoneIds}
+                          allMilestones={allMilestones}
+                          headerToPackage={headerToPackage}
+                          mutateLinks={mutateLinks}
+                        /> */}
+                        <div className="flex-1 min-w-0">
+                          <LinkedMilestonesCell milestones={linkedMilestones} />
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right flex items-center justify-end space-x-2">
+                      <EditItemDialog item={item} mutate={mutateItems} />
+                      <DeleteItemDialog item={item} mutate={mutateItems} />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}

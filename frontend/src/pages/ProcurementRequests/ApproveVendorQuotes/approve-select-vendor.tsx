@@ -227,7 +227,7 @@ export const ApproveSelectVendor: React.FC = () => {
                 {prId?.slice(-4)} {/* Display last 4 chars */}
               </Link>
               {data.work_package?.toLowerCase() === "custom" && <Badge className="text-xs">Custom</Badge>}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                 {" "}
                 {/* Show hover card on group hover */}
                 <ItemsHoverCard

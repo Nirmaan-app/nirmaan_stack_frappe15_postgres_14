@@ -123,3 +123,35 @@ def get_pr_summary_list(
         pr["pr_tag_list"] = tags_by_parent.get(pr.get("name"), [])
 
     return result
+
+
+@frappe.whitelist(allow_guest=False)
+def get_pr_tags_by_names(pr_names: str | list[str]) -> dict:
+    """Return {pr_name: [{tag_header, tag_package}, ...]} for the given PRs.
+
+    Used by list pages that load PRs via `frappe.client.get_list` (which cannot
+    return child tables, and where direct reads on `PR Tag Child Table` are
+    blocked by perms).
+    """
+    if isinstance(pr_names, str):
+        try:
+            pr_names = json.loads(pr_names)
+        except Exception:
+            pr_names = [pr_names]
+
+    if not pr_names:
+        return {}
+
+    tags = frappe.get_all(
+        "PR Tag Child Table",
+        fields=["parent", "tag_header", "tag_package"],
+        filters={"parent": ["in", pr_names], "parenttype": "Procurement Requests"},
+    )
+
+    tags_by_parent: dict = {}
+    for tag in tags:
+        tags_by_parent.setdefault(tag.get("parent"), []).append({
+            "tag_header": tag.get("tag_header"),
+            "tag_package": tag.get("tag_package"),
+        })
+    return tags_by_parent
