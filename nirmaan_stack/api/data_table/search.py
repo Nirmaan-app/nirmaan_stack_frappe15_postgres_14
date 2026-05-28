@@ -188,24 +188,27 @@ def get_list_with_count_enhanced_impl(
                     # Word-boundary regex match: token must appear at start of
                     # string OR right after one of our separators. Avoids
                     # "gi" matching inside "galvanised".
-                    or_clause = " OR ".join([f"`tab{child_doctype_name}`.`{field}` ~* %s" for field in searchable_child_fields])
+                    # Expand the OR clause across every (field × token) pair so
+                    # the union of token matches resolves in a single query
+                    # instead of one round-trip per token.
+                    field_token_clauses = []
+                    regex_params = []
+                    for sfield in searchable_child_fields:
+                        for token in filter_tokens:
+                            field_token_clauses.append(f"`tab{child_doctype_name}`.`{sfield}` ~* %s")
+                            regex_params.append(r"(^|[\s\-_/()])" + re.escape(token))
+                    or_clause = " OR ".join(field_token_clauses)
                     extra_where = [f"`tab{child_doctype_name}`.`{child_link_field}` IN %s",
                                    f"`tab{child_doctype_name}`.`parenttype` = %s",
                                    f"({or_clause})"]
                     if require_pending_items_bool and child_status_field:
                         extra_where.append(f"`tab{child_doctype_name}`.`{child_status_field}` = 'Pending'")
-                    base_sql = (
+                    sql = (
                         f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
                         f"FROM `tab{child_doctype_name}` WHERE {' AND '.join(extra_where)}"
                     )
-                    union_set: set = set()
-                    for token in filter_tokens:
-                        boundary_pattern = r"(^|[\s\-_/()])" + re.escape(token)
-                        regex_params = [boundary_pattern] * len(searchable_child_fields)
-                        token_params = (tuple(potential_parent_names), doctype, *regex_params)
-                        matched = {r[0] for r in frappe.db.sql(base_sql, token_params, as_list=True) if r and r[0]}
-                        union_set |= matched
-                    final_set = union_set
+                    params = (tuple(potential_parent_names), doctype, *regex_params)
+                    final_set = {r[0] for r in frappe.db.sql(sql, params, as_list=True) if r and r[0]}
                 elif require_pending_items_bool and child_status_field:
                     # No search term but pending-only required — restrict to parents
                     # with at least one Pending child row.
@@ -258,22 +261,24 @@ def get_list_with_count_enhanced_impl(
                 # child-table branch's behavior so PR/PO/WO are consistent.
                 # Ranking later sorts tighter matches (all tokens in one item,
                 # ideally) above looser ones.
-                union_set: set = set()
-                for token in filter_tokens:
-                    boundary_pattern = r"(^|[\s\-_/()])" + re.escape(token)
-                    sql = (
-                        f"SELECT DISTINCT name FROM `tab{doctype}` "
-                        f"WHERE name IN %(names_tuple)s AND EXISTS("
-                        f"SELECT 1 FROM jsonb_array_elements("
-                        f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
-                        f") AS item_obj "
-                        f"WHERE item_obj->>'{item_name_key_in_json}' ~* %(token_pattern)s)"
-                    )
-                    matched = {r[0] for r in frappe.db.sql(
-                        sql, {"names_tuple": tuple(potential_parent_names), "token_pattern": boundary_pattern},
-                        as_list=True,
-                    ) if r and r[0]}
-                    union_set |= matched
+                # OR all token regex tests inside a single EXISTS so the union
+                # resolves in one round-trip; EXISTS short-circuits on the
+                # first matching JSON element per parent.
+                token_conditions = []
+                sql_params: dict = {"names_tuple": tuple(potential_parent_names)}
+                for i, token in enumerate(filter_tokens):
+                    key = f"token_{i}"
+                    token_conditions.append(f"item_obj->>'{item_name_key_in_json}' ~* %({key})s")
+                    sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
+                or_clause = " OR ".join(token_conditions)
+                sql = (
+                    f"SELECT DISTINCT name FROM `tab{doctype}` "
+                    f"WHERE name IN %(names_tuple)s AND EXISTS("
+                    f"SELECT 1 FROM jsonb_array_elements("
+                    f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                    f") AS item_obj WHERE ({or_clause}))"
+                )
+                union_set = {r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]}
                 # Preserve original order on ties.
                 final_matching_parent_names = [n for n in potential_parent_names if n in union_set]
                 total_records = len(final_matching_parent_names)
