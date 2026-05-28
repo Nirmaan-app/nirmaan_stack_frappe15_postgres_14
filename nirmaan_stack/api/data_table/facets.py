@@ -4,6 +4,7 @@ from frappe.utils import cint
 from frappe.desk.reportview import execute as reportview_execute
 import json
 import hashlib
+import re
 import traceback
 
 from .constants import CACHE_EXPIRY, LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
@@ -11,6 +12,7 @@ from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field
 )
+from .token_search import tokenize
 
 def get_facet_values_impl(
     doctype=None,
@@ -57,10 +59,92 @@ def get_facet_values_impl(
         
         if search_term and current_search_fields:
             target_search_field = _parse_target_search_field(current_search_fields, doctype)
-            
+
             if target_search_field and target_search_field != field:
-                for token in search_term.split():
-                    processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
+                # If the search field is a child-table or JSON item field, do a
+                # separate sub-query for matching parents and append as a
+                # `name in [...]` filter. A plain LIKE on a relationship field
+                # crashes (e.g. `tabProcurement Requests.order_list does not
+                # exist`) because it isn't a real column on the parent table.
+                search_tokens = tokenize(search_term)
+                doctype_str = str(doctype)
+                is_child_table_field = (
+                    doctype_str in CHILD_TABLE_ITEM_SEARCH_MAP
+                    and target_search_field in CHILD_TABLE_ITEM_SEARCH_MAP[doctype_str]
+                )
+                is_json_field = (
+                    doctype_str in JSON_ITEM_SEARCH_DOCTYPE_MAP
+                    and JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype_str]["json_field"] == target_search_field
+                )
+
+                if is_child_table_field and search_tokens:
+                    item_search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype_str][target_search_field]
+                    child_doctype_name = str(item_search_config["child_doctype"])
+                    child_link_field = str(item_search_config["link_field_to_parent"])
+                    searchable_child_fields = list(item_search_config["searchable_child_fields"])
+                    # Drop short tokens from SQL filter (mirrors search.py).
+                    filter_tokens = [t for t in search_tokens if len(t) >= 1] or search_tokens
+                    # Token-OR (union) at PARENT level: a parent qualifies if any
+                    # of its rows matches any token. Matches search.py's behavior
+                    # so the facet panel agrees with the list.
+                    # Word-boundary regex: matches token only at start of a "word"
+                    # (after whitespace/hyphen/underscore/slash/paren/start-of-string).
+                    or_clause = " OR ".join([
+                        f"`tab{child_doctype_name}`.`{f}` ~* %s" for f in searchable_child_fields
+                    ])
+                    base_sql = (
+                        f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
+                        f"FROM `tab{child_doctype_name}` "
+                        f"WHERE `parenttype` = %s AND ({or_clause})"
+                    )
+                    union_set: set = set()
+                    for token in filter_tokens:
+                        boundary_pattern = r"(^|[\s\-_/()])" + re.escape(token)
+                        regex_params = [boundary_pattern] * len(searchable_child_fields)
+                        matched = {
+                            r[0] for r in frappe.db.sql(base_sql, (doctype, *regex_params), as_list=True)
+                            if r and r[0]
+                        }
+                        union_set |= matched
+                    item_matches = list(union_set)
+                    if item_matches:
+                        processed_filters.append([doctype, "name", "in", item_matches])
+                    else:
+                        processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                elif is_json_field and search_tokens:
+                    item_search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype_str]
+                    json_field_name = item_search_config["json_field"]
+                    item_path_parts = item_search_config["item_path_parts"]
+                    item_name_key = item_search_config.get("item_name_key_in_json", "item")
+                    json_array_key = item_path_parts[0]
+                    # Drop short tokens from SQL filter (mirrors search.py).
+                    filter_tokens = [t for t in search_tokens if len(t) >= 2] or search_tokens
+                    # Token-OR (union) at PARENT level — mirrors the search.py
+                    # JSON branch so facets agree with the list.
+                    union_set: set = set()
+                    for token in filter_tokens:
+                        boundary_pattern = r"(^|[\s\-_/()])" + re.escape(token)
+                        sql = (
+                            f"SELECT DISTINCT name FROM `tab{doctype_str}` "
+                            f"WHERE EXISTS(SELECT 1 FROM jsonb_array_elements("
+                            f"COALESCE(`tab{doctype_str}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                            f") AS item_obj WHERE item_obj->>'{item_name_key}' ~* %(token_pattern)s)"
+                        )
+                        matched = {
+                            r[0] for r in frappe.db.sql(
+                                sql, {"token_pattern": boundary_pattern}, as_list=True,
+                            ) if r and r[0]
+                        }
+                        union_set |= matched
+                    item_matches = list(union_set)
+                    if item_matches:
+                        processed_filters.append([doctype, "name", "in", item_matches])
+                    else:
+                        processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                else:
+                    # Plain column field — original behavior
+                    for token in search_tokens:
+                        processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
         
         # limit=0 means no limit, otherwise use the requested limit (no artificial cap)
         limit_int = cint(limit) if cint(limit) > 0 else None
