@@ -84,34 +84,49 @@ def get_facet_values_impl(
                     searchable_child_fields = list(item_search_config["searchable_child_fields"])
                     # Drop short tokens from SQL filter (mirrors search.py).
                     filter_tokens = [t for t in search_tokens if len(t) >= 1] or search_tokens
-                    # Token-OR (union) at PARENT level: a parent qualifies if any
-                    # of its rows matches any token. Matches search.py's behavior
-                    # so the facet panel agrees with the list.
-                    # Word-boundary regex: matches token only at start of a "word"
-                    # (after whitespace/hyphen/underscore/slash/paren/start-of-string).
-                    # Expand the OR clause across every (field × token) pair so
-                    # the union resolves in one round-trip instead of N.
-                    field_token_clauses = []
-                    regex_params = []
-                    for f in searchable_child_fields:
-                        for token in filter_tokens:
-                            field_token_clauses.append(f"`tab{child_doctype_name}`.`{f}` ~* %s")
-                            regex_params.append(r"(^|[\s\-_/()])" + re.escape(token))
-                    or_clause = " OR ".join(field_token_clauses)
-                    sql = (
-                        f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
-                        f"FROM `tab{child_doctype_name}` "
-                        f"WHERE `parenttype` = %s AND ({or_clause})"
-                    )
-                    union_set = {
-                        r[0] for r in frappe.db.sql(sql, (doctype, *regex_params), as_list=True)
-                        if r and r[0]
-                    }
-                    item_matches = list(union_set)
-                    if item_matches:
-                        processed_filters.append([doctype, "name", "in", item_matches])
-                    else:
+                    # Scope the child sub-query to parents that already match
+                    # the other facet filters. Without this, `~*` falls back to
+                    # a sequential scan of the full child table on every request.
+                    candidate_parent_names = [
+                        doc.get("name") for doc in reportview_execute(
+                            doctype=doctype, filters=processed_filters,
+                            fields=["name"], limit_page_length=0,
+                        ) if doc.get("name")
+                    ]
+                    if not candidate_parent_names:
                         processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                    else:
+                        # Token-OR (union) at PARENT level: a parent qualifies if any
+                        # of its rows matches any token. Matches search.py's behavior
+                        # so the facet panel agrees with the list.
+                        # Word-boundary regex: matches token only at start of a "word"
+                        # (after whitespace/hyphen/underscore/slash/paren/start-of-string).
+                        # Expand the OR clause across every (field × token) pair so
+                        # the union resolves in one round-trip instead of N.
+                        field_token_clauses = []
+                        regex_params = []
+                        for f in searchable_child_fields:
+                            for token in filter_tokens:
+                                field_token_clauses.append(f"`tab{child_doctype_name}`.`{f}` ~* %s")
+                                regex_params.append(r"(^|[\s\-_/()])" + re.escape(token))
+                        or_clause = " OR ".join(field_token_clauses)
+                        sql = (
+                            f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
+                            f"FROM `tab{child_doctype_name}` "
+                            f"WHERE `tab{child_doctype_name}`.`{child_link_field}` IN %s "
+                            f"AND `parenttype` = %s AND ({or_clause})"
+                        )
+                        union_set = {
+                            r[0] for r in frappe.db.sql(
+                                sql, (tuple(candidate_parent_names), doctype, *regex_params),
+                                as_list=True,
+                            ) if r and r[0]
+                        }
+                        item_matches = list(union_set)
+                        if item_matches:
+                            processed_filters.append([doctype, "name", "in", item_matches])
+                        else:
+                            processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
                 elif is_json_field and search_tokens:
                     item_search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype_str]
                     json_field_name = item_search_config["json_field"]
@@ -120,33 +135,46 @@ def get_facet_values_impl(
                     json_array_key = item_path_parts[0]
                     # Drop short tokens from SQL filter (mirrors search.py).
                     filter_tokens = [t for t in search_tokens if len(t) >= 2] or search_tokens
-                    # Token-OR (union) at PARENT level — mirrors the search.py
-                    # JSON branch so facets agree with the list.
-                    # OR all token regex tests inside a single EXISTS so the
-                    # union resolves in one round-trip; EXISTS short-circuits
-                    # on the first matching JSON element per parent.
-                    token_conditions = []
-                    sql_params: dict = {}
-                    for i, token in enumerate(filter_tokens):
-                        key = f"token_{i}"
-                        token_conditions.append(f"item_obj->>'{item_name_key}' ~* %({key})s")
-                        sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
-                    or_clause = " OR ".join(token_conditions)
-                    sql = (
-                        f"SELECT DISTINCT name FROM `tab{doctype_str}` "
-                        f"WHERE EXISTS(SELECT 1 FROM jsonb_array_elements("
-                        f"COALESCE(`tab{doctype_str}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
-                        f") AS item_obj WHERE ({or_clause}))"
-                    )
-                    union_set = {
-                        r[0] for r in frappe.db.sql(sql, sql_params, as_list=True)
-                        if r and r[0]
-                    }
-                    item_matches = list(union_set)
-                    if item_matches:
-                        processed_filters.append([doctype, "name", "in", item_matches])
-                    else:
+                    # Scope the JSON sub-query to parents that already match
+                    # the other facet filters. Without this, the EXISTS clause
+                    # is evaluated against every row in the parent table.
+                    candidate_parent_names = [
+                        doc.get("name") for doc in reportview_execute(
+                            doctype=doctype, filters=processed_filters,
+                            fields=["name"], limit_page_length=0,
+                        ) if doc.get("name")
+                    ]
+                    if not candidate_parent_names:
                         processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                    else:
+                        # Token-OR (union) at PARENT level — mirrors the search.py
+                        # JSON branch so facets agree with the list.
+                        # OR all token regex tests inside a single EXISTS so the
+                        # union resolves in one round-trip; EXISTS short-circuits
+                        # on the first matching JSON element per parent.
+                        token_conditions = []
+                        sql_params: dict = {"names_tuple": tuple(candidate_parent_names)}
+                        for i, token in enumerate(filter_tokens):
+                            key = f"token_{i}"
+                            token_conditions.append(f"item_obj->>'{item_name_key}' ~* %({key})s")
+                            sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
+                        or_clause = " OR ".join(token_conditions)
+                        sql = (
+                            f"SELECT DISTINCT name FROM `tab{doctype_str}` "
+                            f"WHERE name IN %(names_tuple)s AND EXISTS("
+                            f"SELECT 1 FROM jsonb_array_elements("
+                            f"COALESCE(`tab{doctype_str}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                            f") AS item_obj WHERE ({or_clause}))"
+                        )
+                        union_set = {
+                            r[0] for r in frappe.db.sql(sql, sql_params, as_list=True)
+                            if r and r[0]
+                        }
+                        item_matches = list(union_set)
+                        if item_matches:
+                            processed_filters.append([doctype, "name", "in", item_matches])
+                        else:
+                            processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
                 else:
                     # Plain column field — original behavior
                     for token in search_tokens:
