@@ -1,0 +1,7237 @@
+[
+  {
+    "templateId": "common-template-1",
+    "templateVersion": 1,
+    "title": "RR Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT — RR",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "RR Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "AC Power Supply",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Zone Testing",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Sensing Cable Checking",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Manual Activation Alarm",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Relay Output to Hooter",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Hooter Activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Input Voltage",
+            "result": {
+              "type": "number",
+              "unit": "V",
+              "min": 0,
+              "required": true
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Output Voltage",
+            "result": {
+              "type": "number",
+              "unit": "V",
+              "min": 0,
+              "required": true
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Zone Checking",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: CCTV Commissioning Report ──────",
+  {
+    "templateId": "common-template-1",
+    "templateVersion": 1,
+    "title": "Access Control Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT —  ACS",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "Access Control Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "S.No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "Carry out visual inspection of all major components",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Check all power supply voltages and charging rates at door controllers and lock mains voltages.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Check the operation of the reader and LED status for valid and invalid cards",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Check control equipment in accordance with company procedure.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Check the operation of any warning on the Controller",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Check operation of electronic release and ensure unrestricted operation of door closure. Visibly inspect equipment and components.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Check the emergency break glass operation.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Verify remote operation of lock release from PC including no access or blocking.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Check system is fully operational",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q10",
+            "particular": "Static IP Assigned to Controller (Optional)",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "N/A"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: RR Commissioning Report ──────",
+  {
+    "templateId": "common-template-1",
+    "templateVersion": 1,
+    "title": "VESDA Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT — VESDA",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "VESDA Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "AC Power Supply",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Battery & Charger",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Battery Voltage",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Detector Status",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Display Panel",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Airflow Normal",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Airflow Fault (High/Low)",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Filter Status",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Pipe Network Check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q10",
+            "particular": "Alert Level Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q11",
+            "particular": "Action Level Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q12",
+            "particular": "Fire 1 Alarm",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q13",
+            "particular": "Fire 2 Alarm",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q14",
+            "particular": "Buzzer",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q15",
+            "particular": "Reset Function",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q16",
+            "particular": "FA Panel Integration",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q17",
+            "particular": "Smoke Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: VESDA Commissioning Report ──────",
+  {
+    "templateId": "common-template-1",
+    "templateVersion": 1,
+    "title": "WLD Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT — WLD",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "WLD Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "AC Power Supply",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Zone Testing",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Sensing Cable Checking",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Manual Activation Alarm",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Relay Output to Hooter",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Hooter Activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Input Voltage",
+            "result": {
+              "type": "number",
+              "unit": "V",
+              "min": 0,
+              "required": true
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Output Voltage",
+            "result": {
+              "type": "number",
+              "unit": "V",
+              "min": 0,
+              "required": true
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Zone Checking",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: WLD Commissioning Report ──────",
+  {
+    "templateId": "common-template-1",
+    "templateVersion": 1,
+    "title": "CCTV Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT — CCTV",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "CCTV Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "S.No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "Location of Control Equipments (accessible)",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Ensure that cables in the Racks, to the cameras are to be dressed appropriately.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Ensure that all DVR / NVR / POE Switch / Cameras & Monitors are placed properly.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Ensure that all the cables from Camera to the Network Switch are properly terminated.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Ensure that cameras are installed as per the approved drawing.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Camera location to be clearly indicated on the monitor during viewing.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Focusing of the camera to be adjusted by proper positioning to obtain optimum result.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Ensure that the camera Enclosure power supply was installed properly.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Ensure that Power supply outlets for the CCTV system were fed by UPS (Optional).",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q10",
+            "particular": "Check the NVR are connected to the security network LAN with Static IP (Optional).",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "N/A"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q11",
+            "particular": "Operation and maintenance information provided.",
+            "result": {
+              "type": "select",
+              "options": [
+                "YES",
+                "NO",
+                "N/A"
+              ],
+              "default": "YES"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: DB Commissioning Report ──────",
+  {
+    "templateId": "db-commissioning-report",
+    "templateVersion": 1,
+    "title": "DB Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "ir_test",
+        "title": "IR Test",
+        "sections": [
+          "ir_test"
+        ]
+      },
+      {
+        "key": "check_list",
+        "title": "Check List",
+        "sections": [
+          "procedure",
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - DB TESTING",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "db_name",
+            "label": "DB NAME",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. DB-1A"
+          }
+        ]
+      },
+      {
+        "id": "ir_test",
+        "type": "measurement_matrix",
+        "title": "1. IR Test:",
+        "rows": [
+          {
+            "id": "r",
+            "labels": {
+              "pp": "R-Y",
+              "pn": "R-N",
+              "pe": "R-E"
+            }
+          },
+          {
+            "id": "y",
+            "labels": {
+              "pp": "Y-B",
+              "pn": "Y-N",
+              "pe": "Y-E"
+            }
+          },
+          {
+            "id": "b",
+            "labels": {
+              "pp": "B-Y",
+              "pn": "B-N",
+              "pe": "B-E"
+            }
+          }
+        ],
+        "columns": [
+          {
+            "key": "pp",
+            "label": "Phase to Phase",
+            "valueLabel": "In Volts",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0
+          },
+          {
+            "key": "pn",
+            "label": "Phase to Neutral",
+            "valueLabel": "In Volts",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0
+          },
+          {
+            "key": "pe",
+            "label": "Phase to Earth",
+            "valueLabel": "In Volts",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": "procedure",
+        "type": "fields",
+        "title": "2. Check List",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "procedure_notes",
+            "label": "PROCEDURE",
+            "type": "textarea",
+            "rows": 3,
+            "default": "Remove lock out and tag out. Ensure no tools are left within the DB Panel. The main feeder is switched ON and the MCB line resistance parameter is noted using Multi-meter."
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Particulars"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "All MCB off indication checked",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "All MCB ON indication checked",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "All MCB TRIP indication checked",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "All MCB ON/OFF Function checked",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Access Control Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: CCTV System Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Critical Room ELV System Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Electrical System Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: FA System Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Fire Sprinkler System Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: HVAC Chilled Water Type Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: HVAC VRF/DX Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: PA System Training Report ──────",
+  {
+    "templateId": "demo-training-certificate",
+    "templateVersion": 3,
+    "title": "Demo & Training Certificate",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "trainees",
+        "title": "Trainees",
+        "sections": [
+          "trainees"
+        ]
+      },
+      {
+        "key": "comments",
+        "title": "Comments",
+        "sections": [
+          "notes"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DEMO & TRAINING CERTIFICATE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "trained_by",
+            "label": "TRAINED BY",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "training_topic",
+            "label": "TRAINING TOPIC",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. FA System Training"
+          }
+        ]
+      },
+      {
+        "id": "trainees",
+        "type": "trainees_data_table",
+        "title": "Trainees",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another trainee",
+        "columns": [
+          {
+            "key": "trainee",
+            "label": "Trainee",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "designation",
+            "label": "Designation",
+            "type": "text"
+          },
+          {
+            "key": "organisation",
+            "label": "Organisation",
+            "type": "text"
+          },
+          {
+            "key": "email",
+            "label": "Email ID",
+            "type": "text"
+          },
+          {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "notes",
+        "type": "fields",
+        "title": "Comments / Remarks",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "comments",
+            "label": "Comments / Remarks",
+            "type": "textarea",
+            "rows": 6
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: CFM/Air Balance Report ──────",
+  {
+    "templateId": "duct-cfm-report",
+    "templateVersion": 1,
+    "title": "CFM / Air Balance Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "readings",
+        "title": "CFM Readings",
+        "sections": [
+          "readings"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DUCT CFM REPORT",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "package",
+            "label": "PACKAGE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. HVAC"
+          },
+          {
+            "key": "equipment",
+            "label": "EQUIPMENT",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. AHU-1"
+          },
+          {
+            "key": "area",
+            "label": "AREA",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. 1st Floor"
+          }
+        ]
+      },
+      {
+        "id": "readings",
+        "type": "trainees_data_table",
+        "title": "HVAC CFM Testing Report",
+        "minRows": 1,
+        "maxRows": 100,
+        "addRowLabel": "Add another reading",
+        "columns": [
+          {
+            "key": "area",
+            "label": "Area",
+            "type": "text",
+            "required": true,
+            "width": "23%"
+          },
+          {
+            "key": "grill_diffuser",
+            "label": "Grill / Diffuser",
+            "type": "text",
+            "required": true,
+            "width": "18%"
+          },
+          {
+            "key": "r1",
+            "label": "Calculated CFM R1",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "11%"
+          },
+          {
+            "key": "r2",
+            "label": "Calculated CFM R2",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "11%"
+          },
+          {
+            "key": "r3",
+            "label": "Calculated CFM R3",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "11%"
+          },
+          {
+            "key": "designed_cfm",
+            "label": "Designed CFM",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "13%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Duct Pressure Testing Report  ──────",
+  {
+    "templateId": "duct-pressure-testing-report",
+    "templateVersion": 1,
+    "title": "Duct Pressure / Leak Test Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "testing_report",
+        "title": "Testing Report",
+        "sections": [
+          "general_desc"
+        ]
+      },
+      {
+        "key": "observations",
+        "title": "Observations",
+        "sections": [
+          "obs"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "DUCT LEAK IDENTIFICATION TEST",
+        "fields": [
+          {
+            "key": "consultant",
+            "label": "CONSULTANT",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "test_type",
+            "label": "TEST TYPE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. Smoke Leak Test"
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "general_desc",
+        "type": "fields",
+        "title": "Testing Report",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "floor_no",
+            "label": "Floor No.",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "equipment_name",
+            "label": "Equipment Name",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "area",
+            "label": "Area",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "type_of_duct",
+            "label": "Type of Duct",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "test_type",
+            "label": "Test Type",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "tested_by",
+            "label": "Tested By",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "obs",
+        "type": "checklist",
+        "title": "Observations",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Observation"
+          },
+          {
+            "key": "result",
+            "label": "Results"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "Visual inspection for Duct general state",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "All joints identified before test",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Smoke leakage at joints (Yes / No)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Leakage correction, if any",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Corrective action taken (Yes / No)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Retest required ?",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Earthing Test Report ──────",
+  {
+    "templateId": "earth-pit-resistance-report",
+    "templateVersion": 1,
+    "title": "Earth Pit Resistance Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "details",
+        "title": "Earth Pit Details",
+        "sections": [
+          "details"
+        ]
+      },
+      {
+        "key": "check_list",
+        "title": "Check List",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "parameters",
+        "title": "Electrical Parameters",
+        "sections": [
+          "parameters"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "testing",
+            "label": "TESTING",
+            "type": "text",
+            "default": "EARTH PIT RESISTANCE MEASUREMENT",
+            "readonly": true
+          }
+        ]
+      },
+      {
+        "id": "details",
+        "type": "fields",
+        "title": "1. Earth Pit Details:",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. Ground Floor"
+          },
+          {
+            "key": "description",
+            "label": "DESCRIPTION",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. Earth Pit For Body Earthing"
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "2. Check List",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "Inspect for physical damage / defects",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Check tightness of all Connections",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Check for cleanliness and accumulated debris",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Earth pits are properly interconnected",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Conductor routing is protected against physical damage",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "parameters",
+        "type": "trainees_data_table",
+        "title": "3. Electrical Parameters",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another parameter",
+        "columns": [
+          {
+            "key": "type",
+            "label": "Type",
+            "type": "text",
+            "required": true,
+            "width": "25%"
+          },
+          {
+            "key": "units",
+            "label": "Units",
+            "type": "text",
+            "default": "Ohms",
+            "required": true,
+            "width": "12%"
+          },
+          {
+            "key": "test_results",
+            "label": "Test Results",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "15%"
+          },
+          {
+            "key": "acceptable_criteria",
+            "label": "Acceptable Criteria",
+            "type": "text",
+            "required": true,
+            "width": "18%",
+            "placeholder": "e.g. <1"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks",
+            "type": "select",
+            "options": [
+              "PASS",
+              "FAIL",
+              "N/A"
+            ],
+            "default": "PASS",
+            "width": "12%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: FA Commissioning Report ──────",
+  {
+    "templateId": "fa-commission-report",
+    "templateVersion": 3,
+    "title": "FA Commission Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "loops",
+        "title": "Loop Voltages",
+        "sections": [
+          "loop_meta",
+          "loops"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT — FIRE ALARM SYSTEM",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "Fire Alarm Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "AC Power Supply",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Panel Battery Charger",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Battery Terminal & Connection",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Battery Voltage",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Panel Indication Light",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Internal Buzzer",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Detection Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Hooter Activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Manual Call Point Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q10",
+            "particular": "Control Module Activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q11",
+            "particular": "Monitor Module Activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q12",
+            "particular": "Isolation Module Activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q13",
+            "particular": "CSU, AHU & Fire Damper Tripping",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q14",
+            "particular": "Flow Switch Integration",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q15",
+            "particular": "FA Panel Integration",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q16",
+            "particular": "Automatic Door Integration",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "loop_meta",
+        "type": "fields",
+        "title": "Where should Loop Voltages appear in the printed list?",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "insert_after",
+            "label": "Insert loop voltages after",
+            "type": "select",
+            "options": [
+              "AC Power Supply",
+              "Panel Battery Charger",
+              "Battery Terminal & Connection",
+              "Battery Voltage",
+              "Panel Indication Light",
+              "Internal Buzzer",
+              "Detection Test",
+              "Hooter Activation",
+              "Manual Call Point Test",
+              "Control Module Activation",
+              "Monitor Module Activation",
+              "Isolation Module Activation",
+              "CSU, AHU & Fire Damper Tripping",
+              "Flow Switch Integration",
+              "FA Panel Integration",
+              "Automatic Door Integration"
+            ],
+            "default": "Panel Indication Light",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "loops",
+        "type": "trainees_data_table",
+        "title": "Loop Voltages",
+        "minRows": 2,
+        "maxRows": 32,
+        "addRowLabel": "Add another loop",
+        "rowLabelPrefix": "Loop ",
+        "columns": [
+          {
+            "key": "input_voltage",
+            "label": "Input Voltage",
+            "type": "number",
+            "unit": "V",
+            "min": 0,
+            "required": true,
+            "width": "18%"
+          },
+          {
+            "key": "input_remarks",
+            "label": "Input Remarks",
+            "type": "text",
+            "width": "27%"
+          },
+          {
+            "key": "output_voltage",
+            "label": "Output Voltage",
+            "type": "number",
+            "unit": "V",
+            "min": 0,
+            "required": true,
+            "width": "18%"
+          },
+          {
+            "key": "output_remarks",
+            "label": "Output Remarks",
+            "type": "text",
+            "width": "27%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "consultant",
+            "label": "FA CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: LT Panel Commissioning Report ──────",
+  {
+    "templateId": "lt-panel-commission-report",
+    "templateVersion": 1,
+    "title": "LT Panel Commission Report",
+    "wizardSteps": [
+      {
+        "key": "procedure",
+        "title": "Procedure",
+        "sections": [
+          "proc"
+        ]
+      },
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "physical_test",
+        "title": "Physical Test",
+        "sections": [
+          "physical"
+        ]
+      },
+      {
+        "key": "ir_test",
+        "title": "IR Test",
+        "sections": [
+          "ir_test"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "proc",
+        "type": "process",
+        "title": "Panel Test Procedure",
+        "blocks": [
+          {
+            "subtitle": "Following Tests were carried Out",
+            "items": [
+              "1. Physical Test.",
+              "2. IR Test."
+            ]
+          },
+          {
+            "subtitle": "Physical Test",
+            "items": [
+              "1. Equipment Position & Condition.",
+              "2. Panel flanges & Chamber Cover.",
+              "3. Door Locks & Gasket.",
+              "4. Panel coupling and fish plate.",
+              "5. Busbar Connection & its supports.",
+              "6. Earthing Connection & Continuity.",
+              "7. Nuts/bolts/screws/fasteners are Tight.",
+              "8. Incoming & Outgoing Cable Connection.",
+              "9. Power & Control Wiring Connections.",
+              "10. Indication Lamp, Push Button, Selector Switch.",
+              "11. Electrical / Mechanical Interlock Check.",
+              "12. Meter & CT / PT Connection.",
+              "13. Relay / Protective Devices.",
+              "14. On/Off Operation of Breaker."
+            ]
+          },
+          {
+            "subtitle": "IR Test",
+            "items": [
+              "1. Switch the power supply breaker to the \"Open\" or \"Off\" position.",
+              "2. De-energize load side connections.",
+              "3. Isolate all loads associated with the bus to be tested.",
+              "4. Disconnect high-voltage sensitive devices and potential transformers from buses to be tested.",
+              "5. Megger bus work phase-to-phase then phase-to-ground for one minute, until readings are stable.\n    a. Phase To Phase R – Y , Y – B , B – R\n    b. Phase To Neutral R – N , Y – N , B – N\n    c. Phase To Earth R – E , Y – E , B – E\n    d. Neutral To Earth N – E",
+              "6. Ground and discharge each phase tested."
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - PANEL TESTING",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "panel_name",
+            "label": "PANEL NAME",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. LT Panel 1A"
+          }
+        ]
+      },
+      {
+        "id": "physical",
+        "type": "checklist",
+        "title": "Physical Test",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Particulars"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "p1",
+            "particular": "All equipment position & condition.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p2",
+            "particular": "Panel flanges & Chamber Cover.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p3",
+            "particular": "Door Locks & Gasket.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p4",
+            "particular": "Panel coupling and fish plate.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p5",
+            "particular": "Busbar Connection & its supports.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p6",
+            "particular": "Earthing Connection & Continuity.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p7",
+            "particular": "Tightness of Nuts/bolts/screws/fasteners.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p8",
+            "particular": "Incoming & Outgoing Cable Connections.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p9",
+            "particular": "Power & Control Wiring Connections.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p10",
+            "particular": "Indication Lamp, Push Button, Selector Switch.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p11",
+            "particular": "Electrical / Mechanical Interlock Check.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p12",
+            "particular": "Meter & CT / PT Connection.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p13",
+            "particular": "Relay / Protective Devices.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "p14",
+            "particular": "On/Off Operation of Breaker.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Okay",
+                "Not Okay",
+                "N/A"
+              ],
+              "default": "Okay"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "ir_test",
+        "type": "measurement_matrix",
+        "title": "IR Test",
+        "rows": [
+          {
+            "id": "r",
+            "labels": {
+              "pp": "R-Y",
+              "pn": "R-N",
+              "pe": "R-E"
+            }
+          },
+          {
+            "id": "y",
+            "labels": {
+              "pp": "Y-B",
+              "pn": "Y-N",
+              "pe": "Y-E"
+            }
+          },
+          {
+            "id": "b",
+            "labels": {
+              "pp": "B-R",
+              "pn": "B-N",
+              "pe": "B-E"
+            }
+          }
+        ],
+        "columns": [
+          {
+            "key": "pp",
+            "label": "Phase to Phase",
+            "valueLabel": "In Volts",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0
+          },
+          {
+            "key": "pn",
+            "label": "Phase to Neutral",
+            "valueLabel": "In Volts",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0
+          },
+          {
+            "key": "pe",
+            "label": "Phase to Earth",
+            "valueLabel": "In Volts",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: LUX Level Report ──────",
+  {
+    "templateId": "lux-level-report",
+    "templateVersion": 1,
+    "title": "LUX Level Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "readings",
+        "title": "LUX Readings",
+        "sections": [
+          "readings"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "LUX LEVEL REPORT",
+        "fields": [
+          {
+            "key": "mep_contractor",
+            "label": "MEP CONTRACTOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "readings",
+        "type": "trainees_data_table",
+        "title": "LUX Readings",
+        "minRows": 1,
+        "maxRows": 100,
+        "addRowLabel": "Add another area",
+        "columns": [
+          {
+            "key": "area",
+            "label": "Area",
+            "type": "text",
+            "required": true,
+            "width": "30%"
+          },
+          {
+            "key": "lux1",
+            "label": "LUX Reading 1",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "13%"
+          },
+          {
+            "key": "lux2",
+            "label": "LUX Reading 2",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "13%"
+          },
+          {
+            "key": "lux3",
+            "label": "LUX Reading 3",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "width": "13%"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks",
+            "type": "text",
+            "width": "31%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "mep_contractor",
+            "label": "MEP CONTRACTOR"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Socket Testing Report ──────",
+  {
+    "templateId": "socket-testing-report",
+    "templateVersion": 1,
+    "title": "Socket Testing Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "sockets",
+        "title": "Sockets",
+        "sections": [
+          "sockets"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - SOCKET TESTING",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "sockets",
+        "type": "trainees_data_table",
+        "title": "Socket Testing",
+        "minRows": 1,
+        "maxRows": 100,
+        "addRowLabel": "Add another socket",
+        "columns": [
+          {
+            "key": "circuit_no",
+            "label": "Circuit No.",
+            "type": "text",
+            "required": true,
+            "width": "20%"
+          },
+          {
+            "key": "area",
+            "label": "Area",
+            "type": "text",
+            "required": true,
+            "width": "45%"
+          },
+          {
+            "key": "output_voltage",
+            "label": "Output Voltage",
+            "type": "number",
+            "unit": "V",
+            "required": true,
+            "min": 0,
+            "width": "25%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Sprinkler Pressure Test Report ──────",
+  {
+    "templateId": "sprinkler-pressure-test",
+    "templateVersion": 1,
+    "title": "Sprinkler Pressure Test Report",
+    "wizardSteps": [
+      {
+        "key": "procedure",
+        "title": "Procedure",
+        "sections": [
+          "proc"
+        ]
+      },
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "results",
+        "title": "Test Results",
+        "sections": [
+          "images",
+          "measurements"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "proc",
+        "type": "process",
+        "title": "Sprinkler Pressure Test Operating Process",
+        "blocks": [
+          {
+            "subtitle": "Test Procedure",
+            "items": [
+              "1. Inspect the system to verify that openings are plugged and valves are closed.",
+              "2. Connect the test pump to a convenient location in the system.",
+              "3. Connect the water source to the test pump.",
+              "4. Open the main control valve to fill the system. (If the water service is not installed or has not been flushed, fill the system through the test pump water source.)",
+              "5. Fill the system slowly to avoid entrapment of air.",
+              "6. Open a valve (such as the inspector's test connection or a temporary valve) to vent any trapped air.",
+              "7. Close the valve when water flows continuously through it.",
+              "8. When the system pressure equals that of the water source, close the supply valve and inspect the entire system for leaks.\n   i. Leaks may result from flanges not bolted properly, plugs not properly installed, cracked or improperly tightened fittings, etc.\n   ii. If leaks are found, open the 2-in. main drain connection or other low-point drain connection and allow the system to drain. Repair any leaks found and repeat this procedure.\n   iii. If no leaks are detected, begin to increase pressure with the test pump up to 200 psi or 50 psi in excess of the static pressure when static pressure exceeds 150 psi.",
+              "9. Monitor the test gauge to determine that the system pressure is stable. If pressure drops, check for leaks in the system, for open valves, or for leaks in the test apparatus.",
+              "10. Once it is determined that the test pressure has stabilized, disconnect the power to the test pump and notify the commissioning agent or authority having jurisdiction that the 2-hour test period has begun.",
+              "11. Record the time of day and test pressure at this time.",
+              "12. Hold the test pressure for 2 hours.",
+              "13. After the test, open the drain valve to drain the system, or if the system is to be commissioned immediately, relieve the test pressure and leave the water in the system.",
+              "14. Disconnect the test pump and plug the outlet or test port through which the system was tested.",
+              "15. If the test will be required on existing fire sprinkler systems, review the proper impairment including the fire alarm system to avoid false signals."
+            ]
+          },
+          {
+            "subtitle": "Measurements",
+            "items": [
+              "1. Test pressure is to be maintained for 2 hours without any visible leaks."
+            ]
+          },
+          {
+            "subtitle": "Pass/Fail Criteria",
+            "items": [
+              "1. The system must hold the test pressure for 2 hours without loss of pressure.",
+              "2. Absence of water leakage is verified by visual examination of the system."
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT — SPRINKLER SYSTEM",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "Sprinkler System Commissioning Report:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Particulars"
+          },
+          {
+            "key": "result",
+            "label": "Results"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "All Sprinklers are as per drawing",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Testing of Sprinklers (upright, pendant)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Hydraulic pressure testing (Pressure below 10kpa)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Leak detection testing",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Demonstration (Practical training) work has been completed",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "The above all are working fine",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "images",
+        "type": "image_attachments",
+        "title": "Sprinkler Pressure Test Result:",
+        "columns": 2,
+        "slots": [
+          {
+            "key": "result_image_1",
+            "label": "Result Image 1",
+            "accept": "image/*",
+            "maxSizeMb": 5
+          },
+          {
+            "key": "result_image_2",
+            "label": "Result Image 2",
+            "accept": "image/*",
+            "maxSizeMb": 5
+          }
+        ]
+      },
+      {
+        "id": "measurements",
+        "type": "fields",
+        "layout": "grid",
+        "columns": 2,
+        "fields": [
+          {
+            "key": "test_start_date",
+            "label": "Test Start Date",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "test_end_date",
+            "label": "Test End Date",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "measured_pressure_initial",
+            "label": "Measured Pressure (Initial)",
+            "type": "number",
+            "unit": "kPa",
+            "required": true,
+            "min": 0
+          },
+          {
+            "key": "measured_pressure_final",
+            "label": "Measured Pressure (Final)",
+            "type": "number",
+            "unit": "kPa",
+            "required": true,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_contractor",
+            "label": "HVAC CONTRACTOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: VRF/DX Commissioning Report ──────",
+  {
+    "templateId": "vrf-dx-commissioning-report",
+    "templateVersion": 1,
+    "title": "VRF / DX Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr",
+          "unit_choice"
+        ]
+      },
+      {
+        "key": "vrf_tests",
+        "title": "VRF Tests",
+        "sections": [
+          "vrf_physical",
+          "vrf_timer"
+        ],
+        "visibleIf": {
+          "field": "responses.unit_choice.unit_type",
+          "in": [
+            "VRF",
+            "Both"
+          ]
+        }
+      },
+      {
+        "key": "dx_tests",
+        "title": "DX Tests",
+        "sections": [
+          "dx_physical",
+          "dx_timer"
+        ],
+        "visibleIf": {
+          "field": "responses.unit_choice.unit_type",
+          "in": [
+            "DX",
+            "Both"
+          ]
+        }
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - VRF / DX UNIT",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "package",
+            "label": "PACKAGE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. HVAC"
+          },
+          {
+            "key": "equipment",
+            "label": "EQUIPMENT",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "area",
+            "label": "AREA",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "unit_choice",
+        "type": "fields",
+        "title": "Unit Selection",
+        "layout": "stack",
+        "fields": [
+          {
+            "key": "unit_type",
+            "label": "Do you go with VRF, DX, or Both?",
+            "type": "select",
+            "options": [
+              "VRF",
+              "DX",
+              "Both"
+            ],
+            "required": true,
+            "default": "DX",
+            "helpText": "Determines which unit's checklists print on the PDF. Wizard shows all four checklists — fill only the ones relevant to your selection."
+          }
+        ]
+      },
+      {
+        "id": "vrf_physical",
+        "type": "checklist",
+        "title": "Physical Test",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Particulars"
+          },
+          {
+            "key": "result",
+            "label": "Results"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "v1",
+            "particular": "Visual inspection General state",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v2",
+            "particular": "Any refrigerant leakage?",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v3",
+            "particular": "Both stop valves open before the operation",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v4",
+            "particular": "Position of sensors (Ok or Not Ok)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "OK"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v5",
+            "particular": "Corrosion/oxidation (Ok or Not Ok)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "OK"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v6",
+            "particular": "Vibrations/frictions in the machine",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v7",
+            "particular": "Any unusual Noise in the machine?",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v8",
+            "particular": "Piping length within acceptable limits",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v9",
+            "particular": "Thermostat operation and settings.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "NA"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v10",
+            "particular": "Drainage bottom plate (Ok or Not Ok)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "OK"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v11",
+            "particular": "Refrigerant Piping is properly insulated.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v12",
+            "particular": "The voltage and Current record within acceptable limits",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v13",
+            "particular": "All the safety devices are functional.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "v14",
+            "particular": "Cable Section as per standards.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "vrf_timer",
+        "type": "process",
+        "title": "Functionality Test of Timer",
+        "blocks": [
+          {
+            "subtitle": "",
+            "items": [
+              "VRF unit is getting switched ON or OFF automatically When Placed in Auto Test Mode."
+            ]
+          }
+        ]
+      },
+      {
+        "id": "dx_physical",
+        "type": "checklist",
+        "title": "Physical Test",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Particulars"
+          },
+          {
+            "key": "result",
+            "label": "Results"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "d1",
+            "particular": "Visual inspection General state",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d2",
+            "particular": "Any refrigerant leakage?",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d3",
+            "particular": "Both stop valves open before the operation",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d4",
+            "particular": "Position of sensors (Ok or Not Ok)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "OK"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d5",
+            "particular": "Corrosion/oxidation (Ok or Not Ok)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "OK"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d6",
+            "particular": "Vibrations/frictions in the machine",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d7",
+            "particular": "Any unusual Noise in the machine?",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "No"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d8",
+            "particular": "Piping length within acceptable limits",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d9",
+            "particular": "Thermostat operation and settings.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "NA"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d10",
+            "particular": "Drainage bottom plate (Ok or Not Ok)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "OK"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d11",
+            "particular": "Refrigerant Piping is properly insulated.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d12",
+            "particular": "The voltage and Current record within acceptable limits",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d13",
+            "particular": "All the safety devices are functional.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "d14",
+            "particular": "Cable Section as per standards.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "OK",
+                "Not OK",
+                "NA"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "dx_timer",
+        "type": "process",
+        "title": "Functionality Test of Timer",
+        "blocks": [
+          {
+            "subtitle": "",
+            "items": [
+              "IDU is getting switched ON or OFF automatically When Placed in Auto Test Mode."
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "templateId": "nitrogen-pressure-testing-report",
+    "templateVersion": 1,
+    "title": "Nitrogen Pressure Testing Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "testing_report",
+        "title": "Testing Report",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "details",
+        "title": "Test Details",
+        "sections": [
+          "details",
+          "evidence"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "REFRIGERANT LINE PRESSURE TESTING REPORT",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "package",
+            "label": "PACKAGE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. HVAC"
+          },
+          {
+            "key": "rating",
+            "label": "Rating (in HP)",
+            "type": "number",
+            "unit": "HP",
+            "required": true,
+            "min": 0
+          },
+          {
+            "key": "area",
+            "label": "AREA",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "Testing Report",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Particulars"
+          },
+          {
+            "key": "result",
+            "label": "Results"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "The system maintained the specified pressure levels throughout the testing duration.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "No visible leaks were detected during the visual inspection.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Electronic leak detection tools confirmed the absence of leaks.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "The above all are working fine",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "details",
+        "type": "fields",
+        "title": "Test Details",
+        "layout": "grid",
+        "columns": 2,
+        "fields": [
+          {
+            "key": "test_start_date",
+            "label": "Test Start Date",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "test_end_date",
+            "label": "Test End Date",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "measured_pressure",
+            "label": "The measured pressure rating is",
+            "type": "number",
+            "unit": "PSI",
+            "required": true,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": "evidence",
+        "type": "image_attachments",
+        "title": "Test Photos / Evidence",
+        "columns": 2,
+        "slots": [
+          {
+            "key": "test_photo_1",
+            "label": "Test Photo 1",
+            "multi": false,
+            "accept": "image/*",
+            "maxSizeMb": 5,
+            "required": false
+          },
+          {
+            "key": "test_photo_2",
+            "label": "Test Photo 2",
+            "multi": false,
+            "accept": "image/*",
+            "maxSizeMb": 5,
+            "required": false
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_consultant",
+            "label": "HVAC CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: PA Commissioning Report ──────",
+  {
+    "templateId": "pa-commissioning-report",
+    "templateVersion": 1,
+    "title": "PA Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "pa_tests",
+        "title": "PA Tests",
+        "sections": [
+          "page1_chk"
+        ]
+      },
+      {
+        "key": "install_chk",
+        "title": "Installation",
+        "sections": [
+          "page2_chk",
+          "speakers"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - PUBLIC ADDRESSING SYSTEM",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "page1_chk",
+        "type": "checklist",
+        "title": "PA System Tests",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "AC Power Supply",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Voice controller",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Call Station Mic",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Manual Mic Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Relay Modules activation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Auto emergency message telecast",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Loop Input Voltage",
+            "result": {
+              "type": "number",
+              "unit": "V",
+              "min": 0,
+              "required": true
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Loop Output Voltage",
+            "result": {
+              "type": "number",
+              "unit": "V",
+              "min": 0,
+              "required": true
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Zone wise checking",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "page2_chk",
+        "type": "checklist",
+        "title": "Installation Verification",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "particular": "The Amplifier was powered by an Uninterruptible Power Supply (UPS)",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "i2",
+            "particular": "Speakers and amplifiers were installed in the area given in the drawing.",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "i3",
+            "particular": "All Speakers are marked as per drawing",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "i4",
+            "particular": "Mic is Installed and in working condition",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "i5",
+            "particular": "Amplifiers is Installed and in working condition",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "i6",
+            "particular": "All Speaker are working properly",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "i7",
+            "particular": "The above all are working fine",
+            "result": {
+              "type": "select",
+              "options": [
+                "Yes",
+                "No",
+                "N/A"
+              ],
+              "default": "Yes"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "speakers",
+        "type": "trainees_data_table",
+        "title": "Area Wise Speaker Distribution",
+        "minRows": 1,
+        "maxRows": 100,
+        "addRowLabel": "Add another speaker",
+        "columns": [
+          {
+            "key": "speaker_no",
+            "label": "Speaker No",
+            "type": "text",
+            "required": true,
+            "width": "50%"
+          },
+          {
+            "key": "result",
+            "label": "Result",
+            "type": "select",
+            "options": [
+              "Pass",
+              "Fail",
+              "N/A"
+            ],
+            "default": "Pass",
+            "width": "20%"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks",
+            "type": "text",
+            "width": "30%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "tested_by",
+            "label": "TESTED BY"
+          },
+          {
+            "key": "hvac_contractor",
+            "label": "HVAC CONTRACTOR"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: Gas Suppression System Commissioning Report ──────",
+  {
+    "templateId": "common-template-1",
+    "templateVersion": 1,
+    "title": "Gas Suppression System Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "checklist",
+        "title": "Checklist",
+        "sections": [
+          "chk"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - VESDA System",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "chk",
+        "type": "checklist",
+        "title": "Gas Suppression Commissioning Checklist:",
+        "columns": [
+          {
+            "key": "slno",
+            "label": "Sl No"
+          },
+          {
+            "key": "particular",
+            "label": "Description"
+          },
+          {
+            "key": "result",
+            "label": "Result"
+          },
+          {
+            "key": "remarks",
+            "label": "Remarks"
+          }
+        ],
+        "items": [
+          {
+            "id": "q1",
+            "particular": "AC Power Supply",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q2",
+            "particular": "Battery Backup",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q3",
+            "particular": "Control Panel Status",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q4",
+            "particular": "Detector (Smoke / Heat ) Check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q5",
+            "particular": "Manual Call Point Check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q6",
+            "particular": "Hooter/ Sounder Operation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q7",
+            "particular": "Response Indicator / LED",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q8",
+            "particular": "Cylinder Pressure Check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q9",
+            "particular": "Cylinder Mounting & Clamping",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q10",
+            "particular": "Selenoid Valve / Actuator Check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q11",
+            "particular": "Release Panel Function",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q12",
+            "particular": "Auto Mode Operation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q13",
+            "particular": "Manual Release Function",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q14",
+            "particular": "Abort Switch Function",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q15",
+            "particular": "Time Delay Check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q16",
+            "particular": "Gas Release Simulation Test",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q17",
+            "particular": "Pressure Switch Feedback",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q18",
+            "particular": "Low Pressure Switch",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q19",
+            "particular": "Door Interlock/ Door Switch",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q20",
+            "particular": "HVAC Shutdown Integration",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q21",
+            "particular": "Fire Alarm Panel Integration",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q22",
+            "particular": "Signage & Safety Instructions",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q23",
+            "particular": "Nozzle & Piping check",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q24",
+            "particular": "Room Integrity Check (if done)",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          },
+          {
+            "id": "q25",
+            "particular": "Final System Operation",
+            "result": {
+              "type": "select",
+              "options": [
+                "PASS",
+                "FAIL",
+                "N/A"
+              ],
+              "default": "PASS"
+            },
+            "remarks": {
+              "type": "text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
+  "────── END OF TEMPLATES ──────"
+]

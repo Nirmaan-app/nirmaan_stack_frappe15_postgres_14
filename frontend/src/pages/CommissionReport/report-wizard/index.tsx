@@ -9,10 +9,10 @@
 //   5. Draft autosave (localStorage)
 //   6. Optimistic-concurrency conflict UI
 
-import { useFrappeAuth } from 'frappe-react-sdk';
+import { useFrappeAuth, useFrappeGetDocList } from 'frappe-react-sdk';
 import { ArrowLeft, ArrowRight, Loader2, Printer, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FormProvider, useForm } from 'react-hook-form';
+import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSWRConfig } from 'swr';
 
@@ -43,7 +43,26 @@ import type {
     ReportTemplate,
     ResponseData,
     WizardMode,
+    WizardStepDef,
 } from './types';
+
+/** Resolve a dot-path inside an object — used to evaluate `visibleIf.field`. */
+const getByPath = (obj: unknown, path: string): unknown => {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce<unknown>((acc, k) => {
+        if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[k];
+        return undefined;
+    }, obj);
+};
+
+/** A wizard step is visible when its `visibleIf` (if any) matches the current form values. */
+const isStepVisible = (step: WizardStepDef, formValues: unknown): boolean => {
+    if (!step.visibleIf) return true;
+    const v = getByPath(formValues, step.visibleIf.field);
+    if (step.visibleIf.in !== undefined) return step.visibleIf.in.includes(v as string);
+    if (step.visibleIf.equals !== undefined) return v === step.visibleIf.equals;
+    return true;
+};
 
 interface FormShape extends Record<string, unknown> {
     // Per-section responses: object for header/fields/checklist; array for trainees_data_table.
@@ -124,10 +143,6 @@ export const CommissionReportWizard: React.FC = () => {
 
     // ─── Wizard step state ────────────────────────────────────────────────
     const [currentStep, setCurrentStep] = useState(0);
-    const wizardSteps: WizardStep[] = useMemo(() => {
-        if (!template?.wizardSteps) return [];
-        return template.wizardSteps.map((s) => ({ key: s.key, title: s.title }));
-    }, [template]);
 
     // ─── Form ─────────────────────────────────────────────────────────────
     // Note: per-step Zod is built lazily inside handleNext via getRhfKeysForStep,
@@ -140,6 +155,28 @@ export const CommissionReportWizard: React.FC = () => {
             attachments: {},
         },
     });
+
+    // Reactive subscription to form values — used to filter wizard steps via visibleIf.
+    const watched = useWatch({ control: form.control });
+
+    // Filter steps by visibleIf; this drives navigation, validation, and rendering.
+    const visibleStepDefs: WizardStepDef[] = useMemo(() => {
+        if (!template?.wizardSteps) return [];
+        return template.wizardSteps.filter((s) => isStepVisible(s, watched));
+    }, [template, watched]);
+
+    const wizardSteps: WizardStep[] = useMemo(
+        () => visibleStepDefs.map((s) => ({ key: s.key, title: s.title })),
+        [visibleStepDefs],
+    );
+
+    // If the user changes a field that hides the step they're on, clamp currentStep.
+    useEffect(() => {
+        if (visibleStepDefs.length === 0) return;
+        if (currentStep > visibleStepDefs.length - 1) {
+            setCurrentStep(visibleStepDefs.length - 1);
+        }
+    }, [visibleStepDefs.length, currentStep]);
 
     // Initialize form values once template + prefill + (optional) existing response are ready.
     // The response_data is the single source of truth for attachments — each slot value
@@ -239,7 +276,7 @@ export const CommissionReportWizard: React.FC = () => {
     // ─── Step nav ─────────────────────────────────────────────────────────
     const handleNext = useCallback(async () => {
         if (!template) return;
-        const step = template.wizardSteps?.[currentStep];
+        const step = visibleStepDefs[currentStep];
         if (!step) return;
 
         // Clear any prior errors on this step's fields, then re-validate.
@@ -259,10 +296,10 @@ export const CommissionReportWizard: React.FC = () => {
             return;
         }
 
-        if (currentStep < (template.wizardSteps?.length ?? 1) - 1) {
+        if (currentStep < visibleStepDefs.length - 1) {
             setCurrentStep((n) => n + 1);
         }
-    }, [currentStep, form, template, toast]);
+    }, [currentStep, form, template, toast, visibleStepDefs]);
 
     const handleBack = useCallback(() => {
         setCurrentStep((n) => Math.max(0, n - 1));
@@ -422,9 +459,9 @@ export const CommissionReportWizard: React.FC = () => {
     }
 
     // ─── Render wizard ────────────────────────────────────────────────────
-    const step = template.wizardSteps?.[currentStep];
+    const step = visibleStepDefs[currentStep];
     const isReviewStep = step && step.sections.length === 0;
-    const isFinalStep = step && currentStep === (template.wizardSteps?.length ?? 1) - 1;
+    const isFinalStep = step && currentStep === visibleStepDefs.length - 1;
     const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
 
     return (
@@ -501,6 +538,7 @@ export const CommissionReportWizard: React.FC = () => {
                                     parentName={parentName}
                                     childRowName={childRowName}
                                     projectId={projectId}
+                                    templateId={template.templateId}
                                     forceReadonly={mode === 'view'}
                                     onAttachmentCreated={(fileDoc) => {
                                         track(fileDoc);
@@ -510,7 +548,11 @@ export const CommissionReportWizard: React.FC = () => {
                             );
                         })
                     ) : (
-                        <ReviewSummary template={template} formValues={form.getValues()} />
+                        <ReviewSummary
+                            template={template}
+                            formValues={form.getValues()}
+                            projectId={projectId}
+                        />
                     )}
                 </main>
 
@@ -556,7 +598,7 @@ export const CommissionReportWizard: React.FC = () => {
                     onStartFresh={draft.discardDraft}
                     draftDate={new Date().toISOString()}
                     currentStep={currentStep + 1}
-                    totalSteps={template.wizardSteps?.length || 1}
+                    totalSteps={visibleStepDefs.length || 1}
                 />
             )}
         </div>
@@ -628,10 +670,154 @@ const ResultBadge: React.FC<{ value?: string }> = ({ value }) => {
     );
 };
 
-const ReviewSummary: React.FC<{ template: ReportTemplate; formValues: FormShape }> = ({
-    template,
-    formValues,
-}) => {
+// Review-mode summary of which signatures will print. Live-derives the project's
+// enabled roles from `Project TDS Setting`, then marks each as Included/Omitted
+// based on the wizard's saved disabled list. Mirrors the keys+labels in
+// SignaturesSection.tsx — keep them in sync with the Jinja `render_signatures` macro.
+interface ProjectTDSSettingRow {
+    name: string;
+    enable_client: 0 | 1;
+    enable_manager: 0 | 1;
+    enable_consultant: 0 | 1;
+    enable_gc_contractor: 0 | 1;
+    enable_mep_contractor: 0 | 1;
+}
+const SignaturesReviewBlock: React.FC<{
+    title: string;
+    projectId: string;
+    templateId: string;
+    disabledKeys: string[];
+    enabledKeys: string[];
+}> = ({ title, projectId, templateId, disabledKeys, enabledKeys }) => {
+    const { data, isLoading } = useFrappeGetDocList<ProjectTDSSettingRow>(
+        'Project TDS Setting',
+        {
+            fields: [
+                'name',
+                'enable_client',
+                'enable_manager',
+                'enable_consultant',
+                'enable_gc_contractor',
+                'enable_mep_contractor',
+            ],
+            filters: projectId ? [['tds_project_id', '=', projectId]] : undefined,
+            limit: 1,
+        },
+        projectId ? ['project-tds-setting', projectId] : null,
+    );
+    const tds = data?.[0];
+
+    // Build the full role list for the template, each tagged with inTds.
+    const roles: { key: string; label: string; inTds: boolean }[] = (() => {
+        const flag = (v: 0 | 1 | undefined) => v === 1;
+        if (templateId === 'demo-training-certificate') {
+            return [
+                { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+                { key: 'mep_contractor', label: 'VENDOR', inTds: flag(tds?.enable_mep_contractor) },
+                { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
+                { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
+            ];
+        }
+        return [
+            { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+            { key: 'consultant', label: 'CONSULTANT', inTds: flag(tds?.enable_consultant) },
+            { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
+            { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
+            { key: 'mep_contractor', label: 'NIRMAAN', inTds: flag(tds?.enable_mep_contractor) },
+        ];
+    })();
+
+    // Final per-row state: included (TDS or manual) vs omitted, keeping the
+    // "manual" distinction so the pill can render differently.
+    const rowState = roles.map((r) => {
+        const includedByTds = r.inTds && !disabledKeys.includes(r.key);
+        const includedByManual = !r.inTds && enabledKeys.includes(r.key);
+        const included = includedByTds || includedByManual;
+        return { ...r, included, manualOn: includedByManual };
+    });
+    const includedRows = rowState.filter((r) => r.included);
+    const omittedTdsRows = rowState.filter((r) => !r.included && r.inTds);
+
+    return (
+        <div className="rounded-md border p-3">
+            <div className="mb-3 flex items-center justify-between">
+                <div>
+                    <h3 className="text-sm font-medium">{title}</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                        Signatures that will appear on the printed PDF.
+                    </p>
+                </div>
+                {!isLoading && tds && (
+                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        {includedRows.length} of {roles.length} included
+                    </span>
+                )}
+            </div>
+            {!projectId || !tds ? (
+                <p className="text-xs italic text-muted-foreground">
+                    Project TDS Setting unavailable — signatures will be resolved at print time.
+                </p>
+            ) : (
+                <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                        {includedRows.length === 0 ? (
+                            <span className="text-xs italic text-amber-700">
+                                No signatures will be printed.
+                            </span>
+                        ) : (
+                            includedRows.map((r) => (
+                                <span
+                                    key={r.key}
+                                    className={[
+                                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide',
+                                        r.manualOn
+                                            ? 'border-sky-500/40 bg-sky-500/10 text-sky-700'
+                                            : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700',
+                                    ].join(' ')}
+                                    title={r.manualOn ? 'Manually included (not in project TDS)' : undefined}
+                                >
+                                    <span
+                                        className={[
+                                            'h-1.5 w-1.5 rounded-full',
+                                            r.manualOn ? 'bg-sky-600' : 'bg-emerald-600',
+                                        ].join(' ')}
+                                    />
+                                    {r.label}
+                                    {r.manualOn && (
+                                        <span className="ml-1 text-[9px] font-normal opacity-80">
+                                            (manual)
+                                        </span>
+                                    )}
+                                </span>
+                            ))
+                        )}
+                    </div>
+                    {omittedTdsRows.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                Omitted:
+                            </span>
+                            {omittedTdsRows.map((r) => (
+                                <span
+                                    key={r.key}
+                                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-rose-400/50 bg-rose-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-rose-700 line-through decoration-rose-400/70"
+                                >
+                                    {r.label}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ReviewSummary: React.FC<{
+    template: ReportTemplate;
+    formValues: FormShape;
+    projectId: string;
+}> = ({ template, formValues, projectId }) => {
     return (
         <div className="space-y-4">
             <div>
@@ -642,7 +828,24 @@ const ReviewSummary: React.FC<{ template: ReportTemplate; formValues: FormShape 
             </div>
 
             {template.sections.map((section) => {
-                if (section.type === 'process' || section.type === 'signatures') return null;
+                if (section.type === 'process') return null;
+
+                if (section.type === 'signatures') {
+                    const sigValue = (formValues.responses?.[section.id] || {}) as {
+                        disabled?: string[];
+                        enabled?: string[];
+                    };
+                    return (
+                        <SignaturesReviewBlock
+                            key={section.id}
+                            title={section.title || 'Signatures'}
+                            projectId={projectId}
+                            templateId={template.templateId}
+                            disabledKeys={Array.isArray(sigValue.disabled) ? sigValue.disabled : []}
+                            enabledKeys={Array.isArray(sigValue.enabled) ? sigValue.enabled : []}
+                        />
+                    );
+                }
 
                 if (section.type === 'header' || section.type === 'fields') {
                     const sectionValues = (formValues.responses?.[section.id] || {}) as Record<string, unknown>;

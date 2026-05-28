@@ -342,15 +342,51 @@ export const validateStep = (
     return errors;
 };
 
-/** Validates the entire template (all input-bearing sections), used at Submit. */
+/** Resolve a dot-path inside an object — used to evaluate `visibleIf.field`. */
+const getByPath = (obj: unknown, path: string): unknown => {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce<unknown>((acc, k) => {
+        if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[k];
+        return undefined;
+    }, obj);
+};
+
+/** A wizard step is visible when its `visibleIf` (if any) matches the current form values. */
+const isStepVisible = (
+    step: WizardStepDef,
+    formValues: { responses?: Record<string, unknown>; attachments?: Record<string, unknown> },
+): boolean => {
+    if (!step.visibleIf) return true;
+    const v = getByPath(formValues, step.visibleIf.field);
+    if (step.visibleIf.in !== undefined) return step.visibleIf.in.includes(v as string);
+    if (step.visibleIf.equals !== undefined) return v === step.visibleIf.equals;
+    return true;
+};
+
+/** Validates the entire template (all input-bearing sections), used at Submit.
+ *  Sections referenced ONLY by wizard steps hidden via `visibleIf` are skipped. */
 export const validateTemplate = (
     template: ReportTemplate,
     formValues: { responses?: Record<string, unknown>; attachments?: Record<string, unknown> },
 ): StepValidationError[] => {
+    // Determine which section ids belong to visible wizard steps.
+    let sectionIdsToValidate: string[];
+    if (template.wizardSteps && template.wizardSteps.length > 0) {
+        const visibleIds = new Set<string>();
+        for (const step of template.wizardSteps) {
+            if (!isStepVisible(step, formValues)) continue;
+            for (const sid of step.sections) visibleIds.add(sid);
+        }
+        sectionIdsToValidate = template.sections
+            .map((s) => s.id)
+            .filter((id) => visibleIds.has(id));
+    } else {
+        sectionIdsToValidate = template.sections.map((s) => s.id);
+    }
     const allSectionsStep: WizardStepDef = {
         key: '_all',
         title: '_all',
-        sections: template.sections.map((s) => s.id),
+        sections: sectionIdsToValidate,
     };
     return validateStep(template, allSectionsStep, formValues);
 };

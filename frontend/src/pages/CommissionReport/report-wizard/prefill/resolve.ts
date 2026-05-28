@@ -180,9 +180,18 @@ export const resolveInitialValues = ({
                 });
                 break;
             }
+            case 'signatures': {
+                // Pass through the saved `{ disabled: [...] }` shape so the picker
+                // restores the user's previous toggle state. Roles newly enabled in
+                // Project TDS Setting since save will appear automatically (the picker
+                // builds its row list from LIVE TDS, not from snapshot).
+                if (existing && typeof existing === 'object') {
+                    out[section.id] = existing;
+                }
+                break;
+            }
             case 'process':
             case 'image_attachments':
-            case 'signatures':
                 // No form values for these.
                 break;
             default: {
