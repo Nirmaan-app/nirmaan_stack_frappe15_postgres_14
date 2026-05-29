@@ -48,7 +48,7 @@ export function BoqDropZone() {
       fd.append("file", file, file.name);
 
       const res = await fetch(
-        "/api/method/nirmaan_stack.api.boq.wizard.upload_file",
+        "/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file",
         {
           method: "POST",
           headers: {
