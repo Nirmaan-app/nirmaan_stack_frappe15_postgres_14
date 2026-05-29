@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { FileSpreadsheet, FolderPlus } from "lucide-react";
 import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
+import { BoqUploadScreen } from "./BoqUploadScreen";
 
 const BoqPickerPage = () => {
   const navigate = useNavigate();
@@ -32,6 +33,13 @@ const BoqPickerPage = () => {
     setSelectedProjectId(preSelectedId);
   }, [preSelectedId]);
 
+  // When a project is in the URL, hand off to the upload screen in-place.
+  // No routing change: the picker page owns both the picker UI and the upload
+  // screen; the transition is driven by the ?project= query param.
+  if (preSelectedId) {
+    return <BoqUploadScreen projectId={preSelectedId} />;
+  }
+
   const { data: projects, isLoading } = useFrappeGetDocList("Projects", {
     fields: ["name", "project_name"],
     filters: [["status", "!=", "Tendering"]],
@@ -41,8 +49,6 @@ const BoqPickerPage = () => {
 
   const handleContinue = () => {
     if (!selectedProjectId) return;
-    // TODO(1b-ii): navigate to the upload screen once it exists.
-    // For now, persist the selection in the URL so this round-trips correctly.
     navigate(`/upload-boq?project=${selectedProjectId}`);
   };
 
