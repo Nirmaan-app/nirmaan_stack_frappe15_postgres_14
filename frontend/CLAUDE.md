@@ -192,9 +192,10 @@ via `?page=boq` on `/projects/:projectId`. Tab component is `BoqProjectTab`
 (lazy via `React.lazy()`). New tab sets must be typed as
 `useMemo<Set<ProjectPageTabValue>>` to avoid TS narrowing failures.
 
-**Sidebar nav (M1.57):** Role-gated to Admin + PMO + Estimates Executive + Project
-Lead. Mirror the Item Price Search gating pattern. Add label to the leaf-item
-discriminator Set in `NewSidebar.tsx`, to `allKeys`, and to `groupMappings`.
+**Sidebar nav (M1.57):** Role-gated to Admin + PMO + Procurement Executive +
+Estimates Executive + Project Lead (identical to Item Price Search gating).
+Add label to the leaf-item discriminator Set in `NewSidebar.tsx`, to `allKeys`,
+and to `groupMappings`.
 
 **Color tokens (M1.66):** Use Tailwind token classes only -- `text-muted-foreground`,
 `bg-background`, `border-border`, `text-foreground`, `text-primary`, etc.
@@ -203,9 +204,9 @@ Never hardcode hex values. All tokens defined in `src/index.css` :root.
 **UI library (M1.62):** shadcn/ui primitives only for wizard UI (Button, Card,
 Select, Dialog, etc.). No Ant Design in wizard components.
 
-**Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d). 1b-modal
-(Tendering create-modal) and 1b-ii (upload screen, Socket.IO listener,
-useBoqWizardStore) are pending.
+**Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d, corrected
+74741417 -- PE gating fix). 1b-modal (Tendering create-modal) and 1b-ii
+(upload screen, Socket.IO listener, useBoqWizardStore) are pending.
 
 ---
 
