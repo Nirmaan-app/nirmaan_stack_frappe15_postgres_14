@@ -19,13 +19,15 @@ from .utils import (
 from .aggregations import get_aggregates, get_group_by_results
 from .token_search import rank_parents_by_token_score, tokenize
 
-# Above this many candidates we skip Python ranking and fall back to the
-# existing `modified desc` order — avoids pathological work on huge result sets.
-# 5000 chosen to comfortably hold full-item-name queries (5-9 generic tokens)
-# without tripping the cap. Python ranking on 5000 rows is still well under 500ms.
-# If slow-search logs show this exceeded routinely, bump further or revisit
-# token-coverage threshold (Option α).
-TOKEN_SCORE_MAX_CANDIDATES = 5000
+# Size of the relevance-ranked "head" of the result list. The first N parents
+# (taken in modified-desc order, the order the SQL filter returned) get
+# token-scored and rearranged so the best matches appear first. Parents beyond
+# the Nth stay in their original modified-desc order. This bounds Python work
+# at exactly N parents regardless of how broad the search is, while always
+# giving the user a relevance-sorted head — there is no "ranking off" mode.
+# Raise if slow-search logs show late-modified full matches are missing from
+# the ranked head; lower if Python ranking shows up in the slow-query log.
+TOKEN_SCORE_MAX_CANDIDATES = 1000
 
 def get_list_with_count_enhanced_impl(
     doctype, 
@@ -304,21 +306,28 @@ def get_list_with_count_enhanced_impl(
             total_records = len(all_matching_docs)
             final_matching_parent_names = [d.get("name") for d in all_matching_docs if d.get("name")]
 
-        # Auto token-score ranking for item-search on opted-in doctypes.
-        # Same matches and total_count as today — only order changes (relevance
-        # instead of `modified desc`). Skipped for exports and large candidate
-        # sets. On error, falls back to existing order.
+        # Token-score ranking for item-search on opted-in doctypes.
+        # Same matches and total_count as today — only order changes.
+        # The first TOKEN_SCORE_MAX_CANDIDATES parents form the ranked "head";
+        # anything past that stays in original modified-desc order. This keeps
+        # Python ranking bounded regardless of how broad the search is, while
+        # always surfacing relevance-sorted matches at the top of page 1.
         ranked_names = final_matching_parent_names
         should_rank = (
             doctype in TOKEN_SCORE_OPTED_IN_DOCTYPES
             and search_term
             and final_matching_parent_names
-            and len(final_matching_parent_names) <= TOKEN_SCORE_MAX_CANDIDATES
             and not for_export_bool
             and (use_child_table_item_search or use_json_item_search)
         )
         if should_rank:
             try:
+                # Split candidates into ranked head + unranked tail.
+                # Row fetch + scoring only touches the head, so cost is O(N)
+                # not O(total candidates).
+                parents_to_rank = final_matching_parent_names[:TOKEN_SCORE_MAX_CANDIDATES]
+                rank_remainder = final_matching_parent_names[TOKEN_SCORE_MAX_CANDIDATES:]
+
                 if use_child_table_item_search:
                     search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][target_search_field_name]
                     child_doctype_name = str(search_config["child_doctype"])
@@ -329,11 +338,11 @@ def get_list_with_count_enhanced_impl(
                     rank_rows = frappe.db.sql(
                         f"SELECT {select_cols} FROM `tab{child_doctype_name}` "
                         f"WHERE `{child_link_field}` IN %s AND parenttype = %s",
-                        (tuple(final_matching_parent_names), doctype),
+                        (tuple(parents_to_rank), doctype),
                         as_dict=True,
                     )
-                    ranked_names = rank_parents_by_token_score(
-                        parent_names=final_matching_parent_names,
+                    ranked_head = rank_parents_by_token_score(
+                        parent_names=parents_to_rank,
                         rows=rank_rows,
                         parent_key=child_link_field,
                         query=search_term,
@@ -353,17 +362,18 @@ def get_list_with_count_enhanced_impl(
                         f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
                         f") AS item_obj "
                         f"WHERE `tab{doctype}`.`name` IN %s",
-                        (tuple(final_matching_parent_names),),
+                        (tuple(parents_to_rank),),
                         as_dict=True,
                     )
-                    ranked_names = rank_parents_by_token_score(
-                        parent_names=final_matching_parent_names,
+                    ranked_head = rank_parents_by_token_score(
+                        parent_names=parents_to_rank,
                         rows=rank_rows,
                         parent_key="parent",
                         query=search_term,
                         fields=["rank_text"],
                         field_weights={"rank_text": 2.0},
                     )
+                ranked_names = ranked_head + rank_remainder
             except Exception:
                 traceback.print_exc()
                 ranked_names = final_matching_parent_names
