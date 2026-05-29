@@ -185,7 +185,7 @@ def get_facet_values_impl(
         require_pending_items_bool = (
             isinstance(require_pending_items, str) and require_pending_items.lower() == 'true'
         ) or require_pending_items is True
-        cache_key_params = {"v_api": "facet_5.4", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int, "require_pending_items": require_pending_items_bool}
+        cache_key_params = {"v_api": "facet_5.5", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int, "require_pending_items": require_pending_items_bool}
         cache_key = f"facet_values_{hashlib.sha1(json.dumps(cache_key_params, sort_keys=True, default=str).encode()).hexdigest()}"
         
         cached_result = frappe.cache().get_value(cache_key)

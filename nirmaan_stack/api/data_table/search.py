@@ -108,7 +108,7 @@ def get_list_with_count_enhanced_impl(
 
         # --- Caching Key ---
         cache_key_params = {
-            "v_api": "5.1", # Incremented for refactored version
+            "v_api": "5.2", # Bumped: ranking + OR-union semantics changed in this PR; invalidates pre-deploy cache entries.
             "doctype": doctype, 
             "fields": json.dumps(sorted(parsed_select_fields_str_list)),
             "filters": json.dumps(processed_base_filters),
@@ -335,10 +335,24 @@ def get_list_with_count_enhanced_impl(
                     rank_fields = [str(f) for f in search_config["searchable_child_fields"]]
                     rank_weights = {f: (2.0 if i == 0 else 1.0) for i, f in enumerate(rank_fields)}
                     select_cols = ", ".join([f"`{f}`" for f in [child_link_field, *rank_fields]])
+                    # Only pull rows that match at least one token — rows with
+                    # zero token matches contribute zero to scoring (the ranker
+                    # skips them anyway). Cuts the row pull and Python work to
+                    # the fraction that actually scores.
+                    rank_search_tokens = tokenize(search_term)
+                    rank_filter_tokens = [t for t in rank_search_tokens if len(t) >= 1] or rank_search_tokens
+                    rank_field_token_clauses = []
+                    rank_regex_params = []
+                    for rf in rank_fields:
+                        for tok in rank_filter_tokens:
+                            rank_field_token_clauses.append(f"`{rf}` ~* %s")
+                            rank_regex_params.append(r"(^|[\s\-_/()])" + re.escape(tok))
+                    rank_or_clause = " OR ".join(rank_field_token_clauses)
                     rank_rows = frappe.db.sql(
                         f"SELECT {select_cols} FROM `tab{child_doctype_name}` "
-                        f"WHERE `{child_link_field}` IN %s AND parenttype = %s",
-                        (tuple(parents_to_rank), doctype),
+                        f"WHERE `{child_link_field}` IN %s AND parenttype = %s "
+                        f"AND ({rank_or_clause})",
+                        (tuple(parents_to_rank), doctype, *rank_regex_params),
                         as_dict=True,
                     )
                     ranked_head = rank_parents_by_token_score(
@@ -355,14 +369,28 @@ def get_list_with_count_enhanced_impl(
                     item_path_parts = search_config["item_path_parts"]
                     item_name_key = search_config.get("item_name_key_in_json", "item")
                     json_array_key = item_path_parts[0]
+                    # Only pull JSON array elements that match at least one
+                    # token. Non-matching elements contribute zero to scoring
+                    # (ranker skips them); filtering them at SQL avoids
+                    # transferring and deserializing them.
+                    rank_search_tokens = tokenize(search_term)
+                    rank_filter_tokens = [t for t in rank_search_tokens if len(t) >= 1] or rank_search_tokens
+                    rank_token_conditions = []
+                    rank_sql_params: dict = {"names_tuple": tuple(parents_to_rank)}
+                    for i, tok in enumerate(rank_filter_tokens):
+                        key = f"rtoken_{i}"
+                        rank_token_conditions.append(f"item_obj->>'{item_name_key}' ~* %({key})s")
+                        rank_sql_params[key] = r"(^|[\s\-_/()])" + re.escape(tok)
+                    rank_or_clause = " OR ".join(rank_token_conditions)
                     rank_rows = frappe.db.sql(
                         f"SELECT `tab{doctype}`.`name` AS parent, "
                         f"item_obj->>'{item_name_key}' AS rank_text "
                         f"FROM `tab{doctype}`, jsonb_array_elements("
                         f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
                         f") AS item_obj "
-                        f"WHERE `tab{doctype}`.`name` IN %s",
-                        (tuple(parents_to_rank),),
+                        f"WHERE `tab{doctype}`.`name` IN %(names_tuple)s "
+                        f"AND ({rank_or_clause})",
+                        rank_sql_params,
                         as_dict=True,
                     )
                     ranked_head = rank_parents_by_token_score(
@@ -383,9 +411,15 @@ def get_list_with_count_enhanced_impl(
             if should_rank and ranked_names:
                 page_names = ranked_names[start:start + page_length]
                 limit_filters = [["name", "in", page_names]]
+                # order_by=None means "no explicit ORDER BY" — but Frappe's
+                # reportview will quietly apply its default (typically
+                # `modified desc`) when nothing is passed. That would override
+                # our ranking, so the .sort() below is LOAD-BEARING, not a
+                # cosmetic tidy-up. It re-imposes page_names order on the
+                # fetched rows. Do not remove without also forcing reportview
+                # to skip its default ordering.
                 data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": limit_filters, "order_by": None, "limit_start": 0, "limit_page_length": page_length})
                 data = reportview_execute(**data_args)
-                # Re-sort fetched rows to honor the ranked order (reportview ignores order_by=None and may return in arbitrary order).
                 rank_index = {n: i for i, n in enumerate(page_names)}
                 def _rank_key(r):
                     name = dict(r).get("name") or ""
