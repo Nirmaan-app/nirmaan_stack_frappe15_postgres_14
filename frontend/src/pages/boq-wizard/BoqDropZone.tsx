@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
-import { FileSpreadsheet, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBoqWizardStore } from "@/zustand/useBoqWizardStore";
 
 const ACCEPTED_EXTS = new Set([".xlsx", ".xlsm"]);
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+const TAKING_LONG_MS = 30_000;
 
 function fmtBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -15,24 +16,80 @@ function fmtBytes(bytes: number): string {
 export function BoqDropZone() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [takingLong, setTakingLong] = useState(false);
 
-  const { droppedFile, setDroppedFile, clearFile } = useBoqWizardStore();
+  const {
+    droppedFile,
+    uploadStatus,
+    selectedProjectId,
+    setDroppedFile,
+    setUploadStatus,
+    setJobId,
+    resetUpload,
+  } = useBoqWizardStore();
+
+  // 30-second soft "taking longer" message -- fires during parsing, not a timeout.
+  useEffect(() => {
+    if (uploadStatus !== "parsing") {
+      setTakingLong(false);
+      return;
+    }
+    const t = setTimeout(() => setTakingLong(true), TAKING_LONG_MS);
+    return () => clearTimeout(t);
+  }, [uploadStatus]);
+
+  async function triggerUpload(file: File): Promise<void> {
+    setUploadStatus("uploading");
+    setLocalError(null);
+    try {
+      const fd = new FormData();
+      fd.append("project_id", selectedProjectId);
+      fd.append("file", file, file.name);
+
+      const res = await fetch(
+        "/api/method/nirmaan_stack.api.boq.wizard.upload_file",
+        {
+          method: "POST",
+          headers: {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "X-Frappe-CSRF-Token": (window as any).frappe?.csrf_token ?? "",
+          },
+          body: fd,
+        }
+      );
+
+      if (!res.ok) {
+        setLocalError("Upload failed. Please try again.");
+        resetUpload();
+        return;
+      }
+
+      const json = await res.json() as { message?: { job_id?: string } };
+      const jobId = json?.message?.job_id ?? null;
+      setJobId(jobId);
+      setUploadStatus("parsing");
+    } catch {
+      setLocalError("Upload failed. Check your connection and try again.");
+      resetUpload();
+    }
+  }
 
   function acceptFile(file: File) {
     const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
-    // Error D — wrong extension
+    // Error D -- wrong extension
     if (!ACCEPTED_EXTS.has(ext)) {
-      setError(`"${ext}" is not supported. Please upload an .xlsx or .xlsm file.`);
+      setLocalError(`"${ext}" is not supported. Please upload an .xlsx or .xlsm file.`);
       return;
     }
-    // Error H — file too large
+    // Error H -- file too large
     if (file.size > MAX_BYTES) {
-      setError(`File is too large (${fmtBytes(file.size)}). Maximum allowed size is 25 MB.`);
+      setLocalError(`File is too large (${fmtBytes(file.size)}). Maximum allowed size is 25 MB.`);
       return;
     }
-    setError(null);
+    setLocalError(null);
     setDroppedFile({ name: file.name, size: file.size });
+    void triggerUpload(file);
   }
 
   function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -49,7 +106,95 @@ export function BoqDropZone() {
     if (f) acceptFile(f);
   }
 
-  // ── File tile (after a valid file is dropped / selected) ────────────────
+  // ── Uploading spinner ──────────────────────────────────────────────────────
+  if (uploadStatus === "uploading") {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-background p-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm font-medium text-foreground">Uploading file...</p>
+      </div>
+    );
+  }
+
+  // ── Parsing spinner ────────────────────────────────────────────────────────
+  if (uploadStatus === "parsing") {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-background p-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm font-medium text-foreground">Parsing BoQ...</p>
+        {takingLong && (
+          <p className="text-xs text-muted-foreground text-center max-w-xs">
+            This is taking a little longer than usual. Large workbooks can take up to a minute.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Error E -- corrupted workbook ──────────────────────────────────────────
+  if (uploadStatus === "error-E") {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <p className="font-medium text-destructive">File could not be read</p>
+          <p className="mt-1 text-muted-foreground">
+            The file appears to be corrupted or is not a valid Excel workbook.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="text-sm text-primary underline-offset-4 hover:underline"
+          onClick={() => { resetUpload(); setLocalError(null); setTakingLong(false); }}
+        >
+          Try a different file
+        </button>
+      </div>
+    );
+  }
+
+  // ── Error F -- zero sheets ─────────────────────────────────────────────────
+  if (uploadStatus === "error-F") {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <p className="font-medium text-destructive">No sheets found</p>
+          <p className="mt-1 text-muted-foreground">
+            The workbook contains no visible sheets. Please check the file and try again.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="text-sm text-primary underline-offset-4 hover:underline"
+          onClick={() => { resetUpload(); setLocalError(null); setTakingLong(false); }}
+        >
+          Try a different file
+        </button>
+      </div>
+    );
+  }
+
+  // ── Error internal ─────────────────────────────────────────────────────────
+  if (uploadStatus === "error-internal") {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <p className="font-medium text-destructive">Parsing failed</p>
+          <p className="mt-1 text-muted-foreground">
+            An unexpected error occurred while processing the file. Please try again.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="text-sm text-primary underline-offset-4 hover:underline"
+          onClick={() => { resetUpload(); setLocalError(null); setTakingLong(false); }}
+        >
+          Try a different file
+        </button>
+      </div>
+    );
+  }
+
+  // ── File tile (valid file present; idle or done) ───────────────────────────
   if (droppedFile) {
     return (
       <div className="space-y-3">
@@ -60,13 +205,18 @@ export function BoqDropZone() {
             <p className="text-xs text-muted-foreground">{fmtBytes(droppedFile.size)}</p>
           </div>
         </div>
+        {localError && (
+          <p className="text-sm text-destructive">{localError}</p>
+        )}
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
           onClick={() => {
-            clearFile();
-            setError(null);
-            inputRef.current?.click();
+            resetUpload();
+            setLocalError(null);
+            setTakingLong(false);
+            // defer click until re-render has mounted the idle-state input
+            setTimeout(() => inputRef.current?.click(), 0);
           }}
         >
           Replace file
@@ -82,7 +232,7 @@ export function BoqDropZone() {
     );
   }
 
-  // ── Empty / drag-drop affordance ─────────────────────────────────────────
+  // ── Empty / drag-drop affordance ───────────────────────────────────────────
   return (
     <div className="space-y-2">
       <div
@@ -113,8 +263,8 @@ export function BoqDropZone() {
         </div>
       </div>
 
-      {error && (
-        <p className="text-sm text-destructive">{error}</p>
+      {localError && (
+        <p className="text-sm text-destructive">{localError}</p>
       )}
 
       <input

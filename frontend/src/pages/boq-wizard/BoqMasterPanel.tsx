@@ -13,10 +13,15 @@ interface BoqMasterPanelProps {
 /**
  * Six-field Master BoQ details panel (M1.17).
  *
+ * Blank-until-parsed (§4.1 clarification for 1b-ii-b):
+ *   Fields start blank (empty string, no selection). They are populated only
+ *   when fillFromParse() is called after parser success. At that point,
+ *   confirmedFields are reset to false.
+ *
  * Pre-fill-unconfirmed treatment (§4.1 / M1.34):
- *   Required fields (BoQ Name, Version, GST) show ✨ sparkle and ~50% opacity
- *   while confirmedFields[field] === false. Any explicit interaction (click,
- *   focus, or change) calls confirmField() and clears the indicators.
+ *   Required fields show the sparkle and ~50% opacity ONLY when
+ *   the field has a real value AND is not yet confirmed. Pre-parse the
+ *   fields are empty, so no sparkle shows.
  *
  * Excluded from unconfirmed treatment per spec (M1.19, M1.32):
  *   Project and Customer (read-only) and Notes (optional).
@@ -29,9 +34,14 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
     confirmField(field);
   }
 
+  // Sparkle + opacity only when field has a real value AND is unconfirmed.
+  const boqNameUnconfirmed = !confirmedFields.boqName && panelValues.boqName !== "";
+  const versionUnconfirmed = !confirmedFields.version && panelValues.version !== "";
+  const gstUnconfirmed = !confirmedFields.gst && panelValues.gst !== "";
+
   return (
     <div className="space-y-5">
-      {/* ── Project — read-only (M1.19) ─────────────────────────────── */}
+      {/* ── Project -- read-only (M1.19) ─────────────────────────────────── */}
       <div className="space-y-1.5">
         <Label>Project</Label>
         <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
@@ -39,7 +49,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         </p>
       </div>
 
-      {/* ── Customer — read-only, can be blank (M1.19, M1.20) ─────────── */}
+      {/* ── Customer -- read-only, can be blank (M1.19, M1.20) ───────────── */}
       <div className="space-y-1.5">
         <Label>Customer</Label>
         <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
@@ -47,13 +57,13 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         </p>
       </div>
 
-      {/* ── BoQ Name — required, pre-fill-unconfirmed (M1.34) ────────── */}
+      {/* ── BoQ Name -- required, blank-until-parsed (M1.34) ─────────────── */}
       <div className="space-y-1.5">
         <Label className={cn("flex items-center gap-1")}>
           BoQ Name
           <span className="text-destructive">*</span>
-          {!confirmedFields.boqName && (
-            <span className="ml-0.5 text-sm" aria-label="Pre-filled — click to confirm">
+          {boqNameUnconfirmed && (
+            <span className="ml-0.5 text-sm" aria-label="Pre-filled -- click to confirm">
               ✨
             </span>
           )}
@@ -61,7 +71,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         <Input
           value={panelValues.boqName}
           placeholder="e.g. Electrical BoQ"
-          className={cn(!confirmedFields.boqName && "opacity-50")}
+          className={cn(boqNameUnconfirmed && "opacity-50")}
           onFocus={() => touch("boqName")}
           onClick={() => touch("boqName")}
           onChange={(e) => {
@@ -71,13 +81,13 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         />
       </div>
 
-      {/* ── Version — required, V-prefixed, pre-fill-unconfirmed (M1.34) */}
+      {/* ── Version -- required, V-prefixed, blank-until-parsed (M1.34) ───── */}
       <div className="space-y-1.5">
         <Label className="flex items-center gap-1">
           Version
           <span className="text-destructive">*</span>
-          {!confirmedFields.version && (
-            <span className="ml-0.5 text-sm" aria-label="Pre-filled — click to confirm">
+          {versionUnconfirmed && (
+            <span className="ml-0.5 text-sm" aria-label="Pre-filled -- click to confirm">
               ✨
             </span>
           )}
@@ -85,7 +95,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         <Input
           value={panelValues.version}
           placeholder="V1"
-          className={cn(!confirmedFields.version && "opacity-50")}
+          className={cn(versionUnconfirmed && "opacity-50")}
           onFocus={() => touch("version")}
           onClick={() => touch("version")}
           onChange={(e) => {
@@ -95,13 +105,13 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         />
       </div>
 
-      {/* ── GST Treatment — radio, required, pre-fill-unconfirmed (M1.30 M1.34) */}
+      {/* ── GST Treatment -- radio, required, blank-until-parsed (M1.30 M1.34) */}
       <div className="space-y-1.5">
         <Label className="flex items-center gap-1">
           GST Treatment
           <span className="text-destructive">*</span>
-          {!confirmedFields.gst && (
-            <span className="ml-0.5 text-sm" aria-label="Pre-filled — click to confirm">
+          {gstUnconfirmed && (
+            <span className="ml-0.5 text-sm" aria-label="Pre-filled -- click to confirm">
               ✨
             </span>
           )}
@@ -109,7 +119,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         {/*
           onClick on RadioGroup: catches clicks on the pre-selected radio
           (onValueChange only fires when value changes, so clicking the
-          already-selected option would not fire it — M1.30 requires that
+          already-selected option would not fire it -- M1.30 requires that
           "clicking even the default confirms").
         */}
         <RadioGroup
@@ -119,7 +129,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
             setPanelValue("gst", val as GstChoice);
           }}
           onClick={() => touch("gst")}
-          className={cn("flex gap-6", !confirmedFields.gst && "opacity-50")}
+          className={cn("flex gap-6", gstUnconfirmed && "opacity-50")}
         >
           <div className="flex items-center gap-2">
             <RadioGroupItem value="pre" id="gst-pre" />
@@ -136,7 +146,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         </RadioGroup>
       </div>
 
-      {/* ── Notes — optional, NO unconfirmed treatment (M1.32) ──────── */}
+      {/* ── Notes -- optional, NO unconfirmed treatment (M1.32) ──────────── */}
       <div className="space-y-1.5">
         <Label>
           Notes{" "}
