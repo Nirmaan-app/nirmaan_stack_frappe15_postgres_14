@@ -282,7 +282,7 @@ export const TenderingProjectForm = ({
                     // Reset city when state changes
                     form.setValue("project_city", "");
                   }}
-                  menuPortalTarget={document.body}
+                  menuPortalTarget={embedded ? undefined : document.body}
                   styles={{
                     menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                   }}
@@ -325,7 +325,7 @@ export const TenderingProjectForm = ({
                   onChange={(option: any) =>
                     field.onChange(option?.value || "")
                   }
-                  menuPortalTarget={document.body}
+                  menuPortalTarget={embedded ? undefined : document.body}
                   styles={{
                     menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                   }}
@@ -359,7 +359,7 @@ export const TenderingProjectForm = ({
                     customerOptions.find((o) => o.value === field.value) || null
                   }
                   onChange={(option) => field.onChange(option?.value || "")}
-                  menuPortalTarget={document.body}
+                  menuPortalTarget={embedded ? undefined : document.body}
                   styles={{
                     menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                   }}
