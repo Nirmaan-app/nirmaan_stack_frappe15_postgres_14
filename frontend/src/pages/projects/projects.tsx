@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef } from "@tanstack/react-table";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import memoize from "lodash/memoize";
 import {
   CircleCheckBig,
@@ -20,6 +20,7 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -70,6 +71,7 @@ import {
   useProjectsListProjectInvoices,
 } from "./data/root/useProjectRootApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
+import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
@@ -109,7 +111,7 @@ interface StatusCountPillProps {
 
 const getProjectStatusColors = (status: string) => {
   switch (status) {
-    case "Created":
+    case "Won":
       return {
         bg: "bg-blue-100/50",
         border: "border-blue-200",
@@ -262,6 +264,28 @@ export const Projects: React.FC<ProjectsProps> = ({
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
   const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
 
+  // Tab toggle: "projects" (default operational list) vs "tendering" (stub list).
+  // URL-persisted via the `tab` search param so the create form can deep-link.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === "tendering" ? "tendering" : "projects";
+  const handleTabChange = useCallback(
+    (value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value === "tendering") {
+            next.set("tab", "tendering");
+          } else {
+            next.delete("tab");
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -289,7 +313,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   const { data: all_projects_count } = useAllProjectsCount();
 
   const statusOptions = useMemo(() => {
-    const options = ["WIP", "Completed", "Halted", "Handover"];
+    const options = ["Won", "WIP", "Completed", "Halted", "Handover"];
     if (user_id === CEO_HOLD_AUTHORIZED_USER) {
       options.push("CEO Hold");
     }
@@ -953,6 +977,19 @@ export const Projects: React.FC<ProjectsProps> = ({
             : ""
       )}
     >
+      {!customersView && (
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <TabsList>
+            <TabsTrigger value="projects">Projects</TabsTrigger>
+            <TabsTrigger value="tendering">Tendering</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {activeTab === "tendering" && !customersView ? (
+        <TenderingProjectsTable customerId={customerId} urlContext={urlContext} />
+      ) : (
+        <>
       {!customersView && canViewSummaryCard && (
         <Card className="my-2 shadow-sm overflow-hidden">
           <CardContent className="p-0">
@@ -1095,6 +1132,8 @@ export const Projects: React.FC<ProjectsProps> = ({
           />
         )}
       </div>
+        </>
+      )}
     </div>
   );
 };

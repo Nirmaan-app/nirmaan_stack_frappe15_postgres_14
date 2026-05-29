@@ -170,6 +170,7 @@ doc_events = {
     },
     "Procurement Requests": {
         # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
+        "validate": "nirmaan_stack.integrations.controllers.procurement_requests.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_requests.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_requests.on_update",
         "on_trash": [
@@ -201,6 +202,7 @@ doc_events = {
             ]
     },
     "Service Requests": {
+        "validate": "nirmaan_stack.integrations.controllers.service_requests.validate",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.service_requests.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
@@ -211,6 +213,7 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "Project Payments": {
+        "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.project_payments.on_update",
         "on_trash": [
@@ -219,13 +222,18 @@ doc_events = {
         ]
     },
      "Project Invoices": {
+        "validate": "nirmaan_stack.integrations.controllers.project_invoices.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "Non Project Expenses": {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "Project Inflows": {
+        "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+    },
+    "PO Delivery Documents": {
+        "validate": "nirmaan_stack.integrations.controllers.po_delivery_documents.validate",
     },
     "Delivery Notes": {
         "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",

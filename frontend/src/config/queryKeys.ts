@@ -351,7 +351,12 @@ export const getVendorListOptions = (vendorType: string[] = ["Material", "Materi
 
 export const getProjectListOptions = (projectOptions?: { filters?: Filter<FrappeDoc<Projects>>[], fields?: string[] }): ProjectListParams => ({
   fields: projectOptions?.fields || PROJECT_MINIMAL_FIELDS,
-  filters: projectOptions?.filters || [],
+  // Tendering stubs are prospect-only and must never appear in operational project lists/pickers,
+  // so always exclude them in addition to any caller-supplied filters.
+  filters: [
+    ...(projectOptions?.filters || []),
+    ["status", "!=", "Tendering"],
+  ] as Filter<FrappeDoc<Projects>>[],
   limit: 1000,
   orderBy: { field: "project_name", order: "asc" },
 });

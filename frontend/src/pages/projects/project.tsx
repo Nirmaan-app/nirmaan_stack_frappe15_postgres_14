@@ -50,7 +50,8 @@ import {
   FilePenLine,
   Hand,
   HardHat,
-  OctagonMinus
+  OctagonMinus,
+  Award
 } from "lucide-react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -61,6 +62,7 @@ import { useReactToPrint } from "react-to-print";
 // import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
+import TenderingProjectView from "./tendering/TenderingProjectView";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 // import { ProjectMakesTab } from "./ProjectMakesTab";
@@ -136,6 +138,14 @@ const projectStatuses = [
     color: "text-blue-600",
     icon: ArrowRightLeft,
   },
+  // "Won" is the initial status of a real project: shown for display only.
+  // It is set at creation/convert, never chosen via the manual status dropdown.
+  {
+    value: "Won",
+    label: "Won",
+    color: "text-indigo-600",
+    icon: Award,
+  },
 ];
 
 export type po_item_data_item = ProjectPOItemDataItem;
@@ -186,6 +196,14 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
+  // Tendering stubs are lightweight bid/prospect records (only Name/City/State/
+  // Customer — no address, work packages, team, or timeline). Early-return a
+  // dedicated lightweight view BEFORE the heavy role-based tab machinery in
+  // <ProjectView /> ever mounts, so a stub never runs operational tabs. (ADR
+  // 0001 decision #10; PRD module F6.)
+  if (data && data.status === "Tendering") {
+    return <TenderingProjectView data={data} onRefresh={() => project_mutate()} />;
+  }
 
   return (
     data && (
@@ -1539,7 +1557,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <CommandList>
                       <CommandGroup>
                         {projectStatuses
-                          .filter((s) => s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER)
+                          .filter((s) => s.value !== "Won" && (s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER))
                           .map((s) => (
                             <CommandItem
                               key={s.value}

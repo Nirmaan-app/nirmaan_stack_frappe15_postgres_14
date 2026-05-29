@@ -1,14 +1,15 @@
 export type ProjectStatus =
+  | "Tendering"
   | "WIP"
   | "Completed"
-  | "Created"
+  | "Won"
   | "Halted"
   | "CEO Hold"
   | "Handover";
 
 export const PROJECT_STATUS_OPTIONS: ProjectStatus[] = [
   "Completed",
-  "Created",
+  "Won",
   "Halted",
   "Handover",
   "WIP",
@@ -24,5 +25,7 @@ export const PROJECT_STATUS_BADGE_CLASSES: Record<string, string> = {
   Halted: "bg-red-100 text-red-800 border-red-400",
   "CEO Hold": "bg-amber-100 text-amber-900 border-amber-500",
   Handover: "bg-blue-100 text-blue-800 border-blue-400",
-  Created: "bg-indigo-100 text-indigo-800 border-indigo-400",
+  Won: "bg-indigo-100 text-indigo-800 border-indigo-400",
+  // Tendering = a prospect stub, not yet a real project — neutral slate badge.
+  Tendering: "bg-slate-100 text-slate-700 border-slate-400",
 };

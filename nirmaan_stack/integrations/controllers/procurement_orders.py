@@ -3,6 +3,7 @@ from frappe import _
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.api.projects._tendering_guard import validate_not_tendering
 
 def after_insert(doc, method):
         proc_admin_account_users = get_allowed_procurement_users(doc) + get_admin_users() + get_allowed_accountants(doc)
@@ -80,6 +81,11 @@ def after_insert(doc, method):
 
 def validate(doc, method):
     """Prevent reverting PO status if Delivery Notes exist."""
+    # Defense-in-depth: refuse to create a PO against a Tendering stub.
+    # Guard only NEW docs so edits to legacy/operational POs are unaffected.
+    if doc.is_new():
+        validate_not_tendering(doc.project, "Procurement Order")
+
     old_doc = doc.get_doc_before_save()
     if old_doc and old_doc.status in ("Partially Dispatched", "Dispatched") and doc.status == "PO Approved":
         if frappe.db.exists("Delivery Notes", {"procurement_order": doc.name}):

@@ -10,6 +10,9 @@ class ProjectWorkMilestones(Document):
 	pass
 
 def generate_pwm(project, method=None):
+	# Tendering stubs have no start/end dates and no scopes; skip milestone generation.
+	if project.status == "Tendering":
+		return
 	project_start_datetime = datetime.strptime(project.project_start_date, "%Y-%m-%d %H:%M:%S")
 	project_start_date = project_start_datetime.date()
 

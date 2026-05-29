@@ -22,9 +22,28 @@ export const PROJECT_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 // Date columns for Projects table
 export const PROJECT_DATE_COLUMNS: string[] = ["creation", "modified"];
 
-// Function to get static filters based on props like customerId
-export const getProjectStaticFilters = (customerId?: string): Array<[string, string, any]> => {
+// Function to get static filters based on props like customerId.
+// By default, "Tendering" stubs are excluded from the main project list and
+// all other status tabs (they live only on the dedicated Tendering tab).
+export const getProjectStaticFilters = (
+    customerId?: string,
+    includeTendering = false
+): Array<[string, string, any]> => {
     const filters: Array<[string, string, any]> = [];
+    if (customerId) {
+        filters.push(["customer", "=", customerId]);
+    }
+    if (!includeTendering) {
+        filters.push(["status", "!=", "Tendering"]);
+    }
+    return filters;
+};
+
+// Static filter that isolates ONLY Tendering stubs (used by the Tendering tab).
+export const getTenderingStaticFilters = (
+    customerId?: string
+): Array<[string, string, any]> => {
+    const filters: Array<[string, string, any]> = [["status", "=", "Tendering"]];
     if (customerId) {
         filters.push(["customer", "=", customerId]);
     }
