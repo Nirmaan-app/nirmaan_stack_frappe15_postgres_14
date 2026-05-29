@@ -1,4 +1,6 @@
 import os
+import shutil
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -13,6 +15,16 @@ _FIXTURE_DIR = os.path.abspath(os.path.join(
 ))
 _SIMPLE_XLSX = os.path.join(_FIXTURE_DIR, "synthetic_simple.xlsx")
 _FAKE_FILE_URL = "/private/files/synthetic_simple.xlsx"
+
+
+def _make_xlsx_tempfile():
+    """Copy _SIMPLE_XLSX into a fresh NamedTemporaryFile; worker's finally will delete it."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    try:
+        shutil.copyfileobj(open(_SIMPLE_XLSX, "rb"), tmp)
+    finally:
+        tmp.close()
+    return tmp.name
 
 
 def _make_project_fixture():
@@ -74,7 +86,7 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
         """Worker creates BOQs row with wizard_state=In progress and populates sheet_drafts."""
         _upload_file_worker(
             project_id=self.__class__.test_project.name,
-            abs_path=_SIMPLE_XLSX,
+            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
             user="Administrator",
@@ -104,7 +116,7 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
         """File name with underscores produces boq_name with spaces."""
         _upload_file_worker(
             project_id=self.__class__.test_project.name,
-            abs_path=_SIMPLE_XLSX,
+            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="RFQ_Bangalore_HVAC_BOQ.xlsx",
             user="Administrator",
@@ -128,7 +140,7 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
 
         _upload_file_worker(
             project_id=self.__class__.test_project.name,
-            abs_path=_SIMPLE_XLSX,
+            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
             user="Administrator",
@@ -219,7 +231,7 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
             with patch("frappe.publish_realtime") as mock_pub:
                 _upload_file_worker(
                     project_id=self.__class__.test_project.name,
-                    abs_path="/nonexistent/path/corrupted.xlsx",
+                    tempfile_path="/nonexistent/path/corrupted.xlsx",
                     file_url="/private/files/corrupted.xlsx",
                     file_name="corrupted.xlsx",
                     user="Administrator",
@@ -243,7 +255,7 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
             with patch("frappe.publish_realtime") as mock_pub:
                 _upload_file_worker(
                     project_id=self.__class__.test_project.name,
-                    abs_path=_SIMPLE_XLSX,
+                    tempfile_path="/nonexistent/path/zero_sheets.xlsx",
                     file_url=_FAKE_FILE_URL,
                     file_name="synthetic_simple.xlsx",
                     user="Administrator",

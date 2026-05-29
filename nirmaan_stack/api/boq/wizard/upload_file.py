@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 import frappe
 from frappe.utils.file_manager import save_file
@@ -42,7 +43,15 @@ def upload_file():
 
     ret = save_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
     file_url = ret.file_url
-    abs_path = frappe.get_site_path(file_url.lstrip("/"))
+
+    # Write upload bytes to a tempfile so the worker can parse them regardless
+    # of storage backend (file_url may be an S3 API URL, not a local path).
+    tmp = tempfile.NamedTemporaryFile(suffix=ext.lower(), delete=False)
+    try:
+        tmp.write(file_content)
+    finally:
+        tmp.close()
+    tempfile_path = tmp.name
 
     job = frappe.enqueue(
         "nirmaan_stack.api.boq.wizard.upload_file._upload_file_worker",
@@ -50,7 +59,7 @@ def upload_file():
         timeout=600,
         user=frappe.session.user,
         project_id=project_id,
-        abs_path=abs_path,
+        tempfile_path=tempfile_path,
         file_url=file_url,
         file_name=filename,
     )
@@ -58,7 +67,7 @@ def upload_file():
     return {"job_id": job.id if job else None}
 
 
-def _upload_file_worker(project_id, abs_path, file_url, file_name, user):
+def _upload_file_worker(project_id, tempfile_path, file_url, file_name, user):
     """Async worker: open workbook, create BOQs row + sheet_drafts, publish result."""
     frappe.set_user(user)
     try:
@@ -72,7 +81,7 @@ def _upload_file_worker(project_id, abs_path, file_url, file_name, user):
 
         # Step 2: Open workbook; publish corrupted error and abort on failure.
         try:
-            reader = BoqReader(abs_path)
+            reader = BoqReader(tempfile_path)
         except Exception:
             frappe.publish_realtime(
                 "boq:wizard_parse_done",
@@ -156,3 +165,8 @@ def _upload_file_worker(project_id, abs_path, file_url, file_name, user):
             {"status": "error", "error_code": "internal"},
         )
         raise
+    finally:
+        try:
+            os.remove(tempfile_path)
+        except OSError:
+            pass
