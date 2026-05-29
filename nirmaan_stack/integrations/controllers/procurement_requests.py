@@ -14,6 +14,8 @@ import math # Though not used in the final version 3 logic, kept if needed later
 # 'Any' might still be useful for generic dictionary values if strict typing isn't needed there.
 from typing import TypedDict
 
+from nirmaan_stack.api.projects._tendering_guard import validate_won
+
 # Constants for Auto-Approval Logic
 AUTO_APPROVAL_THRESHOLD = 20000.0  # ₹20,000
 AUTO_APPROVED_PR_COUNT_KEY = "auto_approved_pr_count"
@@ -541,10 +543,18 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
     # return True
 
 def validate(doc, method):
+    """Backfill item_id on order_list rows + Tendering operational guard.
+
+    Tendering guard (Slice 5 / B5): refuse to create a PR against a Tendering
+    project stub even if it slipped through the UI picker filter. Guard only
+    NEW docs so edits to existing/legacy PRs are never blocked.
+    """
     for item in doc.get("order_list") or []:
         if not item.item_id:
             item.item_id = item.name
 
+    if doc.is_new():
+        validate_won(doc.project, "Procurement Request")
 
 def after_insert(doc, method):
     # if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
