@@ -255,7 +255,7 @@ treatment on the REAL detected values. The sparkle/opacity condition checks BOTH
 1b-ii-a `useEffect` that pre-filled `boqName` from `project.project_name` is REMOVED.
 
 **Upload trigger flow (1b-ii-b):** On valid drop, `BoqDropZone` immediately POSTs to
-`/api/method/nirmaan_stack.api.boq.wizard.upload_file` via native `fetch` with
+`/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file` via native `fetch` with
 `FormData` (fields: `project_id` from store, `file`). CSRF token from
 `(window as any).frappe?.csrf_token`. Returns `{message: {job_id}}` synchronously;
 `setUploadStatus("parsing")` + `setJobId(job_id)` on success. Upload HTTP failure
