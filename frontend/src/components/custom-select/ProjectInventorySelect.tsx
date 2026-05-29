@@ -40,11 +40,15 @@ export default function ProjectInventorySelect({
     styles,
     disabled = false,
 }: ProjectInventorySelectProps) {
-    // Fetch all potentially relevant projects
-    // We filter Cancelled/Completed projects but allow Halted/Handover to be handled by deactivation logic
+    // Fetch all potentially relevant projects.
+    // v3: pre-Won projects (Tendering or Lost) are never selectable for
+    // operational work — gated by the bid dimension. `all=true` keeps the
+    // legacy "include Cancelled" semantics; default filters Cancelled out.
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status", "disabled_inventory", "disabled_inventory_date"],
-        filters: all ? undefined : [["status", "not in", ["Cancelled"]]],
+        filters: all
+            ? [["tendering_status", "=", "Won"]]
+            : [["tendering_status", "=", "Won"], ["status", "!=", "Cancelled"]],
         limit: 1000,
         orderBy: { field: 'creation', order: 'desc' },
     });

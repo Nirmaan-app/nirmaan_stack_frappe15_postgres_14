@@ -50,7 +50,9 @@ import {
   FilePenLine,
   Hand,
   HardHat,
-  OctagonMinus
+  OctagonMinus,
+  Award,
+  Sparkles
 } from "lucide-react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -61,6 +63,7 @@ import { useReactToPrint } from "react-to-print";
 // import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
+import TenderingProjectView from "./tendering/TenderingProjectView";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 // import { ProjectMakesTab } from "./ProjectMakesTab";
@@ -110,7 +113,19 @@ import {
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
 
+// v3 dual-field model: this list covers the EXECUTION status (`status` field
+// — Created / WIP / Completed / Halted / Handover / CEO Hold). The bid
+// dimension (`tendering_status` — Tendering / Won / Lost) lives in the badge
+// at the top of the view and is never user-editable through this dropdown.
 const projectStatuses = [
+  // "Created" is the initial execution stage post-create/convert; shown so
+  // the badge resolves, but excluded from the manual-change dropdown below.
+  {
+    value: "Created",
+    label: "Created",
+    color: "text-purple-600",
+    icon: Sparkles,
+  },
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
   {
     value: "Completed",
@@ -186,6 +201,14 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
+  // v3 dual-field model: pre-Won projects (Tendering or Lost) are lightweight
+  // stubs with no address, work packages, team, or timeline. Early-return a
+  // dedicated lightweight view BEFORE the heavy role-based tab machinery in
+  // <ProjectView /> ever mounts, so a stub never runs operational tabs. The
+  // view branches further by `tendering_status` (Tendering vs Lost).
+  if (data && data.tendering_status && data.tendering_status !== "Won") {
+    return <TenderingProjectView data={data} onRefresh={() => project_mutate()} />;
+  }
 
   return (
     data && (
@@ -1543,7 +1566,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <CommandList>
                       <CommandGroup>
                         {projectStatuses
-                          .filter((s) => s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER)
+                          .filter((s) => s.value !== "Created" && (s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER))
                           .map((s) => (
                             <CommandItem
                               key={s.value}

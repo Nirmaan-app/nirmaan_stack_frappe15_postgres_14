@@ -71,9 +71,11 @@ export const useProjectStatusCountCall = () => {
 };
 
 export const useAllProjectsCount = () => {
+  // "Total Projects" counts only awarded (Won) projects. Pre-Won stubs
+  // (Tendering / Lost) are pipeline records and would distort the count.
   const response = useFrappeGetDocCount(
     "Projects",
-    undefined,
+    [["tendering_status", "=", "Won"]],
     false,
     projectRootKeys.allProjectsCount()
   );

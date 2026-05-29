@@ -351,7 +351,12 @@ export const getVendorListOptions = (vendorType: string[] = ["Material", "Materi
 
 export const getProjectListOptions = (projectOptions?: { filters?: Filter<FrappeDoc<Projects>>[], fields?: string[] }): ProjectListParams => ({
   fields: projectOptions?.fields || PROJECT_MINIMAL_FIELDS,
-  filters: projectOptions?.filters || [],
+  // v3: pre-Won projects (Tendering or Lost) must never appear in operational
+  // project lists/pickers — the bid dimension is the source of truth now.
+  filters: [
+    ...(projectOptions?.filters || []),
+    ["tendering_status", "=", "Won"],
+  ] as Filter<FrappeDoc<Projects>>[],
   limit: 1000,
   orderBy: { field: "project_name", order: "asc" },
 });
