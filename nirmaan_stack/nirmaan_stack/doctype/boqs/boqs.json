@@ -22,7 +22,9 @@
   "parser_metadata_section",
   "source_sheet_name",
   "source_file_url",
-  "area_dimensions"
+  "area_dimensions",
+  "wizard_state",
+  "sheet_drafts"
  ],
  "fields": [
   {
@@ -130,6 +132,18 @@
    "fieldname": "area_dimensions",
    "fieldtype": "Small Text",
    "label": "Area Dimensions (JSON)"
+  },
+  {
+   "fieldname": "wizard_state",
+   "fieldtype": "Select",
+   "label": "Wizard State",
+   "options": "\nIn progress\nConfigured\nParsed"
+  },
+  {
+   "fieldname": "sheet_drafts",
+   "fieldtype": "Table",
+   "label": "Sheet Drafts",
+   "options": "BoQ Sheet Draft"
   }
  ],
  "grid_page_length": 50,
