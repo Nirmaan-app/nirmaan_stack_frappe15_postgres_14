@@ -224,10 +224,40 @@ This prevents Radix Dialog's DismissableLayer from intercepting clicks on portal
 elements and swallowing option selections. On the standalone route (embedded
 absent) the menus continue to portal to `document.body` as before.
 
-**Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d, corrected
-74741417 -- PE gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering
-create-modal, additive TenderingProjectForm embedded mode). 1b-ii (upload screen,
-drop zone, Socket.IO listener, useBoqWizardStore) is pending.
+**useBoqWizardStore (M1.60):** Transient Zustand store at `src/zustand/useBoqWizardStore.ts`
+(no `persist` middleware -- wizard state is session-only). Mirrors `useProjectDraftStore`
+structure. Key state: `selectedProjectId`, `droppedFile` ({name,size}|null),
+`uploadStatus` ('idle' -- expanded in 1b-ii-b), `panelValues` (boqName/version/gst/notes),
+`confirmedFields` (boqName/version/gst booleans). Key actions: `setDroppedFile`,
+`clearFile`, `setPanelValue`, `confirmField`, `reset`. Call `reset()` when projectId
+changes to flush stale state; pre-fill `boqName` from the fetched project name
+afterwards (unconfirmed).
+
+**Upload screen layout (M1.4, M1.7):** `BoqUploadScreen.tsx` owns the two-pane
+layout (Card grid, 1-col mobile / 2-col md+). Renders in-place inside `BoqPickerPage`
+when `?project=<id>` is present -- no new route. `BoqDropZone.tsx` is the left pane;
+`BoqMasterPanel.tsx` is the right pane. Footer: Back-to-project (navigates to
+`/projects/<id>`) + Continue (disabled until 1b-ii-b gates it on file + confirmed fields).
+
+**Drop zone (M1.65):** `BoqDropZone.tsx` -- custom file-input pattern, no react-dropzone.
+Hidden `<input type="file" accept=".xlsx,.xlsm">` triggered by click/drag. Client-side
+validation only: wrong extension = Error D; >25 MB = Error H. Errors E (corrupted) and
+F (zero sheets) require the parser -- deferred to 1b-ii-b. On valid drop: collapses to
+file tile (filename + size + Replace link); file stored in `useBoqWizardStore.droppedFile`.
+
+**Pre-fill-unconfirmed pattern (S4.1, M1.34):** Required fields (BoQ Name, Version, GST)
+are pre-filled with static defaults (project name / "V1" / "pre") but shown at ~50%
+opacity with a ✨ sparkle next to their labels until the user explicitly interacts
+(click, focus, or value change calls `confirmField`). Read-only (Project, Customer) and
+optional (Notes) fields are excluded from this treatment (M1.19, M1.32). GST's
+`onClick` on the `RadioGroup` catches clicks on the pre-selected option, satisfying
+M1.30 ("clicking even the default confirms"). Confirmed flags live in the store.
+
+**Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d, corrected 74741417 -- PE
+gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering create-modal). 1b-modal
+dropdown fix landed (fix 0c066902). Module 1b-ii-a landed (feat d1f3b5cd -- static
+upload screen + store + drop zone + panel; Continue stubbed). 1b-ii-b (upload trigger,
+Socket.IO parse listener, Continue gate) is pending.
 
 ---
 
