@@ -1908,6 +1908,22 @@ Newest at the top.
 
 ---
 
+### 2026-05-29 -- Module 1a CLAUDE.md convention codification
+
+Docs commit dbbe7c93 (docs(claude): Module 1a convention codification).
+
+Retroactively codifies four conventions established during Module 1a into root CLAUDE.md:
+1. Phase 3 branch convention -- `feature/boq-phase-3` active; `feature/boq-phase-2` frozen at `2e338b36`.
+2. Wizard scope discipline principle -- two-path discussion before drafting; default lean is "keep outside wizard if reach extends beyond Upload BoQ".
+3. Test fixture pattern for Projects rows -- `now()[:19]` truncation + empty `project_scopes` + `tearDownClass` cleanup.
+4. API subdirectory pattern under `api/<feature>/` -- acceptable for sub-area grouping (`api/boq/wizard/`).
+
+Standing practice reaffirmed: every CC prompt going forward explicitly addresses both `boq-upload-plan.md` and `CLAUDE.md` (root + frontend). If any is skipped, the prompt must say why and chat-Claude obtains explicit user consent before issuing.
+
+`frontend/CLAUDE.md` untouched this cycle -- Module 1b (frontend) will land substantive updates there.
+
+---
+
 ### 2026-05-29 -- Module 1a -- wizard backend and schema landed (Phase 3 kickoff)
 
 Feat commit 06f38e8d (feat(boq): Module 1a -- wizard backend and schema (Phase 3 kickoff)).
