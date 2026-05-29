@@ -4,6 +4,12 @@ import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -11,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FileSpreadsheet, FolderPlus } from "lucide-react";
+import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
 
 const BoqPickerPage = () => {
   const navigate = useNavigate();
@@ -18,6 +25,7 @@ const BoqPickerPage = () => {
   const preSelectedId = searchParams.get("project") ?? "";
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>(preSelectedId);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   // Keep dropdown in sync when URL param changes (back/forward navigation).
   useEffect(() => {
@@ -36,6 +44,12 @@ const BoqPickerPage = () => {
     // TODO(1b-ii): navigate to the upload screen once it exists.
     // For now, persist the selection in the URL so this round-trips correctly.
     navigate(`/upload-boq?project=${selectedProjectId}`);
+  };
+
+  const handleCreated = (newProjectId: string) => {
+    setCreateDialogOpen(false);
+    setSelectedProjectId(newProjectId);
+    navigate(`/upload-boq?project=${newProjectId}`);
   };
 
   return (
@@ -91,17 +105,27 @@ const BoqPickerPage = () => {
         </div>
       </div>
 
-      {/* Stubbed: Tendering project creation modal launches in 1b-modal. */}
       <Button
         variant="outline"
-        className="w-full text-muted-foreground"
-        disabled
-        title="Tendering project creation launches in the next update"
+        className="w-full"
+        onClick={() => setCreateDialogOpen(true)}
       >
         <FolderPlus className="mr-2 h-4 w-4" />
         Create new Tendering project
-        <span className="ml-auto text-xs opacity-60">coming next</span>
       </Button>
+
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New Tendering Project</DialogTitle>
+          </DialogHeader>
+          <TenderingProjectForm
+            embedded
+            onCreated={handleCreated}
+            onCancel={() => setCreateDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

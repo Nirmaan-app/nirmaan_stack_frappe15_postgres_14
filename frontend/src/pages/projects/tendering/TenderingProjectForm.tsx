@@ -62,8 +62,16 @@ interface TenderingProjectFormProps {
   editProject?: TenderingProjectFormEditTarget;
   /** Called after a successful edit (EDIT mode only). */
   onSuccess?: () => void;
-  /** Called when the user cancels (EDIT mode only). */
+  /** Called when the user cancels. In EDIT mode always active; in CREATE mode
+   *  active only when `embedded` is true (so the host can close the dialog). */
   onCancel?: () => void;
+  /** CREATE mode only: called with the new project's docname after a successful
+   *  create. When provided, the post-create navigation is suppressed — the host
+   *  (e.g. the BoQ picker modal) takes over. */
+  onCreated?: (newProjectId: string) => void;
+  /** CREATE mode only: when true, renders the bare form body without the page
+   *  chrome (back button, Card wrapper) so it sits cleanly inside a Dialog. */
+  embedded?: boolean;
 }
 
 /**
@@ -83,6 +91,8 @@ export const TenderingProjectForm = ({
   editProject,
   onSuccess,
   onCancel,
+  onCreated,
+  embedded,
 }: TenderingProjectFormProps = {}) => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -201,7 +211,11 @@ export const TenderingProjectForm = ({
         variant: "success",
       });
 
-      navigate("/projects?tab=tendering");
+      if (onCreated) {
+        onCreated(response.message.project_name ?? "");
+      } else {
+        navigate("/projects?tab=tendering");
+      }
     } catch (err: any) {
       toast({
         title: "Failed!",
@@ -361,7 +375,9 @@ export const TenderingProjectForm = ({
             type="button"
             variant="secondary"
             onClick={() =>
-              isEditMode ? onCancel?.() : navigate("/projects/new-project")
+              isEditMode || embedded
+                ? onCancel?.()
+                : navigate("/projects/new-project")
             }
           >
             Cancel
@@ -389,9 +405,9 @@ export const TenderingProjectForm = ({
     </Form>
   );
 
-  // EDIT mode renders the bare form so the host (TenderingProjectView) can
-  // place it inside its own card/dialog without a duplicate page chrome.
-  if (isEditMode) {
+  // EDIT mode and embedded CREATE mode both render the bare form so the host
+  // can place it inside its own card/dialog without duplicate page chrome.
+  if (isEditMode || embedded) {
     return formBody;
   }
 
