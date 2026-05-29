@@ -218,6 +218,12 @@ The standalone route `/projects/new-project/tendering` is byte-for-byte
 unchanged when these props are absent. This change is owner-approved (M1.56,
 Nitesh briefed Abhishek). Do NOT widen these props further without owner sign-off.
 
+In embedded mode all three react-select menus (State, City, Customer) render
+inline (`menuPortalTarget={undefined}`) rather than portalling to `document.body`.
+This prevents Radix Dialog's DismissableLayer from intercepting clicks on portalled
+elements and swallowing option selections. On the standalone route (embedded
+absent) the menus continue to portal to `document.body` as before.
+
 **Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d, corrected
 74741417 -- PE gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering
 create-modal, additive TenderingProjectForm embedded mode). 1b-ii (upload screen,
