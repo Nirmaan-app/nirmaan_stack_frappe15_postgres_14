@@ -415,6 +415,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -538,6 +539,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "DC & MIR",
           key: PROJECT_PAGE_TABS.DC_MIR,
+        },
+        {
+          label: "BoQ",
+          key: PROJECT_PAGE_TABS.BOQ,
         },
         {
           label: "Bulk Download",
