@@ -714,6 +714,10 @@ export const appRoutes: RouteObject[] = [
           { path: "help-repository", element: <HelpRepositoryPage /> },
           { path: "project-gst", element: <Suspense fallback={null}><ProjectGstPage /></Suspense> },
 
+          // BoQ Upload Wizard entry point (M1.59).
+          // ?project=<id> pre-selects the project in the picker.
+          { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
+
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
           // Commented out routes from original:

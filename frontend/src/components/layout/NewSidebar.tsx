@@ -26,6 +26,7 @@ import {
   Banknote,
   CreditCard,
   Dices,
+  FileSpreadsheet,
   Landmark, PencilRuler, SquareStack,
   Warehouse, ClipboardList,
   FileChartLine,
@@ -368,6 +369,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+      ? [
+        {
+          key: '/upload-boq',
+          icon: FileSpreadsheet,
+          label: 'Upload BoQ',
+        },
+      ]
+      : []),
 
 
 
@@ -684,6 +694,7 @@ export function NewSidebar() {
     'help-repository',
     "work-order-rate-card",
     "pmo-dashboard",
+    "upload-boq",
 
   ]), [])
 
@@ -726,6 +737,7 @@ export function NewSidebar() {
     '/commission-tracker': ['commission-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
+    '/upload-boq': ['upload-boq'],
   }), []);
 
   const openKey = useMemo(() => {
@@ -835,7 +847,8 @@ export function NewSidebar() {
                     "Inventory",
                     "Internal Transfer Memos",
                     "Warehouse",
-                    "PMO Dashboard"]).has(item?.label) ? (
+                    "PMO Dashboard",
+                    "Upload BoQ"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

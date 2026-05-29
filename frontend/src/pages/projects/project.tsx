@@ -95,6 +95,7 @@ import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
 const ProjectTransferMemosTab = React.lazy(() => import("./components/ProjectTransferMemosTab"));
+const BoqProjectTab = React.lazy(() => import("@/pages/boq-wizard/BoqProjectTab"));
 
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
@@ -271,6 +272,7 @@ export const PROJECT_PAGE_TABS = {
   DC_MIR: 'projectdcmir',
   BULK_DOWNLOAD: 'bulkdownload',
   COMMISSION_REPORT: 'commission-report',
+  BOQ: 'boq',
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -385,7 +387,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isProjectManager = role === "Nirmaan Project Manager Profile";
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
-  const nonPrivilegedAllowedTabs = useMemo(() => new Set([
+  const nonPrivilegedAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.WORK_REPORT,
     PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
@@ -396,10 +398,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
   // Allowed tabs for Procurement Executive
-  const procurementExecutiveAllowedTabs = useMemo(() => new Set([
+  const procurementExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.PO_SUMMARY,
@@ -431,6 +434,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
   // Redirect users to allowed tab if on restricted tab
@@ -476,6 +480,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "PO Summary",
           key: PROJECT_PAGE_TABS.PO_SUMMARY,
+        },
+        {
+          label: "BoQ",
+          key: PROJECT_PAGE_TABS.BOQ,
         },
         {
           label: "Bulk Download",
@@ -598,6 +606,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.DC_MIR,
         },
         {
+          label: "BoQ",
+          key: PROJECT_PAGE_TABS.BOQ,
+        },
+        {
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
@@ -689,6 +701,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "Project Estimates",
         key: PROJECT_PAGE_TABS.ESTIMATES,
+      }] : []),
+      // Hide BoQ from Accountant
+      ...(!isAccountant ? [{
+        label: "BoQ",
+        key: PROJECT_PAGE_TABS.BOQ,
       }] : []),
       {
         label: "Bulk Download",
@@ -1499,6 +1516,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <Suspense fallback={<LoadingFallback />}><ProjectDCMIRTab projectId={projectId} projectName={data?.project_name} /></Suspense>;
       case PROJECT_PAGE_TABS.TDS_REPOSITORY:
         return <TDSRepositoryTab projectId={projectId} />;
+      case PROJECT_PAGE_TABS.BOQ:
+        return <BoqProjectTab projectId={projectId} />;
       case PROJECT_PAGE_TABS.BULK_DOWNLOAD:
         return <Suspense fallback={<LoadingFallback />}><BulkDownloadPage projectId={projectId} projectName={data?.project_name} /></Suspense>;
       default:
