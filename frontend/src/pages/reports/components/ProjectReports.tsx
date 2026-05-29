@@ -115,7 +115,9 @@ function CashSheetReport() {
   // although we are about to move search into the DataTable.
   // Ideally, we should feed ALL projects to the table and let the table handle search.
 
-  // Let's use 'allProjects' as the base if available.
+  // Cash Sheet rows ARE projects (not a lookup map), so pre-Won stubs would
+  // render as rows with empty financial columns. Filter them out at the
+  // source.
   const { data: allProjects } = useFrappeGetDocList<Projects>("Projects", {
     fields: [
       "name",
@@ -126,7 +128,8 @@ function CashSheetReport() {
       "modified",
       "status",
     ],
-    limit: 0, // Fetch ALL
+    filters: [["tendering_status", "=", "Won"]],
+    limit: 0, // Fetch ALL Won projects
     orderBy: { field: "creation", order: "desc" },
   });
   const projectSource = allProjects || [];
