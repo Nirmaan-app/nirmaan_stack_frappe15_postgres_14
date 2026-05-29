@@ -204,9 +204,24 @@ Never hardcode hex values. All tokens defined in `src/index.css` :root.
 **UI library (M1.62):** shadcn/ui primitives only for wizard UI (Button, Card,
 Select, Dialog, etc.). No Ant Design in wizard components.
 
+**Tendering create-modal (M1.56):** The picker's 'Create new Tendering project'
+button opens `TenderingProjectForm` inside a shadcn `Dialog`. The form is
+rendered in embedded mode via two additive optional props:
+- `embedded?: boolean` -- suppresses the standalone page chrome (back button,
+  Card wrapper) so the form body sits cleanly inside the Dialog.
+- `onCreated?: (newProjectId: string) => void` -- called with the new project's
+  docname (`response.message.project_name`) on successful CREATE, replacing the
+  default navigate-to-tendering-tab behavior.
+- `onCancel` is extended to work in embedded CREATE mode (previously EDIT only).
+
+The standalone route `/projects/new-project/tendering` is byte-for-byte
+unchanged when these props are absent. This change is owner-approved (M1.56,
+Nitesh briefed Abhishek). Do NOT widen these props further without owner sign-off.
+
 **Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d, corrected
-74741417 -- PE gating fix). 1b-modal (Tendering create-modal) and 1b-ii
-(upload screen, Socket.IO listener, useBoqWizardStore) are pending.
+74741417 -- PE gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering
+create-modal, additive TenderingProjectForm embedded mode). 1b-ii (upload screen,
+drop zone, Socket.IO listener, useBoqWizardStore) is pending.
 
 ---
 
