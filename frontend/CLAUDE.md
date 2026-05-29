@@ -245,19 +245,65 @@ validation only: wrong extension = Error D; >25 MB = Error H. Errors E (corrupte
 F (zero sheets) require the parser -- deferred to 1b-ii-b. On valid drop: collapses to
 file tile (filename + size + Replace link); file stored in `useBoqWizardStore.droppedFile`.
 
-**Pre-fill-unconfirmed pattern (S4.1, M1.34):** Required fields (BoQ Name, Version, GST)
-are pre-filled with static defaults (project name / "V1" / "pre") but shown at ~50%
-opacity with a ✨ sparkle next to their labels until the user explicitly interacts
-(click, focus, or value change calls `confirmField`). Read-only (Project, Customer) and
-optional (Notes) fields are excluded from this treatment (M1.19, M1.32). GST's
-`onClick` on the `RadioGroup` catches clicks on the pre-selected option, satisfying
-M1.30 ("clicking even the default confirms"). Confirmed flags live in the store.
+**Blank-until-parsed + confirm-reset (§4.1 clarification, 1b-ii-b):** Required fields
+(BoQ Name, Version, GST) start BLANK (empty string, no radio selection) before parse.
+`DEFAULT_PANEL` in the store has all-empty values; `GstChoice` includes `""`. After
+parse success, `fillFromParse({boqName, version, gst, notes})` populates the fields
+AND resets `confirmedFields` to all-false, so the user sees the sparkle + opacity-50
+treatment on the REAL detected values. The sparkle/opacity condition checks BOTH
+`!confirmed && value !== ""` -- empty fields never show sparkle pre-parse. The
+1b-ii-a `useEffect` that pre-filled `boqName` from `project.project_name` is REMOVED.
 
-**Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d, corrected 74741417 -- PE
+**Upload trigger flow (1b-ii-b):** On valid drop, `BoqDropZone` immediately POSTs to
+`/api/method/nirmaan_stack.api.boq.wizard.upload_file` via native `fetch` with
+`FormData` (fields: `project_id` from store, `file`). CSRF token from
+`(window as any).frappe?.csrf_token`. Returns `{message: {job_id}}` synchronously;
+`setUploadStatus("parsing")` + `setJobId(job_id)` on success. Upload HTTP failure
+calls `resetUpload()` (not just `setUploadStatus("idle")`) so the drop zone
+reappears for retry.
+
+**uploadStatus lifecycle (1b-ii-b):** `idle` | `uploading` (POST in flight) |
+`parsing` (job enqueued, waiting for socket) | `done` (parse success, BOQs row
+created) | `error-E` (corrupted workbook, error_code="corrupted") | `error-F` (zero
+sheets, error_code="zero_sheets") | `error-internal` (unexpected server error).
+`BoqDropZone` renders spinner for uploading/parsing, error states for error-*, and
+file tile for idle/done. The 30s "taking longer" message is a local `setTimeout`
+in `BoqDropZone` that fires only during "parsing" -- not a timeout, parsing continues.
+
+**Socket listener pattern (1b-ii-b):** `boq:wizard_parse_done` is registered
+SCREEN-SCOPED in `BoqUploadScreen.tsx` via `useContext(FrappeContext)` -- NOT added
+to `socketListeners.ts` or `SocketInitializer.tsx`. Pattern: `socket.on(event, handler)`
+in a `useEffect([socket])` cleanup, `socket.off(event, handler)` in the cleanup
+return. Handler guards on `useBoqWizardStore.getState().uploadStatus === "parsing"` to
+filter events from concurrent uploads by other users (frappe.publish_realtime
+broadcasts to ALL connected clients without user targeting). Success path sets
+`boqDocName` + `uploadStatus("done")`; error path sets the appropriate error-* status.
+`useFrappeGetDoc("BOQs", boqDocName, boqDocName ? undefined : null)` then fetches the
+doc (third arg null disables SWR until boqDocName is set per sdk gotcha). A separate
+`useEffect([boqDoc, uploadStatus])` calls `fillFromParse` when the doc arrives.
+
+**Continue gate (M1.33-M1.36):** Enabled when `droppedFile !== null && uploadStatus
+=== "done" && confirmedFields.boqName && confirmedFields.version && confirmedFields.gst`.
+Disabled-state tooltip dynamically lists still-missing items. On click: Module 2
+handoff -- currently an inline stub (CheckCircle2 + "Module 2 coming next" message,
+`handedOff` local state). No routing change for the stub; `routesConfig.tsx`
+unchanged.
+
+**Pre-fill-unconfirmed pattern (S4.1, M1.34):** Required fields (BoQ Name, Version, GST)
+start blank (see blank-until-parsed above). After `fillFromParse`, they carry real
+detected values and show ~50% opacity with a ✨ sparkle until the user explicitly
+interacts (click, focus, or value change calls `confirmField`). Read-only (Project,
+Customer) and optional (Notes) fields are excluded from this treatment (M1.19, M1.32).
+GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
+satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
+store.
+
+**Status (2026-05-30):** Module 1b-i landed (feat 3b69d00d, corrected 74741417 -- PE
 gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering create-modal). 1b-modal
 dropdown fix landed (fix 0c066902). Module 1b-ii-a landed (feat d1f3b5cd -- static
-upload screen + store + drop zone + panel; Continue stubbed). 1b-ii-b (upload trigger,
-Socket.IO parse listener, Continue gate) is pending.
+upload screen + store + drop zone + panel; Continue stubbed). Module 1b-ii-b landed
+(feat 273e7fab -- live upload + socket listener + Continue gate; Module 1b COMPLETE).
+Module 2 next.
 
 ---
 
