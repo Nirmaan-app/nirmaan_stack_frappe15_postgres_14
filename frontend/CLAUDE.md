@@ -173,6 +173,42 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 ---
 
+## BoQ Upload Wizard -- Frontend Conventions (Module 1b onward)
+
+All wizard-frontend code lives in `src/pages/boq-wizard/`. Do not scatter
+wizard components into other page folders.
+
+**Project picker (M1.64):** The picker uses an inline `useFrappeGetDocList`
+dropdown -- no shared `ProjectSelector` component. Mirror the query shape
+from `NewMilestones.tsx` (fields: `["name", "project_name"]`, filter
+`status != Tendering`, limit 1000). Do NOT build a reusable ProjectSelector.
+
+**Global entry (M1.59):** Route is `/upload-boq` with optional `?project=<id>`
+query param for pre-selection. Defined as a React Router v6 `lazy()` route
+in `routesConfig.tsx`. The module must export `Component` (named) for lazy().
+
+**In-project tab (M1.5):** Tab key is `PROJECT_PAGE_TABS.BOQ = 'boq'`, accessed
+via `?page=boq` on `/projects/:projectId`. Tab component is `BoqProjectTab`
+(lazy via `React.lazy()`). New tab sets must be typed as
+`useMemo<Set<ProjectPageTabValue>>` to avoid TS narrowing failures.
+
+**Sidebar nav (M1.57):** Role-gated to Admin + PMO + Estimates Executive + Project
+Lead. Mirror the Item Price Search gating pattern. Add label to the leaf-item
+discriminator Set in `NewSidebar.tsx`, to `allKeys`, and to `groupMappings`.
+
+**Color tokens (M1.66):** Use Tailwind token classes only -- `text-muted-foreground`,
+`bg-background`, `border-border`, `text-foreground`, `text-primary`, etc.
+Never hardcode hex values. All tokens defined in `src/index.css` :root.
+
+**UI library (M1.62):** shadcn/ui primitives only for wizard UI (Button, Card,
+Select, Dialog, etc.). No Ant Design in wizard components.
+
+**Status (2026-05-29):** Module 1b-i landed (feat 3b69d00d). 1b-modal
+(Tendering create-modal) and 1b-ii (upload screen, Socket.IO listener,
+useBoqWizardStore) are pending.
+
+---
+
 ## Important Notes
 
 - **Frappe Backend Required**: This frontend cannot run standalone; it requires a Frappe backend (see `../CLAUDE.md` for backend documentation)
