@@ -34,6 +34,8 @@ yarn test-local
 yarn preview
 ```
 
+**BoQ env / testing procedures** (bench restart, CSRF login fix, :8080-live-vs-:8000-stale, DB-inspect): see `BoQ_Environment_Testing_Runbook_v1_0.md` in project knowledge (digest; handover §9 is source of truth).
+
 ## Architecture
 
 ### Tech Stack
