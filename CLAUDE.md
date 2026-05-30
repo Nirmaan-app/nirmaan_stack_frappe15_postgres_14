@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-29 (Module 1a convention codification; docs dbbe7c93)
+**Last updated:** 2026-05-30 (source_file_url Data->Small Text fix + doctype-JSON sanctioned-exception note; fix 3815ea3f)
 
 ## Overview
 
@@ -167,6 +167,8 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 | `frontend/src/components/ui/` | shadcn/ui generated components — update via shadcn CLI |
 | `nirmaan_stack/public/` | Compiled frontend assets — edit source in `frontend/src/` instead |
 | `services/file_extractor.py` | Intentionally deleted — do not recreate |
+
+**Sanctioned exception:** A doctype JSON field's `fieldtype` MAY be changed via a deliberate, reviewed, committed CC edit + `bench migrate` when a schema constraint must be corrected (e.g. `source_file_url` Data->Small Text, fix 3815ea3f, 2026-05-30). Any such change must be isolated to the minimum field diff and explicitly noted here.
 
 ---
 
