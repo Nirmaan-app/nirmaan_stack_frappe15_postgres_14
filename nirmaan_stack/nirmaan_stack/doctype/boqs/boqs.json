@@ -123,7 +123,7 @@
   {
    "description": "Path to the uploaded Excel file.",
    "fieldname": "source_file_url",
-   "fieldtype": "Data",
+   "fieldtype": "Small Text",
    "label": "Source File URL",
    "read_only": 1
   },
