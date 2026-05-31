@@ -158,6 +158,17 @@ const BoqHubPage = () => {
   const totalDataCount = dataSheets.length;
   const canParse = blockingCount === 0 && reviewedCount >= 1;
 
+  // ── Footer breakdown counts (display-only -- does not touch gate math) ───────
+  // These + totalDataCount reconcile to allDrafts.length so the denominator drop
+  // is never mysterious when sheets are set aside.
+  const generalSpecsCount = allDrafts.filter(
+    (s) => getEffectiveStatus(s) === "General specs"
+  ).length;
+  const skippedCount = allDrafts.filter(
+    (s) => getEffectiveStatus(s) === "Skip"
+  ).length;
+  const hiddenCount = hiddenDrafts.length;
+
   const parseGateReason = (() => {
     if (canParse) return "Workbook is ready to parse";
     const parts: string[] = [];
@@ -308,7 +319,7 @@ const BoqHubPage = () => {
       </div>
 
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {sortedNonHidden.map((draft) => (
           // EXACT: sheet_name used verbatim as React key and in endpoint calls.
           <SheetCard
@@ -339,7 +350,7 @@ const BoqHubPage = () => {
                 : `Show hidden sheets (${hiddenDrafts.length})`}
             </button>
             {showHidden && (
-              <div className="mt-2 space-y-2">
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {hiddenDrafts.map((draft) => (
                   // EXACT: sheet_name verbatim as key.
                   <SheetCard
@@ -360,8 +371,11 @@ const BoqHubPage = () => {
       {/* ── Parse-gate footer (M2.11/M2.12) ─────────────────────────────── */}
       <div className="border-t border-border pt-4 flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          {reviewedCount} of {totalDataCount}{" "}
+          {reviewedCount} of {totalDataCount} data{" "}
           {totalDataCount === 1 ? "sheet" : "sheets"} reviewed
+          {generalSpecsCount > 0 && ` · ${generalSpecsCount} general specs`}
+          {skippedCount > 0 && ` · ${skippedCount} skipped`}
+          {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
         </p>
         <TooltipProvider>
           <Tooltip>

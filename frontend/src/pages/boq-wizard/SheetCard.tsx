@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -12,19 +12,19 @@ import { cn } from "@/lib/utils";
 import type { BoQSheetDraft } from "./boqTypes";
 
 // ── Status pill definitions ──────────────────────────────────────────────────
-// Approach: semantic tokens where a sensible match exists; intentional
-// traffic-light colors (with dark: variants) for the remainder. ONE place.
+// Approach: solid saturated backgrounds with white text for maximum contrast.
+// Dark: variants included for the app's dark theme (ThemeProvider + mode-toggle).
 // "General specs" is an effective status derived from BOQs.general_specs_sheet
 // (M2.16), not from wizard_status; the parent computes it, this map renders it.
+// ONE place -- do not scatter pill colors elsewhere.
 const STATUS_PILL: Record<string, { label: string; className: string }> = {
-  // Semantic tokens -- CSS custom properties adapt to dark mode automatically.
-  "Parse failed":   { label: "Parse failed",  className: "bg-destructive/10 text-destructive" },
-  "Hidden":         { label: "Hidden",        className: "bg-muted text-muted-foreground" },
-  // Intentional traffic-light colors; dark: variants included for the app's dark theme.
-  "Pending":        { label: "Pending",       className: "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200" },
-  "Reviewed":       { label: "Reviewed",      className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200" },
-  "Skip":           { label: "Skip",          className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" },
-  "General specs":  { label: "General specs", className: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200" },
+  "Parse failed":   { label: "Parse failed",  className: "bg-red-600 text-white dark:bg-red-700 dark:text-white" },
+  "Hidden":         { label: "Hidden",        className: "bg-slate-500 text-white dark:bg-slate-600 dark:text-white" },
+  // Pending: vivid blue so it stands out as "needs attention" (not slate-near-gray).
+  "Pending":        { label: "Pending",       className: "bg-blue-500 text-white dark:bg-blue-600 dark:text-white" },
+  "Reviewed":       { label: "Reviewed",      className: "bg-emerald-600 text-white dark:bg-emerald-700 dark:text-white" },
+  "Skip":           { label: "Skip",          className: "bg-amber-500 text-white dark:bg-amber-600 dark:text-white" },
+  "General specs":  { label: "General specs", className: "bg-sky-500 text-white dark:bg-sky-600 dark:text-white" },
 };
 
 // Tooltip for stub buttons whose target (per-sheet spoke) is Module 3, not yet built.
@@ -76,6 +76,10 @@ export function SheetCard({
     (draft.work_package ? draft.work_package.trim() : null) ??
     (isLikelySkip ? "Likely non-data sheet -- consider skipping" : null);
 
+  // True when the summary line IS the keyword hint (no label, no work_package).
+  // Used to apply stronger visual treatment -- presentation only, no data change.
+  const isKeywordHint = isLikelySkip && !draft.sheet_label?.trim() && !draft.work_package;
+
   // ── Status-change handler ────────────────────────────────────────────────
   const handleStatusChange = async (status: string) => {
     setCardError(null);
@@ -118,18 +122,25 @@ export function SheetCard({
             {draft.sheet_name.trim() || draft.sheet_name}
           </p>
           {summaryLine && (
-            <p className={cn(
-              "mt-0.5 text-xs text-muted-foreground leading-4",
-              isLikelySkip && !draft.sheet_label && !draft.work_package && "italic"
-            )}>
-              {summaryLine}
-            </p>
+            <div className="mt-0.5 flex items-center gap-1 leading-4">
+              {isKeywordHint && (
+                <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500 dark:text-amber-400" />
+              )}
+              <p className={cn(
+                "text-xs leading-4",
+                isKeywordHint
+                  ? "text-amber-600 font-medium dark:text-amber-400"
+                  : "text-muted-foreground",
+              )}>
+                {summaryLine}
+              </p>
+            </div>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
           <span className={cn(
-            "rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+            "rounded-full px-2.5 py-0.5 text-sm font-medium whitespace-nowrap",
             pill.className
           )}>
             {pill.label}
