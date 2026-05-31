@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Check,
   ChevronDown,
@@ -32,8 +42,6 @@ import type { BOQsDoc, BoQSheetDraft } from "./boqTypes";
 import { SheetCard } from "./SheetCard";
 
 // Keyword list for presentation-only "likely non-data" hint.
-// Sheets whose names contain any of these strings (case-insensitive) sink to the
-// bottom of the card list and show a soft italic hint. No data is changed.
 const LIKELY_SKIP_KEYWORDS = [
   "summary",
   "make list",
@@ -48,21 +56,32 @@ function isLikelySkipSheet(sheetName: string): boolean {
   return LIKELY_SKIP_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-// Sentinel used as the Select value when no general-specs sheet is designated.
+// Sentinel for the Select when no general-specs sheet is designated.
 const NONE_SENTINEL = "__none__";
 
 const BoqHubPage = () => {
   const { boqId } = useParams<{ boqId: string }>();
   const navigate = useNavigate();
+
+  // ── All hooks must be called before any conditional return ────────────────
   const [showHidden, setShowHidden] = useState(false);
 
-  // Honor the useFrappeGetDoc third-arg gotcha: pass null (not {enabled:false})
-  // to disable the SWR fetch when boqId is absent. boqId is from the URL param
-  // and will always be a non-empty string if the route matched.
-  const { data: boq, isLoading } = useFrappeGetDoc<BOQsDoc>(
+  // M2.23 confirm dialog state -- stores the value awaiting confirmation.
+  const [pendingSpecsValue, setPendingSpecsValue] = useState<string | null>(null);
+  const [specsDialogOpen, setSpecsDialogOpen] = useState(false);
+  const [specsError, setSpecsError] = useState<string | null>(null);
+
+  // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
+  const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqId ?? "",
     boqId ? undefined : null
+  );
+
+  // General-specs endpoint. Called in BoqHubPage because it targets the parent
+  // BOQs row, not a child draft (SheetCard handles the child-row endpoints).
+  const { call: callSpecs, loading: specsLoading } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_general_specs_sheet"
   );
 
   // ── Loading state ──────────────────────────────────────────────────────────
@@ -93,10 +112,14 @@ const BoqHubPage = () => {
     );
   }
 
+  // ── Stable onSaved callback (passed to each SheetCard) ────────────────────
+  // Calls SWR mutate to re-fetch the BOQ after any successful card action.
+  // Server is the source of truth; no local-state authority over wizard_status.
+  const handleSaved = () => { void mutate(); };
+
   // ── Effective-status derivation (M2.16) ───────────────────────────────────
-  // "General specs" is DERIVED from BOQs.general_specs_sheet pointer, not from
-  // wizard_status. The backend never writes "General specs" to wizard_status.
-  // EXACT: sheet_name is compared verbatim -- no trimming (see boqTypes.ts).
+  // "General specs" is DERIVED from the pointer, never from wizard_status.
+  // EXACT: sheet_name compared verbatim (no trimming).
   const getEffectiveStatus = (draft: BoQSheetDraft): string => {
     if (boq.general_specs_sheet && draft.sheet_name === boq.general_specs_sheet) {
       return "General specs";
@@ -104,7 +127,7 @@ const BoqHubPage = () => {
     return draft.wizard_status || "Pending";
   };
 
-  // ── Sheet grouping ─────────────────────────────────────────────────────────
+  // ── Sheet grouping + sorting ───────────────────────────────────────────────
   const allDrafts = boq.sheet_drafts ?? [];
   const hiddenDrafts = allDrafts.filter(
     (s) => getEffectiveStatus(s) === "Hidden"
@@ -121,7 +144,6 @@ const BoqHubPage = () => {
   });
 
   // ── Parse-gate computation (M2.11/M2.12) ──────────────────────────────────
-  // Data sheets = potential parse targets: non-hidden, non-skip, non-general-specs.
   const dataSheets = nonHiddenDrafts.filter((s) => {
     const eff = getEffectiveStatus(s);
     return eff !== "Skip" && eff !== "General specs";
@@ -134,7 +156,6 @@ const BoqHubPage = () => {
     (s) => getEffectiveStatus(s) === "Reviewed"
   ).length;
   const totalDataCount = dataSheets.length;
-  // Gate: zero blocking AND at least one Reviewed sheet.
   const canParse = blockingCount === 0 && reviewedCount >= 1;
 
   const parseGateReason = (() => {
@@ -149,10 +170,64 @@ const BoqHubPage = () => {
     return `Still needed: ${parts.join("; ")}`;
   })();
 
-  // ── General specs selector value ───────────────────────────────────────────
-  // EXACT: SelectItem values use sheet_name verbatim so 2b-ii can pass them
-  // directly to the set_general_specs_sheet endpoint without transformation.
+  // ── General-specs selector value ───────────────────────────────────────────
+  // EXACT: SelectItem values use sheet_name verbatim for the endpoint call.
   const generalSpecsValue = boq.general_specs_sheet || NONE_SENTINEL;
+
+  // ── General-specs endpoint handler ────────────────────────────────────────
+  // Design: backend stores pointer ONLY; no set_sheet_status call.
+  // Releasing a designated sheet returns it to its TRUE prior wizard_status
+  // (M2.23 AMENDED: more resilient than returning to Pending; no two-call sequence).
+  const doSetGeneralSpecs = async (sheetNameOrNull: string | null) => {
+    setSpecsError(null);
+    try {
+      // EXACT: sheet_name_or_none passed verbatim. "" clears the pointer.
+      await callSpecs({
+        boq_name: boq.name,
+        sheet_name_or_none: sheetNameOrNull ?? "",
+      });
+      void mutate();
+    } catch (_e) {
+      setSpecsError(
+        "Failed to update general specifications sheet. Please try again."
+      );
+    }
+  };
+
+  // M2.23: warn-and-confirm only when the chosen sheet is currently Reviewed.
+  // All other statuses: call directly, no dialog.
+  const handleSpecsChange = (newValue: string) => {
+    const targetSheet = newValue === NONE_SENTINEL ? null : newValue;
+
+    if (targetSheet !== null) {
+      const targetDraft = allDrafts.find(
+        // EXACT: sheet_name compared verbatim.
+        (s) => s.sheet_name === targetSheet
+      );
+      if (targetDraft && getEffectiveStatus(targetDraft) === "Reviewed") {
+        setPendingSpecsValue(targetSheet);
+        setSpecsDialogOpen(true);
+        return;
+      }
+    }
+
+    // No confirmation needed -- call directly.
+    void doSetGeneralSpecs(targetSheet);
+  };
+
+  const handleSpecsConfirm = () => {
+    const value = pendingSpecsValue; // capture before clearing
+    setPendingSpecsValue(null);
+    if (value !== null) void doSetGeneralSpecs(value);
+    // Dialog closes automatically via onOpenChange from AlertDialogAction.
+  };
+
+  const handleSpecsCancel = () => {
+    setPendingSpecsValue(null);
+    // Selector reverts automatically -- it is controlled by boq.general_specs_sheet
+    // (server state), which has not changed since no endpoint was called.
+    // Dialog closes via onOpenChange from AlertDialogCancel.
+  };
 
   return (
     <div className="flex-1 space-y-5 max-w-4xl mx-auto pt-6 pb-10">
@@ -168,12 +243,12 @@ const BoqHubPage = () => {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3 pt-1">
-          {/* Autosave placeholder -- static indicator; real autosave is 2b-ii+ */}
+          {/* Autosave placeholder -- no real autosave in 2b; changes save on each action */}
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Check className="h-3 w-3" />
             Saved
           </span>
-          {/* Overflow menu -- Discard is rendered but NOT wired (2b-ii) */}
+          {/* Discard stays disabled/stubbed -- destructive, separate later slice */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -182,7 +257,6 @@ const BoqHubPage = () => {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {/* TODO(2b-ii): wire Discard BoQ -- deletes the BOQs row and navigates back */}
               <DropdownMenuItem
                 disabled
                 className="text-destructive focus:text-destructive"
@@ -204,40 +278,46 @@ const BoqHubPage = () => {
             One sheet may contain preamble text shared across all work packages.
           </p>
         </div>
-        {/*
-          SelectTrigger is disabled in this slice (2b-ii removes disabled and
-          wires onValueChange to the set_general_specs_sheet endpoint).
-          EXACT: SelectItem value uses sheet_name verbatim -- required for 2b-ii.
-        */}
-        <Select
-          value={generalSpecsValue}
-          onValueChange={() => { /* TODO(2b-ii): wire set_general_specs_sheet */ }}
-        >
-          <SelectTrigger disabled className="w-full sm:w-60 shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE_SENTINEL}>None selected</SelectItem>
-            {allDrafts.map((s) => (
-              /* EXACT: value is sheet_name verbatim (for 2b-ii endpoint call).
-                 Trim only the displayed label text. */
-              <SelectItem key={s.sheet_name} value={s.sheet_name}>
-                {s.sheet_name.trim() || s.sheet_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-1 w-full sm:w-60 shrink-0">
+          {/*
+            onValueChange wired to handleSpecsChange (M2.23 confirm flow).
+            Selector is disabled only while a save is in flight (specsLoading).
+            EXACT: SelectItem value = sheet_name verbatim (endpoint call, no trim).
+          */}
+          <Select
+            value={generalSpecsValue}
+            onValueChange={handleSpecsChange}
+          >
+            <SelectTrigger disabled={specsLoading} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE_SENTINEL}>None selected</SelectItem>
+              {allDrafts.map((s) => (
+                /* EXACT: value is sheet_name verbatim -- required for endpoint call. */
+                <SelectItem key={s.sheet_name} value={s.sheet_name}>
+                  {s.sheet_name.trim() || s.sheet_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {specsError && (
+            <p className="text-xs text-destructive">{specsError}</p>
+          )}
+        </div>
       </div>
 
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
       <div className="space-y-2">
         {sortedNonHidden.map((draft) => (
-          // EXACT: sheet_name used verbatim as React key (see boqTypes.ts constraint).
+          // EXACT: sheet_name used verbatim as React key and in endpoint calls.
           <SheetCard
             key={draft.sheet_name}
             draft={draft}
             effectiveStatus={getEffectiveStatus(draft)}
             isLikelySkip={isLikelySkipSheet(draft.sheet_name)}
+            boqName={boq.name}
+            onSaved={handleSaved}
           />
         ))}
 
@@ -267,6 +347,8 @@ const BoqHubPage = () => {
                     draft={draft}
                     effectiveStatus="Hidden"
                     isLikelySkip={isLikelySkipSheet(draft.sheet_name)}
+                    boqName={boq.name}
+                    onSaved={handleSaved}
                   />
                 ))}
               </div>
@@ -284,10 +366,6 @@ const BoqHubPage = () => {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              {/*
-                Span wrapper required: disabled Button does not fire mouse events
-                so Tooltip cannot detect hover without the tabIndex wrapper.
-              */}
               <span tabIndex={0}>
                 <Button
                   disabled={!canParse}
@@ -303,10 +381,32 @@ const BoqHubPage = () => {
           </Tooltip>
         </TooltipProvider>
       </div>
+
+      {/* ── M2.23 warn-and-confirm dialog ────────────────────────────────── */}
+      {/*
+        Fires only when the user designates a sheet whose effective status is
+        "Reviewed". Wording is softened (M2.23 AMENDED): releasing the pointer
+        later returns the sheet to its TRUE underlying wizard_status (not forced
+        to Pending). Single call: set_general_specs_sheet only -- no set_sheet_status.
+      */}
+      <AlertDialog open={specsDialogOpen} onOpenChange={setSpecsDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Set as general specifications sheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This sheet will be used as the general-specifications sheet instead
+              of as a data sheet for parsing. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleSpecsCancel}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSpecsConfirm}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
 
 export default BoqHubPage;
-// React Router v6 lazy() requires a named Component export.
 export { BoqHubPage as Component };
