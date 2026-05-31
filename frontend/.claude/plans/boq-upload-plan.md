@@ -768,6 +768,62 @@ Feat: b14e9015.
 
 Feat: bf1a2e64.
 
+### Phase 3 Module 3 Slice 3b-ii -- Frontend spoke shell + SheetDataGrid + load-more paginator COMPLETE
+
+**Frontend-only slice. No backend changes. No config sections (Slice 3c).**
+
+**Spoke route (routesConfig.tsx):** `/upload-boq/hub/:boqId/sheet/:sheetName` added as sibling of the hub route. Lazy-loaded; module exports `{ SheetSpokePage as Component }` per React Router v6 lazy convention.
+
+**SheetSpokePage.tsx (shell -- minimal scope):** Reads `boqId` + `sheetName` from `useParams()`. Fetches `BOQsDoc` via `useFrappeGetDoc` (same third-arg gotcha as hub: pass null to disable). Back button → hub (`/upload-boq/hub/${boqId}`). Header shows display-trimmed sheet name + BoQ name/version + optional `sheet_label`. No config sections, no work-package picker, no mark-reviewed control -- those are Slice 3c+.
+
+**encode/decode:** Hub navigates with `encodeURIComponent(draft.sheet_name)`. React Router v6 `useParams()` returns the RAW URL-encoded string (does NOT call `decodeURIComponent` automatically). NOTE: decode bug present at 3b-ii land -- fixed in Slice 3b-iii (q.v.).
+
+**SheetDataGrid.tsx (new component):**
+- `useFrappePostCall` for ALL fetches (initial + load-more). This is the sanctioned read-over-POST case: accumulating/paginating reads use POST + local `useState` because SWR replace-on-fetch semantics fight row accumulation. See convention note in frontend CLAUDE.md.
+- Initial 40 rows fetched in `useEffect([boqName, sheetName])` with cancellation flag.
+- Column header: union of all `col_letter` keys across loaded rows, sorted in Excel order (shorter first, then alphabetical: A,...,Z,AA,...). Recomputed after each load-more.
+- Left gutter: absolute Excel `row_number` (never re-indexed; row 41 shows "41"). `sticky left-0 z-10`.
+- Cells: null → blank, booleans → "TRUE"/"FALSE", others → String(). `max-w-[180px] truncate`, full value on hover via `title` attr. shadcn `<Table>` (NOT TanStack).
+- Load-more: button shown when `has_more === true`. `disabled={isLoadingMore}` is the single-flight guard. `setRows(prev => [...prev, ...preview.rows])` appends. Re-evaluates `has_more` from new response.
+- No sticky header / no gridlines at this slice (fixed in Slice 3b-iii).
+
+**Preview types in boqTypes.ts:** `SheetPreviewRow { row_number, cells: Record<string, string|number|boolean|null> }` + `SheetPreviewResponse { sheet_name, start_row, end_row_requested, rows, returned_count, has_more }`.
+
+**Review/Edit wiring (SheetCard.tsx + BoqHubPage.tsx):**
+- `MODULE3_TOOLTIP` constant + unused `Tooltip`/`TooltipContent`/`TooltipTrigger` imports removed from SheetCard.
+- Review (Pending, Parse-failed) and Edit (Reviewed) now call `onOpenSpoke?.(draft.sheet_name)` via a new optional prop `onOpenSpoke?: (sheetName: string) => void`.
+- `BoqHubPage` passes `onOpenSpoke={handleOpenSpoke}` where `handleOpenSpoke` calls `navigate(\`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}\`)`. Hub owns navigate; SheetCard stays router-free.
+- All other card buttons (Skip, Include, Mark reviewed, Set pending, Edit label) unchanged.
+
+**Verification:** tsc zero new errors in wizard files. Vite build exit 0.
+
+Feat: 7be670d4.
+
+### Phase 3 Module 3 Slice 3b-iii -- SheetDataGrid polish (sticky header + gridlines + decode fix) COMPLETE
+
+**Frontend-only slice. Pure polish pass on Slice 3b-ii. No backend, no config sections.**
+
+Three live-testing fixes:
+
+**(1) Sticky column-letter header row (SheetDataGrid.tsx).**
+Root cause: the `overflow-x-auto` wrapper had no height constraint. CSS spec forces `overflow-y` to computed `auto` when `overflow-x` is non-visible, but without a max-height the container grew to fit content -- no vertical clip, no scroll window, so `sticky top-0` never fired.
+Fix: changed container to `overflow-auto max-h-[calc(100vh-14rem)]`. This bounds the container in both axes, creates a proper vertical scroll window, and makes `sticky top-0` fire relative to the container (not the page).
+z-index hierarchy: corner cell (z-30, both axes) > column-letter headers (z-20, top-only) > row-number gutter cells (z-10, left-only). Corner `#` cell changed from `sticky left-0 z-10` to `sticky top-0 left-0 z-30`. Column-letter headers gained `sticky top-0 z-20`. All sticky header cells use solid `bg-muted` (not semi-transparent `bg-muted/50`) so scrolled body rows don't show through.
+
+**(2) Visible cell gridlines (SheetDataGrid.tsx).**
+`border-r border-border` added to column-letter `<TableHead>` cells and data `<TableCell>` cells. Row-number gutter `<TableHead>` (corner) and `<TableCell>` already had `border-r` from Slice 3b-ii. Existing `border-b` on `<TableRow>` provides horizontal lines. Result: spreadsheet-style grid.
+
+**(3) Spoke header decode fix (SheetSpokePage.tsx).**
+Root cause: `useParams()` in React Router v6 returns the raw URL-encoded path segment without calling `decodeURIComponent`. So a sheet named "C&I" navigated via `encodeURIComponent` appeared as "C%26I" in the page header AND was sent to the endpoint as "C%26I" (breaking VERBATIM matching against the DB-stored "C&I").
+Fix: `const decodedSheetName = sheetName ? decodeURIComponent(sheetName) : ""` applied once. `displaySheetName`, draft lookup, and `SheetDataGrid sheetName` prop all use `decodedSheetName`. The raw `sheetName` from `useParams()` is kept only for the `!sheetName` guard. `decodeURIComponent` is idempotent if the browser or RR already decoded -- safe in either direction.
+No change to what `BoqHubPage.handleOpenSpoke` sends to `navigate()` -- the hub still uses `encodeURIComponent(draft.sheet_name)`.
+
+**Backwards-compat:** Purely cosmetic + one decode fix. Fetch behavior (POST, accumulation, load-more, row numbers, cell values) unchanged. No behavior change to data loading or pagination.
+
+**Verification:** tsc zero new errors in wizard files. Vite build exit 0.
+
+Feat: 2ac4789a.
+
 ### Phase 2 — Excel parsing engine (backend only) *(4–5 days)*
 - `services/boq_excel_parser.py`: reader, mapping config schema (dataclass / Pydantic), classifier (code-driven + rule-driven), hierarchy resolver (stack walk), validator.
 - Sample BoQ corpus: 3–5 anonymized real `.xlsx` files under `tests/fixtures/boq_samples/`. Each has an expected JSON.

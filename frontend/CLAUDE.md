@@ -303,7 +303,7 @@ store.
 **Status (2026-05-31):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
 hub route + static read-only hub). Module 2b-ii ✅ COMPLETE (feat 459f85ae; pill-color
 fix + all hub interactions wired). Module 2b-iii ✅ COMPLETE (feat 57152c52; visual
-polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 Slice 3b-ii ✅ COMPLETE (feat 7be670d4; spoke shell + SheetDataGrid + Review/Edit wiring; tsc clean on wizard files; Vite build 0 errors). Module 3 Slice 3c next (config sections -- Section 1 rows + Section 2 areas).
+polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 Slice 3b-ii ✅ COMPLETE (feat 7be670d4; spoke shell + SheetDataGrid + Review/Edit wiring; tsc clean on wizard files; Vite build 0 errors). Module 3 Slice 3b-iii ✅ COMPLETE (feat 2ac4789a; sticky header + gridlines + decode fix; tsc + build clean). Module 3 Slice 3c next (config sections -- Section 1 rows + Section 2 areas).
 
 **Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
 from URL param (survives refresh; not from the transient store). Module export:
@@ -401,7 +401,7 @@ the actual parse.
 **Module 3 Slice 3b-ii -- per-sheet spoke shell + SheetDataGrid (feat 7be670d4):**
 
 - **Spoke route:** `/upload-boq/hub/:boqId/sheet/:sheetName` — sibling of the hub route in `routesConfig.tsx`. Lazy-loaded, `SheetSpokePage` exports `{ SheetSpokePage as Component }` (React Router v6 lazy convention).
-- **encode/decode:** Hub navigates using `encodeURIComponent(draft.sheet_name)`. React Router v6 `useParams()` auto-decodes URL params — spoke receives the verbatim original `sheet_name` (no manual decode needed). Passed to the endpoint as-is (VERBATIM matching required by backend).
+- **encode/decode:** Hub navigates using `encodeURIComponent(draft.sheet_name)`. React Router v6 `useParams()` returns the RAW URL-encoded string (does NOT call `decodeURIComponent`). Fixed in Slice 3b-iii — spoke now calls `decodeURIComponent(sheetName)` before display and before passing to the endpoint.
 - **SheetSpokePage scope (this slice only):** back button → hub, header (display-trimmed sheet name + BoQ name/version + optional label), `SheetDataGrid`. NO config sections, NO work-package picker, NO mark-reviewed — Slice 3c+.
 - **SheetDataGrid:** `useFrappePostCall` for ALL fetches (initial + load-more) — avoids mixing SWR state with accumulated rows. Initial 40 rows fetched in `useEffect([boqName, sheetName])`. `useState` tracks rows, hasMore, isInitLoading, initError, isLoadingMore, loadMoreError.
   - Column header: union of all col_letter keys across loaded rows, sorted in Excel order (shorter first, then alphabetical — A,B,...,Z,AA,AB,...). Recomputed after each load-more append.
@@ -410,6 +410,14 @@ the actual parse.
   - Load-more: `disabled={isLoadingMore}` is the single-flight guard. `setRows(prev => [...prev, ...newRows])` appends. Re-evaluates `has_more` from new response. Hidden when `has_more === false`.
 - **Review/Edit wiring:** `MODULE3_TOOLTIP` constant and `Tooltip`/`TooltipContent`/`TooltipTrigger` imports removed from `SheetCard.tsx`. Review (Pending, Parse-failed) and Edit (Reviewed) now call `onOpenSpoke?.(draft.sheet_name)` — optional so cards without a spoke callback still compile. `BoqHubPage` passes `onOpenSpoke={handleOpenSpoke}` where `handleOpenSpoke` calls `navigate(\`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}\`)`. All other card buttons (Mark reviewed, Set pending, Skip, Include, Edit label) are UNCHANGED.
 - **Preview types in boqTypes.ts:** `SheetPreviewRow { row_number, cells: Record<string, string|number|boolean|null> }` and `SheetPreviewResponse { sheet_name, start_row, end_row_requested, rows, returned_count, has_more }`.
+
+**useFrappeGetCall vs useFrappePostCall in the wizard (convention, Slice 3b-ii):** Wizard reads use `useFrappeGetCall` by default. Accumulating/paginating reads (UI appends rows across multiple fetches) use `useFrappePostCall` + local `useState`, because SWR replace-on-fetch semantics fight row accumulation -- `useFrappeGetCall` replaces `data` on params change instead of appending. GET/POST signals read-vs-mutation intent; `useFrappePostCall` for reads is the one sanctioned exception and is limited to SheetDataGrid (Slice 3b-ii). `@frappe.whitelist()` bare (the get_sheet_preview endpoint) accepts both GET and POST.
+
+**Module 3 Slice 3b-iii -- SheetDataGrid polish (feat 2ac4789a):**
+
+- **Sticky column-letter header:** `overflow-x-auto` → `overflow-auto max-h-[calc(100vh-14rem)]` on the container. Bounded height creates a vertical scroll window so `sticky top-0` fires within the container (not relative to the page). z-index order: corner `#` cell = `sticky top-0 left-0 z-30`; column-letter headers = `sticky top-0 z-20`; row-number gutter = `sticky left-0 z-10`. All sticky cells use solid `bg-muted` or `bg-background` (not semi-transparent) so body rows don't show through.
+- **Visible gridlines:** `border-r border-border` added to column-letter `<TableHead>` cells and data `<TableCell>` cells. Existing `border-b` on `<TableRow>` provides horizontal lines. Corner + gutter cells already had `border-r` from Slice 3b-ii.
+- **Decode fix (SheetSpokePage.tsx):** `const decodedSheetName = sheetName ? decodeURIComponent(sheetName) : ""` applied once. All display uses, draft lookup, and `SheetDataGrid sheetName` prop use `decodedSheetName`. Raw `sheetName` kept only for the `!sheetName` guard. Hub navigation unchanged (`encodeURIComponent` still used in `handleOpenSpoke`).
 
 ---
 
