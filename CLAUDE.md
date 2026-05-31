@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-05-30 (source_file_url Data->Small Text fix + doctype-JSON sanctioned-exception note; fix 3815ea3f)
+**Last updated:** 2026-05-31 (Module 3 Slice 3a: BoQ Sheet Work Package child doctype + sheet_config JSON field + two new endpoints; feat b14e9015)
 
 ## Overview
 
@@ -219,7 +219,7 @@ Origin: Module 1a 2026-05-29 — `create_tendering_project` was initially scoped
 
 All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.whitelist(methods=["POST"])`, return `{"status": "saved"}`, call `frappe.db.commit()` after `frappe.db.set_value`.
 
-**`update_sheet_draft.py`** (feat 5cdbbd16) -- 3 functions:
+**`update_sheet_draft.py`** (feat 5cdbbd16 + b14e9015) -- 5 functions:
 
 - `set_sheet_status(boq_name, sheet_name, status)` -- sets `wizard_status` on the matching `BoQ Sheet Draft` child row. Allowed values (direct): Pending, Hidden, Reviewed, Skip, Parse failed. "General specs" is REJECTED here; caller must use `set_general_specs_sheet` instead (backend never writes "General specs" to wizard_status; frontend derives the badge from the pointer). URL: `/api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_status`
 
@@ -227,11 +227,24 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 - `set_general_specs_sheet(boq_name, sheet_name_or_none)` -- sets/clears `BOQs.general_specs_sheet` (stores sheet name string, or "" to clear). Division of responsibility: backend stores pointer only and does NOT touch `wizard_status` on any draft row; frontend derives the "General specs" badge from the pointer and handles warn-and-confirm (M2.23) before calling this endpoint; when pointer is cleared, frontend reverts the released sheet's card display to Pending. URL: `/api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_general_specs_sheet`
 
+- `set_sheet_config(boq_name, sheet_name, sheet_config)` -- (feat b14e9015) writes per-sheet parser config JSON blob to `BoQ Sheet Draft.sheet_config`. Accepts dict or JSON string. Single JSON blob by design (wizard-internal; M3.18/§6.3). URL: `/api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_config`
+
+- `set_sheet_work_packages(boq_name, sheet_name, work_headers)` -- (feat b14e9015) replace-all assignment of Work Headers to a sheet's `work_packages` child table. `work_headers` is a list of Work Headers docnames (or JSON-string list). Validates ALL docnames before any write; rejects entire call if any are missing (no partial write). URL: `/api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_work_packages`
+
 **`wizard_status` enum (6 values on `BoQ Sheet Draft`):** blank / Pending / Hidden / Reviewed / Skip / General specs / Parse failed. "Parse failed" has no writer until Module 5 (deliberate parse pass). "General specs" is never written directly to this field; it is derived by the frontend from `BOQs.general_specs_sheet`.
 
-**New schema fields (Module 2a):**
+**Schema fields (Module 2a + Module 3 Slice 3a):**
 - `BoQ Sheet Draft.sheet_label` -- Data, optional. Human-reference label for Skip sheets. No parser coupling.
+- `BoQ Sheet Draft.work_packages` -- Table, options "BoQ Sheet Work Package". Multi-link to Work Headers. REPLACES the former single-Link `work_package` field (renamed + converted in feat b14e9015). FRONTEND NOTE: `boqTypes.ts` still has `work_package?: string | null` -- a later frontend slice must update to `work_packages: BoQSheetWorkPackage[]`.
+- `BoQ Sheet Draft.sheet_config` -- JSON, optional. Per-sheet parser config blob (header_row, header_row_count, column_role_map, area_dimensions, etc.). Written by `set_sheet_config`; consumed by parse pass. Never query cross-sheet; always treat as opaque blob outside the wizard.
 - `BOQs.general_specs_sheet` -- Data, optional, in `parser_metadata_section`. Sheet name string of the general-specifications sheet, if any. At most one per workbook (single scalar on parent). NOT a Link.
+
+**New child doctype BoQ Sheet Work Package (feat b14e9015):**
+- Path: `nirmaan_stack/nirmaan_stack/doctype/boq_sheet_work_package/`
+- `istable=1`, one field: `work_header` Link -> "Work Headers" (reqd=1).
+- NAMING TRAP: target doctype is "Work Headers" (NOT "Work Packages"). The legacy field was named `work_package` but it always pointed at "Work Headers" (the sub-category doctype).
+- Python class: `BoQSheetWorkPackage(Document): pass`.
+- Data model: BOQs -> BoQ Sheet Draft -> BoQ Sheet Work Package (two levels of child table nesting).
 
 **Child-row update idiom:** `frappe.db.get_value("BoQ Sheet Draft", {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name}, "name")` to find child_name, then `frappe.db.set_value("BoQ Sheet Draft", child_name, field, value)`.
 

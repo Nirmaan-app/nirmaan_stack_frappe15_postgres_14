@@ -692,6 +692,41 @@ Visual/wording-only slice. No endpoint changes, no gate-logic changes, no store 
 
 Feat: 57152c52.
 
+### Phase 3 Module 3 Slice 3a -- Backend schema + endpoints (per-sheet sheet_config + work_package multi-link) COMPLETE
+
+**Backend-only slice. No frontend changes. No parse-trigger wiring (Module 5).**
+
+**Schema changes (boq_sheet_draft.json, feat b14e9015):**
+- `work_package` single-Link (options: "Work Headers") REPLACED by `work_packages` Table (options: "BoQ Sheet Work Package"). Plural fieldname signals multi-value. Named `work_packages` not `work_package` to distinguish from the legacy column.
+- `sheet_config` JSON field added (optional, reqd=0). Single JSON blob home for per-sheet parser config (header_row, header_row_count, column_role_map, area_dimensions, etc.). Single blob by design per M3.18/§6.3 -- wizard-internal, not queried cross-sheet.
+- Updated field_order: `[sheet_name, sheet_order, wizard_status, work_packages, sheet_label, sheet_config]`.
+
+**New child doctype BoQ Sheet Work Package (feat b14e9015):**
+- `nirmaan_stack/nirmaan_stack/doctype/boq_sheet_work_package/` (3 files: .json, .py, __init__.py)
+- `istable=1`, one field: `work_header` Link -> "Work Headers" (reqd=1). NAMING NOTE: target doctype is "Work Headers" (NOT "Work Packages" -- legacy naming confusion).
+- Python class: `BoQSheetWorkPackage(Document): pass` (minimal, same as Project Work Headers pattern).
+
+**Migration (feat b14e9015):**
+- `patches/v3_0/migrate_boq_sheet_draft_work_package_to_multi.py` appended to patches.txt (post_model_sync section).
+- Reads existing single `work_package` column via raw SQL (ORM no longer tracks it post-schema-change). Creates one BoQ Sheet Work Package child row per non-empty work_package value. Idempotent (existence check). Orphan-guarded (skips rows where Work Headers no longer exists). Ran clean on localhost: migrated=8, skipped_already_exists=0, skipped_orphan=0.
+
+**New endpoints in update_sheet_draft.py (2 additions, feat b14e9015):**
+- `set_sheet_config(boq_name=None, sheet_name=None, sheet_config=None)` -- writes JSON blob. Accepts dict or JSON string. Validates JSON string on input. URL: `/api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_config`
+- `set_sheet_work_packages(boq_name=None, sheet_name=None, work_headers=None)` -- replace-all semantics. Accepts list or JSON-string list. Validates ALL docnames exist before any write (no partial write on rejection). URL: `/api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_work_packages`
+- Both mirror existing style exactly: `@frappe.whitelist(methods=["POST"])`, all-params-default-None signatures, `frappe.db.exists("BOQs", boq_name)` guard, `frappe.db.commit()` before `return {"status": "saved"}`.
+
+**Tests (test_update_sheet_draft.py, feat b14e9015):** 25 (original in file) -> 41 tests. 16 new:
+- TestSetSheetConfig (6): dict input write+read, JSON string input, second-sheet isolation, nonexistent boq/sheet/missing-config negatives.
+- TestSetSheetWorkPackages (8): 2 headers -> 2 rows; replace-all reduces to 1; empty list clears; second-sheet isolation; nonexistent boq/sheet/work-header negatives; one-invalid-among-two rejects all.
+- TestMigrateWorkPackageToMulti (2): creates child row from legacy column; idempotent.
+All 41 tests in file pass. Wizard total: 41 (file) + 9 (upload) + 7 (boq_draft) = 57 total.
+
+**bench migrate:** clean. Patch ran post-model-sync, tabBoQ Sheet Work Package table created by schema phase, then patch populated it.
+
+**Frontend shape-change flag (EXPECTED -- handled in later slice):** `BoQSheetDraft.work_package` (string) on the frontend interface in `boqTypes.ts` does NOT match the new backend shape (`work_packages` as a Table child list). The frontend currently renders `work_package` as a string (SheetCard summary line). A later frontend slice must update `boqTypes.ts` to use `work_packages: BoQSheetWorkPackage[]` (where `BoQSheetWorkPackage = { name: string; work_header: string }`). Do NOT touch frontend files in this slice.
+
+Feat: b14e9015.
+
 ### Phase 2 — Excel parsing engine (backend only) *(4–5 days)*
 - `services/boq_excel_parser.py`: reader, mapping config schema (dataclass / Pydantic), classifier (code-driven + rule-driven), hierarchy resolver (stack walk), validator.
 - Sample BoQ corpus: 3–5 anonymized real `.xlsx` files under `tests/fixtures/boq_samples/`. Each has an expected JSON.
