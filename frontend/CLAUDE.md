@@ -303,20 +303,27 @@ store.
 **Status (2026-05-31):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
 hub route + static read-only hub). Module 2b-ii ✅ COMPLETE (feat 459f85ae; pill-color
 fix + all hub interactions wired). Module 2b-iii ✅ COMPLETE (feat 57152c52; visual
-polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 (per-sheet spoke) next.
+polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 (per-sheet spoke) next.
 
 **Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
 from URL param (survives refresh; not from the transient store). Module export:
 `export { BoqHubPage as Component }` for React Router v6 lazy().
 
 **Hub components in `src/pages/boq-wizard/`:**
-- `boqTypes.ts` -- shared types: `BOQsDoc` (extended with `sheet_drafts: BoQSheetDraft[]`
-  and `general_specs_sheet?: string`) + `BoQSheetDraft` + `WizardStatus`. Both
-  `BoqUploadScreen` and `BoqHubPage` import from here -- do not duplicate the type.
+- `boqTypes.ts` -- shared types: `BOQsDoc` + `BoQSheetDraft` + `WizardStatus` +
+  `BoQSheetWorkPackage`. Both `BoqUploadScreen` and `BoqHubPage` import from here --
+  do not duplicate the type. Current `BoQSheetDraft` shape (feat ba4fb738):
+  `{ name, sheet_name, sheet_order, wizard_status, work_packages?: BoQSheetWorkPackage[], sheet_label? }`.
+  `BoQSheetWorkPackage = { name: string; work_header: string }` (mirrors the backend child
+  doctype "BoQ Sheet Work Package", field `work_header` Link -> "Work Headers").
+  NOTE: `work_package` (singular string) is GONE -- it was the pre-3a legacy field. The
+  array `work_packages` replaced it (feat b14e9015 backend, ba4fb738 frontend).
 - `BoqHubPage.tsx` -- hub page with wired interactions (2b-ii). Four regions: header
   strip, general-specs selector, sheet-card list, parse-gate footer.
 - `SheetCard.tsx` -- sheet card with status pill, summary line, per-card saving state,
-  inline error, and status-dependent action buttons (2b-ii).
+  inline error, and status-dependent action buttons (2b-ii). Summary-line priority:
+  `sheet_label > work_packages (comma-joined work_header values) > keyword hint`.
+  `isKeywordHint` tests `!(work_packages?.length)` (feat ba4fb738).
 
 **Mutation pattern (first wizard use of useFrappePostCall, feat 459f85ae):**
 ```typescript
@@ -384,7 +391,7 @@ the actual parse.
   rounded-full, dark: variants for all six statuses. ONE central `STATUS_PILL` map in
   `SheetCard.tsx` -- do not scatter pill colors. Template:
   `bg-<color>-500 text-white dark:bg-<color>-600 dark:text-white`.
-- **Likely-skip keyword hint:** `isKeywordHint` flag (no label, no work_package + keyword match).
+- **Likely-skip keyword hint:** `isKeywordHint` flag (no label, no work_packages + keyword match).
   Rendered with `AlertTriangle` (lucide-react, `h-3 w-3`, amber) + amber text
   (`text-amber-600 dark:text-amber-400 font-medium`). Presentation-only; never changes data.
 - **Footer breakdown pattern:** Lead with data-sheet progress (`N of M data sheets reviewed`),
