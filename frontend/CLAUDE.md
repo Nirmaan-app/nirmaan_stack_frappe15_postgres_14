@@ -300,13 +300,9 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-05-31):** Module 1b-i landed (feat 3b69d00d, corrected 74741417 -- PE
-gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering create-modal). 1b-modal
-dropdown fix landed (fix 0c066902). Module 1b-ii-a landed (feat d1f3b5cd -- static
-upload screen + store + drop zone + panel; Continue stubbed). Module 1b-ii-b landed
-(feat 273e7fab -- live upload + socket listener + Continue gate; Module 1b COMPLETE).
-Module 2b-i ✅ COMPLETE (feat 81568df9; hub route + BoqHubPage + SheetCard + boqTypes;
-static read-only hub; Continue repointed to hub). Module 2b-ii next.
+**Status (2026-05-31):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
+hub route + static read-only hub). Module 2b-ii ✅ COMPLETE (feat 459f85ae; pill-color
+fix + all hub interactions wired). Module 3 (per-sheet spoke) next.
 
 **Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
 from URL param (survives refresh; not from the transient store). Module export:
@@ -316,11 +312,40 @@ from URL param (survives refresh; not from the transient store). Module export:
 - `boqTypes.ts` -- shared types: `BOQsDoc` (extended with `sheet_drafts: BoQSheetDraft[]`
   and `general_specs_sheet?: string`) + `BoQSheetDraft` + `WizardStatus`. Both
   `BoqUploadScreen` and `BoqHubPage` import from here -- do not duplicate the type.
-- `BoqHubPage.tsx` -- hub page component (four regions: header strip, general-specs
-  selector, sheet-card list, parse-gate footer). Read-only in 2b-i; 2b-ii wires
-  endpoint calls.
-- `SheetCard.tsx` -- lean sheet card: status pill + name + at most one muted summary
-  line (sheet_label > work_package > keyword hint). Action buttons deferred to 2b-ii.
+- `BoqHubPage.tsx` -- hub page with wired interactions (2b-ii). Four regions: header
+  strip, general-specs selector, sheet-card list, parse-gate footer.
+- `SheetCard.tsx` -- sheet card with status pill, summary line, per-card saving state,
+  inline error, and status-dependent action buttons (2b-ii).
+
+**Mutation pattern (first wizard use of useFrappePostCall, feat 459f85ae):**
+```typescript
+const { call, loading } = useFrappePostCall("nirmaan_stack.api.boq.wizard.update_sheet_draft.<fn>");
+await call({ boq_name, sheet_name, ... });  // throws on error
+void mutate();  // SWR re-fetch from useFrappeGetDoc -- server is authoritative
+```
+`useFrappePostCall` is now the standard for JSON endpoint mutations in the wizard.
+Raw `fetch` is kept ONLY for file upload (multipart FormData). Do NOT use raw fetch
+for JSON endpoints; use `useFrappePostCall` + `mutate()`.
+
+**Per-card saving convention:**
+- `isSaving = statusLoading || labelLoading` from the card's own `useFrappePostCall` hooks.
+- While saving: spinner + ALL buttons on that card disabled. Other cards stay interactive.
+- On failure: inline `<p className="text-xs text-destructive">...</p>` on the card.
+  No toasts -- inline error is the wizard convention throughout.
+
+**Hub button set (per effective status):**
+- Pending: [Review -- stub M3] [Skip] [Mark reviewed -- interim until M3]
+- Reviewed: [Edit -- stub M3] [Set pending]
+- Skip: [Edit label] [Include]
+- Hidden: [Include]
+- Parse failed: [Review -- stub M3] [Mark reviewed -- interim] [Skip]
+- General specs: hint text only (selector governs it, no status buttons)
+- "Review" / "Edit" stubs: `onClick` no-op, Tooltip "Per-sheet configuration opens
+  in Module 3 (coming next)". DO NOT navigate from these buttons.
+- "Mark reviewed" + "Set pending": deliberately wired so parse gate is testable
+  without the Module 3 spoke. Clearly labeled; they call `set_sheet_status` directly.
+- Discard BoQ (header menu): still disabled/stubbed -- destructive, separate slice.
+- Parse workbook (footer): still no-op stub -- Module 5.
 
 **General-specs derivation rule (M2.16) -- CRITICAL:**
 The "General specs" display badge on a card is DERIVED from `BOQs.general_specs_sheet`
@@ -333,15 +358,23 @@ as the effective status regardless of what `wizard_status` contains.
 **EXACT sheet_name constraint (verified 2026-05-31):**
 `sheet_name` is stored and matched VERBATIM by the backend -- Frappe does NOT strip
 whitespace from BoQ Sheet Draft Data fields. "  Electrical (Rev-2) " is stored as-is.
-Rules: (1) use `draft.sheet_name` as-is for React keys and any future endpoint call
-(2b-ii); (2) trim ONLY for visual display (e.g. card label text); (3) each such site
-in hub code has a comment noting the exact-match requirement. Any future endpoint call
-to `update_sheet_draft` endpoints must pass the raw `draft.sheet_name`.
+Rules: (1) use `draft.sheet_name` as-is for React keys and in every endpoint call;
+(2) trim ONLY for visual display (e.g. card label text); (3) each call site in hub
+code has a comment noting the exact-match requirement.
+
+**M2.23 general-specs confirm flow (AMENDED from original design):**
+Warn-and-confirm (AlertDialog) fires ONLY when the chosen sheet's effective status is
+"Reviewed". Single call: `set_general_specs_sheet(sheet_name)` only -- NO
+`set_sheet_status` as part of designation. When the pointer is later cleared or
+re-pointed, the released sheet returns to its TRUE prior `wizard_status` (not forced
+to Pending). Rationale: less destructive, simpler, no fragile two-call sequence.
+Cancel: dialog closes, selector reverts to server state automatically (controlled
+component -- no endpoint called, no state update needed).
 
 **Hub parse-gate (M2.11/M2.12):** Enabled when `blockingCount === 0 && reviewedCount >= 1`.
 Blocking = effective status is "Pending" or "Parse failed" on data sheets (non-hidden,
-non-skip, non-general-specs). The "Parse workbook" button onClick is a no-op stub in
-2b-i -- Module 5 owns the actual parse.
+non-skip, non-general-specs). Parse workbook onClick is a no-op stub -- Module 5 owns
+the actual parse.
 
 ---
 
