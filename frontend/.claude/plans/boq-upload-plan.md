@@ -727,6 +727,47 @@ All 41 tests in file pass. Wizard total: 41 (file) + 9 (upload) + 7 (boq_draft) 
 
 Feat: b14e9015.
 
+### Phase 3 Module 3 Slice 3b-i -- Backend sheet-data preview endpoint (values-only, S3-safe) COMPLETE
+
+**Backend-only slice. No frontend changes (Slice 3b-ii builds the spoke UI). No parser changes.**
+
+**Performance rationale (measured, 7.65 MB workbook):**
+`BoqReader(path)` takes ~27 s: opens workbook TWICE (data_only + formula pass) + pre-scans merged ranges for all sheets. Unusable for a synchronous preview. `openpyxl.load_workbook(path, data_only=True, read_only=True)` takes ~0.56 s on the same file. The endpoint uses `read_only=True` (streaming mode) and never uses `BoqReader`.
+
+**S3 safety:** `BOQs.source_file_url` is a frappe_s3_attachment redirect URL after upload. `frappe.get_doc("File", ...).get_content()` reads local disk only and breaks under S3 (plugin moves the file). Bytes are fetched via `S3Operations.read_file_from_s3(key)` and written to a `NamedTemporaryFile`; the tempfile is always `os.unlink`-ed in a `finally` block.
+
+**New module: `nirmaan_stack/api/boq/wizard/sheet_preview.py` (feat TBD):**
+
+- `_derive_s3_key(source_file_url)` -- extracts the S3 object key. Primary: parse the `key=` query param from the private-file URL (format confirmed from controller.py line 142). Fallback: `frappe.db.get_value("File", {"file_url": url}, "content_hash")` (plugin stores key there per line 148). URL-param parsing is primary -- zero DB hit, format verified.
+- `_fetch_boq_file_to_tempfile(source_file_url)` -- derives key, calls `S3Operations().read_file_from_s3(key)`, reads `response["Body"].read()` bytes, writes to a `NamedTemporaryFile(suffix=".xlsx", delete=False)`, returns path. Tempfile is only created AFTER bytes are successfully downloaded; a failed S3 fetch throws before any file is created (no orphan).
+- `_to_json_serializable(value)` -- coerces non-JSON-primitives: `datetime.datetime` → `.isoformat()`, `datetime.date` → `.isoformat()`, `datetime.timedelta` → `str()`, any other non-primitive → `str()`.
+
+**Endpoint: `get_sheet_preview(boq_name, sheet_name, start_row=1, end_row=40)`**
+- `@frappe.whitelist()` bare (no `methods=["POST"]` -- it is a read; callable via GET / useFrappeGetCall).
+- Coerces start_row / end_row to int (Frappe passes query params as strings). Guards: start_row >= 1, end_row >= start_row. Window cap: if window > 200 rows, end_row is CLAMPED silently (not rejected) to `start_row + 199`.
+- Guards: `frappe.db.exists("BOQs", boq_name)`, source_file_url non-empty.
+- VERBATIM sheet_name matching: uses `sheet_name not in wb.sheetnames` -- no strip, no case-fold. Same discipline as the rest of the wizard.
+- Reads rows with `ws.iter_rows(min_row=start_row, max_row=end_row)`. Filters `EmptyCell` objects (openpyxl read_only mode pads rows to sheet `max_column` with `EmptyCell`; `EmptyCell` has no `.column`/`.row` attribute). Guard: `hasattr(cell, "column")`.
+- Cell dict: `{col_letter: value}` where `col_letter` is uppercase Excel column letter (A, B, ...) and `value` is JSON-serializable (None for empty).
+- `has_more` derived from `ws.max_row` (the sheet's dimension metadata, reliable for well-formed xlsx in read_only mode). Fallback when `max_row is None`: proxy from `returned_count == (end_row - start_row + 1)`.
+- Tempfile always unlinked in a `finally` block. Workbook `wb.close()` called in the same `finally` block before unlink.
+- Return shape: `{"sheet_name": str, "start_row": int, "end_row_requested": int, "rows": [{row_number, cells}], "returned_count": int, "has_more": bool}`.
+- URL: `/api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview`
+
+**Tests: `nirmaan_stack/api/boq/wizard/test_sheet_preview.py` (23 tests, all PASS):**
+- `TestDeriveS3Key` (3): parse key from private URL; fallback via File doc content_hash (mock); throws when no key derivable.
+- `TestToJsonSerializable` (5): primitives pass through; datetime.datetime → isoformat; datetime.date → isoformat; timedelta → str; unknown type → str.
+- `TestGetSheetPreviewShape` (4): response keys present; row_numbers sequential + in range; cells use uppercase Excel column letters; A1 value matches `synthetic_simple.xlsx` fixture ("Sl.No.").
+- `TestGetSheetPreviewPagination` (2): second window row_numbers start at 41; window cap clamped silently (end_row=500 → end_row_requested=200).
+- `TestGetSheetPreviewHasMore` (3): has_more=True for first window on large fixture (snitch_electrical.xlsx "6. Electrical"); has_more=False when requesting past end of small fixture (synthetic_simple.xlsx); end-of-sheet returns fewer rows + has_more=False.
+- `TestGetSheetPreviewNegative` (6): missing boq_name; missing sheet_name; nonexistent boq; nonexistent sheet_name; empty source_file_url; whitespace-mismatch sheet_name (verbatim EXACT match required).
+- S3 fetch mocked via `unittest.mock.patch("...sheet_preview._fetch_boq_file_to_tempfile", side_effect=...)`. The side_effect copies the local fixture file into a fresh `NamedTemporaryFile` so the endpoint's `finally` block can safely `os.unlink` it without touching the original.
+- Real BOQs rows created in `setUpClass` via `_make_project()` + `_make_boq_with_url()` pattern (mirrors `test_update_sheet_draft.py`). `source_file_url` set to fake S3-format URL so `frappe.db.exists` + `frappe.db.get_value` use the real DB; only the S3 fetch is mocked.
+
+**Backwards-compat:** Purely additive. New module + new endpoint; no existing endpoint or schema touched. Existing wizard tests stable at 41 (test_update_sheet_draft.py). Total wizard Frappe tests: 41 + 23 = 64.
+
+Feat: bf1a2e64.
+
 ### Phase 2 — Excel parsing engine (backend only) *(4–5 days)*
 - `services/boq_excel_parser.py`: reader, mapping config schema (dataclass / Pydantic), classifier (code-driven + rule-driven), hierarchy resolver (stack walk), validator.
 - Sample BoQ corpus: 3–5 anonymized real `.xlsx` files under `tests/fixtures/boq_samples/`. Each has an expected JSON.
