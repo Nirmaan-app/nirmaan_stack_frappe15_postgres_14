@@ -10,6 +10,14 @@ export type WizardStatus =
   | "General specs"
   | "Parse failed";
 
+/** One row in BoQ Sheet Draft.work_packages child table (feat b14e9015). */
+export interface BoQSheetWorkPackage {
+  /** Frappe child-row docname. */
+  name: string;
+  /** Docname of the linked Work Headers record. */
+  work_header: string;
+}
+
 export interface BoQSheetDraft {
   /** Frappe child-row docname. */
   name: string;
@@ -23,7 +31,8 @@ export interface BoQSheetDraft {
   sheet_name: string;
   sheet_order: number;
   wizard_status: WizardStatus;
-  work_package?: string | null;
+  /** Work Headers assigned to this sheet (multi-link child table, feat b14e9015). */
+  work_packages?: BoQSheetWorkPackage[];
   sheet_label?: string;
 }
 

@@ -69,16 +69,18 @@ export function SheetCard({
 
   const pill = STATUS_PILL[effectiveStatus] ?? STATUS_PILL["Pending"];
 
-  // One muted summary line -- priority: sheet_label > work_package > keyword hint.
+  // One muted summary line -- priority: sheet_label > work_packages > keyword hint.
   // Trim is display-only; draft.sheet_name stays exact for any data use.
   const summaryLine: string | null =
     (draft.sheet_label?.trim() || null) ??
-    (draft.work_package ? draft.work_package.trim() : null) ??
+    (draft.work_packages?.length
+      ? draft.work_packages.map(w => w.work_header).join(", ")
+      : null) ??
     (isLikelySkip ? "Likely non-data sheet -- consider skipping" : null);
 
-  // True when the summary line IS the keyword hint (no label, no work_package).
+  // True when the summary line IS the keyword hint (no label, no work_packages).
   // Used to apply stronger visual treatment -- presentation only, no data change.
-  const isKeywordHint = isLikelySkip && !draft.sheet_label?.trim() && !draft.work_package;
+  const isKeywordHint = isLikelySkip && !draft.sheet_label?.trim() && !(draft.work_packages?.length);
 
   // ── Status-change handler ────────────────────────────────────────────────
   const handleStatusChange = async (status: string) => {
