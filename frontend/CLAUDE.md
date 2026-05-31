@@ -303,7 +303,7 @@ store.
 **Status (2026-05-31):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
 hub route + static read-only hub). Module 2b-ii ✅ COMPLETE (feat 459f85ae; pill-color
 fix + all hub interactions wired). Module 2b-iii ✅ COMPLETE (feat 57152c52; visual
-polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 (per-sheet spoke) next.
+polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 Slice 3b-ii ✅ COMPLETE (feat 7be670d4; spoke shell + SheetDataGrid + Review/Edit wiring; tsc clean on wizard files; Vite build 0 errors). Module 3 Slice 3c next (config sections -- Section 1 rows + Section 2 areas).
 
 **Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
 from URL param (survives refresh; not from the transient store). Module export:
@@ -397,6 +397,19 @@ the actual parse.
 - **Footer breakdown pattern:** Lead with data-sheet progress (`N of M data sheets reviewed`),
   then append only non-zero set-aside categories (`· K general specs · S skipped · H hidden`).
   Derive counts from `getEffectiveStatus` -- same source as the gate. Do not change gate math.
+
+**Module 3 Slice 3b-ii -- per-sheet spoke shell + SheetDataGrid (feat 7be670d4):**
+
+- **Spoke route:** `/upload-boq/hub/:boqId/sheet/:sheetName` — sibling of the hub route in `routesConfig.tsx`. Lazy-loaded, `SheetSpokePage` exports `{ SheetSpokePage as Component }` (React Router v6 lazy convention).
+- **encode/decode:** Hub navigates using `encodeURIComponent(draft.sheet_name)`. React Router v6 `useParams()` auto-decodes URL params — spoke receives the verbatim original `sheet_name` (no manual decode needed). Passed to the endpoint as-is (VERBATIM matching required by backend).
+- **SheetSpokePage scope (this slice only):** back button → hub, header (display-trimmed sheet name + BoQ name/version + optional label), `SheetDataGrid`. NO config sections, NO work-package picker, NO mark-reviewed — Slice 3c+.
+- **SheetDataGrid:** `useFrappePostCall` for ALL fetches (initial + load-more) — avoids mixing SWR state with accumulated rows. Initial 40 rows fetched in `useEffect([boqName, sheetName])`. `useState` tracks rows, hasMore, isInitLoading, initError, isLoadingMore, loadMoreError.
+  - Column header: union of all col_letter keys across loaded rows, sorted in Excel order (shorter first, then alphabetical — A,B,...,Z,AA,AB,...). Recomputed after each load-more append.
+  - Left gutter: absolute Excel `row_number` (never re-indexed; row 41 shows "41"). `sticky left-0` for horizontal scroll.
+  - Cell values: null → blank, booleans → "TRUE"/"FALSE", others → String(). Truncated with `max-w-[180px]`, full value on hover via `title` attr. Uses shadcn `<Table>` (NOT TanStack).
+  - Load-more: `disabled={isLoadingMore}` is the single-flight guard. `setRows(prev => [...prev, ...newRows])` appends. Re-evaluates `has_more` from new response. Hidden when `has_more === false`.
+- **Review/Edit wiring:** `MODULE3_TOOLTIP` constant and `Tooltip`/`TooltipContent`/`TooltipTrigger` imports removed from `SheetCard.tsx`. Review (Pending, Parse-failed) and Edit (Reviewed) now call `onOpenSpoke?.(draft.sheet_name)` — optional so cards without a spoke callback still compile. `BoqHubPage` passes `onOpenSpoke={handleOpenSpoke}` where `handleOpenSpoke` calls `navigate(\`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}\`)`. All other card buttons (Mark reviewed, Set pending, Skip, Include, Edit label) are UNCHANGED.
+- **Preview types in boqTypes.ts:** `SheetPreviewRow { row_number, cells: Record<string, string|number|boolean|null> }` and `SheetPreviewResponse { sheet_name, start_row, end_row_requested, rows, returned_count, has_more }`.
 
 ---
 
