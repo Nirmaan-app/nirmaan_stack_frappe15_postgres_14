@@ -23,6 +23,7 @@
   "source_sheet_name",
   "source_file_url",
   "area_dimensions",
+  "general_specs_sheet",
   "wizard_state",
   "sheet_drafts"
  ],
@@ -132,6 +133,12 @@
    "fieldname": "area_dimensions",
    "fieldtype": "Small Text",
    "label": "Area Dimensions (JSON)"
+  },
+  {
+   "description": "Sheet name of the workbook sheet designated as the general-specifications (master-preamble) sheet, if any. At most one per workbook.",
+   "fieldname": "general_specs_sheet",
+   "fieldtype": "Data",
+   "label": "General Specifications Sheet"
   },
   {
    "fieldname": "wizard_state",

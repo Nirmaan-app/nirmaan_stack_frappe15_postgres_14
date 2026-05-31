@@ -7,7 +7,8 @@
   "sheet_name",
   "sheet_order",
   "wizard_status",
-  "work_package"
+  "work_package",
+  "sheet_label"
  ],
  "fields": [
   {
@@ -29,7 +30,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Wizard Status",
-   "options": "\nPending\nHidden",
+   "options": "\nPending\nHidden\nReviewed\nSkip\nGeneral specs\nParse failed",
    "reqd": 1
   },
   {
@@ -38,6 +39,11 @@
    "in_list_view": 1,
    "label": "Work Package",
    "options": "Work Headers"
+  },
+  {
+   "fieldname": "sheet_label",
+   "fieldtype": "Data",
+   "label": "Sheet Label"
   }
  ],
  "index_web_pages_for_search": 0,
