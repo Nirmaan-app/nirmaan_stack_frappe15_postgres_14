@@ -59,11 +59,18 @@ const SheetSpokePage = () => {
     );
   }
 
-  // Display-trimmed sheet name. sheetName stays exact for endpoint calls.
-  const displaySheetName = sheetName?.trim() || sheetName || "";
+  // React Router v6 useParams() returns the RAW (URL-encoded) path segment --
+  // it does NOT call decodeURIComponent. So a sheet named "C&I" navigated via
+  // encodeURIComponent produces sheetName = "C%26I" here. Decode explicitly so:
+  //   (a) display is human-readable ("C&I" not "C%26I"), and
+  //   (b) SheetDataGrid receives the verbatim DB-stored name the endpoint requires.
+  const decodedSheetName = sheetName ? decodeURIComponent(sheetName) : "";
 
-  // Sheet label (optional), for supplementary display only.
-  const draft = boq.sheet_drafts?.find((d) => d.sheet_name === sheetName);
+  // Display-trimmed for readability; endpoint calls use decodedSheetName directly.
+  const displaySheetName = decodedSheetName.trim() || decodedSheetName;
+
+  // Sheet label (optional) -- lookup by decoded name to match DB storage.
+  const draft = boq.sheet_drafts?.find((d) => d.sheet_name === decodedSheetName);
 
   // Guard: sheetName must be present (routing guarantees it, but be defensive).
   if (!sheetName) {
@@ -110,7 +117,8 @@ const SheetSpokePage = () => {
         boq.name is the docname (e.g. "BOQ-26-00133"); sheetName is the verbatim
         sheet_name. Both passed exactly to the endpoint (VERBATIM matching required).
       */}
-      <SheetDataGrid boqName={boq.name} sheetName={sheetName} />
+      {/* decodedSheetName is the verbatim DB-stored name (VERBATIM matching required). */}
+      <SheetDataGrid boqName={boq.name} sheetName={decodedSheetName} />
     </div>
   );
 };

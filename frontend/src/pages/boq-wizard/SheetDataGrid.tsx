@@ -171,20 +171,36 @@ export function SheetDataGrid({ boqName, sheetName }: SheetDataGridProps) {
 
   return (
     <div className="space-y-3">
-      {/* Horizontal-scroll wrapper -- required for wide sheets */}
-      <div className="overflow-x-auto rounded-md border border-border">
+      {/*
+        Scroll container: overflow-auto + max-h bounds BOTH axes so that:
+        - Wide sheets scroll horizontally (overflow-x behavior preserved).
+        - Long sheets scroll vertically WITHIN the container (not the page).
+        Having a bounded scroll ancestor is required for `sticky top-0` to work
+        on the column-letter header cells -- without max-h, the container grows
+        to fit content and there is no vertical clip, so sticky never fires.
+      */}
+      <div className="overflow-auto max-h-[calc(100vh-14rem)] rounded-md border border-border">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              {/* Row-number gutter header */}
-              <TableHead className="sticky left-0 z-10 w-12 min-w-[48px] text-center text-xs font-medium text-muted-foreground bg-muted/50 border-r border-border">
+              {/*
+                Corner cell: sticky on BOTH axes (top-0 left-0) with the highest
+                z-index (z-30) so it sits on top of column-letter headers (z-20)
+                AND row-number gutter cells (z-10) at their intersection.
+                bg-muted (solid) covers body content that scrolls beneath it.
+              */}
+              <TableHead className="sticky top-0 left-0 z-30 w-12 min-w-[48px] text-center text-xs font-medium text-muted-foreground bg-muted border-r border-border">
                 #
               </TableHead>
-              {/* Excel column-letter headers */}
+              {/*
+                Column-letter headers: sticky top only (z-20, below corner).
+                bg-muted (solid) covers body rows that scroll underneath.
+                border-r adds the vertical gridlines between columns.
+              */}
               {columns.map((col) => (
                 <TableHead
                   key={col}
-                  className="min-w-[80px] text-center text-xs font-semibold text-muted-foreground"
+                  className="sticky top-0 z-20 min-w-[80px] text-center text-xs font-semibold text-muted-foreground bg-muted border-r border-border"
                 >
                   {col}
                 </TableHead>
@@ -194,7 +210,7 @@ export function SheetDataGrid({ boqName, sheetName }: SheetDataGridProps) {
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.row_number}>
-                {/* Absolute Excel row number -- never re-indexed; row 41 shows "41" */}
+                {/* Row-number gutter: sticky left only (z-10). bg-background covers scrolled data cells. */}
                 <TableCell className="sticky left-0 z-10 w-12 min-w-[48px] text-center text-xs font-mono text-muted-foreground bg-background border-r border-border">
                   {row.row_number}
                 </TableCell>
@@ -203,7 +219,7 @@ export function SheetDataGrid({ boqName, sheetName }: SheetDataGridProps) {
                   return (
                     <TableCell
                       key={col}
-                      className="max-w-[180px] truncate text-xs"
+                      className="max-w-[180px] truncate text-xs border-r border-border"
                       title={text || undefined}
                     >
                       {text}
