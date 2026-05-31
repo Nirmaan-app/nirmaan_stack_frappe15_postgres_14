@@ -1,7 +1,8 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import type { BOQsDoc } from "./boqTypes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,15 +21,7 @@ interface ProjectDoc {
   customer?: string | null;
 }
 
-interface BOQsDoc {
-  name: string;
-  /** BoQ description field derived from filename (e.g. "Electrical BoQ"). */
-  boq_name: string;
-  /** Integer version, auto-incremented by before_insert per (project, boq_name). */
-  version: number | null;
-  tax_treatment: "Pre-tax" | "Post-tax";
-  notes: string;
-}
+// BOQsDoc is now the shared type from boqTypes.ts -- imported above.
 
 interface ParseDonePayload {
   status: string;
@@ -71,15 +64,11 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
     fillFromParse,
   } = useBoqWizardStore();
 
-  // Inline stub for Module 2 handoff (no new route; replaced when Module 2 builds the hub).
-  const [handedOff, setHandedOff] = useState(false);
-
   // Reset transient store whenever the project changes, then register the project.
   // reset/setSelectedProject are stable Zustand action refs -- omitted from deps intentionally.
   useEffect(() => {
     reset();
     setSelectedProject(projectId);
-    setHandedOff(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -159,22 +148,6 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
       ? `Still needed: ${missingItems.join("; ")}`
       : "All set -- click to continue";
 
-  // ── Module 2 stub (handoff on Continue) ──────────────────────────────────
-  if (handedOff) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 max-w-4xl mx-auto pt-6 pb-10">
-        <CheckCircle2 className="h-12 w-12 text-primary" />
-        <h2 className="text-xl font-semibold text-foreground">BoQ uploaded successfully</h2>
-        <p className="text-sm text-muted-foreground">
-          Module 2 (sheet mapping hub) -- coming next.
-        </p>
-        <Button variant="outline" onClick={() => navigate(`/projects/${projectId}`)}>
-          Back to project
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10">
       {/* ── Header ───────────────────────────────────────────────────────── */}
@@ -228,7 +201,7 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
               <span tabIndex={0}>
                 <Button
                   disabled={!canContinue}
-                  onClick={() => setHandedOff(true)}
+                  onClick={() => { if (boqDocName) navigate(`/upload-boq/hub/${boqDocName}`); }}
                 >
                   Continue
                   <ArrowRight className="ml-2 h-4 w-4" />

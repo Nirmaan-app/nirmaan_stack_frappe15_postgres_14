@@ -718,6 +718,10 @@ export const appRoutes: RouteObject[] = [
           // ?project=<id> pre-selects the project in the picker.
           { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
 
+          // BoQ Hub (Module 2b) -- sheet mapping screen.
+          // boqId is the BOQs docname; read from URL so the hub survives refresh.
+          { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },
+
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
           // Commented out routes from original:
