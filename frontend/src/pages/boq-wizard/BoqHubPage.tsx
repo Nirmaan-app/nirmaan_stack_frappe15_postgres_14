@@ -117,6 +117,14 @@ const BoqHubPage = () => {
   // Server is the source of truth; no local-state authority over wizard_status.
   const handleSaved = () => { void mutate(); };
 
+  // ── Spoke navigation callback (Module 3 Slice 3b-ii) ──────────────────────
+  // Passed to each SheetCard so the card stays router-free. Hub owns navigate.
+  // EXACT: sheetName passed verbatim (encodeURIComponent encodes all special chars
+  // including spaces). React Router v6 auto-decodes useParams values in the spoke.
+  const handleOpenSpoke = (sheetName: string) => {
+    navigate(`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}`);
+  };
+
   // ── Effective-status derivation (M2.16) ───────────────────────────────────
   // "General specs" is DERIVED from the pointer, never from wizard_status.
   // EXACT: sheet_name compared verbatim (no trimming).
@@ -329,6 +337,7 @@ const BoqHubPage = () => {
             isLikelySkip={isLikelySkipSheet(draft.sheet_name)}
             boqName={boq.name}
             onSaved={handleSaved}
+            onOpenSpoke={handleOpenSpoke}
           />
         ))}
 

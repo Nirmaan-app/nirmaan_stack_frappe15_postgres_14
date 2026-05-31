@@ -36,6 +36,29 @@ export interface BoQSheetDraft {
   sheet_label?: string;
 }
 
+// ── Preview response types (Slice 3b-i endpoint, feat bf1a2e64) ───────────────
+
+/** One row in a get_sheet_preview response. */
+export interface SheetPreviewRow {
+  row_number: number;
+  /** Keyed by Excel column letter (A, B, ...). Null represents an empty cell. */
+  cells: Record<string, string | number | boolean | null>;
+}
+
+/**
+ * Full response shape of the get_sheet_preview endpoint.
+ * URL: /api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview
+ */
+export interface SheetPreviewResponse {
+  sheet_name: string;
+  start_row: number;
+  end_row_requested: number;
+  rows: SheetPreviewRow[];
+  returned_count: number;
+  /** True when the sheet has rows beyond end_row_requested. */
+  has_more: boolean;
+}
+
 export interface BOQsDoc {
   name: string;
   /** Human-readable title derived from the uploaded filename. */

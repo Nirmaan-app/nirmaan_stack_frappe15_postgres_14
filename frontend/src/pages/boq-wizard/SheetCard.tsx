@@ -2,12 +2,7 @@ import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { BoQSheetDraft } from "./boqTypes";
 
@@ -27,9 +22,6 @@ const STATUS_PILL: Record<string, { label: string; className: string }> = {
   "General specs":  { label: "General specs", className: "bg-sky-500 text-white dark:bg-sky-600 dark:text-white" },
 };
 
-// Tooltip for stub buttons whose target (per-sheet spoke) is Module 3, not yet built.
-const MODULE3_TOOLTIP = "Per-sheet configuration opens in Module 3 (coming next)";
-
 // Shared button style for "Mark reviewed" -- emerald tint to hint at the target status.
 const MARK_REVIEWED_CLASS =
   "text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950";
@@ -43,6 +35,12 @@ interface SheetCardProps {
   boqName: string;
   /** Called after any successful write to trigger parent SWR re-fetch. */
   onSaved: () => void;
+  /**
+   * Called when the user clicks Review (Pending/Parse-failed) or Edit (Reviewed).
+   * Receives the VERBATIM sheet_name (no trimming). Parent (BoqHubPage) owns
+   * navigate so SheetCard stays router-free.
+   */
+  onOpenSpoke?: (sheetName: string) => void;
 }
 
 export function SheetCard({
@@ -51,6 +49,7 @@ export function SheetCard({
   isLikelySkip,
   boqName,
   onSaved,
+  onOpenSpoke,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -155,18 +154,11 @@ export function SheetCard({
         {/* ── Pending ─────────────────────────────────────────────────────── */}
         {effectiveStatus === "Pending" && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {/* Review: stub -- per-sheet spoke is Module 3 */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button size="sm" variant="ghost" disabled={isSaving}
-                    onClick={() => {/* Module 3 -- no-op */}}>
-                    Review
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{MODULE3_TOOLTIP}</TooltipContent>
-            </Tooltip>
+            {/* Review: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
+            <Button size="sm" variant="ghost" disabled={isSaving}
+              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+              Review
+            </Button>
             <Button size="sm" variant="outline" disabled={isSaving}
               onClick={() => void handleStatusChange("Skip")}>
               Skip
@@ -186,18 +178,11 @@ export function SheetCard({
         {/* ── Reviewed ────────────────────────────────────────────────────── */}
         {effectiveStatus === "Reviewed" && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {/* Edit: stub -- opens the per-sheet spoke (Module 3) */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button size="sm" variant="ghost" disabled={isSaving}
-                    onClick={() => {/* Module 3 -- no-op */}}>
-                    Edit
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{MODULE3_TOOLTIP}</TooltipContent>
-            </Tooltip>
+            {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
+            <Button size="sm" variant="ghost" disabled={isSaving}
+              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+              Edit
+            </Button>
             <Button size="sm" variant="outline" disabled={isSaving}
               onClick={() => void handleStatusChange("Pending")}>
               Set pending
@@ -232,18 +217,11 @@ export function SheetCard({
         {/* ── Parse failed ────────────────────────────────────────────────── */}
         {effectiveStatus === "Parse failed" && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {/* Review: stub -- Module 3 */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button size="sm" variant="ghost" disabled={isSaving}
-                    onClick={() => {/* Module 3 -- no-op */}}>
-                    Review
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{MODULE3_TOOLTIP}</TooltipContent>
-            </Tooltip>
+            {/* Review: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
+            <Button size="sm" variant="ghost" disabled={isSaving}
+              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+              Review
+            </Button>
             {/* Interim: Mark reviewed so parse gate is testable without the spoke. */}
             <Button size="sm" variant="outline" disabled={isSaving}
               className={MARK_REVIEWED_CLASS}
