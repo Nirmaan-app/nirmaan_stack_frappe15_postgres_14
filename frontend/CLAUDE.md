@@ -286,10 +286,10 @@ doc (third arg null disables SWR until boqDocName is set per sdk gotcha). A sepa
 
 **Continue gate (M1.33-M1.36):** Enabled when `droppedFile !== null && uploadStatus
 === "done" && confirmedFields.boqName && confirmedFields.version && confirmedFields.gst`.
-Disabled-state tooltip dynamically lists still-missing items. On click: Module 2
-handoff -- currently an inline stub (CheckCircle2 + "Module 2 coming next" message,
-`handedOff` local state). No routing change for the stub; `routesConfig.tsx`
-unchanged.
+Disabled-state tooltip dynamically lists still-missing items. On click:
+`navigate(\`/upload-boq/hub/${boqDocName}\`)` -- navigates to the BoQ Hub screen
+(Module 2b-i, feat 81568df9). The old `handedOff` stub (CheckCircle2 placeholder,
+local useState) has been removed.
 
 **Pre-fill-unconfirmed pattern (S4.1, M1.34):** Required fields (BoQ Name, Version, GST)
 start blank (see blank-until-parsed above). After `fillFromParse`, they carry real
@@ -300,12 +300,48 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-05-30):** Module 1b-i landed (feat 3b69d00d, corrected 74741417 -- PE
+**Status (2026-05-31):** Module 1b-i landed (feat 3b69d00d, corrected 74741417 -- PE
 gating fix). Module 1b-modal landed (feat b13c7b9c -- Tendering create-modal). 1b-modal
 dropdown fix landed (fix 0c066902). Module 1b-ii-a landed (feat d1f3b5cd -- static
 upload screen + store + drop zone + panel; Continue stubbed). Module 1b-ii-b landed
 (feat 273e7fab -- live upload + socket listener + Continue gate; Module 1b COMPLETE).
-Module 2 next.
+Module 2b-i ✅ COMPLETE (feat 81568df9; hub route + BoqHubPage + SheetCard + boqTypes;
+static read-only hub; Continue repointed to hub). Module 2b-ii next.
+
+**Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
+from URL param (survives refresh; not from the transient store). Module export:
+`export { BoqHubPage as Component }` for React Router v6 lazy().
+
+**Hub components in `src/pages/boq-wizard/`:**
+- `boqTypes.ts` -- shared types: `BOQsDoc` (extended with `sheet_drafts: BoQSheetDraft[]`
+  and `general_specs_sheet?: string`) + `BoQSheetDraft` + `WizardStatus`. Both
+  `BoqUploadScreen` and `BoqHubPage` import from here -- do not duplicate the type.
+- `BoqHubPage.tsx` -- hub page component (four regions: header strip, general-specs
+  selector, sheet-card list, parse-gate footer). Read-only in 2b-i; 2b-ii wires
+  endpoint calls.
+- `SheetCard.tsx` -- lean sheet card: status pill + name + at most one muted summary
+  line (sheet_label > work_package > keyword hint). Action buttons deferred to 2b-ii.
+
+**General-specs derivation rule (M2.16) -- CRITICAL:**
+The "General specs" display badge on a card is DERIVED from `BOQs.general_specs_sheet`
+pointer, not from `BoQSheetDraft.wizard_status`. The backend NEVER writes "General specs"
+to `wizard_status` (see backend CLAUDE.md). Do NOT write "General specs" to
+`wizard_status` in frontend code either. The derivation logic: if
+`draft.sheet_name === boq.general_specs_sheet` (EXACT string match), return "General specs"
+as the effective status regardless of what `wizard_status` contains.
+
+**EXACT sheet_name constraint (verified 2026-05-31):**
+`sheet_name` is stored and matched VERBATIM by the backend -- Frappe does NOT strip
+whitespace from BoQ Sheet Draft Data fields. "  Electrical (Rev-2) " is stored as-is.
+Rules: (1) use `draft.sheet_name` as-is for React keys and any future endpoint call
+(2b-ii); (2) trim ONLY for visual display (e.g. card label text); (3) each such site
+in hub code has a comment noting the exact-match requirement. Any future endpoint call
+to `update_sheet_draft` endpoints must pass the raw `draft.sheet_name`.
+
+**Hub parse-gate (M2.11/M2.12):** Enabled when `blockingCount === 0 && reviewedCount >= 1`.
+Blocking = effective status is "Pending" or "Parse failed" on data sheets (non-hidden,
+non-skip, non-general-specs). The "Parse workbook" button onClick is a no-op stub in
+2b-i -- Module 5 owns the actual parse.
 
 ---
 
