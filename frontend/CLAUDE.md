@@ -300,10 +300,19 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-05-31):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
+**Status (2026-06-01):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
 hub route + static read-only hub). Module 2b-ii ✅ COMPLETE (feat 459f85ae; pill-color
 fix + all hub interactions wired). Module 2b-iii ✅ COMPLETE (feat 57152c52; visual
-polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 Slice 3b-ii ✅ COMPLETE (feat 7be670d4; spoke shell + SheetDataGrid + Review/Edit wiring; tsc clean on wizard files; Vite build 0 errors). Module 3 Slice 3b-iii ✅ COMPLETE (feat 2ac4789a; sticky header + gridlines + decode fix; tsc + build clean). Module 3 Slice 3c next (config sections -- Section 1 rows + Section 2 areas).
+polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 Slice 3a-fix ✅ COMPLETE (feat ba4fb738; hub type + display patched for work_packages multi-link). Module 3 Slice 3b-ii ✅ COMPLETE (feat 7be670d4; spoke shell + SheetDataGrid + Review/Edit wiring; tsc clean on wizard files; Vite build 0 errors). Module 3 Slice 3b-iii ✅ COMPLETE (feat 2ac4789a; sticky header + gridlines + decode fix; tsc + build clean). BoQ-list tab + B2 tendering section (Phase 6 pull-forward) ✅ COMPLETE (BoqProjectTab expanded to full list; BoqProjectTab reused as section on TenderingProjectView; see slice record in boq-upload-plan.md). Module 3 Slice 3c next (config sections -- Section 1 rows + Section 2 areas).
+
+**BoQ in-project list conventions (2026-06-01):**
+- `BoqProjectTab` is the canonical in-project BoQ list component (and also reused as a section on the Tendering project view).
+- Data: single `useFrappeGetDocList("BOQs", { fields: [...], filters: [["project","=",projectId]], orderBy: {field:"uploaded_at",order:"desc"}, limit:50 }, projectId ? \`boq-list-${projectId}\` : null)`. The third arg is the swrKey; passing `null` disables the fetch until projectId is available (standard SDK gotcha -- see useFrappeGetDoc swrKey note above).
+- Status display: `wizard_state` Select field on BOQs -- ""/blank -> "Not started", "In progress", "Configured", "Parsed". No child-table reads; no sheet_drafts computation.
+- Row navigation: `onClick` on `TableRow` -> `navigate(\`/upload-boq/hub/${row.name}\`)`. boqId = `row.name` (BOQs docname from Frappe autoname). Hub route: `upload-boq/hub/:boqId` (routesConfig.tsx).
+- Date: `formatDate(row.uploaded_at || row.creation)` -- `uploaded_at` is the primary field; falls back to Frappe built-in `creation` for pre-M1 docs.
+- UI: shadcn `Table` + `Skeleton` (mirrors ProjectTransferMemosTab), NOT TanStack/DataTable.
+- BoqProjectTab is reused verbatim on TenderingProjectView as an additive section (no tab machinery). Passed as `projectId={data.name}` where `data` is the Projects doc -- no transform.
 
 **Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
 from URL param (survives refresh; not from the transient store). Module export:
