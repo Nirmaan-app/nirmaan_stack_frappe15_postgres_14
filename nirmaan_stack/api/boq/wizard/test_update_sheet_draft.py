@@ -3,8 +3,10 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     set_general_specs_sheet,
+    set_sheet_config,
     set_sheet_label,
     set_sheet_status,
+    set_sheet_work_packages,
 )
 
 _SHEET_HVAC = "HVAC BOQ"
@@ -288,3 +290,337 @@ class TestSetGeneralSpecsSheet(FrappeTestCase):
     def test_rejects_unknown_boq(self):
         with self.assertRaises(frappe.ValidationError):
             set_general_specs_sheet(boq_name="BOQ-DOES-NOT-EXIST-99999", sheet_name_or_none=_SHEET_HVAC)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Module 3 Slice 3a tests
+# ---------------------------------------------------------------------------
+
+def _make_work_header(name: str) -> str:
+    """Create a Work Headers record; returns its docname (= name, autonamed from field)."""
+    if frappe.db.exists("Work Headers", name):
+        return name
+    wh = frappe.new_doc("Work Headers")
+    wh.work_header_name = name
+    wh.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return wh.name
+
+
+def _cleanup_work_header(name: str):
+    if frappe.db.exists("Work Headers", name):
+        frappe.delete_doc("Work Headers", name, force=True, ignore_permissions=True)
+    frappe.db.commit()
+
+
+def _get_work_packages(draft_parent_name: str) -> list:
+    """Return list of work_header values on BoQ Sheet Work Package for a given draft row."""
+    return frappe.db.get_all(
+        "BoQ Sheet Work Package",
+        filters={"parent": draft_parent_name, "parenttype": "BoQ Sheet Draft"},
+        fields=["work_header"],
+        order_by="creation asc",
+    )
+
+
+# ---------------------------------------------------------------------------
+# set_sheet_config -- positive
+# ---------------------------------------------------------------------------
+
+class TestSetSheetConfig(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _get_draft_name(self, sheet_name: str) -> str:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            "name",
+        )
+
+    def _get_config_raw(self, sheet_name: str):
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            "sheet_config",
+        )
+
+    def test_set_config_dict_input_writes_and_reads_back(self):
+        """Pass a dict; endpoint writes it; reading back matches the original dict."""
+        import json
+        cfg = {"header_row": 3, "header_row_count": 2, "area_dimensions": ["B1", "B2"]}
+        result = set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config=cfg,
+        )
+        self.assertEqual(result["status"], "saved")
+        raw = self._get_config_raw(_SHEET_HVAC)
+        self.assertIsNotNone(raw)
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        self.assertEqual(parsed["header_row"], 3)
+        self.assertEqual(parsed["area_dimensions"], ["B1", "B2"])
+
+    def test_set_config_json_string_input(self):
+        """Pass a JSON string; endpoint stores it; reading back round-trips correctly."""
+        import json
+        cfg_str = '{"header_row": 1, "column_role_map": {"A": "sl_no"}}'
+        result = set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config=cfg_str,
+        )
+        self.assertEqual(result["status"], "saved")
+        raw = self._get_config_raw(_SHEET_HVAC)
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        self.assertEqual(parsed["header_row"], 1)
+
+    def test_set_config_second_sheet_unaffected(self):
+        """Writing config to HVAC sheet must not change ELEC sheet config (None)."""
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 5},
+        )
+        self.assertFalse(self._get_config_raw(_SHEET_ELEC))
+
+    def test_rejects_nonexistent_boq(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_config(
+                boq_name="BOQ-DOES-NOT-EXIST-99999",
+                sheet_name=_SHEET_HVAC,
+                sheet_config={"header_row": 1},
+            )
+
+    def test_rejects_nonexistent_sheet(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_config(
+                boq_name=self.boq.name,
+                sheet_name="NO SUCH SHEET",
+                sheet_config={"header_row": 1},
+            )
+
+    def test_rejects_missing_config_param(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_config(
+                boq_name=self.boq.name,
+                sheet_name=_SHEET_HVAC,
+                sheet_config=None,
+            )
+
+
+# ---------------------------------------------------------------------------
+# set_sheet_work_packages -- positive + negative
+# ---------------------------------------------------------------------------
+
+_WH_ALPHA = "TEST_WH_ALPHA_3a"
+_WH_BETA = "TEST_WH_BETA_3a"
+
+
+class TestSetSheetWorkPackages(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        cls.wh_alpha = _make_work_header(_WH_ALPHA)
+        cls.wh_beta = _make_work_header(_WH_BETA)
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_work_header(_WH_ALPHA)
+        _cleanup_work_header(_WH_BETA)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _draft_name(self, sheet_name: str) -> str:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            "name",
+        )
+
+    def test_set_two_work_packages_creates_two_rows(self):
+        """set_sheet_work_packages with 2 valid headers creates exactly 2 child rows."""
+        result = set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_ALPHA, _WH_BETA],
+        )
+        self.assertEqual(result["status"], "saved")
+        rows = _get_work_packages(self._draft_name(_SHEET_HVAC))
+        self.assertEqual(len(rows), 2)
+        wh_names = {r.work_header for r in rows}
+        self.assertIn(_WH_ALPHA, wh_names)
+        self.assertIn(_WH_BETA, wh_names)
+
+    def test_replace_all_reduces_to_one_row(self):
+        """After setting 2, calling again with 1 leaves exactly 1 row (replace-all)."""
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_ALPHA, _WH_BETA],
+        )
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_BETA],
+        )
+        rows = _get_work_packages(self._draft_name(_SHEET_HVAC))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].work_header, _WH_BETA)
+
+    def test_empty_list_clears_all_rows(self):
+        """Calling with [] after setting 2 headers leaves 0 child rows."""
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_ALPHA, _WH_BETA],
+        )
+        result = set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[],
+        )
+        self.assertEqual(result["status"], "saved")
+        rows = _get_work_packages(self._draft_name(_SHEET_HVAC))
+        self.assertEqual(len(rows), 0)
+
+    def test_second_sheet_work_packages_unaffected(self):
+        """Setting work packages on HVAC must not create rows for ELEC sheet."""
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_ALPHA],
+        )
+        elec_rows = _get_work_packages(self._draft_name(_SHEET_ELEC))
+        self.assertEqual(len(elec_rows), 0)
+
+    def test_rejects_nonexistent_boq(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_work_packages(
+                boq_name="BOQ-DOES-NOT-EXIST-99999",
+                sheet_name=_SHEET_HVAC,
+                work_headers=[_WH_ALPHA],
+            )
+
+    def test_rejects_nonexistent_sheet(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_work_packages(
+                boq_name=self.boq.name,
+                sheet_name="NO SUCH SHEET",
+                work_headers=[_WH_ALPHA],
+            )
+
+    def test_rejects_nonexistent_work_header_no_partial_write(self):
+        """A single invalid header causes full rejection; no child rows written."""
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_work_packages(
+                boq_name=self.boq.name,
+                sheet_name=_SHEET_HVAC,
+                work_headers=["WORK_HEADER_DOES_NOT_EXIST_XYZ"],
+            )
+        rows = _get_work_packages(self._draft_name(_SHEET_HVAC))
+        self.assertEqual(len(rows), 0)
+
+    def test_rejects_one_invalid_among_two_no_partial_write(self):
+        """One valid + one invalid header: entire call is rejected, 0 rows written."""
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_work_packages(
+                boq_name=self.boq.name,
+                sheet_name=_SHEET_HVAC,
+                work_headers=[_WH_ALPHA, "WORK_HEADER_DOES_NOT_EXIST_XYZ"],
+            )
+        rows = _get_work_packages(self._draft_name(_SHEET_HVAC))
+        self.assertEqual(len(rows), 0)
+
+
+# ---------------------------------------------------------------------------
+# Migration patch -- BoQ Sheet Draft work_package -> work_packages
+# ---------------------------------------------------------------------------
+
+class TestMigrateWorkPackageToMulti(FrappeTestCase):
+    """Verify the migration patch: rows with a legacy work_package column value
+    get a matching BoQ Sheet Work Package child row, and the patch is idempotent."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        cls.wh_migrate = _make_work_header("TEST_WH_MIGRATE_3a")
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_work_header("TEST_WH_MIGRATE_3a")
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+        self._draft_name = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": _SHEET_HVAC},
+            "name",
+        )
+        # Simulate legacy state: write the old work_package column value via raw SQL
+        frappe.db.sql(
+            'UPDATE "tabBoQ Sheet Draft" SET work_package = %s WHERE name = %s',
+            (self.__class__.wh_migrate, self._draft_name),
+        )
+        frappe.db.commit()
+
+    def tearDown(self):
+        # Remove any migration-created child rows before deleting the BOQ
+        frappe.db.sql(
+            'DELETE FROM "tabBoQ Sheet Work Package" WHERE parent = %s',
+            (self._draft_name,),
+        )
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_migration_creates_child_row_from_legacy_work_package(self):
+        """Patch creates one BoQ Sheet Work Package row for the legacy work_package value."""
+        from nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi import execute
+        execute()
+        rows = frappe.db.sql(
+            'SELECT work_header FROM "tabBoQ Sheet Work Package" WHERE parent = %s',
+            (self._draft_name,),
+            as_dict=True,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].work_header, self.__class__.wh_migrate)
+
+    def test_migration_is_idempotent(self):
+        """Running the patch twice must not create duplicate child rows."""
+        from nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi import execute
+        execute()
+        execute()
+        rows = frappe.db.sql(
+            'SELECT work_header FROM "tabBoQ Sheet Work Package" WHERE parent = %s',
+            (self._draft_name,),
+            as_dict=True,
+        )
+        self.assertEqual(len(rows), 1)

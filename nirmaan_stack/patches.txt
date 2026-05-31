@@ -111,3 +111,4 @@ nirmaan_stack.patches.v3_0.warehouse_per_make_setup
 nirmaan_stack.patches.v3_0.backfill_pdd_parent_doctype #v2
 nirmaan_stack.patches.v3_0.back_populate_boq_node_qty_by_area_rates
 nirmaan_stack.patches.v3_0.migrate_project_status_created_to_won
+nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi
