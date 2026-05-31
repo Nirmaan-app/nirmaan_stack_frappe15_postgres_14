@@ -302,7 +302,8 @@ store.
 
 **Status (2026-05-31):** Module 1b COMPLETE. Module 2b-i ✅ COMPLETE (feat 81568df9;
 hub route + static read-only hub). Module 2b-ii ✅ COMPLETE (feat 459f85ae; pill-color
-fix + all hub interactions wired). Module 3 (per-sheet spoke) next.
+fix + all hub interactions wired). Module 2b-iii ✅ COMPLETE (feat 57152c52; visual
+polish -- 2-col grid, solid-saturated pills, amber keyword hint, detailed footer). Module 3 (per-sheet spoke) next.
 
 **Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
 from URL param (survives refresh; not from the transient store). Module export:
@@ -375,6 +376,20 @@ component -- no endpoint called, no state update needed).
 Blocking = effective status is "Pending" or "Parse failed" on data sheets (non-hidden,
 non-skip, non-general-specs). Parse workbook onClick is a no-op stub -- Module 5 owns
 the actual parse.
+
+**Hub visual conventions (Module 2b-iii, feat 57152c52):**
+- **Card list layout:** `grid grid-cols-1 sm:grid-cols-2 gap-3` for both the main card list
+  and the hidden-sheets reveal section. Use the same grid if adding more card lists.
+- **Status pills:** Solid saturated backgrounds with white text, `text-sm font-medium`,
+  rounded-full, dark: variants for all six statuses. ONE central `STATUS_PILL` map in
+  `SheetCard.tsx` -- do not scatter pill colors. Template:
+  `bg-<color>-500 text-white dark:bg-<color>-600 dark:text-white`.
+- **Likely-skip keyword hint:** `isKeywordHint` flag (no label, no work_package + keyword match).
+  Rendered with `AlertTriangle` (lucide-react, `h-3 w-3`, amber) + amber text
+  (`text-amber-600 dark:text-amber-400 font-medium`). Presentation-only; never changes data.
+- **Footer breakdown pattern:** Lead with data-sheet progress (`N of M data sheets reviewed`),
+  then append only non-zero set-aside categories (`· K general specs · S skipped · H hidden`).
+  Derive counts from `getEffectiveStatus` -- same source as the gate. Do not change gate math.
 
 ---
 
