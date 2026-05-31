@@ -41,6 +41,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { canManageTendering } from "./tenderingAuth";
 import { useDeleteTenderingProject } from "./hooks/useTenderingMutations";
 import { TenderingProjectForm } from "./TenderingProjectForm";
+import BoqProjectTab from "@/pages/boq-wizard/BoqProjectTab";
 
 interface TenderingProjectViewProps {
   /** The loaded Tendering Projects doc (status === "Tendering"). */
@@ -293,6 +294,12 @@ const TenderingProjectView = ({ data, onRefresh }: TenderingProjectViewProps) =>
           </CardContent>
         </Card>
       )}
+
+      {/* Bill of Quantities */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-foreground">Bill of Quantities</h3>
+        <BoqProjectTab projectId={data.name} />
+      </div>
 
       {/* Delete confirmation */}
       <AlertDialog
