@@ -219,12 +219,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     useEffect(() => {
         if (service_request) {
-            // Note: invoice_data parsing removed - now using Vendor Invoices doctype
+            // Items now live on `service_request.work_order_items` (child table).
+            // No .list wrapper, no JSON parse — just spread the doc straight through.
             const data = {
                 ...service_request,
-                notes: service_request?.notes && JSON.parse(service_request?.notes),
-                service_order_list: service_request?.service_order_list && JSON.parse(service_request.service_order_list),
-                service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list)
+                notes: service_request?.notes && JSON.parse(service_request?.notes as any),
+                service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list as any),
             }
             setOrderData(data)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
@@ -1014,20 +1014,20 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             </tr>
                         </thead>
                         <tbody className="max-sm:text-xs text-sm">
-                            {orderData && orderData?.service_order_list?.list?.map((item, index) => (
-                                <tr key={index} className="border-b-2">
+                            {(orderData?.work_order_items || []).map((item: any, index: number) => (
+                                <tr key={item?.name || index} className="border-b-2">
                                     <td className="w-[5%] text-start ">
                                         {index + 1}
                                     </td>
                                     <td className={isPMUser ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
                                         <p className="font-semibold">{item?.category}</p>
-                                        <span className="whitespace-pre-wrap">{item?.description}</span>
+                                        <span className="whitespace-pre-wrap">{item?.item_name}</span>
                                     </td>
                                     <td className="w-[10%]  text-center">
-                                        {item.uom}
+                                        {item?.uom}
                                     </td>
                                     <td className="w-[10%]  text-center">
-                                        {item.quantity}
+                                        {item?.quantity}
                                     </td>
                                     {!isPMUser && (
                                         <>
@@ -1035,7 +1035,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {formatToIndianRupee(item?.rate)}
                                             </td>
                                             <td className="w-[10%]  text-center">
-                                                {formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}
+                                                {formatToIndianRupee(parseNumber(item?.rate) * parseNumber(item?.quantity))}
                                             </td>
                                         </>
                                     )}
@@ -1141,19 +1141,19 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         </tr>
                                     </thead>
                                     <tbody className={`bg-white`}>
-                                        {orderData && orderData?.service_order_list?.list?.map((item, index) => (
-                                            <tr key={item.id} className={`${index === (orderData && orderData?.service_order_list)?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
+                                        {(orderData?.work_order_items || []).map((item: any, index: number) => (
+                                            <tr key={item?.name || index} className={`${index === ((orderData?.work_order_items?.length || 0) - 1) && "border-b border-black"} page-break-inside-avoid`}>
                                                 <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
-                                                
+
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
                                                     <p className="font-semibold">{item?.category}</p>
-                                                    <span className="whitespace-pre-wrap">{item?.description}</span>
+                                                    <span className="whitespace-pre-wrap">{item?.item_name}</span>
                                                 </td>
                                                 <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
-                                                <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item.rate)}</td>
+                                                <td className=" py-2 text-sm whitespace-nowrap">{formatToIndianRupee(item?.rate)}</td>
                                                 {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap">18%</td>}
-                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}</td>
+                                                <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseNumber(item?.rate) * parseNumber(item?.quantity))}</td>
                                             </tr>
                                         ))}
                                         

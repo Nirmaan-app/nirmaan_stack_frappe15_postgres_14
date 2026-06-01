@@ -2,7 +2,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import {  getSRTotal, getSRStandardTotal, getSREstForStdItems } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import { useMemo } from "react";
 import { useVendorsList } from "../pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
@@ -20,16 +20,38 @@ export const useOrderTotals = () => {
     "All_POs_for_order_totals"
   );
 
-  const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
+  const { data: serviceOrdersRaw, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
     'Service Requests',
     {
-      fields: ['name', 'service_order_list', 'gst',"vendor"],
-      // filters: [['status', '=', 'Approved']],
+      fields: ['name', 'total_amount', 'gst', 'vendor'],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
     },
     "All_SRs_for_order_totals"
   );
+
+  // Child rows are only needed for the standard-rate diff column on the
+  // procurement-payments table — fetch them in bulk and attach to each SR so
+  // getSRStandardTotal/getSREstForStdItems can iterate. Plain totals come
+  // straight from sr.total_amount (always fresh, computed in backend validate).
+  const srNamesForItems = useMemo(
+    () => (serviceOrdersRaw || []).map((s) => s.name).filter(Boolean),
+    [serviceOrdersRaw]
+  );
+  const { data: srItemsData } = useFrappeGetCall(
+    "nirmaan_stack.api.sr_items.get_sr_items_for_parents",
+    { sr_names: srNamesForItems },
+    srNamesForItems.length ? `sr_items_for_${srNamesForItems.length}_orders` : null
+  );
+  const srItemsMap: Record<string, any[]> = (srItemsData as any)?.message || {};
+
+  const serviceOrders = useMemo(() => {
+    if (!serviceOrdersRaw) return undefined;
+    return serviceOrdersRaw.map((sr) => ({
+      ...sr,
+      work_order_items: srItemsMap[sr.name] || [],
+    }));
+  }, [serviceOrdersRaw, srItemsMap]);
 
     const { data: allVendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({
     vendorTypes: ["Material", "Service", "Material & Service"] // <-- THE CHANGE IS HERE
@@ -85,8 +107,10 @@ export const useOrderTotals = () => {
       }
       if (['Service Requests', 'Service Order'].includes(type)) {
         const order = serviceOrders?.find(i => i?.name === orderId);
-        const total = getSRTotal(order);
-        const totalWithTax = order?.gst === "true" ? total * 1.18 : total;
+        // total_amount is computed by backend validate() and always includes GST
+        // when sr.gst === "true". Read it directly — no client-side reduce needed.
+        const totalWithTax = parseNumber(order?.total_amount);
+        const total = order?.gst === "true" ? totalWithTax / 1.18 : totalWithTax;
         const totalStd = getSRStandardTotal(order, rateCardByName);
         const estForStd = getSREstForStdItems(order, rateCardByName);
         const stdDiffPct = totalStd > 0 ? ((estForStd - totalStd) / totalStd) * 100 : null;

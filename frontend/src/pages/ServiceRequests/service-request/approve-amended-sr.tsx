@@ -140,45 +140,85 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
     const [previousCategoryList, setPreviousCategoryList] = useState<any[]>([])
 
     useEffect(() => {
-        if (versionsData) {
-            const orderChange = versionsData[0];
+        if (!versionsData) return;
+        const orderChange = versionsData[0];
+        if (!orderChange) return;
 
-            if (orderChange) {
-                // Parse the 'data' field from the orderChange object (may already be parsed)
-                const parsedData = safeJsonParse<{ changed: any[] }>(orderChange.data);
-                const { changed } = parsedData;
+        const parsedData = safeJsonParse<{ changed?: any[]; added?: any[]; removed?: any[] }>(orderChange.data) || {};
+        const { changed = [], added = [], removed = [] } = parsedData;
 
-                // Find the change related to 'order_list'
-                const orderListChange = changed.find((item) => item[0] === 'service_order_list');
+        // Vendor change (parent-level field, still in `changed`)
+        const vendorChange = changed.find((i: any) => i[0] === "vendor");
+        if (vendorChange) {
+            setPreviousVendor(vendorChange?.[1]);
+            setAmendedVendor(vendorChange?.[2]);
+        }
 
-                const vendorChange = changed.find(i => i[0] === "vendor")
+        // service_category_list is still a JSON field on the parent, still in `changed`
+        const categoryChange = changed.find((i: any) => i[0] === "service_category_list");
+        if (categoryChange) {
+            setPreviousCategoryList(categoryChange?.[1]?.list || []);
+        }
 
-                const categoryChange = changed.find(i => i[0] === "service_category_list")
+        // NEW (post-migration): item changes appear as `added`/`removed` entries for
+        // the `work_order_items` child table. Amend writer replaces the whole child
+        // table, so EVERY old row is in `removed` and EVERY new row is in `added`.
+        const woiAdded = added.filter((e: any) => Array.isArray(e) && e[0] === "work_order_items");
+        const woiRemoved = removed.filter((e: any) => Array.isArray(e) && e[0] === "work_order_items");
 
-                if(categoryChange) {
-                    setPreviousCategoryList(categoryChange?.[1]?.list || [])
+        if (woiAdded.length || woiRemoved.length) {
+            // Map child-row dicts into the legacy display shape this UI expects
+            // ({id, description, category, uom, quantity, rate}).
+            const toDisplay = (row: any) => ({
+                id: row?.name,
+                description: row?.item_name,
+                category: row?.category,
+                uom: row?.uom,
+                quantity: row?.quantity,
+                rate: row?.rate,
+            });
+            const originals = woiRemoved.map((e: any) => toDisplay(e[1]));
+            const ameneds = woiAdded.map((e: any) => toDisplay(e[1]));
+
+            // Frappe gave every amended row a fresh `name` (writer didn't preserve
+            // names), so id-matching won't work. Pair originals to amends by
+            // (category + description) as a heuristic so the diff colorization
+            // still makes sense on quantity / rate edits.
+            const keyOf = (it: any) => `${it.category || ""}::${it.description || ""}`;
+            const amendedByKey = new Map<string, any>();
+            ameneds.forEach((a: any) => { if (!amendedByKey.has(keyOf(a))) amendedByKey.set(keyOf(a), a); });
+
+            const pairedKeys = new Set<string>();
+            const previousList = originals.map((o: any) => {
+                const k = keyOf(o);
+                const match = amendedByKey.get(k);
+                if (match) {
+                    pairedKeys.add(k);
+                    // Override original's id with the amended's id so the UI's
+                    // `find(i => i.id === item.id)` matcher in the render block works.
+                    return { ...o, id: match.id };
                 }
+                return o;
+            });
+            const newlyAdded = ameneds.filter((a: any) => !pairedKeys.has(keyOf(a)));
 
-                if(vendorChange) {
-                    setPreviousVendor(vendorChange?.[1])
-                    setAmendedVendor(vendorChange?.[2])
-                }
+            setPreviousOrderList(previousList);
+            setAmendedOrderList(ameneds);
+            setNewlyAddedItems(newlyAdded);
+            return;
+        }
 
-                if (orderListChange) {
-                    // Access the original and amended lists
-                    const originalOrderList = orderListChange?.[1]?.list || [];
-                    const amendedOrderList = orderListChange?.[2]?.list || [];
-
-                    const newlyAddedItems = amendedOrderList.filter(
-                        (amendedItem) => !originalOrderList.some((item) => item.id === amendedItem.id)
-                    );
-
-                    // Set the state for previous and amended lists
-                    setPreviousOrderList(originalOrderList);
-                    setAmendedOrderList(amendedOrderList);
-                    setNewlyAddedItems(newlyAddedItems);
-                }
-            }
+        // LEGACY fallback: pre-migration SRs that amended via `service_order_list` JSON.
+        const orderListChange = changed.find((item: any) => item[0] === "service_order_list");
+        if (orderListChange) {
+            const originalOrderList = orderListChange?.[1]?.list || [];
+            const amendedOrderListLegacy = orderListChange?.[2]?.list || [];
+            const newlyAddedLegacy = amendedOrderListLegacy.filter(
+                (amendedItem: any) => !originalOrderList.some((item: any) => item.id === amendedItem.id)
+            );
+            setPreviousOrderList(originalOrderList);
+            setAmendedOrderList(amendedOrderListLegacy);
+            setNewlyAddedItems(newlyAddedLegacy);
         }
     }, [versionsData]);
 
@@ -208,10 +248,19 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                     })
                 }
             } else {
+                // Revert: rebuild the SR's work_order_items from the previous (pre-amend) state.
+                // Each row is mapped from display shape → child-table write shape.
+                const previousAsChildRows = (previousOrderList || []).map((row: any) => ({
+                    item_name: row?.description,
+                    category: row?.category,
+                    uom: row?.uom,
+                    quantity: row?.quantity || 0,
+                    rate: row?.rate || 0,
+                }));
                 await updateDoc("Service Requests", so_data.name, {
                     status: "Approved",
                     service_category_list: previousCategoryList?.length ? {list : previousCategoryList} : safeJsonParse(so_data?.service_category_list),
-                    service_order_list: { list: previousOrderList },
+                    work_order_items: previousAsChildRows,
                     vendor: previousVendor ? previousVendor : so_data.vendor
                 })
                 if (comment.length) {

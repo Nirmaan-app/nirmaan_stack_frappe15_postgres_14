@@ -14,11 +14,17 @@ export const SR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },
     // { value: "vendor_name", label: "Vendor Name", placeholder: "Search by Vendor Name..." },
     {
-        value: "service_order_list", // Field name for backend
+        // Backend resolves this via CHILD_TABLE_ITEM_SEARCH_MAP["Service Requests"]
+        // → searches `tabWork Order Items`.item_name ILIKE %query% joined on parent.
+        // `is_json: true` is a misnomer kept for back-compat with useServerDataTable —
+        // it signals the API to route via the item-search maps (JSON or child-table)
+        // instead of treating `value` as a literal parent column. Same flag is set
+        // on Procurement Requests' `order_list` (also a child table).
+        value: "work_order_items",
         label: "Item in WO",
         placeholder: "Search by Service Desc in the list...",
         default: true,
-        is_json: true, // Signal to backend for special JSON search logic
+        is_json: true,
     },
 ];
 

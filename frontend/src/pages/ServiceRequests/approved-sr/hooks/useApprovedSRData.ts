@@ -94,12 +94,29 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
 
     const serviceRequestWithParsedJSON = useMemo(() => {
         if (!srDoc) return undefined;
+        const childRows = Array.isArray((srDoc as any).work_order_items)
+            ? (srDoc as any).work_order_items
+            : [];
+        // Synthesize parsed_service_order_list from the child table when present
+        // so downstream consumers that read `.list[i].{description,category,uom,quantity,rate}`
+        // keep working. Falls back to the legacy JSON for pre-migration SRs.
+        const parsed_service_order_list = childRows.length > 0
+            ? {
+                list: childRows.map((row: any) => ({
+                    id: row.name,
+                    description: row.item_name,
+                    category: row.category,
+                    uom: row.uom,
+                    quantity: row.quantity,
+                    rate: row.rate,
+                })),
+            }
+            : parseJsonField(srDoc, 'service_order_list');
         return {
             ...srDoc,
             parsed_notes: parseJsonField(srDoc, 'notes', { list: [] }).list,
-            parsed_service_order_list: parseJsonField(srDoc, 'service_order_list'),
+            parsed_service_order_list,
             parsed_service_category_list: parseJsonField(srDoc, 'service_category_list'),
-            // Note: invoice_data parsing removed - now using Vendor Invoices doctype
         };
     }, [srDoc]);
 
