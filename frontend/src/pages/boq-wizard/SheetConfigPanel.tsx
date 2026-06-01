@@ -14,6 +14,21 @@
  * Save trigger: explicit "Save config" button (not per-keystroke), because the
  * read-modify-write is a network round-trip and editing multiple fields then saving
  * once is cleaner than per-field auto-save.
+ *
+ * Fix notes (Slice 3c-fix):
+ * - Persistence fix: setInitialized(true) is now INSIDE the parsedConfig !== null
+ *   guard. Previously it fired even when parsedConfig was null (doc not yet loaded),
+ *   prematurely locking out the seed step when the doc subsequently arrived.
+ * - Sparkle-on-confirm: header-type Select uses onOpenChange on the Select component
+ *   to reliably clear the sparkle when the dropdown opens, even when the user
+ *   re-selects the same already-active value. The unreliable onClick on SelectTrigger
+ *   has been removed in favour of this approach.
+ * - Section 2 reshape: Single/Multi toggle (two Buttons, segmented-control style) +
+ *   stacked editable text boxes replace the prior chip/Enter-to-add pattern. Toggle
+ *   start state is derived from the prefilled area_dimensions: non-empty -> Multi
+ *   with boxes pre-filled; empty -> Single. Confirm-as-is for Section 2 is
+ *   accomplished by clicking the active toggle button (always fires touch regardless
+ *   of whether the mode changes) or by focusing any area-name text box.
  */
 import { useState, useEffect, useMemo } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
@@ -92,8 +107,11 @@ export function SheetConfigPanel({
   const [skipRowsInput, setSkipRowsInput] = useState<string>(""); // comma-sep row numbers
 
   // ── Section 2 local state ─────────────────────────────────────────────────
-  const [areas, setAreas] = useState<string[]>([]);
-  const [areaInput, setAreaInput] = useState<string>("");
+  // isMulti: false = single-area sheet (area_dimensions: []), true = multi-area.
+  // areaBoxes: one editable text box per area name, shown only in multi mode.
+  // Always holds at least one element so Single->Multi flip shows a ready input.
+  const [isMulti, setIsMulti] = useState<boolean>(false);
+  const [areaBoxes, setAreaBoxes] = useState<string[]>([""]);
 
   // ── Confirm state (per-field, local to this panel) ────────────────────────
   // seeded empty (all unconfirmed) when config is first loaded from server.
@@ -107,9 +125,12 @@ export function SheetConfigPanel({
 
   // ── Initialization ────────────────────────────────────────────────────────
   // Runs once when parsedConfig first becomes non-null (boq doc loaded).
-  // Guarded by initialized flag so a later mutate() re-fetch does NOT reset
-  // the user's in-progress edits. The component is keyed by sheetName in the
-  // parent so it remounts fresh on sheet navigation.
+  // setInitialized(true) is INSIDE the non-null guard -- if parsedConfig is
+  // null (doc not yet fetched), we do NOT mark initialized so the effect will
+  // re-run and seed state once real data arrives.
+  // Guarded so a later mutate() re-fetch does NOT reset the user's in-progress
+  // edits. The component is keyed by sheetName in the parent so it remounts
+  // fresh on sheet navigation.
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
@@ -130,13 +151,16 @@ export function SheetConfigPanel({
           (cfg.skip_top_rows_after_header as number[]).join(", ")
         );
       }
-      if (Array.isArray(cfg.area_dimensions)) {
-        setAreas(cfg.area_dimensions as string[]);
-      }
+      const detectedAreas = Array.isArray(cfg.area_dimensions)
+        ? (cfg.area_dimensions as string[])
+        : [];
+      setIsMulti(detectedAreas.length > 0);
+      setAreaBoxes(detectedAreas.length > 0 ? [...detectedAreas] : [""]);
       setConfirmedFields(new Set()); // all fields unconfirmed on first load
+      setInitialized(true); // only fires when real config data is present
     }
-    // Both null (no existing config) and non-null paths mark initialized.
-    setInitialized(true);
+    // When parsedConfig is null (doc still loading), leave initialized=false
+    // so the effect re-runs when parsedConfig becomes non-null.
   }, [parsedConfig, initialized]);
 
   const { call: callSetConfig } = useFrappePostCall(
@@ -185,8 +209,10 @@ export function SheetConfigPanel({
         top_header_rows_override:
           topRows.length > 0 ? topRows : null,
         skip_top_rows_after_header: parseIntList(skipRowsInput),
-        // Section 2 keys only
-        area_dimensions: areas,
+        // Section 2: write non-empty box values for multi-area, empty array for single.
+        area_dimensions: isMulti
+          ? areaBoxes.filter((s) => s.trim() !== "")
+          : [],
       };
 
       await callSetConfig({
@@ -238,14 +264,22 @@ export function SheetConfigPanel({
             {isUnconfirmed("header_row_count", true) && (
               <span
                 className="ml-0.5 text-sm"
-                aria-label="Pre-filled -- click to confirm"
+                aria-label="Pre-filled -- open dropdown to confirm"
               >
                 ✨
               </span>
             )}
           </Label>
+          {/*
+            onOpenChange clears sparkle when the dropdown opens -- fires
+            reliably even when the user re-selects the already-active value.
+            onValueChange fires on an actual value change and updates hrc.
+          */}
           <Select
             value={String(hrc)}
+            onOpenChange={(open) => {
+              if (open) touch("header_row_count");
+            }}
             onValueChange={(v) => {
               touch("header_row_count");
               setHrc(v === "2" ? 2 : 1);
@@ -256,7 +290,6 @@ export function SheetConfigPanel({
                 "w-52",
                 isUnconfirmed("header_row_count", true) && "opacity-50"
               )}
-              onClick={() => touch("header_row_count")}
             >
               <SelectValue />
             </SelectTrigger>
@@ -405,79 +438,111 @@ export function SheetConfigPanel({
 
       {/* ── Section 2: Areas ────────────────────────────────────────────── */}
       <div className="space-y-4 pt-3 border-t border-border">
-        <h3 className="text-sm font-semibold text-foreground leading-none">
+        <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
           Section 2 — Areas
+          {/* Sparkle shows when multi-area was auto-detected and not yet confirmed */}
+          {isUnconfirmed("area_dimensions", isMulti) && (
+            <span
+              className="text-sm"
+              aria-label="Pre-filled -- interact to confirm"
+            >
+              ✨
+            </span>
+          )}
         </h3>
 
-        <div className="space-y-1.5">
-          <Label className="flex items-center gap-1">
-            Area names
-            <span className="text-xs font-normal text-muted-foreground ml-1">
-              (leave empty for single-area sheet)
-            </span>
-            {isUnconfirmed("area_dimensions", areas.length > 0) && (
-              <span
-                className="ml-0.5 text-sm"
-                aria-label="Pre-filled -- click to confirm"
-              >
-                ✨
-              </span>
-            )}
-          </Label>
-
-          {/* Badge list of existing areas */}
-          {areas.length > 0 && (
-            <div
-              className={cn(
-                "flex flex-wrap gap-1.5",
-                isUnconfirmed("area_dimensions", areas.length > 0) &&
-                  "opacity-50"
-              )}
+        {/*
+          Single/Multi toggle -- segmented-control style using two Buttons.
+          Clicking either button always calls touch("area_dimensions"), so
+          re-clicking the already-active button is a valid confirm-as-is gesture.
+          The opacity-50 unconfirmed treatment is applied to the whole area below
+          the heading (not per-element) to avoid compounding opacity on nested nodes.
+        */}
+        <div className={cn("space-y-3", isUnconfirmed("area_dimensions", isMulti) && "opacity-50")}>
+          <div className="flex rounded-md border border-border overflow-hidden w-fit">
+            <Button
+              type="button"
+              size="sm"
+              variant={!isMulti ? "default" : "ghost"}
+              className="rounded-none"
+              onClick={() => {
+                touch("area_dimensions");
+                setIsMulti(false);
+              }}
             >
-              {areas.map((area, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-sm font-medium border border-border"
-                >
-                  {area}
-                  <button
-                    type="button"
-                    className="ml-0.5 text-muted-foreground hover:text-destructive focus:outline-none"
-                    aria-label={`Remove area ${area}`}
-                    onClick={() => {
+              Single area
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={isMulti ? "default" : "ghost"}
+              className="rounded-none border-l border-border"
+              onClick={() => {
+                touch("area_dimensions");
+                if (!isMulti && areaBoxes.every((s) => s.trim() === "")) {
+                  setAreaBoxes([""]);
+                }
+                setIsMulti(true);
+              }}
+            >
+              Multi area
+            </Button>
+          </div>
+
+          {/* Multi mode: stacked editable text boxes, one per area name */}
+          {isMulti && (
+            <div className="space-y-2">
+              {areaBoxes.map((val, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <Input
+                    value={val}
+                    placeholder={`Area name ${i + 1}`}
+                    className="max-w-64"
+                    onFocus={() => touch("area_dimensions")}
+                    onChange={(e) => {
                       touch("area_dimensions");
-                      setAreas((prev) => prev.filter((_, idx) => idx !== i));
+                      setAreaBoxes((prev) =>
+                        prev.map((v, idx) => (idx === i ? e.target.value : v))
+                      );
                     }}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
+                  />
+                  {/* Remove button only visible when there are 2+ boxes */}
+                  {areaBoxes.length > 1 && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive focus:outline-none"
+                      aria-label={`Remove area ${i + 1}`}
+                      onClick={() => {
+                        touch("area_dimensions");
+                        setAreaBoxes((prev) =>
+                          prev.filter((_, idx) => idx !== i)
+                        );
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  touch("area_dimensions");
+                  setAreaBoxes((prev) => [...prev, ""]);
+                }}
+              >
+                + Add area
+              </Button>
             </div>
           )}
 
-          {/* Add-area input */}
-          <div className="flex gap-2 items-center">
-            <Input
-              value={areaInput}
-              placeholder="Area name, e.g. PHASE-1 — press Enter to add"
-              className="max-w-72"
-              onChange={(e) => setAreaInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && areaInput.trim()) {
-                  e.preventDefault();
-                  touch("area_dimensions");
-                  setAreas((prev) => [...prev, areaInput.trim()]);
-                  setAreaInput("");
-                }
-              }}
-            />
-          </div>
-
-          {areas.length === 0 && (
+          {/* Single mode: informational hint */}
+          {!isMulti && (
             <p className="text-xs text-muted-foreground">
-              Single-area sheet. Add area names above for multi-area column
-              assignment.
+              Single-area sheet. Switch to Multi area to name areas for
+              column-role assignment.
             </p>
           )}
         </div>
