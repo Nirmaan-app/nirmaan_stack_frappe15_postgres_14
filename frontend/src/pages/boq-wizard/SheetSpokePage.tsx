@@ -14,7 +14,7 @@
  * useParams is the verbatim original string -- passed to the endpoint as-is
  * (the backend does VERBATIM sheet_name matching with no trim).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -187,6 +187,31 @@ const SheetSpokePage = () => {
     }
   };
 
+  // ── Saved-config derived values for grid display (Slice 3d-iii) ──────────────
+  // These are plain derived values from the saved draft.sheet_config (not editable
+  // state). They track the saved doc and update automatically on mutate(). Used by
+  // SheetDataGrid for area tinting and header-row freeze. The asymmetry vs
+  // columnRoleMap is intentional: color/badge/dim are driven by live columnRoleMap
+  // (update as user edits Section 3 before Save); freeze + area colors are driven by
+  // the last-saved config (update only after Save triggers mutate()).
+  const parsedSavedCfg = useMemo<Record<string, unknown> | null>(() => {
+    const cfg = draft?.sheet_config;
+    if (!cfg) return null;
+    if (typeof cfg === "string") {
+      try { return JSON.parse(cfg) as Record<string, unknown>; } catch { return null; }
+    }
+    return cfg as Record<string, unknown>;
+  }, [draft?.sheet_config]);
+
+  const savedHeaderRow: number | null =
+    typeof parsedSavedCfg?.header_row === "number" ? parsedSavedCfg.header_row : null;
+  const savedHrc: 1 | 2 =
+    parsedSavedCfg?.header_row_count === 2 ? 2 : 1;
+  const areaList: string[] =
+    Array.isArray(parsedSavedCfg?.area_dimensions)
+      ? (parsedSavedCfg.area_dimensions as string[])
+      : [];
+
   const handleBack = () => navigate(`/upload-boq/hub/${boqId ?? ""}`);
 
   // ── Loading state ──────────────────────────────────────────────────────────
@@ -297,6 +322,9 @@ const SheetSpokePage = () => {
         loadMoreError={loadMoreError}
         onLoadMore={() => void handleLoadMore()}
         columnRoleMap={columnRoleMap}
+        headerRow={savedHeaderRow}
+        headerRowCount={savedHrc}
+        areaList={areaList}
       />
     </div>
   );

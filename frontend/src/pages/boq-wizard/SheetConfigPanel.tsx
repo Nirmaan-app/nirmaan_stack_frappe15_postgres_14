@@ -32,6 +32,7 @@ import {
 } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import type { ColumnRoleEntry, SheetPreviewRow } from "./boqTypes";
+import { ROLE_LABELS } from "./boqTypes";
 import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,55 +52,57 @@ import { cn } from "@/lib/utils";
 // 21 roles from config.py (qty_by_area excluded -- deprecated).
 // Values are the exact strings the parser expects; labels are friendly display names.
 
+// Group structure is authoritative here; labels derive from the shared ROLE_LABELS
+// constant in boqTypes.ts so SheetConfigPanel and SheetDataGrid badges stay in sync.
 const ROLES_BY_GROUP: { group: string; roles: { value: string; label: string }[] }[] = [
   {
     group: "Structural",
     roles: [
-      { value: "sl_no", label: "Serial No." },
-      { value: "description", label: "Description" },
-      { value: "unit", label: "Unit" },
+      { value: "sl_no", label: ROLE_LABELS["sl_no"] },
+      { value: "description", label: ROLE_LABELS["description"] },
+      { value: "unit", label: ROLE_LABELS["unit"] },
     ],
   },
   {
     group: "Quantity",
     roles: [
-      { value: "qty", label: "Quantity" },
-      { value: "qty_total", label: "Total Quantity" },
+      { value: "qty", label: ROLE_LABELS["qty"] },
+      { value: "qty_total", label: ROLE_LABELS["qty_total"] },
     ],
   },
   {
     group: "Rate",
     roles: [
-      { value: "rate_supply", label: "Rate (Supply)" },
-      { value: "rate_install", label: "Rate (Install)" },
-      { value: "rate_combined", label: "Rate (Combined)" },
-      { value: "rate_supply_by_area", label: "Rate Supply (per area)" },
-      { value: "rate_install_by_area", label: "Rate Install (per area)" },
-      { value: "rate_combined_by_area", label: "Rate Combined (per area)" },
+      { value: "rate_supply", label: ROLE_LABELS["rate_supply"] },
+      { value: "rate_install", label: ROLE_LABELS["rate_install"] },
+      { value: "rate_combined", label: ROLE_LABELS["rate_combined"] },
+      { value: "rate_supply_by_area", label: ROLE_LABELS["rate_supply_by_area"] },
+      { value: "rate_install_by_area", label: ROLE_LABELS["rate_install_by_area"] },
+      { value: "rate_combined_by_area", label: ROLE_LABELS["rate_combined_by_area"] },
     ],
   },
   {
     group: "Amount",
     roles: [
-      { value: "amount_supply", label: "Amount (Supply)" },
-      { value: "amount_install", label: "Amount (Install)" },
-      { value: "amount_total", label: "Amount (Total)" },
-      { value: "amount_combined", label: "Amount (Combined)" },
-      { value: "amount_by_area", label: "Amount (per area)" },
+      { value: "amount_supply", label: ROLE_LABELS["amount_supply"] },
+      { value: "amount_install", label: ROLE_LABELS["amount_install"] },
+      { value: "amount_total", label: ROLE_LABELS["amount_total"] },
+      { value: "amount_combined", label: ROLE_LABELS["amount_combined"] },
+      { value: "amount_by_area", label: ROLE_LABELS["amount_by_area"] },
     ],
   },
   {
     group: "Notes",
     roles: [
-      { value: "make_model", label: "Make / Model" },
-      { value: "row_notes", label: "Row Notes" },
-      { value: "append_to_notes", label: "Append to Notes" },
-      { value: "reference_images", label: "Reference Images" },
+      { value: "make_model", label: ROLE_LABELS["make_model"] },
+      { value: "row_notes", label: ROLE_LABELS["row_notes"] },
+      { value: "append_to_notes", label: ROLE_LABELS["append_to_notes"] },
+      { value: "reference_images", label: ROLE_LABELS["reference_images"] },
     ],
   },
   {
     group: "Ignore",
-    roles: [{ value: "ignore", label: "Ignore" }],
+    roles: [{ value: "ignore", label: ROLE_LABELS["ignore"] }],
   },
 ];
 

@@ -2,6 +2,35 @@
 // Both BoqUploadScreen and BoqHubPage import from here -- do NOT duplicate.
 
 /**
+ * Friendly display labels for all 21 parser role values.
+ * Single source of truth -- SheetConfigPanel's ROLES_BY_GROUP and SheetDataGrid
+ * badges both derive from here to prevent label drift.
+ */
+export const ROLE_LABELS: Record<string, string> = {
+  sl_no: "Serial No.",
+  description: "Description",
+  unit: "Unit",
+  qty: "Quantity",
+  qty_total: "Total Quantity",
+  rate_supply: "Rate (Supply)",
+  rate_install: "Rate (Install)",
+  rate_combined: "Rate (Combined)",
+  rate_supply_by_area: "Rate Supply (per area)",
+  rate_install_by_area: "Rate Install (per area)",
+  rate_combined_by_area: "Rate Combined (per area)",
+  amount_supply: "Amount (Supply)",
+  amount_install: "Amount (Install)",
+  amount_total: "Amount (Total)",
+  amount_combined: "Amount (Combined)",
+  amount_by_area: "Amount (per area)",
+  make_model: "Make / Model",
+  row_notes: "Row Notes",
+  append_to_notes: "Append to Notes",
+  reference_images: "Reference Images",
+  ignore: "Ignore",
+};
+
+/**
  * Per-column role assignment for the column-role map shared between
  * SheetConfigPanel (editor, Slice 3d-ii+) and SheetDataGrid (annotator, Slice 3d-iii).
  * `area` is null for single-area sheets or when no area has been assigned.
