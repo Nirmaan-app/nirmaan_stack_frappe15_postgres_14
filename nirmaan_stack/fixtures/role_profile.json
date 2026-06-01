@@ -244,5 +244,182 @@
     "role": "Nirmaan PMO Executive"
    }
   ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:22:23.398111",
+  "name": "Nirmaan Tendering Executive Profile",
+  "role_profile": "Nirmaan Tendering Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Tendering Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Tendering Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:22:52.308595",
+  "name": "Nirmaan Tendering Lead Profile",
+  "role_profile": "Nirmaan Tendering Lead Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Tendering Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Tendering Executive"
+   },
+   {
+    "parent": "Nirmaan Tendering Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Tendering Lead"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:23:15.650468",
+  "name": "Nirmaan Sales Executive Profile",
+  "role_profile": "Nirmaan Sales Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Sales Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Sales Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:23:32.862599",
+  "name": "Nirmaan Sales Lead Profile",
+  "role_profile": "Nirmaan Sales Lead Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Sales Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Sales Lead"
+   },
+   {
+    "parent": "Nirmaan Sales Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Sales Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:24:04.327775",
+  "name": "Nirmaan HR Lead Profile",
+  "role_profile": "Nirmaan HR Lead Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan HR Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan HR Lead"
+   },
+   {
+    "parent": "Nirmaan HR Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan HR Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:24:20.966924",
+  "name": "Nirmaan Billing Executive Profile",
+  "role_profile": "Nirmaan Billing Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Billing Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Billing Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:24:44.287888",
+  "name": "Nirmaan Billing Lead Profile",
+  "role_profile": "Nirmaan Billing Lead Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Billing Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Billing Lead"
+   },
+   {
+    "parent": "Nirmaan Billing Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Billing Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:25:12.952188",
+  "name": "Nirmaan Accountant Lead Profile",
+  "role_profile": "Nirmaan Accountant Lead Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Accountant Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Accountant"
+   },
+   {
+    "parent": "Nirmaan Accountant Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Accountant Lead"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 18:25:38.966100",
+  "name": "Nirmaan Procurement Lead Profile",
+  "role_profile": "Nirmaan Procurement Lead Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Procurement Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Procurement Executive"
+   },
+   {
+    "parent": "Nirmaan Procurement Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Procurement Lead"
+   },
+   {
+    "parent": "Nirmaan Procurement Lead Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Procurement Executive Profile"
+   }
+  ]
  }
 ]
