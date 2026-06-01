@@ -4309,3 +4309,32 @@ Per-row attribution columns (D-Tech CIVIL WORKS Floor/Area/Activity/Workitem/Spe
 **Scope (read+navigate only):** No mutation endpoints, no delete, no sheet_drafts child reads, no new .py files touched.
 
 **Parser tests:** Untouched (588). Frontend-only slice.
+
+---
+
+### Module 3 Slice 3c-fix -- SheetConfigPanel: persistence + sparkle-on-confirm + Section-2 toggle/boxes
+
+**Status:** COMPLETE (feat 9f8fb6f7; docs 2426bb91). Frontend-only. One file edited: `frontend/src/pages/boq-wizard/SheetConfigPanel.tsx`. No .py files touched. No boqTypes.ts changes. SheetSpokePage.tsx confirmed correct (read-only; no edit needed -- isLoading guard + onSaveSuccess wiring verified). parser tests 588 unchanged.
+
+**Context:** Live testing of the Slice 3c panel (BOQ-26-00152, Alorica HVAC) confirmed prefill works but revealed three defects: (1) area names and skip-rows entered in the panel did NOT persist across Save + hard reload; (2) header-type Select sparkle did not clear when re-confirming the pre-selected value as-is; (3) Section 2 used a chip/Enter-to-add pattern that did not clearly differentiate single-area from multi-area sheets. Recon session (prior to this slice) diagnosed all three.
+
+**Fix 1 -- Persistence (root cause confirmed by code inspection):** The `useEffect` init guard had `setInitialized(true)` OUTSIDE the `if (parsedConfig !== null)` block (line 139 of the old file). When `parsedConfig` is null (doc not yet loaded or auto-guess failed for that sheet), the effect prematurely set `initialized = true`. When the doc subsequently arrived and `parsedConfig` became non-null, the effect bailed at `if (initialized) return` and NEVER seeded local state from the persisted config. Fix: moved `setInitialized(true)` INSIDE the `if (parsedConfig !== null)` block, so the lock only fires after real data is seeded. The SheetSpokePage `isLoading` guard prevents the most common race (hub->spoke SWR cache), but the bug still bit on hard reloads and for sheets where auto-guess failed (sheet_config = null). No SheetSpokePage edit needed: `onSaveSuccess = () => void mutate()` (line 129) is correct.
+
+**Fix 2 -- Sparkle-on-confirm (pending live-test verification):** Replaced the unreliable `onClick` on `SelectTrigger` (which Radix UI may not fire reliably for sparkle-clear) with `onOpenChange` on the `Select` component: `onOpenChange={(open) => { if (open) touch("header_row_count"); }}`. This fires whenever the dropdown opens, including re-confirming the already-active value without changing it. The `onClick` on `SelectTrigger` was removed. Behavioral correctness requires manual re-test (cannot be confirmed by tsc or Vite build alone).
+
+**Fix 3 -- Section 2 reshape:** Replaced the chip/Enter-to-add pattern with a Single/Multi segmented toggle (two shadcn `Button` components in a bordered div) + stacked editable text boxes (one `Input` per area name, shown only in Multi mode). Toggle start state derived from prefilled `area_dimensions`: non-empty -> Multi with names pre-filled into boxes; empty -> Single. SINGLE: no boxes shown; save writes `area_dimensions: []`. MULTI: boxes with remove controls + "+ Add area" button; save writes `area_dimensions = areaBoxes.filter(s => s.trim() !== "")` (string[]). Remove button hidden when only one box remains. State variables: `isMulti: boolean` + `areaBoxes: string[]` (replaces `areas: string[]` + `areaInput: string`). Section 2 sparkle (key: `"area_dimensions"`) shows when `hasPrefill && !confirmed && isMulti` -- only when areas were auto-detected (parser guessed multi-area). Confirm-as-is affordance: clicking the active toggle button (already-selected Single or Multi) always calls `touch("area_dimensions")`, clearing the sparkle without changing any value. Focusing any area text box also clears it.
+
+**Conventions established (Section 2 shape is now canonical for other config panels):**
+- For Select sparkle-clear: use `onOpenChange` on the `Select` component, not `onClick` on `SelectTrigger`. `onOpenChange` fires reliably on dropdown open even when value is unchanged.
+- For multi-value list entry in wizard config panels: segmented toggle (Single/Multi) + stacked Input boxes, not chip/Enter-to-add. The toggle's active button onClick always calls `touch(key)` for confirm-as-is.
+- Opacity-50 unconfirmed treatment on a grouped Section 2 area: apply `opacity-50` to a single wrapper div around all Section 2 controls (not per-element), to avoid compounding opacity on nested nodes.
+
+**tsc result (boq-wizard files):** 0 errors. (Full-repo tsc has pre-existing errors in unrelated files -- App.tsx, CameraCapture.tsx, etc. -- none in boq-wizard/.) Command: `node node_modules/typescript/bin/tsc --noEmit 2>&1 | grep boq-wizard` (no output = clean).
+
+**Vite build result:** Clean. `built in 3m 33s`. Only pre-existing chunk-size warning (index bundle >500 kB), no new errors. Command: `docker exec frappe_docker_devcontainer-frappe-1 bash -c "cd /workspace/development/frappe-bench/apps/nirmaan_stack/frontend && node node_modules/vite/bin/vite.js build"`.
+
+**Manual test plan (run on :8080 after clear-site-data + re-login):**
+1. PERSISTENCE: open a prefilled Pending sheet spoke, add/edit an area name + set skip rows, click Save, then hard-reload the page (Ctrl+Shift+R). Area name + skip value must re-appear. (This is the defect this slice fixes.)
+2. SPARKLE-ON-CONFIRM: for a prefilled header-type field (sparkle visible), open the header-type dropdown and re-select the same currently-active value (e.g. "Single"). The sparkle must clear without requiring a value change. (Confirms Fix 2 -- browser-dependent.)
+3. SECTION-2 TOGGLE: open a spoke for a sheet the parser detected as multi-area -> Section 2 starts on Multi with detected names pre-filled in stacked boxes. Open a single-area sheet -> starts on Single with no boxes + hint text. Manually flip Single->Multi -> one empty box appears. Add/edit/remove boxes; Save; hard-reload -> persists correctly (covered by Fix 1).
+4. SECTION-2 SPARKLE: on a multi-area prefilled sheet, Section 2 shows sparkle + opacity-50. Click the "Multi area" button (already selected) -> sparkle clears without any value change. Focus a box -> also clears sparkle.
