@@ -1,11 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
-import Fuse, { FuseResult } from 'fuse.js';
 import { CategoryMakesMap, CategorySelection, ProcurementRequestItem, SelectedHeaderTag } from '../types';
 import { Items } from '@/types/NirmaanStack/Items';
 import { ITEM_TOKEN_SEARCH_CONFIG } from '@/hooks/useItemCatalog';
-import { TokenSearchConfig } from '@/components/ui/fuzzy-search-select';
+import { TokenSearchConfig, rankByTokenScore } from '@/components/ui/fuzzy-search-select';
 
 interface UseProcurementRequestFormResult {
     selectedWP: string;
@@ -21,7 +20,7 @@ interface UseProcurementRequestFormResult {
     deleteItemFromList: (itemName: string) => void;
     undoLastDelete: () => void;
     setComment: (comment: string) => void;
-    handleFuzzySearch: (input: string) => FuseResult<Items>[];
+    handleFuzzySearch: (input: string) => Items[];
     itemTokenSearchConfig: TokenSearchConfig;
 }
 
@@ -96,20 +95,15 @@ export const useProcurementRequestForm = (
         setNewPRComment(comment);
     }, [setNewPRComment]);
 
-    const fuse = useMemo(() => {
-        if (!rawItemList) return null;
-        return new Fuse(rawItemList, {
-            keys: ["item_name"],
-            threshold: 0.3,
-            distance: 100,
-            includeScore: true,
+    const handleFuzzySearch = useCallback((input: string): Items[] => {
+        if (!rawItemList || !input.trim()) return [];
+        return rankByTokenScore(rawItemList, input, {
+            searchFields: ["item_name"],
+            fieldWeights: { item_name: 2.0 },
+            partialMatch: true,
+            minTokenMatches: 1,
         });
     }, [rawItemList]);
-
-    const handleFuzzySearch = useCallback((input: string): FuseResult<Items>[] => {
-        if (!fuse || !input.trim()) return [];
-        return fuse.search(input);
-    }, [fuse]);
 
     return {
         selectedWP,
