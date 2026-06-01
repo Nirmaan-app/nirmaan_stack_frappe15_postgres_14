@@ -1,17 +1,17 @@
 /**
  * SheetDataGrid -- spreadsheet-style read-only preview of raw BoQ sheet data.
  *
- * Uses shadcn <Table> (not TanStack -- capped rows, read-only, no sort/filter).
- * Uses useFrappePostCall for all fetches (initial + load-more) so accumulated
- * rows can be managed in local state without mixing SWR state with appended rows.
+ * Slice 3d-i: SheetDataGrid is now a PURE RENDER COMPONENT. The preview fetch
+ * (initial load + load-more) has been lifted to SheetSpokePage, which owns all
+ * row state and passes it down as props. The onLoadMore callback replaces the
+ * former self-managed handleLoadMore. columnRoleMap is threaded for Slice 3d-iii
+ * column annotation (unused in this slice -- no annotation visuals yet).
  *
  * Column header row: Excel column letters (A, B, ...) -- union across all loaded rows,
  * sorted in Excel order (single letters before double letters, then alphabetical).
  * Left gutter: absolute Excel row_number (NOT re-indexed -- row 41 shows "41").
  * Long values: truncated with ellipsis; full value visible on hover via title attr.
  */
-import { useEffect, useRef, useState } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,12 +22,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { SheetPreviewResponse, SheetPreviewRow } from "./boqTypes";
+import type { ColumnRoleEntry, SheetPreviewRow } from "./boqTypes";
 
 interface SheetDataGridProps {
-  boqName: string;
-  /** Verbatim sheet_name as stored in the DB -- passed exactly to the endpoint. */
-  sheetName: string;
+  rows: SheetPreviewRow[];
+  hasMore: boolean;
+  isInitLoading: boolean;
+  initError: string | null;
+  isLoadingMore: boolean;
+  loadMoreError: string | null;
+  onLoadMore: () => void;
+  /** Column role map -- threaded for Slice 3d-iii annotation (unused in this slice). */
+  columnRoleMap: Record<string, ColumnRoleEntry>;
 }
 
 /** Sort column letters in Excel worksheet order: A, B, ..., Z, AA, AB, ... */
@@ -53,95 +59,16 @@ function formatCellValue(value: string | number | boolean | null | undefined): s
   return String(value);
 }
 
-export function SheetDataGrid({ boqName, sheetName }: SheetDataGridProps) {
-  // useFrappePostCall is used for ALL fetches (initial + load-more) so that row
-  // accumulation is fully controlled by local state without SWR interference.
-  // The `call` function is stable (the method string never changes after mount).
-  const { call: fetchPreview } = useFrappePostCall<{ message: SheetPreviewResponse }>(
-    "nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview"
-  );
-
-  const [rows, setRows] = useState<SheetPreviewRow[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [isInitLoading, setIsInitLoading] = useState(true);
-  const [initError, setInitError] = useState<string | null>(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-
-  // Ref so the useEffect can call the latest fetchPreview without adding it
-  // to the dependency array (it is stable -- same hook, same method string).
-  const fetchRef = useRef(fetchPreview);
-  useEffect(() => { fetchRef.current = fetchPreview; });
-
-  // Initial load -- reruns when boqName or sheetName changes.
-  useEffect(() => {
-    let cancelled = false;
-
-    setIsInitLoading(true);
-    setInitError(null);
-    setRows([]);
-    setHasMore(false);
-    setLoadMoreError(null);
-
-    fetchRef.current({
-      boq_name: boqName,
-      sheet_name: sheetName,
-      start_row: 1,
-      end_row: 40,
-    })
-      .then((result) => {
-        if (cancelled) return;
-        const preview = result?.message;
-        setRows(preview?.rows ?? []);
-        setHasMore(preview?.has_more ?? false);
-        setIsInitLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setInitError(
-          "Failed to load sheet preview. Check that the source file is accessible and try again."
-        );
-        setIsInitLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boqName, sheetName]);
-
-  // ── Load-more handler ──────────────────────────────────────────────────────
-  // Single-flight: button is disabled while isLoadingMore is true (the disabled
-  // state IS the guard -- no queue, no debounce needed).
-  const handleLoadMore = async () => {
-    if (isLoadingMore || !hasMore) return;
-
-    const lastRowNum = rows.length > 0 ? rows[rows.length - 1].row_number : 40;
-    const nextStart = lastRowNum + 1;
-    const nextEnd = nextStart + 39;
-
-    setIsLoadingMore(true);
-    setLoadMoreError(null);
-
-    try {
-      const result = await fetchPreview({
-        boq_name: boqName,
-        sheet_name: sheetName,
-        start_row: nextStart,
-        end_row: nextEnd,
-      });
-      const preview = result?.message;
-      if (preview) {
-        setRows((prev) => [...prev, ...preview.rows]);
-        setHasMore(preview.has_more);
-      }
-    } catch {
-      setLoadMoreError("Failed to load more rows. Try again.");
-    } finally {
-      setIsLoadingMore(false);
-    }
-  };
-
+export function SheetDataGrid({
+  rows,
+  hasMore,
+  isInitLoading,
+  initError,
+  isLoadingMore,
+  loadMoreError,
+  onLoadMore,
+  // columnRoleMap is accepted for Slice 3d-iii but not yet consumed here.
+}: SheetDataGridProps) {
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isInitLoading) {
     return (
@@ -239,7 +166,7 @@ export function SheetDataGrid({ boqName, sheetName }: SheetDataGridProps) {
             variant="outline"
             size="sm"
             disabled={isLoadingMore}
-            onClick={() => void handleLoadMore()}
+            onClick={onLoadMore}
           >
             {isLoadingMore ? (
               <>

@@ -1,6 +1,18 @@
 // Shared wizard types for the BoQ Upload wizard (Module 2b onward).
 // Both BoqUploadScreen and BoqHubPage import from here -- do NOT duplicate.
 
+/**
+ * Per-column role assignment for the column-role map shared between
+ * SheetConfigPanel (editor, Slice 3d-ii+) and SheetDataGrid (annotator, Slice 3d-iii).
+ * `area` is null for single-area sheets or when area assignment has not been made.
+ * When writing to the backend blob, serialize as Record<string,string> (role only --
+ * `area` is wizard-only state, not stored server-side).
+ */
+export interface ColumnRoleEntry {
+  role: string;
+  area: string | null;
+}
+
 export type WizardStatus =
   | ""
   | "Pending"

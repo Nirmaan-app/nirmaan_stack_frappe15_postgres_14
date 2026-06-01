@@ -30,8 +30,9 @@
  *   accomplished by clicking the active toggle button (always fires touch regardless
  *   of whether the mode changes) or by focusing any area-name text box.
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type Dispatch, type SetStateAction } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
+import type { ColumnRoleEntry, SheetPreviewRow } from "./boqTypes";
 import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,18 @@ interface SheetConfigPanelProps {
   sheetName: string;
   /** Existing sheet_config from the BoQ Sheet Draft row. May be null (no config yet). */
   draftConfig: Record<string, unknown> | string | null | undefined;
+  /**
+   * Lifted column-role map state (Slice 3d-i). Owned by SheetSpokePage so both
+   * this panel (Save writes it) and SheetDataGrid (3d-iii reads it) share the same
+   * live state. handleSave serializes it back to Record<string,string> for the blob.
+   */
+  columnRoleMap: Record<string, ColumnRoleEntry>;
+  setColumnRoleMap: Dispatch<SetStateAction<Record<string, ColumnRoleEntry>>>;
+  /**
+   * Preview rows from SheetSpokePage (Slice 3d-i). Passed for the future Section 3
+   * column-role list (Slice 3d-ii). Unused in this slice -- accepted for forward compat.
+   */
+  rows: SheetPreviewRow[];
   /** Called after a successful save to re-fetch the parent BOQs doc. */
   onSaveSuccess: () => void;
 }
@@ -90,6 +103,9 @@ export function SheetConfigPanel({
   boqName,
   sheetName,
   draftConfig,
+  columnRoleMap,
+  // setColumnRoleMap and rows are accepted for Slice 3d-ii (Section 3 UI) but
+  // not yet consumed in this slice. Included in the interface for type safety.
   onSaveSuccess,
 }: SheetConfigPanelProps) {
   // Normalize to a plain object once per draftConfig change
@@ -213,6 +229,12 @@ export function SheetConfigPanel({
         area_dimensions: isMulti
           ? areaBoxes.filter((s) => s.trim() !== "")
           : [],
+        // column_role_map: explicitly written from the lifted state (Slice 3d-i) so
+        // it is never silently dropped by the ...existing spread. Serialized back to
+        // Record<string,string> for the backend blob (area is wizard-only, not stored).
+        column_role_map: Object.fromEntries(
+          Object.entries(columnRoleMap).map(([col, entry]) => [col, entry.role])
+        ),
       };
 
       await callSetConfig({

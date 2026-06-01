@@ -1,24 +1,30 @@
 /**
  * SheetSpokePage -- per-sheet spoke shell (Module 3 Slice 3b-ii).
  *
- * Scope (this slice): minimal shell only.
- *   - Back button → hub
- *   - Header: sheet name + BoQ name/version for context
- *   - SheetDataGrid (the raw-cell preview)
- *
- * Not in this slice: config sections (Section 1 rows / Section 2 areas -- Slice 3c),
- * work-package picker (Slice 3d), parse gate or mark-reviewed control.
+ * State ownership (Slice 3d-i lift-up):
+ *   - Preview rows (initial + load-more) are fetched here and passed down to
+ *     SheetDataGrid as props. SheetDataGrid is now a pure render component.
+ *   - columnRoleMap is owned here and passed to BOTH SheetConfigPanel (which
+ *     includes it verbatim in the saved blob) and SheetDataGrid (which will
+ *     annotate columns in Slice 3d-iii). This shared ownership is required so
+ *     both children see the same live role-map without prop-drilling back up.
  *
  * encode/decode: the hub navigates using encodeURIComponent(sheet_name).
  * React Router v6 useParams() auto-decodes URL params, so `sheetName` from
  * useParams is the verbatim original string -- passed to the endpoint as-is
  * (the backend does VERBATIM sheet_name matching with no trim).
  */
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { BOQsDoc } from "./boqTypes";
+import type {
+  BOQsDoc,
+  ColumnRoleEntry,
+  SheetPreviewResponse,
+  SheetPreviewRow,
+} from "./boqTypes";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SheetConfigPanel } from "./SheetConfigPanel";
 
@@ -33,6 +39,135 @@ const SheetSpokePage = () => {
     boqId ?? "",
     boqId ? undefined : null
   );
+
+  // Derived values -- computed BEFORE guards so the effects below can reference `draft`.
+  // Uses optional chaining since boq may be undefined during the initial loading phase.
+  const decodedSheetName = sheetName ?? "";
+  const displaySheetName = decodedSheetName.trim() || decodedSheetName;
+  const draft = boq?.sheet_drafts?.find((d) => d.sheet_name === decodedSheetName);
+
+  // ── Preview fetch (lifted from SheetDataGrid, Slice 3d-i) ──────────────────
+  // useFrappePostCall is used for ALL fetches (initial + load-more) so accumulated
+  // rows are fully controlled by local state without SWR replace-on-fetch interference.
+  const { call: fetchPreview } = useFrappePostCall<{ message: SheetPreviewResponse }>(
+    "nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview"
+  );
+
+  const [previewRows, setPreviewRows] = useState<SheetPreviewRow[]>([]);
+  const [previewHasMore, setPreviewHasMore] = useState(false);
+  const [isPreviewInitLoading, setIsPreviewInitLoading] = useState(true);
+  const [previewInitError, setPreviewInitError] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+
+  // Stable ref so the initial-load useEffect never adds fetchPreview to its deps.
+  const fetchRef = useRef(fetchPreview);
+  useEffect(() => { fetchRef.current = fetchPreview; });
+
+  // Initial load -- reruns when boqId or sheetName changes.
+  useEffect(() => {
+    if (!boqId || !sheetName) return;
+    let cancelled = false;
+
+    setIsPreviewInitLoading(true);
+    setPreviewInitError(null);
+    setPreviewRows([]);
+    setPreviewHasMore(false);
+    setLoadMoreError(null);
+
+    fetchRef.current({
+      boq_name: boqId,
+      sheet_name: sheetName,
+      start_row: 1,
+      end_row: 40,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        const preview = result?.message;
+        setPreviewRows(preview?.rows ?? []);
+        setPreviewHasMore(preview?.has_more ?? false);
+        setIsPreviewInitLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPreviewInitError(
+          "Failed to load sheet preview. Check that the source file is accessible and try again."
+        );
+        setIsPreviewInitLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boqId, sheetName]);
+
+  // ── columnRoleMap state (Slice 3d-i) ───────────────────────────────────────
+  // Shared between SheetConfigPanel (includes it in the saved blob) and
+  // SheetDataGrid (will annotate columns in Slice 3d-iii). Seeded once from
+  // draft.sheet_config when the doc first arrives; setRoleMapInitialized(true)
+  // is INSIDE the non-null guard (mirrors SheetConfigPanel's initialized pattern)
+  // so a later mutate() re-fetch does NOT overwrite in-progress user edits.
+  const [columnRoleMap, setColumnRoleMap] = useState<Record<string, ColumnRoleEntry>>({});
+  const [roleMapInitialized, setRoleMapInitialized] = useState(false);
+
+  useEffect(() => {
+    if (roleMapInitialized) return;
+    if (!draft?.sheet_config) return;
+
+    const rawCfg: Record<string, unknown> | null =
+      typeof draft.sheet_config === "string"
+        ? (() => {
+            try {
+              return JSON.parse(draft.sheet_config as string) as Record<string, unknown>;
+            } catch {
+              return null;
+            }
+          })()
+        : (draft.sheet_config as Record<string, unknown>);
+
+    if (!rawCfg) return;
+
+    const rawRoleMap = rawCfg.column_role_map;
+    if (rawRoleMap && typeof rawRoleMap === "object" && !Array.isArray(rawRoleMap)) {
+      const entries: Record<string, ColumnRoleEntry> = {};
+      for (const [col, role] of Object.entries(rawRoleMap as Record<string, unknown>)) {
+        if (typeof role === "string") {
+          entries[col] = { role, area: null };
+        }
+      }
+      setColumnRoleMap(entries);
+    }
+    setRoleMapInitialized(true);
+  }, [draft, roleMapInitialized]);
+
+  // ── Load-more handler (lifted from SheetDataGrid, Slice 3d-i) ──────────────
+  // Single-flight: onLoadMore is passed to SheetDataGrid which disables its
+  // button while isLoadingMore is true -- no queue, no debounce needed.
+  const handleLoadMore = async () => {
+    if (isLoadingMore || !previewHasMore) return;
+    const lastRowNum =
+      previewRows.length > 0 ? previewRows[previewRows.length - 1].row_number : 40;
+    const nextStart = lastRowNum + 1;
+    const nextEnd = nextStart + 39;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const result = await fetchPreview({
+        boq_name: boqId ?? "",
+        sheet_name: sheetName ?? "",
+        start_row: nextStart,
+        end_row: nextEnd,
+      });
+      const preview = result?.message;
+      if (preview) {
+        setPreviewRows((prev) => [...prev, ...preview.rows]);
+        setPreviewHasMore(preview.has_more);
+      }
+    } catch {
+      setLoadMoreError("Failed to load more rows. Try again.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleBack = () => navigate(`/upload-boq/hub/${boqId ?? ""}`);
 
@@ -65,13 +200,6 @@ const SheetSpokePage = () => {
   // value -- the hub encoded it with encodeURIComponent and RR undoes that here.
   // No manual decode is needed; a redundant decodeURIComponent would double-decode
   // names containing a literal %xx sequence. (§9 #128 correction.)
-  const decodedSheetName = sheetName ?? "";
-
-  // Display-trimmed for readability; endpoint calls use decodedSheetName directly.
-  const displaySheetName = decodedSheetName.trim() || decodedSheetName;
-
-  // Sheet label (optional) -- lookup by decoded name to match DB storage.
-  const draft = boq.sheet_drafts?.find((d) => d.sheet_name === decodedSheetName);
 
   // Guard: sheetName must be present (routing guarantees it, but be defensive).
   if (!sheetName) {
@@ -119,6 +247,9 @@ const SheetSpokePage = () => {
         navigation, resetting all local field/confirm state. draft?.sheet_config
         is the existing config blob (may be null for a sheet not yet configured).
         onSaveSuccess calls mutate() to re-fetch the BOQs doc after a save.
+        columnRoleMap + setColumnRoleMap are lifted here (Slice 3d-i) so the
+        saved blob always includes the current role-map. rows is passed for the
+        future Section 3 column list (Slice 3d-ii).
       */}
       {draft && (
         <SheetConfigPanel
@@ -126,16 +257,29 @@ const SheetSpokePage = () => {
           boqName={boq.name}
           sheetName={decodedSheetName}
           draftConfig={draft.sheet_config}
+          columnRoleMap={columnRoleMap}
+          setColumnRoleMap={setColumnRoleMap}
+          rows={previewRows}
           onSaveSuccess={() => void mutate()}
         />
       )}
 
       {/* ── Data grid ─────────────────────────────────────────────────────── */}
       {/*
-        boq.name is the docname (e.g. "BOQ-26-00133"); decodedSheetName is the
-        verbatim DB-stored name (RR auto-decoded; VERBATIM matching required).
+        SheetDataGrid is now a pure render component (Slice 3d-i lift-up).
+        All fetch state and the load-more handler are owned here and passed
+        as props. columnRoleMap is threaded for Slice 3d-iii column annotation.
       */}
-      <SheetDataGrid boqName={boq.name} sheetName={decodedSheetName} />
+      <SheetDataGrid
+        rows={previewRows}
+        hasMore={previewHasMore}
+        isInitLoading={isPreviewInitLoading}
+        initError={previewInitError}
+        isLoadingMore={isLoadingMore}
+        loadMoreError={loadMoreError}
+        onLoadMore={() => void handleLoadMore()}
+        columnRoleMap={columnRoleMap}
+      />
     </div>
   );
 };
