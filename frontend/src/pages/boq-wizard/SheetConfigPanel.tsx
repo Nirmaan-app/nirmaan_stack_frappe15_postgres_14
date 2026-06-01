@@ -326,6 +326,19 @@ export function SheetConfigPanel({
     return used;
   }, [columnRoleMap]);
 
+  // Map of "role|area" -> column holding that pair (for disabling in area dropdowns).
+  // Parser enforces per-area uniqueness: two columns cannot share (role, area).
+  // Non-area-compatible roles and null areas are excluded -- they carry no area constraint.
+  const usedAreaPairs = useMemo(() => {
+    const used = new Map<string, string>(); // "role|area" -> col
+    for (const [col, entry] of Object.entries(columnRoleMap)) {
+      if (entry.role && entry.area !== null && AREA_COMPATIBLE_ROLES.has(entry.role)) {
+        used.set(`${entry.role}|${entry.area}`, col);
+      }
+    }
+    return used;
+  }, [columnRoleMap]);
+
   // Column letters in the map, sorted for stable display order.
   const sortedMappedCols = useMemo(
     () => sortColLetters(Object.keys(columnRoleMap)),
@@ -760,11 +773,16 @@ export function SheetConfigPanel({
                       <SelectItem value="__none__">
                         {areaRequired ? "— required —" : "Any area"}
                       </SelectItem>
-                      {activeAreas.map((area) => (
-                        <SelectItem key={area} value={area}>
-                          {area}
-                        </SelectItem>
-                      ))}
+                      {activeAreas.map((area) => {
+                        const pairKey = `${entry.role}|${area}`;
+                        const takenByCol = usedAreaPairs.get(pairKey);
+                        const isPairTaken = takenByCol !== undefined && takenByCol !== col;
+                        return (
+                          <SelectItem key={area} value={area} disabled={isPairTaken}>
+                            {area}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 )}
