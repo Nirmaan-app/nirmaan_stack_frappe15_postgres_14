@@ -10,6 +10,7 @@
   "vendor",
   "service_request_details_section",
   "service_order_list",
+  "work_order_items",
   "service_category_list",
   "invoice_data",
   "status",
@@ -49,6 +50,12 @@
    "fieldname": "service_order_list",
    "fieldtype": "JSON",
    "label": "Service Order List"
+  },
+  {
+   "fieldname": "work_order_items",
+   "fieldtype": "Table",
+   "label": "Work Order Items",
+   "options": "Work Order Items"
   },
   {
    "fieldname": "service_category_list",
