@@ -34,6 +34,13 @@ export interface BoQSheetDraft {
   /** Work Headers assigned to this sheet (multi-link child table, feat b14e9015). */
   work_packages?: BoQSheetWorkPackage[];
   sheet_label?: string;
+  /**
+   * Per-sheet parser config JSON blob (feat b14e9015; Section 1/2 written by Slice 3c).
+   * Frappe JSON fields return as parsed objects via useFrappeGetDoc; string handles
+   * any serialized fallback. Write via set_sheet_config (whole-blob replace --
+   * always read-modify-write to preserve column_role_map and other keys).
+   */
+  sheet_config?: Record<string, unknown> | string | null;
 }
 
 // ── Preview response types (Slice 3b-i endpoint, feat bf1a2e64) ───────────────

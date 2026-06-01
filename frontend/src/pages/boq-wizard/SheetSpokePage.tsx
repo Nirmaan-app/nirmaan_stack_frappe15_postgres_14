@@ -20,6 +20,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BOQsDoc } from "./boqTypes";
 import { SheetDataGrid } from "./SheetDataGrid";
+import { SheetConfigPanel } from "./SheetConfigPanel";
 
 const SheetSpokePage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
@@ -27,7 +28,7 @@ const SheetSpokePage = () => {
 
   // useFrappeGetDoc third-arg gotcha: pass null (not {enabled:false}) to disable.
   // Same pattern as BoqHubPage -- server is the source of truth for boq_name + label.
-  const { data: boq, isLoading } = useFrappeGetDoc<BOQsDoc>(
+  const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqId ?? "",
     boqId ? undefined : null
@@ -59,12 +60,12 @@ const SheetSpokePage = () => {
     );
   }
 
-  // React Router v6 useParams() returns the RAW (URL-encoded) path segment --
-  // it does NOT call decodeURIComponent. So a sheet named "C&I" navigated via
-  // encodeURIComponent produces sheetName = "C%26I" here. Decode explicitly so:
-  //   (a) display is human-readable ("C&I" not "C%26I"), and
-  //   (b) SheetDataGrid receives the verbatim DB-stored name the endpoint requires.
-  const decodedSheetName = sheetName ? decodeURIComponent(sheetName) : "";
+  // React Router v6.22.1 useParams() auto-decodes path params (calls
+  // decodeURIComponent internally). sheetName is already the verbatim DB-stored
+  // value -- the hub encoded it with encodeURIComponent and RR undoes that here.
+  // No manual decode is needed; a redundant decodeURIComponent would double-decode
+  // names containing a literal %xx sequence. (§9 #128 correction.)
+  const decodedSheetName = sheetName ?? "";
 
   // Display-trimmed for readability; endpoint calls use decodedSheetName directly.
   const displaySheetName = decodedSheetName.trim() || decodedSheetName;
@@ -112,12 +113,28 @@ const SheetSpokePage = () => {
         </div>
       </div>
 
+      {/* ── Config panel (Slice 3c) ────────────────────────────────────────── */}
+      {/*
+        Keyed by decodedSheetName so the component remounts fresh on sheet
+        navigation, resetting all local field/confirm state. draft?.sheet_config
+        is the existing config blob (may be null for a sheet not yet configured).
+        onSaveSuccess calls mutate() to re-fetch the BOQs doc after a save.
+      */}
+      {draft && (
+        <SheetConfigPanel
+          key={decodedSheetName}
+          boqName={boq.name}
+          sheetName={decodedSheetName}
+          draftConfig={draft.sheet_config}
+          onSaveSuccess={() => void mutate()}
+        />
+      )}
+
       {/* ── Data grid ─────────────────────────────────────────────────────── */}
       {/*
-        boq.name is the docname (e.g. "BOQ-26-00133"); sheetName is the verbatim
-        sheet_name. Both passed exactly to the endpoint (VERBATIM matching required).
+        boq.name is the docname (e.g. "BOQ-26-00133"); decodedSheetName is the
+        verbatim DB-stored name (RR auto-decoded; VERBATIM matching required).
       */}
-      {/* decodedSheetName is the verbatim DB-stored name (VERBATIM matching required). */}
       <SheetDataGrid boqName={boq.name} sheetName={decodedSheetName} />
     </div>
   );
