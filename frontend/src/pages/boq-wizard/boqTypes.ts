@@ -4,9 +4,11 @@
 /**
  * Per-column role assignment for the column-role map shared between
  * SheetConfigPanel (editor, Slice 3d-ii+) and SheetDataGrid (annotator, Slice 3d-iii).
- * `area` is null for single-area sheets or when area assignment has not been made.
- * When writing to the backend blob, serialize as Record<string,string> (role only --
- * `area` is wizard-only state, not stored server-side).
+ * `area` is null for single-area sheets or when no area has been assigned.
+ *
+ * Backend blob shape (Slice 3d-ii): column_role_map: { [col]: {role, area} } objects.
+ * Non-area-compatible roles always get area: null (enforced in handleSave).
+ * Area-required (*_by_area) roles flag empty area in the UI; save proceeds with null.
  */
 export interface ColumnRoleEntry {
   role: string;
