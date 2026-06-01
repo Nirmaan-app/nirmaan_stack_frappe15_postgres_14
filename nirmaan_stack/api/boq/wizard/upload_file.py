@@ -1,9 +1,11 @@
+import json
 import os
 import tempfile
 
 import frappe
 from frappe.utils.file_manager import save_file
 
+from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
 from nirmaan_stack.services.boq_parser.reader import BoqReader
 
 _MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
@@ -145,6 +147,30 @@ def _upload_file_worker(project_id, tempfile_path, file_url, file_name, user):
 
         # Step 10: Save the BOQs row (cascades sheet_drafts child rows).
         boq_doc.insert(ignore_permissions=True)
+
+        # Step 10.5: Prefill sheet_config with auto-guessed SheetConfig for each Pending sheet.
+        # Child row names are now assigned (post-insert), so set_value targets are valid.
+        # Failure is per-sheet isolated: an exception leaves sheet_config as None and the
+        # upload continues normally. The reader is still open at this point.
+        for draft in boq_doc.sheet_drafts:
+            if draft.wizard_status != "Pending":
+                continue
+            try:
+                header_row = reader.detect_header_row(draft.sheet_name)
+                if header_row is None:
+                    continue
+                detected = auto_guess_sheet_config(reader, draft.sheet_name, header_row)
+                frappe.db.set_value(
+                    "BoQ Sheet Draft",
+                    draft.name,
+                    "sheet_config",
+                    json.dumps(detected.model_dump()),
+                )
+            except Exception:
+                frappe.log_error(
+                    title="BoQ auto-guess failed",
+                    message=frappe.get_traceback(),
+                )
 
         # Step 11: Link the attachment to the now-known BOQs document name.
         frappe.db.set_value(

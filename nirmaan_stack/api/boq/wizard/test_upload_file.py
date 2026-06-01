@@ -1,7 +1,8 @@
+import json
 import os
 import shutil
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -267,3 +268,116 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
 
         boq_count = frappe.db.count("BOQs", filters={"project": self.__class__.test_project.name})
         self.assertEqual(boq_count, 0)
+
+
+# ---------------------------------------------------------------------------
+# Prefill: auto_guess wired into the worker (Step 10.5)
+# ---------------------------------------------------------------------------
+
+class TestPrefillSheetConfig(FrappeTestCase):
+    """Tests for the Step 10.5 auto-guess prefill added to _upload_file_worker."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project_fixture()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_for_project(cls.test_project.name)
+        frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def tearDown(self):
+        _cleanup_for_project(self.__class__.test_project.name)
+        frappe.db.commit()
+
+    def test_pending_sheet_gets_sheet_config(self):
+        """Pending sheet must have a non-None sheet_config containing header_row after upload."""
+        _upload_file_worker(
+            project_id=self.__class__.test_project.name,
+            tempfile_path=_make_xlsx_tempfile(),
+            file_url=_FAKE_FILE_URL,
+            file_name="synthetic_simple.xlsx",
+            user="Administrator",
+        )
+        boq = frappe.get_all(
+            "BOQs",
+            filters={"project": self.__class__.test_project.name},
+            fields=["name"],
+        )[0]
+        pending_drafts = frappe.get_all(
+            "BoQ Sheet Draft",
+            filters={"parent": boq["name"], "wizard_status": "Pending"},
+            fields=["sheet_config"],
+        )
+        self.assertGreater(len(pending_drafts), 0, "Expected at least one Pending draft")
+        for d in pending_drafts:
+            cfg = d["sheet_config"]
+            self.assertIsNotNone(cfg, "Pending draft must have sheet_config populated")
+            # Frappe JSON fields may return a parsed dict or a JSON string; handle both.
+            parsed = json.loads(cfg) if isinstance(cfg, str) else cfg
+            self.assertIn("header_row", parsed)
+            self.assertIsNotNone(parsed["header_row"])
+
+    def test_hidden_sheet_sheet_config_stays_none(self):
+        """Hidden sheets must not receive a sheet_config; detect_header_row must not be called."""
+        mock_reader = MagicMock()
+        mock_reader.list_sheets.return_value = ["Sheet1"]
+        mock_reader.list_sheet_states.return_value = {"Sheet1": "hidden"}
+
+        with patch("nirmaan_stack.api.boq.wizard.upload_file.BoqReader", return_value=mock_reader):
+            _upload_file_worker(
+                project_id=self.__class__.test_project.name,
+                tempfile_path=_make_xlsx_tempfile(),
+                file_url=_FAKE_FILE_URL,
+                file_name="synthetic_simple.xlsx",
+                user="Administrator",
+            )
+
+        boq = frappe.get_all(
+            "BOQs",
+            filters={"project": self.__class__.test_project.name},
+            fields=["name"],
+        )[0]
+        config = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq["name"]},
+            "sheet_config",
+        )
+        self.assertIsNone(config, "Hidden sheet must have sheet_config=None")
+        # Structural check: detect_header_row never called for non-Pending sheets.
+        mock_reader.detect_header_row.assert_not_called()
+
+    def test_auto_guess_failure_does_not_fail_upload(self):
+        """auto_guess_sheet_config raising must not abort the upload; sheet_config stays None."""
+        with patch(
+            "nirmaan_stack.api.boq.wizard.upload_file.auto_guess_sheet_config",
+            side_effect=RuntimeError("simulated auto-guess failure"),
+        ):
+            with patch("frappe.publish_realtime") as mock_pub:
+                _upload_file_worker(
+                    project_id=self.__class__.test_project.name,
+                    tempfile_path=_make_xlsx_tempfile(),
+                    file_url=_FAKE_FILE_URL,
+                    file_name="synthetic_simple.xlsx",
+                    user="Administrator",
+                )
+                mock_pub.assert_any_call(
+                    "boq:wizard_parse_done",
+                    {"boq_name": ANY, "status": "success"},
+                )
+
+        boqs = frappe.get_all(
+            "BOQs",
+            filters={"project": self.__class__.test_project.name},
+            fields=["name"],
+        )
+        self.assertEqual(len(boqs), 1, "BOQs row must still be created despite auto-guess failure")
+        config = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boqs[0]["name"]},
+            "sheet_config",
+        )
+        self.assertIsNone(config, "sheet_config must remain None when auto-guess raises")
