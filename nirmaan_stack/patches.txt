@@ -117,3 +117,4 @@ nirmaan_stack.patches.v3_0.backfill_asset_category_type
 nirmaan_stack.patches.v3_0.backfill_blank_item_id
 
 nirmaan_stack.patches.v3_0.rename_cashflow_gap_limited #1
+nirmaan_stack.patches.v3_0.purge_document_ai_credentials
