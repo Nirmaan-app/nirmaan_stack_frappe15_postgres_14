@@ -33,7 +33,7 @@ import {
 import { useFrappePostCall } from "frappe-react-sdk";
 import type { ColumnRoleEntry, SheetPreviewRow } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
-import { Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -185,7 +185,8 @@ export function SheetConfigPanel({
   // ── Section 1 state ───────────────────────────────────────────────────────
   const [hrc, setHrc] = useState<1 | 2>(1);
   const [headerRow, setHeaderRow] = useState<string>("");
-  const [topHeaderInput, setTopHeaderInput] = useState<string>("");
+  const [topAdjacent, setTopAdjacent] = useState<boolean>(true);
+  const [topHeaderRowNum, setTopHeaderRowNum] = useState<string>("");
   const [skipRowsInput, setSkipRowsInput] = useState<string>("");
 
   // ── Section 2 state ───────────────────────────────────────────────────────
@@ -207,6 +208,7 @@ export function SheetConfigPanel({
   // ── Save state ────────────────────────────────────────────────────────────
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [unmappedWarnings, setUnmappedWarnings] = useState<Array<{ col: string; exampleRow: number }>>([]);
 
   // ── Initialization ────────────────────────────────────────────────────────
   const [initialized, setInitialized] = useState(false);
@@ -219,10 +221,15 @@ export function SheetConfigPanel({
       setHeaderRow(
         typeof cfg.header_row === "number" ? String(cfg.header_row) : ""
       );
-      if (Array.isArray(cfg.top_header_rows_override)) {
-        setTopHeaderInput(
-          (cfg.top_header_rows_override as number[]).join(", ")
-        );
+      if (
+        Array.isArray(cfg.top_header_rows_override) &&
+        (cfg.top_header_rows_override as number[]).length > 0
+      ) {
+        setTopAdjacent(false);
+        setTopHeaderRowNum(String((cfg.top_header_rows_override as number[])[0]));
+      } else {
+        setTopAdjacent(true);
+        setTopHeaderRowNum("");
       }
       if (Array.isArray(cfg.skip_top_rows_after_header)) {
         setSkipRowsInput(
@@ -420,7 +427,11 @@ export function SheetConfigPanel({
     setSaveError(null);
     try {
       const existing = parsedConfig ?? {};
-      const topRows = hrc === 2 ? parseIntList(topHeaderInput) : ([] as number[]);
+      let topRows: number[] = [];
+      if (hrc === 2 && !topAdjacent && topHeaderRowNum !== "") {
+        const n = parseInt(topHeaderRowNum, 10);
+        if (!isNaN(n) && n > 0) topRows = [n];
+      }
 
       const updated: Record<string, unknown> = {
         ...existing,
@@ -445,6 +456,22 @@ export function SheetConfigPanel({
             ])
         ),
       };
+
+      // Finding #5: scan loaded preview rows for columns with data but no role assigned.
+      // Non-blocking -- computed and displayed; save proceeds regardless.
+      const warned: Array<{ col: string; exampleRow: number }> = [];
+      for (const col of allColumns) {
+        const entry = columnRoleMap[col];
+        const isMapped = entry && entry.role !== "";
+        if (!isMapped) {
+          const exRow = rows.find((r) => {
+            const v = r.cells[col];
+            return v !== null && v !== undefined && String(v).trim() !== "";
+          });
+          if (exRow) warned.push({ col, exampleRow: exRow.row_number });
+        }
+      }
+      setUnmappedWarnings(warned);
 
       await callSetConfig({
         boq_name: boqName,
@@ -538,35 +565,89 @@ export function SheetConfigPanel({
         </div>
 
         {hrc === 2 && (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="flex items-center gap-1">
-              Top header row(s)
-              <span className="text-xs font-normal text-muted-foreground ml-1">(if non-contiguous)</span>
-              {isUnconfirmed("top_header_rows_override", topHeaderInput !== "") && (
-                <span className="ml-0.5 text-sm" aria-label="Pre-filled -- click to confirm">✨</span>
+              Top header row
+              {isUnconfirmed("top_header_rows_override", !topAdjacent) && (
+                <span className="ml-0.5 text-sm" aria-label="Pre-filled -- interact to confirm">✨</span>
               )}
             </Label>
-            <Input
-              value={topHeaderInput}
-              placeholder="e.g. 2 (leave blank if rows are adjacent)"
-              className={cn("w-64", isUnconfirmed("top_header_rows_override", topHeaderInput !== "") && "opacity-50")}
-              onFocus={() => touch("top_header_rows_override")}
-              onClick={() => touch("top_header_rows_override")}
-              onChange={(e) => { touch("top_header_rows_override"); setTopHeaderInput(e.target.value); }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Comma-separated row numbers. Leave blank when both header rows are adjacent (e.g. rows 6 and 7).
+            <p className="text-xs text-muted-foreground -mt-0.5">
+              Is the top header row immediately above the bottom one?
             </p>
+            <div
+              className={cn(
+                "flex rounded-md border border-border overflow-hidden w-fit",
+                isUnconfirmed("top_header_rows_override", !topAdjacent) && "opacity-50"
+              )}
+            >
+              <Button
+                type="button"
+                size="sm"
+                variant={topAdjacent ? "default" : "ghost"}
+                className="rounded-none"
+                onClick={() => {
+                  touch("top_header_rows_override");
+                  setTopAdjacent(true);
+                  setTopHeaderRowNum("");
+                }}
+              >
+                Yes
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!topAdjacent ? "default" : "ghost"}
+                className="rounded-none border-l border-border"
+                onClick={() => {
+                  touch("top_header_rows_override");
+                  setTopAdjacent(false);
+                }}
+              >
+                No — specify row
+              </Button>
+            </div>
+            {topAdjacent && !isNaN(headerRowNum) && headerRowNum > 1 && (
+              <p className="text-xs text-muted-foreground">
+                Top header will be row {headerRowNum - 1} (immediately above row {headerRowNum}).
+              </p>
+            )}
+            {!topAdjacent && (
+              <div className="space-y-1.5 pt-0.5">
+                <Label className="flex items-center gap-1 font-normal">
+                  Which row is the top header?
+                  {isUnconfirmed("top_header_rows_override", topHeaderRowNum !== "") && (
+                    <span className="ml-0.5 text-sm" aria-label="Pre-filled -- click to confirm">✨</span>
+                  )}
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={topHeaderRowNum}
+                  placeholder="e.g. 5"
+                  className={cn(
+                    "w-32",
+                    isUnconfirmed("top_header_rows_override", topHeaderRowNum !== "") && "opacity-50"
+                  )}
+                  onFocus={() => touch("top_header_rows_override")}
+                  onClick={() => touch("top_header_rows_override")}
+                  onChange={(e) => {
+                    touch("top_header_rows_override");
+                    setTopHeaderRowNum(e.target.value);
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <Label className="text-muted-foreground text-xs">Data start row</Label>
-          <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground w-32">
+        <p className="text-xs text-muted-foreground">
+          Data starts at row{" "}
+          <span className="font-medium text-foreground">
             {dataStartRow !== null ? dataStartRow : "—"}
-          </p>
-          <p className="text-xs text-muted-foreground">Derived: header row + header row count. Read-only.</p>
-        </div>
+          </span>
+          {" "}(derived from header row + row count)
+        </p>
 
         <div className="space-y-1.5">
           <Label className="flex items-center gap-1">
@@ -861,12 +942,32 @@ export function SheetConfigPanel({
       </div>
 
       {/* ── Save action ─────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 pt-3 border-t border-border">
-        <Button size="sm" disabled={isSaving} onClick={handleSave}>
-          {isSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          Save config
-        </Button>
-        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      <div className="flex flex-col gap-3 pt-3 border-t border-border">
+        {unmappedWarnings.length > 0 && (
+          <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-1.5">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Columns with data in loaded rows but no role assigned (will be ignored by the parser):
+            </p>
+            <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5 pl-5 list-disc">
+              {unmappedWarnings.map(({ col, exampleRow }) => (
+                <li key={col}>
+                  Column {col} — has data (row {exampleRow})
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Assign roles above to include these columns, then save again.
+            </p>
+          </div>
+        )}
+        <div className="flex items-center gap-3">
+          <Button size="sm" disabled={isSaving} onClick={handleSave}>
+            {isSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Save config
+          </Button>
+          {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+        </div>
       </div>
     </div>
   );
