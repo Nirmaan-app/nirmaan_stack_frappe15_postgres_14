@@ -100,12 +100,15 @@ const SheetSpokePage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boqId, sheetName]);
 
-  // ── columnRoleMap state (Slice 3d-i) ───────────────────────────────────────
+  // ── columnRoleMap state (Slice 3d-i; read-back fix 3d-ii) ──────────────────
   // Shared between SheetConfigPanel (includes it in the saved blob) and
   // SheetDataGrid (will annotate columns in Slice 3d-iii). Seeded once from
-  // draft.sheet_config when the doc first arrives; setRoleMapInitialized(true)
-  // is INSIDE the non-null guard (mirrors SheetConfigPanel's initialized pattern)
-  // so a later mutate() re-fetch does NOT overwrite in-progress user edits.
+  // draft.sheet_config when the doc first arrives. setRoleMapInitialized(true)
+  // fires only after rawCfg is successfully parsed (draft absent → early return;
+  // JSON fail → rawCfg null → early return). A later mutate() re-fetch does NOT
+  // overwrite in-progress user edits.
+  // Seed loop handles both the current {role,area} object shape (3d-ii onward)
+  // and the legacy role-only string shape defensively.
   const [columnRoleMap, setColumnRoleMap] = useState<Record<string, ColumnRoleEntry>>({});
   const [roleMapInitialized, setRoleMapInitialized] = useState(false);
 
@@ -129,13 +132,28 @@ const SheetSpokePage = () => {
     const rawRoleMap = rawCfg.column_role_map;
     if (rawRoleMap && typeof rawRoleMap === "object" && !Array.isArray(rawRoleMap)) {
       const entries: Record<string, ColumnRoleEntry> = {};
-      for (const [col, role] of Object.entries(rawRoleMap as Record<string, unknown>)) {
-        if (typeof role === "string") {
-          entries[col] = { role, area: null };
+      for (const [col, val] of Object.entries(rawRoleMap as Record<string, unknown>)) {
+        if (typeof val === "string") {
+          // Legacy pre-3d-ii shape: role-only string.
+          entries[col] = { role: val, area: null };
+        } else if (
+          val !== null &&
+          typeof val === "object" &&
+          "role" in val &&
+          typeof (val as { role: unknown }).role === "string"
+        ) {
+          // Current 3d-ii shape: { role, area } object.
+          const v = val as { role: string; area?: string | null };
+          entries[col] = { role: v.role, area: v.area ?? null };
         }
+        // Null / malformed values are silently skipped.
       }
       setColumnRoleMap(entries);
     }
+    // Lock after rawCfg parsed successfully. draft absent → early-returned above;
+    // JSON fail → rawCfg null → early-returned above. A legitimately empty
+    // column_role_map (key absent, or no parseable entries) is valid "no roles
+    // configured" state -- still locks so mutate() re-fetches don't clobber edits.
     setRoleMapInitialized(true);
   }, [draft, roleMapInitialized]);
 
