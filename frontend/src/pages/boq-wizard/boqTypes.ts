@@ -53,6 +53,13 @@ export type WizardStatus =
   | "General specs"
   | "Parse failed";
 
+/**
+ * Whole-BoQ work-package map returned by get_boq_work_packages.
+ * { sheet_name: [work_header, ...] }
+ * Sheets with no assignments are omitted (absent key !== empty array).
+ */
+export type WorkPackageMap = Record<string, string[]>;
+
 /** One row in BoQ Sheet Draft.work_packages child table (feat b14e9015). */
 export interface BoQSheetWorkPackage {
   /** Frappe child-row docname. */

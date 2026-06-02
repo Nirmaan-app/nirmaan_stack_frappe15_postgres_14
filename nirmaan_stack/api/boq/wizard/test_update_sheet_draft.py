@@ -2,6 +2,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
+    get_boq_work_packages,
     set_general_specs_sheet,
     set_sheet_config,
     set_sheet_label,
@@ -624,3 +625,100 @@ class TestMigrateWorkPackageToMulti(FrappeTestCase):
             as_dict=True,
         )
         self.assertEqual(len(rows), 1)
+
+
+# ---------------------------------------------------------------------------
+# get_boq_work_packages -- Slice 3f-readback
+# ---------------------------------------------------------------------------
+
+_WH_GET_ALPHA = "TEST_WH_GET_ALPHA_3f"
+_WH_GET_BETA = "TEST_WH_GET_BETA_3f"
+
+
+class TestGetBoqWorkPackages(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        cls.wh_alpha = _make_work_header(_WH_GET_ALPHA)
+        cls.wh_beta = _make_work_header(_WH_GET_BETA)
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_work_header(_WH_GET_ALPHA)
+        _cleanup_work_header(_WH_GET_BETA)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_returns_empty_dict_when_no_assignments(self):
+        """BoQ with no work-package assignments returns {}."""
+        result = get_boq_work_packages(boq_name=self.boq.name)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {})
+
+    def test_returns_correct_map_for_assigned_sheet(self):
+        """Sheets with assignments appear in the result with the correct header list."""
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_GET_ALPHA, _WH_GET_BETA],
+        )
+        result = get_boq_work_packages(boq_name=self.boq.name)
+        self.assertIn(_SHEET_HVAC, result)
+        self.assertEqual(set(result[_SHEET_HVAC]), {_WH_GET_ALPHA, _WH_GET_BETA})
+
+    def test_sheet_with_no_assignments_is_omitted(self):
+        """A sheet with no work packages is omitted, not returned as []."""
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_GET_ALPHA],
+        )
+        result = get_boq_work_packages(boq_name=self.boq.name)
+        self.assertIn(_SHEET_HVAC, result)
+        self.assertNotIn(_SHEET_ELEC, result)
+
+    def test_raises_for_nonexistent_boq(self):
+        """Nonexistent boq_name raises ValidationError."""
+        with self.assertRaises(frappe.ValidationError):
+            get_boq_work_packages(boq_name="BOQ-DOES-NOT-EXIST-99999")
+
+    def test_raises_for_missing_boq_name(self):
+        """Calling without boq_name raises ValidationError."""
+        with self.assertRaises(frappe.ValidationError):
+            get_boq_work_packages(boq_name=None)
+
+    def test_round_trip_set_then_get(self):
+        """set_sheet_work_packages then get_boq_work_packages reflects the saved state."""
+        # Assign HVAC -> alpha; ELEC -> beta
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_GET_ALPHA],
+        )
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_ELEC,
+            work_headers=[_WH_GET_BETA],
+        )
+        result = get_boq_work_packages(boq_name=self.boq.name)
+        self.assertEqual(result.get(_SHEET_HVAC), [_WH_GET_ALPHA])
+        self.assertEqual(result.get(_SHEET_ELEC), [_WH_GET_BETA])
+
+        # Replace HVAC assignments; ELEC must be unaffected.
+        set_sheet_work_packages(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            work_headers=[_WH_GET_BETA],
+        )
+        result2 = get_boq_work_packages(boq_name=self.boq.name)
+        self.assertEqual(result2.get(_SHEET_HVAC), [_WH_GET_BETA])
+        self.assertEqual(result2.get(_SHEET_ELEC), [_WH_GET_BETA])

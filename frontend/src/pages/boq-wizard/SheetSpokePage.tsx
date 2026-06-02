@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
@@ -24,6 +24,7 @@ import type {
   ColumnRoleEntry,
   SheetPreviewResponse,
   SheetPreviewRow,
+  WorkPackageMap,
 } from "./boqTypes";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SheetConfigPanel } from "./SheetConfigPanel";
@@ -40,11 +41,30 @@ const SheetSpokePage = () => {
     boqId ? undefined : null
   );
 
+  // Whole-BoQ work-package map (Slice 3f-readback). Frappe get_doc does not
+  // hydrate grandchild rows, so draft.work_packages is always undefined on the
+  // client. This endpoint is the authoritative read path. SWR key follows
+  // useFrappeGetDoc convention: null disables until boqId is present.
+  const { data: wpMapData, mutate: mutateWpMap } = useFrappeGetCall<{ message: WorkPackageMap }>(
+    "nirmaan_stack.api.boq.wizard.update_sheet_draft.get_boq_work_packages",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null
+  );
+
   // Derived values -- computed BEFORE guards so the effects below can reference `draft`.
   // Uses optional chaining since boq may be undefined during the initial loading phase.
   const decodedSheetName = sheetName ?? "";
   const displaySheetName = decodedSheetName.trim() || decodedSheetName;
   const draft = boq?.sheet_drafts?.find((d) => d.sheet_name === decodedSheetName);
+
+  // Work-header list for the current sheet (Slice 3f-readback).
+  // Pass undefined while wpMapData is still loading so SheetConfigPanel's
+  // wpInitialized seed guard waits. Once loaded, use [] for sheets with no
+  // assignments (so the seed locks and survives subsequent mutateWpMap calls).
+  const wpMapLoaded = wpMapData !== undefined;
+  const sheetWorkHeaders: string[] | undefined = wpMapLoaded
+    ? (wpMapData?.message?.[decodedSheetName] ?? [])
+    : undefined;
 
   // ── Preview fetch (lifted from SheetDataGrid, Slice 3d-i) ──────────────────
   // useFrappePostCall is used for ALL fetches (initial + load-more) so accumulated
@@ -304,8 +324,8 @@ const SheetSpokePage = () => {
           setColumnRoleMap={setColumnRoleMap}
           rows={previewRows}
           wizardStatus={draft.wizard_status}
-          workPackages={draft.work_packages}
-          onSaveSuccess={() => void mutate()}
+          workPackages={sheetWorkHeaders}
+          onSaveSuccess={() => { void mutate(); void mutateWpMap(); }}
         />
       )}
 

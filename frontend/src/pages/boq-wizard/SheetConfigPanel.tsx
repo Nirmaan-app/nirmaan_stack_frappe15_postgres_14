@@ -31,7 +31,7 @@ import {
   type Dispatch, type SetStateAction,
 } from "react";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import type { BoQSheetWorkPackage, ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
+import type { ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { AlertTriangle, Check, CheckCircle2, Info, Loader2, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -154,8 +154,12 @@ interface SheetConfigPanelProps {
   rows: SheetPreviewRow[];
   /** Current wizard_status of this sheet draft -- used for M3.12 re-edit drop. */
   wizardStatus?: WizardStatus;
-  /** Existing work-package assignments from draft.work_packages. Seeded once on mount. */
-  workPackages?: BoQSheetWorkPackage[];
+  /**
+   * Work-header docnames for this sheet from get_boq_work_packages (Slice 3f-readback).
+   * undefined while the endpoint is loading (seed waits); [] once loaded with no
+   * assignments (seed locks, selectedWorkHeaders stays empty).
+   */
+  workPackages?: string[];
   onSaveSuccess: () => void;
 }
 
@@ -314,12 +318,14 @@ export function SheetConfigPanel({
   }, [parsedConfig, initialized]);
 
   // ── Section 4 init: seed selectedWorkHeaders once from prop ───────────────
-  // Seeded when workPackages arrives ([] = empty assignment is valid). Locked by
-  // wpInitialized so mutate() re-fetches do not overwrite in-progress edits.
+  // workPackages is undefined while get_boq_work_packages is loading; we wait.
+  // Once loaded it is always string[] ([] for no assignments), so the seed fires
+  // exactly once and wpInitialized locks, protecting in-progress edits from
+  // subsequent mutateWpMap() re-fetches.
   useEffect(() => {
     if (wpInitialized) return;
     if (workPackages === undefined) return;
-    setSelectedWorkHeaders(workPackages.map((w) => w.work_header));
+    setSelectedWorkHeaders(workPackages);
     setWpInitialized(true);
   }, [workPackages, wpInitialized]);
 

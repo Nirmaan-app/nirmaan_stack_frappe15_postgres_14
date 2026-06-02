@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +39,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { BOQsDoc, BoQSheetDraft } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, WorkPackageMap } from "./boqTypes";
 import { SheetCard } from "./SheetCard";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -76,6 +76,16 @@ const BoqHubPage = () => {
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqId ?? "",
+    boqId ? undefined : null
+  );
+
+  // Whole-BoQ work-package map (Slice 3f-readback). Frappe get_doc does not
+  // hydrate grandchild rows, so draft.work_packages is always empty on the client.
+  // This endpoint is the authoritative read path. SWR key follows useFrappeGetDoc
+  // convention: null disables until boqId is present.
+  const { data: wpMapData, mutate: mutateWpMap } = useFrappeGetCall<{ message: WorkPackageMap }>(
+    "nirmaan_stack.api.boq.wizard.update_sheet_draft.get_boq_work_packages",
+    { boq_name: boqId ?? "" },
     boqId ? undefined : null
   );
 
@@ -116,7 +126,13 @@ const BoqHubPage = () => {
   // ── Stable onSaved callback (passed to each SheetCard) ────────────────────
   // Calls SWR mutate to re-fetch the BOQ after any successful card action.
   // Server is the source of truth; no local-state authority over wizard_status.
-  const handleSaved = () => { void mutate(); };
+  // mutateWpMap refreshes the work-package map in case a spoke save happened.
+  const handleSaved = () => { void mutate(); void mutateWpMap(); };
+
+  // ── Work-package map (Slice 3f-readback) ────────────────────────────────────
+  // Derived from the get_boq_work_packages response once loaded; empty while loading.
+  // Each SheetCard receives its sheet's entry via workHeaders prop.
+  const workPackageMap: WorkPackageMap = wpMapData?.message ?? {};
 
   // ── Spoke navigation callback (Module 3 Slice 3b-ii) ──────────────────────
   // Passed to each SheetCard so the card stays router-free. Hub owns navigate.
@@ -354,6 +370,7 @@ const BoqHubPage = () => {
             boqName={boq.name}
             onSaved={handleSaved}
             onOpenSpoke={handleOpenSpoke}
+            workHeaders={workPackageMap[draft.sheet_name]}
           />
         ))}
 
@@ -385,6 +402,7 @@ const BoqHubPage = () => {
                     isLikelySkip={isLikelySkipSheet(draft.sheet_name)}
                     boqName={boq.name}
                     onSaved={handleSaved}
+                    workHeaders={workPackageMap[draft.sheet_name]}
                   />
                 ))}
               </div>

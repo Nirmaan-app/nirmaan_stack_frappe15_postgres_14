@@ -234,3 +234,54 @@ def set_sheet_work_packages(boq_name: str = None, sheet_name: str = None, work_h
 
     frappe.db.commit()
     return {"status": "saved"}
+
+
+@frappe.whitelist()
+def get_boq_work_packages(boq_name: str = None) -> dict:
+    """Return work-package assignments for all sheets in a BoQ.
+
+    Returns: { sheet_name: [work_header, ...] }
+    Sheets with no assigned packages are OMITTED from the result (not returned as []).
+
+    Read path: queries tabBoQ Sheet Work Package directly via frappe.db.get_all().
+    Frappe's get_doc() does NOT hydrate grandchild rows (child of child), so
+    the standard REST /api/resource/BOQs/:name path always returns empty
+    work_packages on each sheet draft. This endpoint is the authoritative
+    read path for work-package data.
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # One query: all draft rows for this BoQ.
+    drafts = frappe.db.get_all(
+        "BoQ Sheet Draft",
+        filters={"parent": boq_name, "parenttype": "BOQs"},
+        fields=["name", "sheet_name"],
+    )
+    if not drafts:
+        return {}
+
+    draft_name_to_sheet = {d.name: d.sheet_name for d in drafts}
+
+    # One query: all work-package rows for those draft rows.
+    pkg_rows = frappe.db.get_all(
+        "BoQ Sheet Work Package",
+        filters={
+            "parent": ("in", list(draft_name_to_sheet.keys())),
+            "parenttype": "BoQ Sheet Draft",
+        },
+        fields=["parent", "work_header"],
+        order_by="creation asc",
+    )
+
+    result: dict = {}
+    for row in pkg_rows:
+        sheet_name = draft_name_to_sheet.get(row.parent)
+        if sheet_name is None:
+            continue
+        result.setdefault(sheet_name, []).append(row.work_header)
+
+    return result
