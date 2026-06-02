@@ -40,6 +40,18 @@ CHILD_TABLE_ITEM_SEARCH_MAP = {
     }
 }
 
+# Doctypes opted into automatic token-score ranking for item searches.
+# When a list page does "Item in X" search on one of these doctypes, the
+# matched parents get reordered by relevance (best match first) instead of
+# `modified desc`. Same matches, same total count — only order changes.
+# Add more doctypes here to opt in. Soft cap of 2000 candidates per request
+# is applied in search.py.
+TOKEN_SCORE_OPTED_IN_DOCTYPES = {
+    "Procurement Requests",
+    "Procurement Orders",
+    "Service Requests",
+}
+
 LINK_FIELD_MAP = {
     "project": {"doctype": "Projects", "label_field": "project_name"},
     "projects": {"doctype": "Projects", "label_field": "project_name"},
