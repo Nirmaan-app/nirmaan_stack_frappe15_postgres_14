@@ -1154,11 +1154,7 @@ export function SheetConfigPanel({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() =>
-                setConfirmedFields((prev) =>
-                  new Set([...prev, "section:rows", "section:areas", "section:roles"])
-                )
-              }
+              onClick={() => setConfirmedFields((prev) => new Set([...prev, ...SAVE_ALL_FIELDS]))}
             >
               Accept all sections as-is
             </Button>
