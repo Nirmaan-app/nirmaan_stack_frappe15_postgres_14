@@ -413,12 +413,6 @@
     "parentfield": "roles",
     "parenttype": "Role Profile",
     "role": "Nirmaan Procurement Lead"
-   },
-   {
-    "parent": "Nirmaan Procurement Lead Profile",
-    "parentfield": "roles",
-    "parenttype": "Role Profile",
-    "role": "Nirmaan Procurement Executive Profile"
    }
   ]
  }
