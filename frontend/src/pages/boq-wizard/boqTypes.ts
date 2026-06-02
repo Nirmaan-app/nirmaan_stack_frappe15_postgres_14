@@ -116,6 +116,8 @@ export interface BOQsDoc {
   version: number | null;
   tax_treatment: "Pre-tax" | "Post-tax";
   notes: string;
+  /** Docname of the linked Projects record. Present on all BoQs created via the wizard. */
+  project?: string;
   /** All sheet drafts for this workbook -- returned automatically by Frappe get_doc. */
   sheet_drafts: BoQSheetDraft[];
   /**

@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  ArrowLeft,
   Check,
   ChevronDown,
   ChevronUp,
@@ -250,6 +251,21 @@ const BoqHubPage = () => {
 
   return (
     <div className="flex-1 space-y-5 max-w-4xl mx-auto pt-6 pb-10">
+
+      {/* ── Back to project (Finding #3) ─────────────────────────────────── */}
+      {/* Semantic route by project ID -- never history.back() which misfires
+          on a hard refresh or direct-URL entry with no history stack. */}
+      {boq.project && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 text-muted-foreground hover:text-foreground"
+          onClick={() => navigate(`/projects/${boq.project}?page=boq`)}
+        >
+          <ArrowLeft className="mr-1.5 h-4 w-4" />
+          Back to project
+        </Button>
+      )}
 
       {/* ── Header strip (M2.18) ─────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
