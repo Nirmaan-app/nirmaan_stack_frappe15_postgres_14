@@ -4,7 +4,7 @@
 **Owner:** Internal team.
 **Last updated:** 2026-06-02 (Module 3 Slice 3e: two-layer review gate + coverage summary + M3.12 re-edit drop + hub Mark-reviewed retirement)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** (3e-fix pending) -- bulk-accept now clears all section sparkles via SAVE_ALL_FIELDS
+**Latest commit:** 7a1df223 fix(boq): Module 3 3e-fix -- bulk-accept clears all section sparkles
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
