@@ -139,9 +139,9 @@ Remaining Slice 3c next steps: Section 3 column-role grid, work-package assignme
 No .py files touched.
 Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; upload_file.py Step 10.5 added: after boq_doc.insert(), loops sheet_drafts -- for each Pending sheet calls reader.detect_header_row() then auto_guess_sheet_config() then frappe.db.set_value(sheet_config, json.dumps(model_dump())); Hidden/Skip sheets skipped entirely; detect_header_row returns None = no-op; failure per-sheet try/except calls frappe.log_error + leaves sheet_config None -- upload never fails due to auto-guess; full SheetConfig.model_dump() written so column_role_map also prefilled; reader + tempfile still open at Step 10.5; test_upload_file.py TestPrefillSheetConfig +3 tests: (a) Pending gets non-None sheet_config with header_row, (b) Hidden stays None + detect_header_row not called, (c) auto-guess raise doesn't fail upload; wizard tests 9 → 12; parser tests 588 unchanged).
 **Owner:** Internal team.
-**Last updated:** 2026-06-02 (Module 3 Slice 3e: two-layer review gate + coverage summary + M3.12 re-edit drop + hub Mark-reviewed retirement)
+**Last updated:** 2026-06-03 (Phase-1 Slice 1: BoQ Review Row doctype + assemble_mapping_config + flatten_resolved_row/flatten_parsed_boq in parse_run.py; +Parsed wizard_status; 31 new / 89 wizard / 588 parser tests; feat 7aaa0525)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** a637be0d feat(boq): Module 3 3f-readback -- get_boq_work_packages endpoint + rewire hub/spoke work-package reads
+**Latest commit:** feat 7aaa0525 (Phase-1 Slice 1 -- BoQ Review Row doctype + parse_run.py)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -873,7 +873,7 @@ Feat: b14e9015.
 
 **S3 safety:** `BOQs.source_file_url` is a frappe_s3_attachment redirect URL after upload. `frappe.get_doc("File", ...).get_content()` reads local disk only and breaks under S3 (plugin moves the file). Bytes are fetched via `S3Operations.read_file_from_s3(key)` and written to a `NamedTemporaryFile`; the tempfile is always `os.unlink`-ed in a `finally` block.
 
-**New module: `nirmaan_stack/api/boq/wizard/sheet_preview.py` (feat TBD):**
+**New module: `nirmaan_stack/api/boq/wizard/sheet_preview.py` (feat 7aaa0525):**
 
 - `_derive_s3_key(source_file_url)` -- extracts the S3 object key. Primary: parse the `key=` query param from the private-file URL (format confirmed from controller.py line 142). Fallback: `frappe.db.get_value("File", {"file_url": url}, "content_hash")` (plugin stores key there per line 148). URL-param parsing is primary -- zero DB hit, format verified.
 - `_fetch_boq_file_to_tempfile(source_file_url)` -- derives key, calls `S3Operations().read_file_from_s3(key)`, reads `response["Body"].read()` bytes, writes to a `NamedTemporaryFile(suffix=".xlsx", delete=False)`, returns path. Tempfile is only created AFTER bytes are successfully downloaded; a failed S3 fetch throws before any file is created (no orphan).
@@ -4843,7 +4843,7 @@ One-component copy, not shared across wizard files. boqTypes.ts has ROLE_LABELS 
 
 **Bulk-accept:**
 - Button "Accept all sections as-is" appears when `hasPrefill && !allSectionsConfirmed`. One click adds all three section keys to confirmedFields.
-- **3e-fix (feat TBD):** Bulk-accept now calls `setConfirmedFields((prev) => new Set([...prev, ...SAVE_ALL_FIELDS]))` -- adds the full SAVE_ALL_FIELDS set (all 6 per-field keys + 3 section keys) rather than only the 3 section keys. Sections 2 and 3 heading sparkles checked the per-field key (area_dimensions / column_role_map) in an OR with the section key; adding only section keys left those sparkles live. Fix: bulk-accept now matches Save semantics -- clears every sparkle. Manual test confirmed: Cases 1 (all sparkles clear on bulk-accept), 2 (gate logic correct, drop works), 3 (no false-drop) all pass.
+- **3e-fix (feat 7aaa0525):** Bulk-accept now calls `setConfirmedFields((prev) => new Set([...prev, ...SAVE_ALL_FIELDS]))` -- adds the full SAVE_ALL_FIELDS set (all 6 per-field keys + 3 section keys) rather than only the 3 section keys. Sections 2 and 3 heading sparkles checked the per-field key (area_dimensions / column_role_map) in an OR with the section key; adding only section keys left those sparkles live. Fix: bulk-accept now matches Save semantics -- clears every sparkle. Manual test confirmed: Cases 1 (all sparkles clear on bulk-accept), 2 (gate logic correct, drop works), 3 (no false-drop) all pass.
 
 **Coverage summary:**
 - `getContentBearingColumns()` helper extracted from handleSave's inline scan -- single source of truth.
@@ -4898,3 +4898,68 @@ One-component copy, not shared across wizard files. boqTypes.ts has ROLE_LABELS 
 **3f-fix (feat 85c842a3) -- Work Headers picker 500 (order reserved word):** The picker hung on "Loading..." with a 500. Cause: useFrappeGetDocList passed order_by on the field `order`, a PostgreSQL reserved keyword -> invalid SQL in Frappe's REST list layer. Fix: removed server-side order_by, kept `order` in fields, sort client-side by order asc in JS. CONVENTION: never order_by on a Frappe field literally named `order` -- sort client-side.
 
 **3f-readback (feat a637be0d) -- work-package read-back (grandchild rows):** Assignments saved but never displayed (hub card blank, spoke Section 4 unticked on re-open). Root cause: Frappe get_doc / REST serializes child tables ONE LEVEL DEEP ONLY -- BOQs.sheet_drafts populates, but BoQ Sheet Draft.work_packages (grandchild) does not, so draft.work_packages is always empty client-side. The hub display from 3a-fix was therefore never functional (latent bug, not a 3f regression). Fix: new read-only whitelisted endpoint get_boq_work_packages(boq_name) -> { sheet_name: [work_header,...] } (queries tabBoQ Sheet Work Package directly via frappe.db.get_all; get_doc does not hydrate grandchildren). Rewired hub (SheetCard workHeaders prop) and spoke (SheetConfigPanel workPackages: string[] from the endpoint); refresh on save via mutateWpMap. +6 wizard tests. Module 3 (3a-3f) COMPLETE -- all 5 manual-test checks passed live on BOQ-26-00145.
+
+---
+
+### Phase-1 Slice 1 -- BoQ Review Row doctype + MappingConfig assembly + ResolvedRow flattener
+
+**Status:** COMPLETE (feat 7aaa0525; 31 new tests / 89 wizard / 588 parser). Backend-only -- no frontend changes this slice. Frontend CLAUDE.md NOT touched (no frontend change this slice).
+
+Files added/modified:
+- `nirmaan_stack/api/boq/wizard/parse_run.py` -- 3 pure functions (no `@frappe.whitelist` endpoint; Slice 2 adds that)
+- `nirmaan_stack/api/boq/wizard/test_parse_run.py` -- 31 tests in 3 groups
+- `nirmaan_stack/nirmaan_stack/doctype/boq_review_row/` -- new top-level doctype (JSON + controller + __init__ + test stub)
+- `nirmaan_stack/nirmaan_stack/doctype/boq_sheet_draft/boq_sheet_draft.json` -- "Parsed" added to wizard_status Select options
+
+**What is Phase-1 Slice 1?**
+
+First backend slice of the "Phase 1 parse run". Prepares the infrastructure that the parse-pass endpoint (Slice 2) will call: the transient output doctype, the config-assembly function, and the output-flattening function. All pure Python -- no whitelisted endpoint, no DB writes.
+
+**New doctype: BoQ Review Row**
+
+Autoname `BOQRR-.YY.-.#####`. Top-level (not istable). `track_changes=1`. Role-based access: System Manager + 4 project roles (Procurement Executive, Project Lead, Project Manager, Estimates Executive) full CRUD; Design Lead full CRUD; Design Executive + Accountant + HR Executive + PMO Executive read-only.
+
+Role: transient per-row store for one parse-run's output -- one row per resolved parser row per parse pass. NOT the committed output (that goes to BOQ Nodes once Phase 4+ lands). The doctype holds the full parser result so a human reviewer can inspect, annotate, and approve rows before they become canonical BOQ Nodes.
+
+Field groups (from the .json field_order):
+- **Links:** `boq` Link->BOQs (reqd, indexed), `sheet_name` Data (reqd)
+- **Position:** `source_row_number` Int, `row_index` Int (0-based within sheet), `classification` Data, `level` Int, `parent_index` Int, `path` Data (read-only, indexed), `attached_to_index` Int, `attached_notes` JSON (list of str)
+- **Classifier metadata:** `promoted_from_line_item` Check, `preamble_level_override` Int, `preamble_candidate_score` Int, `preamble_candidate_signals` JSON (list of str), `needs_classification_review` Check, `review_reason` Data
+- **Content:** `sl_no_value` Data, `description` Text (global search), `unit` Data, `make_model` Data, `is_rate_only` Check
+- **Quantities/Rates/Amounts:** `qty_total` Float, `qty_by_area` JSON (dict), `rate_supply/rate_install/rate_combined` Float, `rate_by_area` JSON (dict of dicts), `amount_total/amount_supply/amount_install` Float, `amount_by_area` JSON (dict)
+- **Notes:** `row_notes` Text, `append_notes_raw` JSON (dict)
+- **Warnings:** `validation_warnings` JSON (list -- sum-mismatch warnings on ResolvedRow), `classifier_warnings` JSON (list -- classifier-level warnings on ClassifiedRow; distinct from validation_warnings)
+- **Flags:** `is_synthetic` Check
+
+**Frappe list-JSON serialization caveat:** Frappe's `get_valid_dict()` auto-serializes Python dicts for JSON fieldtype but REJECTS Python lists with "cannot be a list". The four list-type JSON fields (`attached_notes`, `validation_warnings`, `classifier_warnings`, `preamble_candidate_signals`) must be pre-serialized via `json.dumps()` before `doc.insert()`. Dict-type fields can be passed as Python dicts directly. See `TestBoQReviewRowRoundTrip._LIST_JSON_FIELDS` in `test_parse_run.py` for the authoritative set.
+
+**"Parsed" wizard_status addition**
+
+`BoQ Sheet Draft.wizard_status` Select gains `Parsed` as the 7th value. Lifecycle meaning: a sheet whose parse run completed successfully. `assemble_mapping_config` treats `Parsed` identically to `Reviewed` -- both include the sheet as a data parse target with its saved `sheet_config` blob (a re-run re-parses configured sheets).
+
+**`assemble_mapping_config(boq_name) -> (MappingConfig, not_eligible: list[str])`**
+
+Pure function (no DB writes). Reads the BOQs doc + all BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Routing rules applied in order:
+1. `wizard_status` in {Hidden, Skip} -> `SheetConfig(skip=True)`
+2. `sheet_name == BOQs.general_specs_sheet` -> `treat_as="master_preamble"`
+3. `wizard_status` in {Reviewed, Parsed} + valid `sheet_config` blob -> deserialize + include as data
+4. Anything else (Pending, Parse failed, blank, Reviewed-without-blob) -> appended to `not_eligible`
+
+Raises `frappe.ValidationError` if the BOQ doesn't exist or no eligible sheets exist. `GlobalSettings` always uses defaults (no per-BoQ override exists or is wanted).
+
+**`flatten_resolved_row(resolved_row, sheet_name, row_index) -> dict`**
+
+Pure function. Maps a `ResolvedRow` (and its nested `ClassifiedRow`) to a flat dict of BoQ Review Row field values. All 30+ fields mapped. JSON list fields returned as Python lists; JSON dict fields returned as Python dicts (callers pre-serialize lists before insert). The `boq` field is NOT included -- `flatten_parsed_boq` injects it.
+
+Object-per-flag note: `needs_classification_review` and `review_reason` are on `ResolvedRow` (post-hierarchy review flags); `preamble_candidate_score`, `preamble_candidate_signals`, `preamble_level_override`, and `classifier_warnings` are on `ClassifiedRow` (classifier-time signals). Mixing these up breaks the review-flag logic.
+
+**`flatten_parsed_boq(parsed_boq, boq_name) -> list[dict]`**
+
+Pure function. Iterates `ParsedBoq.sheets`, calls `flatten_resolved_row` per resolved row, injects `boq=boq_name`. `master_preamble` sheets produce no rows (their content lives on `ParsedBoq.master_preamble`). `row_index` is 0-based within each sheet's `resolved_rows` list.
+
+**Test groups (31 new tests in `test_parse_run.py`):**
+- `TestAssembleMappingConfig` (9 tests, FrappeTestCase): routing rules for all 5 wizard_status cases, not_eligible collection, general-specs pointer -> master_preamble, Parsed parity with Reviewed, Reviewed-without-blob soft-exclusion, unknown-boq ValidationError
+- `TestFlattenFaithfulness` (17 tests, pure Python, no DB): row count matches resolved_rows, classification values, sequential row_index, sheet_name + boq injection, parent_index + path coherence, scalar rate_supply preserved, multi-area qty_by_area + amount_by_area dicts, validation_warnings survive flatten, clean rows have empty warnings, programmatic needs_classification_review flag survives flatten, is_synthetic False by default, JSON fields are Python objects not strings
+- `TestBoQReviewRowRoundTrip` (5 tests, FrappeTestCase): insert simple rows + read-back classification, multi-area line item JSON round-trip, validation_warnings DB round-trip, needs_classification_review + review_reason DB round-trip
+
+**Slice 2 next:** `trigger_parse_run` whitelisted endpoint + background worker + Parsed lifecycle (BOQs.wizard_state="Parsed") + old BoQ Review Rows cleanup on re-parse.
