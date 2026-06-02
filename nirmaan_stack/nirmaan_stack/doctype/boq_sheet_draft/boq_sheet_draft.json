@@ -31,7 +31,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Wizard Status",
-   "options": "\nPending\nHidden\nReviewed\nSkip\nGeneral specs\nParse failed",
+   "options": "\nPending\nHidden\nReviewed\nSkip\nGeneral specs\nParse failed\nParsed",
    "reqd": 1
   },
   {
