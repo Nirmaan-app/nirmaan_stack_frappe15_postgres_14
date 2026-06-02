@@ -22,9 +22,6 @@ const STATUS_PILL: Record<string, { label: string; className: string }> = {
   "General specs":  { label: "General specs", className: "bg-sky-500 text-white dark:bg-sky-600 dark:text-white" },
 };
 
-// Shared button style for "Mark reviewed" -- emerald tint to hint at the target status.
-const MARK_REVIEWED_CLASS =
-  "text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950";
 
 interface SheetCardProps {
   draft: BoQSheetDraft;
@@ -163,15 +160,6 @@ export function SheetCard({
               onClick={() => void handleStatusChange("Skip")}>
               Skip
             </Button>
-            {/*
-              Mark reviewed: interim affordance so the parse gate is testable without
-              the spoke. In the production flow, Reviewed is reached via Module 3 (M2.6).
-            */}
-            <Button size="sm" variant="outline" disabled={isSaving}
-              className={MARK_REVIEWED_CLASS}
-              onClick={() => void handleStatusChange("Reviewed")}>
-              Mark reviewed
-            </Button>
           </div>
         )}
 
@@ -221,12 +209,6 @@ export function SheetCard({
             <Button size="sm" variant="ghost" disabled={isSaving}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Review
-            </Button>
-            {/* Interim: Mark reviewed so parse gate is testable without the spoke. */}
-            <Button size="sm" variant="outline" disabled={isSaving}
-              className={MARK_REVIEWED_CLASS}
-              onClick={() => void handleStatusChange("Reviewed")}>
-              Mark reviewed
             </Button>
             <Button size="sm" variant="outline" disabled={isSaving}
               onClick={() => void handleStatusChange("Skip")}>

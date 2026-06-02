@@ -303,6 +303,7 @@ const SheetSpokePage = () => {
           columnRoleMap={columnRoleMap}
           setColumnRoleMap={setColumnRoleMap}
           rows={previewRows}
+          wizardStatus={draft.wizard_status}
           onSaveSuccess={() => void mutate()}
         />
       )}

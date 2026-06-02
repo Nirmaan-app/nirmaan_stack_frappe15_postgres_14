@@ -31,9 +31,10 @@ import {
   type Dispatch, type SetStateAction,
 } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
-import type { ColumnRoleEntry, SheetPreviewRow } from "./boqTypes";
+import type { ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
-import { AlertTriangle, Check, Info, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Info, Loader2, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
   Tooltip,
@@ -151,6 +152,8 @@ interface SheetConfigPanelProps {
   columnRoleMap: Record<string, ColumnRoleEntry>;
   setColumnRoleMap: Dispatch<SetStateAction<Record<string, ColumnRoleEntry>>>;
   rows: SheetPreviewRow[];
+  /** Current wizard_status of this sheet draft -- used for M3.12 re-edit drop. */
+  wizardStatus?: WizardStatus;
   onSaveSuccess: () => void;
 }
 
@@ -185,6 +188,35 @@ function sortColLetters(cols: string[]): string[] {
   );
 }
 
+/**
+ * Returns every column that has at least one non-null, non-empty-string cell
+ * in the loaded preview rows. Used for both the save-time unmapped warning
+ * and the Layer-2 coverage summary -- single scan, no duplicated logic.
+ */
+function getContentBearingColumns(
+  allColumns: string[],
+  rows: SheetPreviewRow[]
+): Array<{ col: string; exampleRow: number }> {
+  const result: Array<{ col: string; exampleRow: number }> = [];
+  for (const col of allColumns) {
+    const exRow = rows.find((r) => {
+      const v = r.cells[col];
+      return v !== null && v !== undefined && String(v).trim() !== "";
+    });
+    if (exRow) result.push({ col, exampleRow: exRow.row_number });
+  }
+  return result;
+}
+
+// Role groups for the parser-required completeness check (Layer 2).
+const _RATE_ROLES = new Set([
+  "rate_supply", "rate_install", "rate_combined",
+  "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
+]);
+const _AMOUNT_ROLES = new Set([
+  "amount_supply", "amount_install", "amount_total", "amount_combined", "amount_by_area",
+]);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SheetConfigPanel({
@@ -194,6 +226,7 @@ export function SheetConfigPanel({
   columnRoleMap,
   setColumnRoleMap,
   rows,
+  wizardStatus,
   onSaveSuccess,
 }: SheetConfigPanelProps) {
   const parsedConfig = useMemo(() => parseConfig(draftConfig), [draftConfig]);
@@ -230,6 +263,15 @@ export function SheetConfigPanel({
 
   // ── Initialization ────────────────────────────────────────────────────────
   const [initialized, setInitialized] = useState(false);
+
+  // ── Layer-2 attestation state ─────────────────────────────────────────────
+  const [attestChecked, setAttestChecked] = useState(false);
+
+  // ── M3.12 re-edit drop refs ───────────────────────────────────────────────
+  // statusAtOpenRef captures wizard_status when the panel mounts; dropFiredRef
+  // ensures the Pending drop fires at most once per spoke open.
+  const statusAtOpenRef = useRef<WizardStatus | undefined>(wizardStatus);
+  const dropFiredRef = useRef(false);
 
   useEffect(() => {
     if (initialized) return;
@@ -299,6 +341,9 @@ export function SheetConfigPanel({
   const { call: callSetConfig } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_config"
   );
+  const { call: callSetStatus } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_status"
+  );
 
   // ── Confirm helpers ───────────────────────────────────────────────────────
 
@@ -308,6 +353,25 @@ export function SheetConfigPanel({
 
   const isUnconfirmed = (key: string, hasValue: boolean) =>
     hasPrefill && !confirmedFields.has(key) && hasValue;
+
+  // Section-level confirm helpers: touch a field key AND its parent section key.
+  const touchS1 = (key: string) =>
+    setConfirmedFields((prev) => new Set([...prev, key, "section:rows"]));
+  const touchS2 = (key: string) =>
+    setConfirmedFields((prev) => new Set([...prev, key, "section:areas"]));
+  const touchS3 = (key: string) =>
+    setConfirmedFields((prev) => new Set([...prev, key, "section:roles"]));
+
+  // M3.12: drop a Reviewed sheet to Pending on the first genuine change event.
+  // Fires at most once per spoke open (dropFiredRef). Change events only -- NOT
+  // onFocus/onClick/onOpenChange (those do not represent a value edit).
+  const dropIfReviewed = () => {
+    if (dropFiredRef.current) return;
+    if (statusAtOpenRef.current !== "Reviewed") return;
+    dropFiredRef.current = true;
+    setAttestChecked(false);
+    void callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Pending" });
+  };
 
   // ── Derived values ────────────────────────────────────────────────────────
 
@@ -373,24 +437,55 @@ export function SheetConfigPanel({
     [columnRoleMap]
   );
 
+  // ── Layer-1 section confirmation ──────────────────────────────────────────
+  const allSectionsConfirmed =
+    confirmedFields.has("section:rows") &&
+    confirmedFields.has("section:areas") &&
+    confirmedFields.has("section:roles");
+
+  // ── Parser-required completeness (Layer 2 enable gate) ───────────────────
+  // header_row present + column_role_map has ≥1 description, ≥1 qty-family,
+  // ≥1 rate-family, ≥1 amount-family.
+  const parserRequiredSatisfied = useMemo(() => {
+    if (isNaN(headerRowNum)) return false;
+    const roles = Object.values(columnRoleMap)
+      .map((e) => e.role)
+      .filter((r) => r !== "");
+    return (
+      roles.includes("description") &&
+      roles.some((r) => r === "qty" || r === "qty_total") &&
+      roles.some((r) => _RATE_ROLES.has(r)) &&
+      roles.some((r) => _AMOUNT_ROLES.has(r))
+    );
+  }, [headerRowNum, columnRoleMap]);
+
+  // Content-bearing columns for coverage summary (recomputed as rows/cols change).
+  const contentBearingColumns = useMemo(
+    () => getContentBearingColumns(allColumns, rows),
+    [allColumns, rows]
+  );
+
   // ── Section 3 handlers ───────────────────────────────────────────────────
 
   const addRow = () => {
-    touch("column_role_map");
+    dropIfReviewed();
+    touchS3("column_role_map");
     pendingIdRef.current += 1;
     setPendingRows((prev) => [...prev, String(pendingIdRef.current)]);
   };
 
   /** Pending row: column selected → moves to columnRoleMap with empty role. */
   const commitPendingRow = (pendingId: string, col: string) => {
+    dropIfReviewed();
     setPendingRows((prev) => prev.filter((id) => id !== pendingId));
     setColumnRoleMap((prev) => ({ ...prev, [col]: { role: "", area: null } }));
-    touch("column_role_map");
+    touchS3("column_role_map");
   };
 
   /** Change the column letter of an existing mapped row (A → B). */
   const changeColumn = (oldCol: string, newCol: string) => {
     if (oldCol === newCol) return;
+    dropIfReviewed();
     setColumnRoleMap((prev) => {
       const entry = prev[oldCol];
       const next = { ...prev };
@@ -399,11 +494,12 @@ export function SheetConfigPanel({
       next[newCol] = { role: entry?.role ?? "", area: null };
       return next;
     });
-    touch("column_role_map");
+    touchS3("column_role_map");
   };
 
   /** Update the role for an existing mapped row. Clears area if new role is non-compatible. */
   const changeRole = (col: string, newRole: string) => {
+    dropIfReviewed();
     setColumnRoleMap((prev) => ({
       ...prev,
       [col]: {
@@ -411,103 +507,146 @@ export function SheetConfigPanel({
         area: AREA_COMPATIBLE_ROLES.has(newRole) ? prev[col]?.area ?? null : null,
       },
     }));
-    touch("column_role_map");
+    touchS3("column_role_map");
   };
 
   /** Update the area for an existing mapped row. "__none__" sentinel → null. */
   const changeArea = (col: string, v: string) => {
+    dropIfReviewed();
     setColumnRoleMap((prev) => ({
       ...prev,
       [col]: { ...prev[col], area: v === "__none__" ? null : v },
     }));
-    touch("column_role_map");
+    touchS3("column_role_map");
   };
 
   const removeRow = (col: string) => {
+    dropIfReviewed();
     setColumnRoleMap((prev) => {
       const next = { ...prev };
       delete next[col];
       return next;
     });
-    touch("column_role_map");
+    touchS3("column_role_map");
   };
 
   const removePendingRow = (pendingId: string) => {
+    dropIfReviewed();
     setPendingRows((prev) => prev.filter((id) => id !== pendingId));
-    touch("column_role_map");
+    touchS3("column_role_map");
   };
 
   // ── Save (read-modify-write) ──────────────────────────────────────────────
+
+  /** Build the full config payload -- shared by handleSave and handleMarkReviewed. */
+  const buildConfigPayload = (): string => {
+    const existing = parsedConfig ?? {};
+    let topRows: number[] = [];
+    if (hrc === 2 && !topAdjacent && topHeaderRowNum !== "") {
+      const n = parseInt(topHeaderRowNum, 10);
+      if (!isNaN(n) && n > 0) topRows = [n];
+    }
+    const updated: Record<string, unknown> = {
+      ...existing,
+      header_row_count: hrc,
+      header_row: !isNaN(headerRowNum) ? headerRowNum : null,
+      top_header_rows_override: topRows.length > 0 ? topRows : null,
+      skip_top_rows_after_header: parseIntList(skipRowsInput),
+      area_dimensions: isMulti ? areaBoxes.filter((s) => s.trim() !== "") : [],
+      column_role_map: Object.fromEntries(
+        Object.entries(columnRoleMap)
+          .filter(([, entry]) => entry.role !== "")
+          .map(([col, entry]) => [
+            col,
+            {
+              role: entry.role,
+              area: AREA_COMPATIBLE_ROLES.has(entry.role) ? entry.area : null,
+            },
+          ])
+      ),
+    };
+    return JSON.stringify(updated);
+  };
+
+  const SAVE_ALL_FIELDS = new Set([
+    "header_row_count",
+    "header_row",
+    "top_header_rows_override",
+    "skip_top_rows_after_header",
+    "area_dimensions",
+    "column_role_map",
+    "section:rows",
+    "section:areas",
+    "section:roles",
+  ]);
 
   const handleSave = async () => {
     if (isSaving) return;
     setIsSaving(true);
     setSaveError(null);
     try {
-      const existing = parsedConfig ?? {};
-      let topRows: number[] = [];
-      if (hrc === 2 && !topAdjacent && topHeaderRowNum !== "") {
-        const n = parseInt(topHeaderRowNum, 10);
-        if (!isNaN(n) && n > 0) topRows = [n];
-      }
+      const configJson = buildConfigPayload();
 
-      const updated: Record<string, unknown> = {
-        ...existing,
-        header_row_count: hrc,
-        header_row: !isNaN(headerRowNum) ? headerRowNum : null,
-        top_header_rows_override: topRows.length > 0 ? topRows : null,
-        skip_top_rows_after_header: parseIntList(skipRowsInput),
-        area_dimensions: isMulti ? areaBoxes.filter((s) => s.trim() !== "") : [],
-        // column_role_map: {role, area} objects per the parser contract (Slice 3d-ii).
-        // Non-area-compatible roles always get area: null -- never write a non-null
-        // area on a role that doesn't accept it (parser treats it as invalid).
-        // Entries with empty role (uncommitted pending) are excluded.
-        column_role_map: Object.fromEntries(
-          Object.entries(columnRoleMap)
-            .filter(([, entry]) => entry.role !== "")
-            .map(([col, entry]) => [
-              col,
-              {
-                role: entry.role,
-                area: AREA_COMPATIBLE_ROLES.has(entry.role) ? entry.area : null,
-              },
-            ])
-        ),
-      };
-
-      // Finding #5: scan loaded preview rows for columns with data but no role assigned.
-      // Non-blocking -- computed and displayed; save proceeds regardless.
-      const warned: Array<{ col: string; exampleRow: number }> = [];
-      for (const col of allColumns) {
+      // Finding #5: scan for content-bearing columns with no role (non-blocking).
+      const contentBearing = getContentBearingColumns(allColumns, rows);
+      const warned = contentBearing.filter(({ col }) => {
         const entry = columnRoleMap[col];
-        const isMapped = entry && entry.role !== "";
-        if (!isMapped) {
-          const exRow = rows.find((r) => {
-            const v = r.cells[col];
-            return v !== null && v !== undefined && String(v).trim() !== "";
-          });
-          if (exRow) warned.push({ col, exampleRow: exRow.row_number });
-        }
-      }
+        return !entry || entry.role === "";
+      });
       setUnmappedWarnings(warned);
 
       await callSetConfig({
         boq_name: boqName,
         sheet_name: sheetName,
-        sheet_config: JSON.stringify(updated),
+        sheet_config: configJson,
       });
 
-      setConfirmedFields(
-        new Set([
-          "header_row_count",
-          "header_row",
-          "top_header_rows_override",
-          "skip_top_rows_after_header",
-          "area_dimensions",
-          "column_role_map",
-        ])
-      );
+      setConfirmedFields(new Set(SAVE_ALL_FIELDS));
 
+      onSaveSuccess();
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : "Save failed. Please try again.";
+      setSaveError(msg);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ── Mark as reviewed (save-anchored, two sequential calls) ─────────────────
+  // Step 1: set_sheet_config (same payload as Save config).
+  // Step 2 (only on Step 1 success): set_sheet_status("Reviewed").
+  // If Step 2 fails, config is saved but status flip is reported inline.
+  const handleMarkReviewed = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const configJson = buildConfigPayload();
+
+      // Step 1: save config.
+      await callSetConfig({
+        boq_name: boqName,
+        sheet_name: sheetName,
+        sheet_config: configJson,
+      });
+
+      // Step 2: flip status.
+      try {
+        await callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Reviewed" });
+      } catch {
+        setSaveError(
+          "Config saved but status update failed. Click Mark as reviewed again to retry."
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      setConfirmedFields(new Set(SAVE_ALL_FIELDS));
       onSaveSuccess();
     } catch (e: unknown) {
       const msg =
@@ -532,8 +671,11 @@ export function SheetConfigPanel({
 
       {/* ── Section 1: Rows ─────────────────────────────────────────────── */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-foreground leading-none">
+        <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
           Section 1 — Rows
+          {isUnconfirmed("section:rows", hasPrefill) && (
+            <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
+          )}
         </h3>
 
         <div className="space-y-1.5">
@@ -547,9 +689,10 @@ export function SheetConfigPanel({
           </Label>
           <Select
             value={String(hrc)}
-            onOpenChange={(open) => { if (open) touch("header_row_count"); }}
+            onOpenChange={(open) => { if (open) touchS1("header_row_count"); }}
             onValueChange={(v) => {
-              touch("header_row_count");
+              dropIfReviewed();
+              touchS1("header_row_count");
               setHrc(v === "2" ? 2 : 1);
             }}
           >
@@ -579,9 +722,9 @@ export function SheetConfigPanel({
             value={headerRow}
             placeholder="e.g. 7"
             className={cn("w-32", isUnconfirmed("header_row", headerRow !== "") && "opacity-50")}
-            onFocus={() => touch("header_row")}
-            onClick={() => touch("header_row")}
-            onChange={(e) => { touch("header_row"); setHeaderRow(e.target.value); }}
+            onFocus={() => touchS1("header_row")}
+            onClick={() => touchS1("header_row")}
+            onChange={(e) => { dropIfReviewed(); touchS1("header_row"); setHeaderRow(e.target.value); }}
           />
         </div>
 
@@ -608,7 +751,8 @@ export function SheetConfigPanel({
                 variant={topAdjacent ? "default" : "ghost"}
                 className="rounded-none"
                 onClick={() => {
-                  touch("top_header_rows_override");
+                  dropIfReviewed();
+                  touchS1("top_header_rows_override");
                   setTopAdjacent(true);
                   setTopHeaderRowNum("");
                 }}
@@ -621,7 +765,8 @@ export function SheetConfigPanel({
                 variant={!topAdjacent ? "default" : "ghost"}
                 className="rounded-none border-l border-border"
                 onClick={() => {
-                  touch("top_header_rows_override");
+                  dropIfReviewed();
+                  touchS1("top_header_rows_override");
                   setTopAdjacent(false);
                 }}
               >
@@ -650,10 +795,11 @@ export function SheetConfigPanel({
                     "w-32",
                     isUnconfirmed("top_header_rows_override", topHeaderRowNum !== "") && "opacity-50"
                   )}
-                  onFocus={() => touch("top_header_rows_override")}
-                  onClick={() => touch("top_header_rows_override")}
+                  onFocus={() => touchS1("top_header_rows_override")}
+                  onClick={() => touchS1("top_header_rows_override")}
                   onChange={(e) => {
-                    touch("top_header_rows_override");
+                    dropIfReviewed();
+                    touchS1("top_header_rows_override");
                     setTopHeaderRowNum(e.target.value);
                   }}
                 />
@@ -682,9 +828,9 @@ export function SheetConfigPanel({
             value={skipRowsInput}
             placeholder="e.g. 8, 9 (usually blank)"
             className={cn("w-64", isUnconfirmed("skip_top_rows_after_header", skipRowsInput !== "") && "opacity-50")}
-            onFocus={() => touch("skip_top_rows_after_header")}
-            onClick={() => touch("skip_top_rows_after_header")}
-            onChange={(e) => { touch("skip_top_rows_after_header"); setSkipRowsInput(e.target.value); }}
+            onFocus={() => touchS1("skip_top_rows_after_header")}
+            onClick={() => touchS1("skip_top_rows_after_header")}
+            onChange={(e) => { dropIfReviewed(); touchS1("skip_top_rows_after_header"); setSkipRowsInput(e.target.value); }}
           />
           <p className="text-xs text-muted-foreground">
             Comma-separated absolute row numbers to exclude. Non-numeric entries are ignored.
@@ -696,8 +842,8 @@ export function SheetConfigPanel({
       <div className="space-y-4 pt-3 border-t border-border">
         <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
           Section 2 — Areas
-          {isUnconfirmed("area_dimensions", isMulti) && (
-            <span className="text-sm" aria-label="Pre-filled -- interact to confirm">✨</span>
+          {(isUnconfirmed("area_dimensions", isMulti) || isUnconfirmed("section:areas", hasPrefill)) && (
+            <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
           )}
         </h3>
 
@@ -708,7 +854,7 @@ export function SheetConfigPanel({
               size="sm"
               variant={!isMulti ? "default" : "ghost"}
               className="rounded-none"
-              onClick={() => { touch("area_dimensions"); setIsMulti(false); }}
+              onClick={() => { dropIfReviewed(); touchS2("area_dimensions"); setIsMulti(false); }}
             >
               Single area
             </Button>
@@ -718,7 +864,8 @@ export function SheetConfigPanel({
               variant={isMulti ? "default" : "ghost"}
               className="rounded-none border-l border-border"
               onClick={() => {
-                touch("area_dimensions");
+                dropIfReviewed();
+                touchS2("area_dimensions");
                 if (!isMulti && areaBoxes.every((s) => s.trim() === "")) setAreaBoxes([""]);
                 setIsMulti(true);
               }}
@@ -735,9 +882,10 @@ export function SheetConfigPanel({
                     value={val}
                     placeholder={`Area name ${i + 1}`}
                     className="max-w-64"
-                    onFocus={() => touch("area_dimensions")}
+                    onFocus={() => touchS2("area_dimensions")}
                     onChange={(e) => {
-                      touch("area_dimensions");
+                      dropIfReviewed();
+                      touchS2("area_dimensions");
                       setAreaBoxes((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)));
                     }}
                   />
@@ -746,7 +894,7 @@ export function SheetConfigPanel({
                       type="button"
                       className="text-muted-foreground hover:text-destructive focus:outline-none"
                       aria-label={`Remove area ${i + 1}`}
-                      onClick={() => { touch("area_dimensions"); setAreaBoxes((prev) => prev.filter((_, idx) => idx !== i)); }}
+                      onClick={() => { dropIfReviewed(); touchS2("area_dimensions"); setAreaBoxes((prev) => prev.filter((_, idx) => idx !== i)); }}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -757,7 +905,7 @@ export function SheetConfigPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => { touch("area_dimensions"); setAreaBoxes((prev) => [...prev, ""]); }}
+                onClick={() => { dropIfReviewed(); touchS2("area_dimensions"); setAreaBoxes((prev) => [...prev, ""]); }}
               >
                 + Add area
               </Button>
@@ -783,8 +931,8 @@ export function SheetConfigPanel({
       <div className="space-y-4 pt-3 border-t border-border">
         <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
           Section 3 — Column Roles
-          {isUnconfirmed("column_role_map", Object.keys(columnRoleMap).length > 0) && (
-            <span className="text-sm" aria-label="Pre-filled -- interact to confirm">✨</span>
+          {(isUnconfirmed("column_role_map", Object.keys(columnRoleMap).length > 0) || isUnconfirmed("section:roles", hasPrefill)) && (
+            <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
           )}
         </h3>
 
@@ -806,7 +954,7 @@ export function SheetConfigPanel({
                 {/* Column picker */}
                 <Select
                   value={col}
-                  onOpenChange={(open) => { if (open) touch("column_role_map"); }}
+                  onOpenChange={(open) => { if (open) touchS3("column_role_map"); }}
                   onValueChange={(newCol) => changeColumn(col, newCol)}
                 >
                   <SelectTrigger className="w-52">
@@ -831,7 +979,7 @@ export function SheetConfigPanel({
                 {/* Role dropdown (always shown) */}
                 <Select
                   value={entry.role || ""}
-                  onOpenChange={(open) => { if (open) touch("column_role_map"); }}
+                  onOpenChange={(open) => { if (open) touchS3("column_role_map"); }}
                   onValueChange={(newRole) => changeRole(col, newRole)}
                 >
                   <SelectTrigger className="w-52">
@@ -897,7 +1045,7 @@ export function SheetConfigPanel({
                 {showAreaDropdown && (
                   <Select
                     value={entry.area || "__none__"}
-                    onOpenChange={(open) => { if (open) touch("column_role_map"); }}
+                    onOpenChange={(open) => { if (open) touchS3("column_role_map"); }}
                     onValueChange={(v) => changeArea(col, v)}
                   >
                     <SelectTrigger
@@ -996,6 +1144,94 @@ export function SheetConfigPanel({
         </div>
       </div>
 
+      {/* ── Bulk-accept + Review gate ────────────────────────────────────── */}
+      <div className="space-y-4 pt-3 border-t border-border">
+
+        {/* Bulk-accept: one click confirms all three sections at once. */}
+        {hasPrefill && !allSectionsConfirmed && (
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setConfirmedFields((prev) =>
+                  new Set([...prev, "section:rows", "section:areas", "section:roles"])
+                )
+              }
+            >
+              Accept all sections as-is
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Accept the pre-filled values without changes.
+            </p>
+          </div>
+        )}
+
+        {/* Coverage summary: one line per content-bearing column with its role.
+            Non-blocking -- shows at attest time so forgotten columns are visible. */}
+        {contentBearingColumns.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+            <p className="text-xs font-medium text-foreground">
+              Column coverage (preview rows):
+            </p>
+            <ul className="text-xs text-muted-foreground space-y-0.5">
+              {contentBearingColumns.map(({ col }) => {
+                const entry = columnRoleMap[col];
+                const roleLabel =
+                  entry && entry.role !== ""
+                    ? (ROLE_LABELS[entry.role] ?? entry.role)
+                    : "Ignore (unmapped)";
+                const isIgnored = !entry || entry.role === "";
+                return (
+                  <li key={col} className="flex items-center gap-1.5">
+                    <span className="font-mono text-foreground w-6 shrink-0">{col}</span>
+                    <span className={isIgnored ? "text-amber-600 dark:text-amber-400" : ""}>
+                      {roleLabel}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* Layer-2 attestation checkbox. Enabled only when all sections are confirmed
+            AND the parser-required minimum roles are present. */}
+        <div className="space-y-2">
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="attest-checkbox"
+              checked={attestChecked}
+              disabled={!allSectionsConfirmed || !parserRequiredSatisfied}
+              onCheckedChange={(checked) => setAttestChecked(checked === true)}
+              className="mt-0.5"
+            />
+            <label
+              htmlFor="attest-checkbox"
+              className={cn(
+                "text-sm leading-snug cursor-pointer select-none",
+                (!allSectionsConfirmed || !parserRequiredSatisfied)
+                  ? "text-muted-foreground opacity-60"
+                  : "text-foreground"
+              )}
+            >
+              I&apos;ve reviewed this — the columns are mapped correctly.
+            </label>
+          </div>
+          {!allSectionsConfirmed && hasPrefill && (
+            <p className="text-xs text-muted-foreground pl-6">
+              Confirm all sections above (or use Accept all sections as-is) to enable attestation.
+            </p>
+          )}
+          {allSectionsConfirmed && !parserRequiredSatisfied && (
+            <p className="text-xs text-muted-foreground pl-6">
+              Map at minimum: one Description, one Quantity, one Rate, and one Amount column.
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* ── Save action ─────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 pt-3 border-t border-border">
         {unmappedWarnings.length > 0 && (
@@ -1016,10 +1252,21 @@ export function SheetConfigPanel({
             </p>
           </div>
         )}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button size="sm" disabled={isSaving} onClick={handleSave}>
             {isSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             Save config
+          </Button>
+          <Button
+            size="sm"
+            disabled={isSaving || !attestChecked}
+            className="text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950"
+            variant="outline"
+            onClick={() => void handleMarkReviewed()}
+          >
+            {isSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {!isSaving && <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
+            Mark as reviewed
           </Button>
           {saveError && <p className="text-xs text-destructive">{saveError}</p>}
         </div>
