@@ -33,7 +33,14 @@ import {
 import { useFrappePostCall } from "frappe-react-sdk";
 import type { ColumnRoleEntry, SheetPreviewRow } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, Info, Loader2, X } from "lucide-react";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -123,6 +130,17 @@ const SINGLETON_ROLES = new Set([
   "rate_supply", "rate_install", "rate_combined",
   "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
 ]);
+
+// Decision-oriented help text for the 6 confusable roles (Part 3b).
+// Keyed by exact role value. Roles absent from this map render as plain SelectItem.
+const ROLE_HELP_TEXT: Partial<Record<string, string>> = {
+  qty:             "Use for a normal quantity column.",
+  qty_total:       "Use ONLY when the column is a sum of other quantity columns -- usually the 'total' area in a multi-area sheet that adds up the individual areas.",
+  amount_total:    "Standard amount column. Same result as Amount (Combined) -- pick the one whose header label matches your sheet.",
+  amount_combined: "Same result as Amount (Total). Choose this if your column header says 'SITC', 'S&I', or 'Combined'.",
+  row_notes:       "Use for a single remarks/notes column. Replaces the notes field.",
+  append_to_notes: "Use when several columns should be combined together into the notes field.",
+};
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -507,6 +525,9 @@ export function SheetConfigPanel({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
+    // TooltipProvider required for the role-tooltip icons in Section 3.
+    // Mounted here (not globally) -- consistent with BoqHubPage/SheetCard/BoqUploadScreen pattern.
+    <TooltipProvider delayDuration={300}>
     <div className="rounded-lg border border-border bg-card p-4 space-y-5">
 
       {/* ── Section 1: Rows ─────────────────────────────────────────────── */}
@@ -767,14 +788,6 @@ export function SheetConfigPanel({
           )}
         </h3>
 
-        {/* Finding #4 -- helper text for the three confusable role pairs. */}
-        {/* Outside the opacity-50 wrapper so it stays readable when unconfirmed. */}
-        <p className="text-xs text-muted-foreground">
-          <strong>Amount (Total)</strong> vs <strong>Amount (Combined)</strong>: same resolved amount -- pick whichever matches your sheet&apos;s header wording.{" "}
-          <strong>Row Notes</strong> replaces the notes field (one source); <strong>Append to Notes</strong> accumulates from multiple columns.{" "}
-          <strong>Quantity</strong> and <strong>Total Quantity</strong> set distinct parser fields -- not interchangeable.
-        </p>
-
         <div
           className={cn(
             "space-y-3",
@@ -828,19 +841,53 @@ export function SheetConfigPanel({
                     {ROLES_BY_GROUP.map(({ group, roles }) => (
                       <SelectGroup key={group}>
                         <SelectLabel>{group}</SelectLabel>
-                        {roles.map((r) => (
-                          <SelectItem
-                            key={r.value}
-                            value={r.value}
-                            disabled={
-                              SINGLETON_ROLES.has(r.value) &&
-                              usedSingletons.has(r.value) &&
-                              usedSingletons.get(r.value) !== col
-                            }
-                          >
-                            {r.label}
-                          </SelectItem>
-                        ))}
+                        {roles.map((r) => {
+                          const isDisabled =
+                            SINGLETON_ROLES.has(r.value) &&
+                            usedSingletons.has(r.value) &&
+                            usedSingletons.get(r.value) !== col;
+                          const helpText = ROLE_HELP_TEXT[r.value];
+
+                          if (!helpText) {
+                            return (
+                              <SelectItem key={r.value} value={r.value} disabled={isDisabled}>
+                                {r.label}
+                              </SelectItem>
+                            );
+                          }
+
+                          // Confusable roles: use SelectPrimitive directly so the icon
+                          // sits OUTSIDE SelectPrimitive.ItemText. shadcn's SelectItem
+                          // wraps all children in ItemText, which Radix clones into the
+                          // SelectValue trigger display -- causing the icon to appear in
+                          // the closed trigger. Bypassing the wrapper keeps ItemText to
+                          // just the label string.
+                          return (
+                            <SelectPrimitive.Item
+                              key={r.value}
+                              value={r.value}
+                              disabled={isDisabled}
+                              className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                            >
+                              <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
+                                <SelectPrimitive.ItemIndicator>
+                                  <Check className="h-4 w-4" />
+                                </SelectPrimitive.ItemIndicator>
+                              </span>
+                              <SelectPrimitive.ItemText>{r.label}</SelectPrimitive.ItemText>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="ml-1.5 inline-flex items-center shrink-0">
+                                    <Info className="h-3 w-3 text-muted-foreground/60" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-56 leading-relaxed">
+                                  {helpText}
+                                </TooltipContent>
+                              </Tooltip>
+                            </SelectPrimitive.Item>
+                          );
+                        })}
                       </SelectGroup>
                     ))}
                   </SelectContent>
@@ -978,5 +1025,6 @@ export function SheetConfigPanel({
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
