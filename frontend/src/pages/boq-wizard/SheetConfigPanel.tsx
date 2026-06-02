@@ -767,6 +767,14 @@ export function SheetConfigPanel({
           )}
         </h3>
 
+        {/* Finding #4 -- helper text for the three confusable role pairs. */}
+        {/* Outside the opacity-50 wrapper so it stays readable when unconfirmed. */}
+        <p className="text-xs text-muted-foreground">
+          <strong>Amount (Total)</strong> vs <strong>Amount (Combined)</strong>: same resolved amount -- pick whichever matches your sheet&apos;s header wording.{" "}
+          <strong>Row Notes</strong> replaces the notes field (one source); <strong>Append to Notes</strong> accumulates from multiple columns.{" "}
+          <strong>Quantity</strong> and <strong>Total Quantity</strong> set distinct parser fields -- not interchangeable.
+        </p>
+
         <div
           className={cn(
             "space-y-3",
@@ -957,7 +965,7 @@ export function SheetConfigPanel({
               ))}
             </ul>
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              Assign roles above to include these columns, then save again.
+              Assign roles above and save to include them.
             </p>
           </div>
         )}
