@@ -366,17 +366,19 @@ export function SheetConfigPanel({
   );
 
   // ── Work Headers catalog (Section 4 picker) ───────────────────────────────
-  // ~9 global records; fetched once, sorted by order ASC. No grouping by
-  // work_package_link -- 2 records have null parent, flat list is correct.
-  const { data: workHeaderOptions } = useFrappeGetDocList<{
+  // ~9 global records; fetched once. "order" is a PostgreSQL reserved keyword
+  // so server-side orderBy on it causes a 500 -- sort client-side instead.
+  const { data: workHeaderOptionsRaw } = useFrappeGetDocList<{
     name: string;
     work_header_name: string;
     order: number;
   }>("Work Headers", {
     fields: ["name", "work_header_name", "order"],
-    orderBy: { field: "order", order: "asc" },
     limit: 0,
   });
+  const workHeaderOptions = workHeaderOptionsRaw
+    ? [...workHeaderOptionsRaw].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    : workHeaderOptionsRaw;
 
   // ── Confirm helpers ───────────────────────────────────────────────────────
 
