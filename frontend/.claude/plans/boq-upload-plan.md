@@ -4,7 +4,7 @@
 **Owner:** Internal team.
 **Last updated:** 2026-06-02 (Module 3 Slice 3e: two-layer review gate + coverage summary + M3.12 re-edit drop + hub Mark-reviewed retirement)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** e60e768c feat(boq): Module 3 3e -- two-layer review gate in spoke + retire hub Mark-reviewed (keep Set-pending)
+**Latest commit:** (3e-fix pending) -- bulk-accept now clears all section sparkles via SAVE_ALL_FIELDS
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -4706,6 +4706,7 @@ One-component copy, not shared across wizard files. boqTypes.ts has ROLE_LABELS 
 
 **Bulk-accept:**
 - Button "Accept all sections as-is" appears when `hasPrefill && !allSectionsConfirmed`. One click adds all three section keys to confirmedFields.
+- **3e-fix (feat TBD):** Bulk-accept now calls `setConfirmedFields((prev) => new Set([...prev, ...SAVE_ALL_FIELDS]))` -- adds the full SAVE_ALL_FIELDS set (all 6 per-field keys + 3 section keys) rather than only the 3 section keys. Sections 2 and 3 heading sparkles checked the per-field key (area_dimensions / column_role_map) in an OR with the section key; adding only section keys left those sparkles live. Fix: bulk-accept now matches Save semantics -- clears every sparkle. Manual test confirmed: Cases 1 (all sparkles clear on bulk-accept), 2 (gate logic correct, drop works), 3 (no false-drop) all pass.
 
 **Coverage summary:**
 - `getContentBearingColumns()` helper extracted from handleSave's inline scan -- single source of truth.
