@@ -238,14 +238,13 @@ export const getTaskTableColumns = (
             ),
             enableColumnFilter: true,
             filterFn: dateFilterFn,
-            size: 85,
-            minSize: 75,
-            maxSize: 100,
+            size: 100,
+           
         },
         {
             id: "last_submitted",
             accessorKey: "last_submitted",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Submitted" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Last Submitted" />,
             cell: ({ row }) => (
                 <span className={`text-xs ${row.original.last_submitted ? "" : "text-gray-400"}`}>
                     {row.original.last_submitted ? formatDeadlineShort(row.original.last_submitted) : '--'}
@@ -253,9 +252,8 @@ export const getTaskTableColumns = (
             ),
             enableColumnFilter: true,
             filterFn: dateFilterFn,
-            size: 85,
-            minSize: 75,
-            maxSize: 100,
+            size: 170,
+           
         },
         {
             accessorKey: "task_status",
@@ -298,7 +296,7 @@ export const getTaskTableColumns = (
         {
             id: "comments",
             accessorKey: "comments",
-            header: () => <div className="text-center text-[10px]">Notes</div>,
+            header: () => <div className="text-center text-[12px] text-bold">Notes</div>,
             cell: ({ row }) => (
                 <div className="flex justify-center">
                     <TooltipProvider>
@@ -329,7 +327,7 @@ export const getTaskTableColumns = (
         {
             id: "file_link",
             accessorKey: "file_link",
-            header: () => <div className="text-center text-[10px]">Files</div>,
+            header: () => <div className="text-center text-[12px] text-bold">Files</div>,
             cell: ({ row }) => (
                 <FilesCell
                     file_link={row.original.file_link}
@@ -347,7 +345,7 @@ export const getTaskTableColumns = (
             ? []
             : [{
                 id: "actions",
-                header: () => <div className="text-center text-[10px]">Edit</div>,
+                header: () => <div className="text-center text-[12px] text-bold">Edit</div>,
                 cell: ({ row }: { row: any }) => {
                     const canEdit = !isDesignExecutive ||
                         (isDesignExecutive && checkIfUserAssigned(row.original));
