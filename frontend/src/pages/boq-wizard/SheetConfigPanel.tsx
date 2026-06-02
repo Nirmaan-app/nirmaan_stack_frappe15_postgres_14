@@ -30,8 +30,8 @@ import {
   useState, useEffect, useMemo, useRef,
   type Dispatch, type SetStateAction,
 } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
-import type { ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import type { BoQSheetWorkPackage, ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { AlertTriangle, Check, CheckCircle2, Info, Loader2, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -154,6 +154,8 @@ interface SheetConfigPanelProps {
   rows: SheetPreviewRow[];
   /** Current wizard_status of this sheet draft -- used for M3.12 re-edit drop. */
   wizardStatus?: WizardStatus;
+  /** Existing work-package assignments from draft.work_packages. Seeded once on mount. */
+  workPackages?: BoQSheetWorkPackage[];
   onSaveSuccess: () => void;
 }
 
@@ -227,6 +229,7 @@ export function SheetConfigPanel({
   setColumnRoleMap,
   rows,
   wizardStatus,
+  workPackages,
   onSaveSuccess,
 }: SheetConfigPanelProps) {
   const parsedConfig = useMemo(() => parseConfig(draftConfig), [draftConfig]);
@@ -250,6 +253,10 @@ export function SheetConfigPanel({
   // columnRoleMap (lifted state) and is removed from pendingRows.
   const [pendingRows, setPendingRows] = useState<string[]>([]);
   const pendingIdRef = useRef(0);
+
+  // ── Section 4 state (work packages) ──────────────────────────────────────
+  const [selectedWorkHeaders, setSelectedWorkHeaders] = useState<string[]>([]);
+  const [wpInitialized, setWpInitialized] = useState(false);
 
   // ── Confirm state ─────────────────────────────────────────────────────────
   const [confirmedFields, setConfirmedFields] = useState<Set<string>>(
@@ -306,6 +313,16 @@ export function SheetConfigPanel({
     }
   }, [parsedConfig, initialized]);
 
+  // ── Section 4 init: seed selectedWorkHeaders once from prop ───────────────
+  // Seeded when workPackages arrives ([] = empty assignment is valid). Locked by
+  // wpInitialized so mutate() re-fetches do not overwrite in-progress edits.
+  useEffect(() => {
+    if (wpInitialized) return;
+    if (workPackages === undefined) return;
+    setSelectedWorkHeaders(workPackages.map((w) => w.work_header));
+    setWpInitialized(true);
+  }, [workPackages, wpInitialized]);
+
   // ── Cross-section area reconciliation (Slice 3d-ii) ──────────────────────
   // When Section 2 areas change, clear any columnRoleMap area values that are
   // no longer valid. Re-sparkles "column_role_map" so user knows re-assignment
@@ -344,12 +361,24 @@ export function SheetConfigPanel({
   const { call: callSetStatus } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_status"
   );
+  const { call: callSetWorkPackages } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_work_packages"
+  );
+
+  // ── Work Headers catalog (Section 4 picker) ───────────────────────────────
+  // ~9 global records; fetched once, sorted by order ASC. No grouping by
+  // work_package_link -- 2 records have null parent, flat list is correct.
+  const { data: workHeaderOptions } = useFrappeGetDocList<{
+    name: string;
+    work_header_name: string;
+    order: number;
+  }>("Work Headers", {
+    fields: ["name", "work_header_name", "order"],
+    orderBy: { field: "order", order: "asc" },
+    limit: 0,
+  });
 
   // ── Confirm helpers ───────────────────────────────────────────────────────
-
-  const touch = (key: string) => {
-    setConfirmedFields((prev) => new Set([...prev, key]));
-  };
 
   const isUnconfirmed = (key: string, hasValue: boolean) =>
     hasPrefill && !confirmedFields.has(key) && hasValue;
@@ -361,6 +390,8 @@ export function SheetConfigPanel({
     setConfirmedFields((prev) => new Set([...prev, key, "section:areas"]));
   const touchS3 = (key: string) =>
     setConfirmedFields((prev) => new Set([...prev, key, "section:roles"]));
+  const touchS4 = () =>
+    setConfirmedFields((prev) => new Set([...prev, "section:workpackages"]));
 
   // M3.12: drop a Reviewed sheet to Pending on the first genuine change event.
   // Fires at most once per spoke open (dropFiredRef). Change events only -- NOT
@@ -441,7 +472,8 @@ export function SheetConfigPanel({
   const allSectionsConfirmed =
     confirmedFields.has("section:rows") &&
     confirmedFields.has("section:areas") &&
-    confirmedFields.has("section:roles");
+    confirmedFields.has("section:roles") &&
+    confirmedFields.has("section:workpackages");
 
   // ── Parser-required completeness (Layer 2 enable gate) ───────────────────
   // header_row present + column_role_map has ≥1 description, ≥1 qty-family,
@@ -458,6 +490,11 @@ export function SheetConfigPanel({
       roles.some((r) => _AMOUNT_ROLES.has(r))
     );
   }, [headerRowNum, columnRoleMap]);
+
+  // Required-non-empty: at least one work package must be assigned. Kept SEPARATE
+  // from parserRequiredSatisfied (that is column-role completeness; this is a
+  // config-required field that is independent of parser column mapping).
+  const hasWorkPackage = selectedWorkHeaders.length > 0;
 
   // Content-bearing columns for coverage summary (recomputed as rows/cols change).
   const contentBearingColumns = useMemo(
@@ -575,9 +612,11 @@ export function SheetConfigPanel({
     "skip_top_rows_after_header",
     "area_dimensions",
     "column_role_map",
+    "work_packages",
     "section:rows",
     "section:areas",
     "section:roles",
+    "section:workpackages",
   ]);
 
   const handleSave = async () => {
@@ -599,6 +638,12 @@ export function SheetConfigPanel({
         boq_name: boqName,
         sheet_name: sheetName,
         sheet_config: configJson,
+      });
+
+      await callSetWorkPackages({
+        boq_name: boqName,
+        sheet_name: sheetName,
+        work_headers: selectedWorkHeaders,
       });
 
       setConfirmedFields(new Set(SAVE_ALL_FIELDS));
@@ -635,12 +680,27 @@ export function SheetConfigPanel({
         sheet_config: configJson,
       });
 
-      // Step 2: flip status.
+      // Step 2: save work packages.
+      try {
+        await callSetWorkPackages({
+          boq_name: boqName,
+          sheet_name: sheetName,
+          work_headers: selectedWorkHeaders,
+        });
+      } catch {
+        setSaveError(
+          "Config saved but work packages update failed. Click Mark as reviewed again to retry."
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      // Step 3: flip status.
       try {
         await callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Reviewed" });
       } catch {
         setSaveError(
-          "Config saved but status update failed. Click Mark as reviewed again to retry."
+          "Config and work packages saved but status update failed. Click Mark as reviewed again to retry."
         );
         setIsSaving(false);
         return;
@@ -1144,6 +1204,48 @@ export function SheetConfigPanel({
         </div>
       </div>
 
+      {/* ── Section 4: Work Packages ────────────────────────────────────── */}
+      <div className="space-y-4 pt-3 border-t border-border">
+        <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
+          Section 4 — Work Packages
+          {(workPackages?.length ?? 0) > 0 && !confirmedFields.has("section:workpackages") && (
+            <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
+          )}
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Select the work package(s) this sheet covers.{" "}
+          <span className="text-amber-600 dark:text-amber-400 font-medium">Required</span>
+        </p>
+        <div className="space-y-2">
+          {!workHeaderOptions && (
+            <p className="text-xs text-muted-foreground italic">Loading work packages...</p>
+          )}
+          {(workHeaderOptions ?? []).map((wh) => (
+            <div key={wh.name} className="flex items-center gap-2">
+              <Checkbox
+                id={`wp-${wh.name}`}
+                checked={selectedWorkHeaders.includes(wh.name)}
+                onCheckedChange={(checked) => {
+                  dropIfReviewed();
+                  touchS4();
+                  setSelectedWorkHeaders((prev) =>
+                    checked
+                      ? [...prev, wh.name]
+                      : prev.filter((n) => n !== wh.name)
+                  );
+                }}
+              />
+              <label
+                htmlFor={`wp-${wh.name}`}
+                className="text-sm leading-none cursor-pointer select-none"
+              >
+                {wh.work_header_name}
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ── Bulk-accept + Review gate ────────────────────────────────────── */}
       <div className="space-y-4 pt-3 border-t border-border">
 
@@ -1199,7 +1301,7 @@ export function SheetConfigPanel({
             <Checkbox
               id="attest-checkbox"
               checked={attestChecked}
-              disabled={!allSectionsConfirmed || !parserRequiredSatisfied}
+              disabled={!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage}
               onCheckedChange={(checked) => setAttestChecked(checked === true)}
               className="mt-0.5"
             />
@@ -1207,7 +1309,7 @@ export function SheetConfigPanel({
               htmlFor="attest-checkbox"
               className={cn(
                 "text-sm leading-snug cursor-pointer select-none",
-                (!allSectionsConfirmed || !parserRequiredSatisfied)
+                (!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage)
                   ? "text-muted-foreground opacity-60"
                   : "text-foreground"
               )}
@@ -1223,6 +1325,11 @@ export function SheetConfigPanel({
           {allSectionsConfirmed && !parserRequiredSatisfied && (
             <p className="text-xs text-muted-foreground pl-6">
               Map at minimum: one Description, one Quantity, one Rate, and one Amount column.
+            </p>
+          )}
+          {allSectionsConfirmed && parserRequiredSatisfied && !hasWorkPackage && (
+            <p className="text-xs text-muted-foreground pl-6">
+              Assign at least one work package to enable attestation.
             </p>
           )}
         </div>
