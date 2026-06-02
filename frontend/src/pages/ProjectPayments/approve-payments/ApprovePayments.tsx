@@ -652,7 +652,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           <DataTableColumnHeader column={column} title="Req. Amt" />
         ),
         cell: ({ row }) => (
-          <div className="font-medium pr-2">
+          <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">
             {formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}
           </div>
         ),
