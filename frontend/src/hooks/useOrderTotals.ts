@@ -30,18 +30,13 @@ export const useOrderTotals = () => {
     "All_SRs_for_order_totals"
   );
 
-  // Child rows are only needed for the standard-rate diff column on the
-  // procurement-payments table — fetch them in bulk and attach to each SR so
-  // getSRStandardTotal/getSREstForStdItems can iterate. Plain totals come
-  // straight from sr.total_amount (always fresh, computed in backend validate).
-  const srNamesForItems = useMemo(
-    () => (serviceOrdersRaw || []).map((s) => s.name).filter(Boolean),
-    [serviceOrdersRaw]
-  );
+  // Child rows are needed for the std-rate diff column. Fetch all SR items in
+  // one no-arg call — passing 700+ names as GET params would blow past the URL
+  // size limit. Endpoint returns every SR's items grouped by parent.
   const { data: srItemsData } = useFrappeGetCall(
     "nirmaan_stack.api.sr_items.get_sr_items_for_parents",
-    { sr_names: srNamesForItems },
-    srNamesForItems.length ? `sr_items_for_${srNamesForItems.length}_orders` : null
+    undefined,
+    serviceOrdersRaw ? "sr_items_for_all_orders" : null
   );
   const srItemsMap: Record<string, any[]> = (srItemsData as any)?.message || {};
 

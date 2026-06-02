@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeDocumentEventListener } from 'frappe-react-sdk';
-import { ServiceRequests, ServiceItemType, ServiceCategoryType } from '@/types/NirmaanStack/ServiceRequests';
+import { ServiceRequests, ServiceCategoryType } from '@/types/NirmaanStack/ServiceRequests';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
@@ -26,9 +26,10 @@ const parseJsonField = <T, K extends keyof T>(doc: T, fieldName: K, defaultValue
 
 export interface ServiceRequestsExtended extends ServiceRequests {
     parsed_notes?: { id: string; note: string }[];
-    parsed_service_order_list?: { list: ServiceItemType[] };
     parsed_service_category_list?: { list: ServiceCategoryType[] };
-    // Note: invoice_data parsing removed - now using Vendor Invoices doctype
+    // Items now live on `work_order_items` child table — read directly from the
+    // doc, no synthesized `.list` wrapper. Notes & category list stay parsed
+    // here because they're still JSON fields.
 }
 
 
@@ -94,28 +95,12 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
 
     const serviceRequestWithParsedJSON = useMemo(() => {
         if (!srDoc) return undefined;
-        const childRows = Array.isArray((srDoc as any).work_order_items)
-            ? (srDoc as any).work_order_items
-            : [];
-        // Synthesize parsed_service_order_list from the child table when present
-        // so downstream consumers that read `.list[i].{description,category,uom,quantity,rate}`
-        // keep working. Falls back to the legacy JSON for pre-migration SRs.
-        const parsed_service_order_list = childRows.length > 0
-            ? {
-                list: childRows.map((row: any) => ({
-                    id: row.name,
-                    description: row.item_name,
-                    category: row.category,
-                    uom: row.uom,
-                    quantity: row.quantity,
-                    rate: row.rate,
-                })),
-            }
-            : parseJsonField(srDoc, 'service_order_list');
+       
+        // Items are on `srDoc.work_order_items` (Frappe full-doc fetch already
+        // includes child tables). Consumers read it directly — no synthesis here.
         return {
             ...srDoc,
             parsed_notes: parseJsonField(srDoc, 'notes', { list: [] }).list,
-            parsed_service_order_list,
             parsed_service_category_list: parseJsonField(srDoc, 'service_category_list'),
         };
     }, [srDoc]);

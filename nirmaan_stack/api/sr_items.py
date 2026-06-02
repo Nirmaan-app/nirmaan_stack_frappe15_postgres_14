@@ -4,27 +4,20 @@ from frappe import _
 
 
 @frappe.whitelist()
-def get_sr_items_for_parents(sr_names):
+def get_sr_items_for_parents(sr_names=None):
     """
-    Return `work_order_items` child rows for one or more Service Requests,
-    grouped by parent SR name.
+    Return `work_order_items` child rows grouped by parent SR name.
+
+    When `sr_names` is omitted/empty, returns rows for ALL Service Requests
+    in one round-trip — used by frontend hooks (e.g. useOrderTotals) that
+    need every SR's items without exceeding the GET URL size limit.
 
     Args:
-        sr_names: List of SR names (or a JSON string of such a list, or a single name).
+        sr_names: Optional list of SR names (or JSON string of such a list,
+                  or a single name). If None/empty, all SRs are included.
 
     Returns:
-        dict mapping `sr_name` -> list of child-row dicts in display order:
-            {
-              "SR-42-000001": [
-                {"name": "...", "item_name": "...", "category": "...",
-                 "uom": "...", "quantity": 1.0, "rate": 100.0, "idx": 1},
-                ...
-              ],
-              ...
-            }
-        Callers derive line amount on the fly (qty × rate); no denormalized
-        `amount` column is stored on the child row.
-        SRs with no rows are still keyed in the response with an empty list.
+        dict mapping `sr_name` -> list of child-row dicts in display order.
     """
     if isinstance(sr_names, str):
         try:
@@ -33,11 +26,12 @@ def get_sr_items_for_parents(sr_names):
         except (json.JSONDecodeError, TypeError):
             sr_names = [sr_names]
 
-    if not sr_names:
-        return {}
-
     if not frappe.has_permission("Service Requests", "read"):
         frappe.throw(_("Not permitted to read Service Requests."), frappe.PermissionError)
+
+    filters: dict = {"parenttype": "Service Requests"}
+    if sr_names:
+        filters["parent"] = ["in", sr_names]
 
     rows = frappe.get_all(
         "Work Order Items",
@@ -46,15 +40,12 @@ def get_sr_items_for_parents(sr_names):
             "item_name", "category", "uom",
             "quantity", "rate",
         ],
-        filters={
-            "parent": ("in", sr_names),
-            "parenttype": "Service Requests",
-        },
+        filters=filters,
         order_by="parent asc, idx asc",
         limit_page_length=0,
     )
 
-    out = {name: [] for name in sr_names}
+    out = {name: [] for name in (sr_names or [])}
     for row in rows:
         out.setdefault(row["parent"], []).append(row)
     return out

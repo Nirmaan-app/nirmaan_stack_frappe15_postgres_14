@@ -1,5 +1,5 @@
 import { SRFormValues, ServiceItemType, VendorRefType, ProjectRefType, createServiceItem } from "../schema";
-import { ServiceRequests, ServiceItemType as SRServiceItemType, WorkOrderItem } from "@/types/NirmaanStack/ServiceRequests";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { groupItemsByCategoryFlat } from "../utils";
 
 /**
@@ -22,48 +22,16 @@ interface ProjectData {
     project_address?: string;
 }
 
-/**
- * Resolves the items list from a Service Request — prefers the `work_order_items`
- * child table; falls back to the legacy `service_order_list` JSON for SRs that
- * existed before the schema migration (and haven't been backfilled yet).
- *
- * @param sr - The Service Request document (expected to be a full doc with children)
- * @param masterItems - Optional master standard items for rate enrichment
- * @returns Array of ServiceItemType with proper numeric types
- */
 export function parseServiceOrderList(sr: ServiceRequests, masterItems?: any[]): ServiceItemType[] {
     const childRows = Array.isArray(sr.work_order_items) ? sr.work_order_items : [];
-
-    if (childRows.length > 0) {
-        return childRows.map((row): ServiceItemType => mapItem({
-            id: row.name,
-            category: row.category,
-            description: row.item_name,
-            uom: row.uom,
-            quantity: row.quantity,
-            rate: row.rate,
-        }, masterItems));
-    }
-
-    // Legacy fallback for pre-migration SRs that still only have JSON.
-    let list: SRServiceItemType[] = [];
-    if (typeof sr.service_order_list === "string") {
-        try {
-            const parsed = JSON.parse(sr.service_order_list);
-            list = Array.isArray(parsed) ? parsed : (parsed?.list || []);
-        } catch (e) {
-            console.error("Failed to parse service_order_list JSON string:", e);
-            return [];
-        }
-    } else if (sr.service_order_list && typeof sr.service_order_list === "object") {
-        if (Array.isArray(sr.service_order_list)) {
-            list = sr.service_order_list;
-        } else if (Array.isArray((sr.service_order_list as any).list)) {
-            list = (sr.service_order_list as any).list;
-        }
-    }
-
-    return list.map((item) => mapItem(item, masterItems));
+    return childRows.map((row): ServiceItemType => mapItem({
+        id: row.name,
+        category: row.category,
+        description: row.item_name,
+        uom: row.uom,
+        quantity: row.quantity,
+        rate: row.rate,
+    }, masterItems));
 }
 
 function mapItem(

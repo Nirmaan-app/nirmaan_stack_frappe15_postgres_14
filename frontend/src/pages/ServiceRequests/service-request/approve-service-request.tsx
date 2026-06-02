@@ -10,7 +10,6 @@ import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard"
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner"
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList"
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
-import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests"
 import { parseNumber } from "@/utils/parseNumber"
 import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
 import { CheckCheck, ListChecks, ListX, Store, Undo2 } from "lucide-react"
@@ -80,42 +79,30 @@ export const ApproveServiceRequest: React.FC = () => {
     //     }
     // }
 
-    // Parse service order data from the document
+    // Resolve items from the `work_order_items` child table.
     useEffect(() => {
-        if (service_request?.service_order_list) {
-            try {
-                const parsed = typeof service_request.service_order_list === 'string'
-                    ? JSON.parse(service_request.service_order_list)
-                    : service_request.service_order_list;
+        if (!service_request) return;
 
-                // Build rate-card lookup (item_name -> rate) for fallback when
-                // stored standard_rate is missing on older SR documents.
-                const rateCardByName: Record<string, number> = {};
-                (woServiceItems || []).forEach((it: any) => {
-                    if (it?.item_name) rateCardByName[it.item_name] = parseNumber(it.rate);
-                });
+        const rateCardByName: Record<string, number> = {};
+        (woServiceItems || []).forEach((it: any) => {
+            if (it?.item_name) rateCardByName[it.item_name] = parseNumber(it.rate);
+        });
 
-                // Convert to ServiceItem format with numbers
-                const items: ServiceItem[] = (parsed?.list || []).map((item: ServiceItemType) => {
-                    const storedStd = parseNumber((item as any).standard_rate);
-                    const fallbackStd = rateCardByName[item.description] ?? 0;
-                    return {
-                        id: item.id,
-                        category: item.category,
-                        description: item.description,
-                        uom: item.uom,
-                        quantity: parseNumber(item.quantity),
-                        rate: parseNumber(item.rate),
-                        standard_rate: storedStd > 0 ? storedStd : fallbackStd,
-                    };
-                });
+        const childRows = Array.isArray((service_request as any).work_order_items)
+            ? (service_request as any).work_order_items
+            : [];
 
-                setServiceOrderData(items);
-            } catch (e) {
-                console.error("Failed to parse service_order_list:", e);
-                setServiceOrderData([]);
-            }
-        }
+        const items: ServiceItem[] = childRows.map((row: any) => ({
+            id: row.name,
+            category: row.category,
+            description: row.item_name,
+            uom: row.uom,
+            quantity: parseNumber(row.quantity),
+            rate: parseNumber(row.rate),
+            standard_rate: rateCardByName[row.item_name] ?? 0,
+        }));
+
+        setServiceOrderData(items);
     }, [service_request, woServiceItems]);
 
     const handleApprove = async () => {
