@@ -319,7 +319,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                     subStatusOptions={subStatusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
                     isRestrictedMode={isDesignExecutive}
-                    disableTaskNameEdit={!isAdmin}
+                    disableTaskNameEdit={true}
                 />
             )}
         </div>
