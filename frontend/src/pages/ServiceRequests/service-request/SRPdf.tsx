@@ -120,7 +120,7 @@ const estimateItemHeight = (item: any) => {
   
   // Estimate height based on category and description length
   const categoryLines = Math.ceil((item?.category?.length || 0) / 35);
-  const descriptionLines = Math.ceil((item?.description?.length || 0) / 30);
+  const descriptionLines = Math.ceil((item?.item_name?.length || 0) / 30);
   
   if (categoryLines > 1) {
     estimatedHeight += (categoryLines - 1) * 16;
@@ -142,11 +142,11 @@ const ServiceItemRow: React.FC<{
   formatToIndianRupee: (amount: number) => string;
   parseNumber: (value: any) => number;
 }> = ({ item, index, gstEnabled, hideRate, formatToIndianRupee, parseNumber }) => (
-  <tr key={item.id} className="page-break-inside-avoid border-b border-gray-200">
+  <tr key={item.name || index} className="page-break-inside-avoid border-b border-gray-200">
     <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
     <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
       <p className="font-semibold">{item?.category}</p>
-      <span className="whitespace-pre-wrap text-xs">{item?.description}</span>
+      <span className="whitespace-pre-wrap text-xs">{item?.item_name}</span>
     </td>
     <td className="px-2 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
     <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
@@ -273,8 +273,8 @@ const SRPdf: React.FC<SRPdfProps> = ({
   };
 
   const serviceItemPages = useMemo(() => {
-    return smartPagination(orderData?.service_order_list?.list || []);
-  }, [orderData?.service_order_list?.list]);
+    return smartPagination(orderData?.work_order_items || []);
+  }, [orderData?.work_order_items]);
 
   return (
     <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
@@ -334,7 +334,7 @@ const SRPdf: React.FC<SRPdfProps> = ({
                         const globalIndex = serviceItemPages.slice(0, pageIndex).reduce((acc, page) => acc + page.length, 0) + itemIndex;
                         return (
                           <ServiceItemRow
-                            key={item.id}
+                            key={item.name || globalIndex}
                             item={item}
                             index={globalIndex}
                             gstEnabled={gstEnabled}

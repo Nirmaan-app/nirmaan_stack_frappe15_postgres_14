@@ -205,20 +205,6 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
             setPreviousOrderList(previousList);
             setAmendedOrderList(ameneds);
             setNewlyAddedItems(newlyAdded);
-            return;
-        }
-
-        // LEGACY fallback: pre-migration SRs that amended via `service_order_list` JSON.
-        const orderListChange = changed.find((item: any) => item[0] === "service_order_list");
-        if (orderListChange) {
-            const originalOrderList = orderListChange?.[1]?.list || [];
-            const amendedOrderListLegacy = orderListChange?.[2]?.list || [];
-            const newlyAddedLegacy = amendedOrderListLegacy.filter(
-                (amendedItem: any) => !originalOrderList.some((item: any) => item.id === amendedItem.id)
-            );
-            setPreviousOrderList(originalOrderList);
-            setAmendedOrderList(amendedOrderListLegacy);
-            setNewlyAddedItems(newlyAddedLegacy);
         }
     }, [versionsData]);
 
