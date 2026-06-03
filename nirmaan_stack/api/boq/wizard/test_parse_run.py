@@ -1,12 +1,15 @@
 """
-Tests for parse_run.py (Slice 1).
+Tests for parse_run.py (Slice 1 + Slice 2).
 
-Three test groups:
-  TestAssembleMappingConfig  -- DB tests (FrappeTestCase): assemble_mapping_config correctness
-  TestFlattenFaithfulness    -- pure-Python tests: flatten_resolved_row / flatten_parsed_boq
-  TestBoQReviewRowRoundTrip  -- DB tests: optional insert + read-back via Frappe ORM
+Four test groups:
+  TestAssembleMappingConfig  -- DB tests: assemble_mapping_config correctness (incl. FIX 1)
+  TestFlattenFaithfulness    -- pure-Python: flatten_resolved_row / flatten_parsed_boq
+  TestBoQReviewRowRoundTrip  -- DB tests: insert + read-back via Frappe ORM
+  TestRunParseWorker         -- DB tests: _run_parse_worker lifecycle (Slice 2)
 """
 import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,6 +26,8 @@ from nirmaan_stack.services.boq_parser.orchestrator import parse_boq
 from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import generate_all
 
 from nirmaan_stack.api.boq.wizard.parse_run import (
+    _LIST_JSON_FIELDS,
+    _run_parse_worker,
     assemble_mapping_config,
     flatten_parsed_boq,
     flatten_resolved_row,
@@ -286,6 +291,59 @@ class TestAssembleMappingConfig(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             assemble_mapping_config("BOQ-DOES-NOT-EXIST-99999")
 
+    def test_fix1_production_blob_without_sheet_name_is_eligible(self):
+        """
+        FIX 1: A realistic 6-key production blob (no 'sheet_name' key) must be ELIGIBLE.
+
+        Production wizard blobs saved by set_sheet_config have exactly these keys:
+          area_dimensions, column_role_map, header_row, header_row_count,
+          skip_top_rows_after_header, top_header_rows_override
+        They NEVER contain 'sheet_name', 'skip', or 'treat_as' (verified live on
+        BOQ-26-00150 and BOQ-26-00145).  Without the injection added in FIX 1,
+        SheetConfig.model_validate raises a ValidationError (sheet_name is required with
+        no default) and the sheet falls into not_eligible silently.
+        """
+        production_blob = json.dumps({
+            "area_dimensions": [],
+            "column_role_map": {
+                "A": {"role": "sl_no", "area": None},
+                "B": {"role": "description", "area": None},
+                "C": {"role": "unit", "area": None},
+                "D": {"role": "qty", "area": None},
+                "E": {"role": "rate_supply", "area": None},
+                "F": {"role": "amount_supply", "area": None},
+            },
+            "header_row": 2,
+            "header_row_count": 1,
+            "skip_top_rows_after_header": [],
+            "top_header_rows_override": None,
+        })
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Fix1 Test {frappe.generate_hash(length=4)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "Electrical BOQ",
+            "sheet_order": 1,
+            "wizard_status": "Reviewed",
+            "sheet_config": production_blob,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        config, not_eligible = assemble_mapping_config(boq.name)
+
+        self.assertNotIn(
+            "Electrical BOQ", not_eligible,
+            "FIX 1 regression: production-shape blob (no sheet_name) landed in not_eligible",
+        )
+        sc = next((s for s in config.sheets if s.sheet_name == "Electrical BOQ"), None)
+        self.assertIsNotNone(sc, "Electrical BOQ not in config.sheets")
+        self.assertEqual(sc.sheet_name, "Electrical BOQ")
+        self.assertFalse(sc.skip)
+        self.assertEqual(sc.treat_as, "data")
+        self.assertEqual(sc.header_row, 2)
+
 
 # ---------------------------------------------------------------------------
 # Group 2: flatten faithfulness (pure Python -- no DB needed)
@@ -543,19 +601,11 @@ class TestBoQReviewRowRoundTrip(FrappeTestCase):
         frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
         frappe.db.commit()
 
-    # JSON fields whose values are Python lists need pre-serialization.
-    # Frappe's get_valid_dict() (base_document.py) auto-serializes dicts
-    # for JSON fields but rejects Python lists with "cannot be a list".
-    _LIST_JSON_FIELDS = frozenset({
-        "attached_notes", "validation_warnings", "classifier_warnings",
-        "preamble_candidate_signals",
-    })
-
     def _insert_rows(self, flat_rows: list[dict]) -> list[str]:
         names = []
         for orig_dict in flat_rows:
             row_dict = dict(orig_dict)  # shallow copy -- don't mutate caller's dict
-            for key in self._LIST_JSON_FIELDS:
+            for key in _LIST_JSON_FIELDS:  # module-level constant from parse_run
                 if isinstance(row_dict.get(key), list):
                     row_dict[key] = json.dumps(row_dict[key])
             doc = frappe.new_doc("BoQ Review Row")
@@ -635,3 +685,331 @@ class TestBoQReviewRowRoundTrip(FrappeTestCase):
         doc = frappe.get_doc("BoQ Review Row", names[0])
         self.assertEqual(doc.needs_classification_review, 1)
         self.assertEqual(doc.review_reason, "priced_preamble_with_children")
+
+
+# ---------------------------------------------------------------------------
+# Group 4: _run_parse_worker lifecycle (Slice 2)
+# ---------------------------------------------------------------------------
+
+# Minimal production-shape blob (6 keys, NO sheet_name) matching what the wizard saves.
+# FIX 1 in assemble_mapping_config injects sheet_name before model_validate.
+_PROD_BLOB_TMPL = {
+    "area_dimensions": [],
+    "column_role_map": {
+        "A": {"role": "sl_no", "area": None},
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "qty", "area": None},
+        "E": {"role": "rate_supply", "area": None},
+        "F": {"role": "amount_supply", "area": None},
+    },
+    "header_row": 1,
+    "header_row_count": 1,
+    "skip_top_rows_after_header": [],
+    "top_header_rows_override": None,
+}
+
+
+class TestRunParseWorker(FrappeTestCase):
+    """
+    Tests for _run_parse_worker: status lifecycle, row insert/replace, subset parse,
+    general-specs handling, pending reporting, forced failure path.
+
+    Uses a tiny 3-sheet workbook (SheetA, SheetB, SOW) built in setUpClass.
+    source_file_url is set to the local tempfile path -- triggers the local-fetch branch
+    in _fetch_boq_file_to_tempfile (no S3 dependency in tests).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        generate_all()
+        cls.test_project = _make_project()
+
+        # Build a small 3-sheet workbook: SheetA + SheetB (data) + SOW (general-specs)
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "SheetA"
+        ws1.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws1.append([1, "Alpha Item", "nos", 2, 100.0, 200.0])
+        ws2 = wb.create_sheet("SheetB")
+        ws2.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws2.append([1, "Beta Item", "nos", 3, 50.0, 150.0])
+        ws_sow = wb.create_sheet("SOW")
+        ws_sow.append(["General Specifications"])
+        ws_sow.append(["1. All materials to meet IS standards."])
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        cls._worker_wb_path = tmp.name
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls._worker_wb_path)
+        except OSError:
+            pass
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
+        ):
+            frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_boq(
+        self,
+        include_b: bool = False,
+        include_sow: bool = False,
+        sheet_a_status: str = "Reviewed",
+        sheet_b_status: str = "Reviewed",
+    ):
+        """Create a BOQs with SheetA + optional SheetB / SOW. Blob uses production 6-key shape."""
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Worker Test {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.source_file_url = self.__class__._worker_wb_path
+        if include_sow:
+            boq.general_specs_sheet = "SOW"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": sheet_a_status, "sheet_config": blob,
+        })
+        if include_b:
+            boq.append("sheet_drafts", {
+                "sheet_name": "SheetB", "sheet_order": 2,
+                "wizard_status": sheet_b_status, "sheet_config": blob,
+            })
+        if include_sow:
+            boq.append("sheet_drafts", {
+                "sheet_name": "SOW", "sheet_order": 3,
+                "wizard_status": "Reviewed",
+                # no sheet_config: Rule 2 (master_preamble) fires before Rule 3 (blob check)
+            })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def _run(self, boq_name, sheet_names=None):
+        """Call _run_parse_worker synchronously (bypasses enqueue for test speed)."""
+        _run_parse_worker(boq_name, sheet_names=sheet_names, user="Administrator")
+
+    # -- status lifecycle ------------------------------------------------
+
+    def test_reviewed_becomes_parsed_on_success(self):
+        """Reviewed sheet's wizard_status transitions to 'Parsed' after a successful parse."""
+        boq = self._make_boq()
+        self._run(boq.name)
+        boq.reload()
+        self.assertEqual(
+            next(d for d in boq.sheet_drafts if d.sheet_name == "SheetA").wizard_status,
+            "Parsed",
+        )
+
+    def test_rows_inserted_on_success(self):
+        """At least one BoQ Review Row is inserted for a successfully parsed data sheet."""
+        boq = self._make_boq()
+        self._run(boq.name)
+        count = frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"})
+        self.assertGreater(count, 0)
+
+    def test_parsed_at_stamped_on_success(self):
+        """BOQs.parsed_at is set after at least one sheet parses successfully."""
+        boq = self._make_boq()
+        self._run(boq.name)
+        parsed_at = frappe.db.get_value("BOQs", boq.name, "parsed_at")
+        self.assertIsNotNone(parsed_at, "BOQs.parsed_at was not set after successful parse")
+
+    def test_failure_path_sets_parse_failed_status(self):
+        """When parse_boq raises, all eligible sheets transition to 'Parse failed'."""
+        from unittest.mock import patch
+        boq = self._make_boq()
+        with patch(
+            "nirmaan_stack.api.boq.wizard.parse_run.parse_boq",
+            side_effect=RuntimeError("forced failure for test"),
+        ):
+            self._run(boq.name)  # must NOT raise; worker handles it gracefully
+
+        boq.reload()
+        self.assertEqual(
+            next(d for d in boq.sheet_drafts if d.sheet_name == "SheetA").wizard_status,
+            "Parse failed",
+        )
+
+    # -- re-parse / replace ----------------------------------------------
+
+    def test_re_parse_does_not_duplicate_rows(self):
+        """Parsing the same sheet twice produces the same row count, not doubled."""
+        boq = self._make_boq()
+        self._run(boq.name)
+        count_1 = frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"})
+
+        # Second parse: sheet is now "Parsed" (treated same as Reviewed by assemble_mapping_config)
+        self._run(boq.name)
+        count_2 = frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"})
+
+        self.assertEqual(count_1, count_2, "Re-parse duplicated rows instead of replacing them")
+        self.assertGreater(count_2, 0)
+
+    # -- subset parse ----------------------------------------------------
+
+    def test_subset_parse_only_affects_specified_sheet(self):
+        """
+        run_parse with sheet_names=['SheetA'] inserts/replaces SheetA rows only;
+        a pre-existing sentinel row for SheetB is left untouched.
+        """
+        boq = self._make_boq(include_b=True)
+
+        # Insert a sentinel row for SheetB
+        sentinel = frappe.new_doc("BoQ Review Row")
+        sentinel.boq = boq.name
+        sentinel.sheet_name = "SheetB"
+        sentinel.source_row_number = 999
+        sentinel.row_index = 0
+        sentinel.classification = "spacer"
+        for field in _LIST_JSON_FIELDS:
+            setattr(sentinel, field, json.dumps([]))
+        sentinel.insert(ignore_permissions=True)
+        frappe.db.commit()
+        sentinel_name = sentinel.name
+
+        self._run(boq.name, sheet_names=["SheetA"])
+
+        # SheetA: rows present
+        self.assertGreater(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
+        )
+        # SheetB sentinel: untouched
+        self.assertTrue(
+            frappe.db.exists("BoQ Review Row", sentinel_name),
+            "Subset parse deleted SheetB sentinel (should only touch SheetA)",
+        )
+
+    # -- pending / not-eligible ------------------------------------------
+
+    def test_pending_sheet_is_not_parsed_and_produces_no_rows(self):
+        """A Pending sheet remains Pending, produces no rows, and does not prevent other parses."""
+        boq = self._make_boq(include_b=True, sheet_b_status="Pending")
+        self._run(boq.name)
+
+        # SheetA parsed, SheetB skipped
+        self.assertGreater(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
+        )
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetB"}), 0
+        )
+        boq.reload()
+        self.assertEqual(
+            next(d for d in boq.sheet_drafts if d.sheet_name == "SheetB").wizard_status,
+            "Pending",
+            "Pending sheet wizard_status was modified by the worker",
+        )
+
+    # -- general-specs / master-preamble ---------------------------------
+
+    def test_general_specs_sheet_produces_no_rows(self):
+        """master_preamble sheet (general_specs_sheet='SOW') emits no BoQ Review Rows."""
+        boq = self._make_boq(include_sow=True)
+        self._run(boq.name)
+
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SOW"}),
+            0,
+            "SOW sheet produced BoQ Review Rows (must not -- it is master_preamble)",
+        )
+        # SheetA (data sheet) still parsed
+        self.assertGreater(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
+        )
+
+    def test_general_specs_sheet_empty_string_is_safe(self):
+        """general_specs_sheet='' is treated as 'none' -- no crash, SheetA rows inserted."""
+        boq = self._make_boq()
+        frappe.db.set_value("BOQs", boq.name, "general_specs_sheet", "")
+        frappe.db.commit()
+
+        self._run(boq.name)
+        self.assertGreater(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
+        )
+
+    def test_general_specs_sheet_none_is_safe(self):
+        """general_specs_sheet=None (never set) is treated as 'none' -- no crash."""
+        boq = self._make_boq()
+        # default: general_specs_sheet is None / ""
+        self._run(boq.name)
+        self.assertGreater(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
+        )
+
+    # -- skip / hidden ---------------------------------------------------
+
+    def test_skip_and_hidden_sheets_produce_no_rows(self):
+        """Skip and Hidden sheets pass through as skip=True in config -- produce no rows."""
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"SkipHidden Test {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.source_file_url = self.__class__._worker_wb_path
+        boq.append("sheet_drafts", {"sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Reviewed", "sheet_config": blob})
+        boq.append("sheet_drafts", {"sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Skip"})
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        self._run(boq.name)
+
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetB"}),
+            0,
+            "Skip sheet produced rows",
+        )
+
+    # -- FIX 2: list-JSON serialization ---------------------------------
+
+    def test_fix2_list_json_fields_round_trip_via_worker(self):
+        """
+        FIX 2: the worker pre-serializes _LIST_JSON_FIELDS before doc.insert().
+        After round-trip via Frappe ORM the fields read back as lists (not double-encoded).
+        Dict-type JSON fields (qty_by_area etc.) read back as dicts.
+        """
+        boq = self._make_boq()
+        self._run(boq.name)
+
+        rows = frappe.get_all(
+            "BoQ Review Row", filters={"boq": boq.name, "sheet_name": "SheetA"}, fields=["name"]
+        )
+        self.assertGreater(len(rows), 0)
+
+        doc = frappe.get_doc("BoQ Review Row", rows[0]["name"])
+
+        for field in _LIST_JSON_FIELDS:
+            raw = getattr(doc, field)
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            self.assertIsInstance(
+                parsed, list,
+                f"FIX 2 regression: {field} should be a list after round-trip, got {type(parsed)}",
+            )
+            # Confirm no double-encoding (a double-encoded list reads as a string, not a list)
+            if isinstance(raw, str):
+                self.assertNotIsInstance(
+                    json.loads(raw), str,
+                    f"{field} is double-encoded (round-trip yields a string, not a list)",
+                )
+
+        for field in ("qty_by_area", "amount_by_area", "rate_by_area", "append_notes_raw"):
+            raw = getattr(doc, field)
+            if raw and raw != "null":
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                self.assertIsInstance(
+                    parsed, dict,
+                    f"{field} should be a dict after round-trip, got {type(parsed)}",
+                )

@@ -1,17 +1,20 @@
 """
-BoQ wizard -- parse-run preparation functions (Slice 1, pure functions only).
-
-No @frappe.whitelist endpoint or DB writes this slice (Slice 2 adds those).
+BoQ wizard -- parse-run functions (Slice 1: pure helpers; Slice 2: worker + endpoint).
 
 Public API:
   assemble_mapping_config(boq_name) -> (MappingConfig, not_eligible: list[str])
   flatten_resolved_row(resolved_row, sheet_name, row_index) -> dict
   flatten_parsed_boq(parsed_boq, boq_name) -> list[dict]
+  run_parse(boq_name, sheet_names=None) -> {status, job_id}  [whitelisted endpoint]
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
+import tempfile
+import urllib.parse
 from typing import Any
 
 import frappe
@@ -23,9 +26,21 @@ from nirmaan_stack.services.boq_parser.config import (
     SheetConfig,
 )
 from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
-from nirmaan_stack.services.boq_parser.orchestrator import ParsedBoq
+from nirmaan_stack.services.boq_parser.orchestrator import ParsedBoq, parse_boq
 
 logger = logging.getLogger(__name__)
+
+# JSON fields on BoQ Review Row whose values are Python lists.
+# Frappe's get_valid_dict() rejects Python lists for JSON fieldtype with "cannot be a list".
+# These MUST be pre-serialized via json.dumps() before doc.insert().
+# The four dict-type JSON fields (qty_by_area, amount_by_area, rate_by_area, append_notes_raw)
+# are passed as Python dicts and auto-serialized by Frappe -- do NOT dumps those.
+_LIST_JSON_FIELDS: frozenset[str] = frozenset({
+    "attached_notes",
+    "validation_warnings",
+    "classifier_warnings",
+    "preamble_candidate_signals",
+})
 
 
 def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
@@ -96,6 +111,12 @@ def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
                 continue
             try:
                 raw = json.loads(blob) if isinstance(blob, str) else blob
+                # FIX: production wizard blobs omit 'sheet_name' (the 6-key shape saved by
+                # set_sheet_config has area_dimensions/column_role_map/header_row/header_row_count/
+                # skip_top_rows_after_header/top_header_rows_override -- verified live on
+                # BOQ-26-00150 and BOQ-26-00145). SheetConfig.sheet_name has no default; without
+                # this injection model_validate raises and the sheet falls into not_eligible.
+                raw["sheet_name"] = sheet_name
                 sc = SheetConfig.model_validate(raw)
             except Exception as exc:
                 logger.warning(
@@ -211,3 +232,313 @@ def flatten_parsed_boq(parsed_boq: ParsedBoq, boq_name: str) -> list[dict[str, A
             d["boq"] = boq_name
             rows.append(d)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Slice 2 -- background worker + endpoint
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist(methods=["POST"])
+def run_parse(boq_name: str = None, sheet_names=None):
+    """
+    Enqueue a background parse worker.  Returns immediately.
+
+    sheet_names=None  -> parse all eligible Reviewed/Parsed sheets.
+    sheet_names=[...] -> parse only the named subset (per-sheet re-parse).
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # sheet_names may arrive as a JSON-string from the HTTP POST body
+    if isinstance(sheet_names, str):
+        try:
+            sheet_names = json.loads(sheet_names)
+        except json.JSONDecodeError:
+            sheet_names = [sheet_names]
+
+    job = frappe.enqueue(
+        "nirmaan_stack.api.boq.wizard.parse_run._run_parse_worker",
+        queue="long",
+        timeout=600,
+        user=frappe.session.user,
+        boq_name=boq_name,
+        sheet_names=sheet_names,
+    )
+    return {"status": "queued", "job_id": job.id if job else None}
+
+
+def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None:
+    """
+    Background worker: fetch workbook -> assemble config -> parse -> insert BoQ Review Rows.
+
+    Status lifecycle (per BoQ Sheet Draft.wizard_status):
+      Reviewed  --[success]--> Parsed
+      Reviewed  --[parse_boq failure]--> Parse failed  (global; all eligible sheets)
+      Reviewed  --[insert failure]--> Parse failed  (per-sheet; other sheets continue)
+      Parsed    --[re-parse success]--> Parsed  (rows replaced, status stays Parsed)
+
+    General-specs sheet (treat_as=master_preamble): never set to Parsed; produces no rows.
+    Master-preamble text: extracted by parse_boq but discarded (no BOQs field for it yet --
+    see self-report finding #21 in the Slice 2 build session).
+
+    Event published (user-targeted): 'boq:parse_run_done'
+      success: {status, boq_name, parsed_sheets, not_parsed_sheets, failed_sheets}
+      error:   {status, boq_name, error_code}
+    """
+    if user:
+        frappe.set_user(user)
+
+    tempfile_path = None
+    parsed_sheets: list[str] = []
+    failed_sheets: list[str] = []
+    not_eligible: list[str] = []
+
+    try:
+        # Step 1: Fetch the workbook file (S3 or local)
+        source_file_url = frappe.db.get_value("BOQs", boq_name, "source_file_url")
+        if not source_file_url:
+            _publish_parse_event(boq_name, "error", user=user, error_code="missing_file")
+            return
+
+        try:
+            tempfile_path = _fetch_boq_file_to_tempfile(source_file_url)
+        except Exception:
+            frappe.log_error(title="BoQ parse: file fetch failed", message=frappe.get_traceback())
+            _publish_parse_event(boq_name, "error", user=user, error_code="fetch_failed")
+            return
+
+        # Step 2: Assemble mapping config (applies FIX: sheet_name injection in Rule 3)
+        try:
+            config, not_eligible = assemble_mapping_config(boq_name)
+        except frappe.ValidationError as exc:
+            logger.error("BoQ %s: assemble_mapping_config failed: %s", boq_name, exc)
+            _publish_parse_event(boq_name, "error", user=user, error_code="no_eligible_sheets")
+            return
+
+        # Step 3: If sheet_names subset given, narrow config (skip/master_preamble pass through)
+        if sheet_names is not None:
+            sheet_names_set = set(sheet_names)
+            config = MappingConfig(
+                project=config.project,
+                master_boq=config.master_boq,
+                global_settings=config.global_settings,
+                sheets=[
+                    sc for sc in config.sheets
+                    if sc.skip or sc.treat_as == "master_preamble" or sc.sheet_name in sheet_names_set
+                ],
+            )
+
+        # Collect the data-sheet names that will actually be parsed (for failure labeling)
+        eligible_data_sheets = [
+            sc.sheet_name for sc in config.sheets
+            if not sc.skip and sc.treat_as != "master_preamble"
+        ]
+
+        # Step 4: Run parser (handles skip + master_preamble internally)
+        try:
+            parsed = parse_boq(tempfile_path, config)
+        except Exception:
+            frappe.log_error(
+                title=f"BoQ parse: parse_boq failed for {boq_name}",
+                message=frappe.get_traceback(),
+            )
+            for sn in eligible_data_sheets:
+                _set_draft_status(boq_name, sn, "Parse failed")
+            frappe.db.commit()
+            _publish_parse_event(boq_name, "error", user=user, error_code="parse_failed")
+            return
+
+        # Step 5: Persist results per-sheet
+        general_specs_sheet = frappe.db.get_value("BOQs", boq_name, "general_specs_sheet") or ""
+
+        for parsed_sheet in parsed.sheets:
+            sheet_name = parsed_sheet.sheet_name
+            try:
+                # Re-parse safety: delete existing rows before inserting.
+                # On failure the compensating delete in the except block cleans up partials.
+                frappe.db.delete("BoQ Review Row", {"boq": boq_name, "sheet_name": sheet_name})
+
+                for row_index, resolved_row in enumerate(parsed_sheet.resolved_rows):
+                    row_dict = flatten_resolved_row(resolved_row, sheet_name, row_index)
+                    row_dict["boq"] = boq_name
+                    for field in _LIST_JSON_FIELDS:
+                        if isinstance(row_dict.get(field), list):
+                            row_dict[field] = json.dumps(row_dict[field])
+                    doc = frappe.new_doc("BoQ Review Row")
+                    doc.update(row_dict)
+                    doc.insert(ignore_permissions=True)
+
+                # Mark Parsed -- but NOT the general-specs sheet (it is not a data sheet)
+                if sheet_name != general_specs_sheet:
+                    _set_draft_status(boq_name, sheet_name, "Parsed")
+
+                parsed_sheets.append(sheet_name)
+
+            except Exception:
+                frappe.log_error(
+                    title=f"BoQ parse: sheet '{sheet_name}' insert failed",
+                    message=frappe.get_traceback(),
+                )
+                try:
+                    frappe.db.delete("BoQ Review Row", {"boq": boq_name, "sheet_name": sheet_name})
+                except Exception:
+                    frappe.log_error(
+                        title=f"BoQ parse: cleanup after '{sheet_name}' failure failed",
+                        message=frappe.get_traceback(),
+                    )
+                _set_draft_status(boq_name, sheet_name, "Parse failed")
+                failed_sheets.append(sheet_name)
+
+        # Step 6: Master preamble text -- BOQs has no field to store it (finding: no
+        # 'master_preamble' text column exists on the BOQs doctype as of Slice 2 build).
+        # Log the extraction and discard; a future phase can add the field and write it.
+        if parsed.master_preamble:
+            logger.info(
+                "BoQ %s: master_preamble extracted (%d chars); no BOQs.master_preamble field -- discarded",
+                boq_name,
+                len(parsed.master_preamble),
+            )
+
+        # Step 7: Stamp parsed_at on any successful (possibly partial) completion
+        if parsed_sheets:
+            frappe.db.set_value("BOQs", boq_name, "parsed_at", frappe.utils.now())
+
+        # Commit BEFORE publish (CLAUDE.md rule: commit-before-publish avoids race conditions)
+        frappe.db.commit()
+
+        # Step 8: Publish result targeted to the enqueueing user
+        _publish_parse_event(
+            boq_name,
+            "success",
+            user=user,
+            parsed_sheets=parsed_sheets,
+            not_parsed_sheets=not_eligible,
+            failed_sheets=failed_sheets,
+        )
+
+    except Exception:
+        frappe.log_error(
+            title=f"BoQ parse worker: unhandled error for {boq_name}",
+            message=frappe.get_traceback(),
+        )
+        try:
+            frappe.db.rollback()
+        except Exception:
+            pass
+        _publish_parse_event(boq_name, "error", user=user, error_code="internal")
+        raise
+
+    finally:
+        if tempfile_path:
+            try:
+                os.unlink(tempfile_path)
+            except OSError:
+                pass
+
+
+def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
+    """
+    Fetch the BoQ workbook to a NamedTemporaryFile preserving the real file extension.
+    Caller must os.unlink the returned path in a finally block.
+
+    Routing:
+      - If 'frappe_s3_attachment' is not in the URL: treat as local/dev path (tests, dev env).
+        /private/... and /files/... are resolved via frappe.get_site_path(); bare absolute
+        paths (e.g. test fixture paths) are used as-is.  File is copied to a tempfile so the
+        caller can safely unlink it without destroying the source.
+      - Otherwise: download from S3 via S3Operations.read_file_from_s3.
+        Real extension is derived from the 'file_name' query param (set by frappe_s3_attachment).
+        Unlike sheet_preview._fetch_boq_file_to_tempfile (which hardcodes '.xlsx'), this
+        version correctly handles '.xlsm' workbooks.
+    """
+    if "frappe_s3_attachment" not in source_file_url:
+        # Local path (dev / test)
+        if source_file_url.startswith("/private/") or source_file_url.startswith("/files/"):
+            local_path = frappe.get_site_path(source_file_url.lstrip("/"))
+        else:
+            local_path = source_file_url
+        _, ext = os.path.splitext(local_path)
+        suffix = ext.lower() if ext.lower() in {".xlsx", ".xlsm"} else ".xlsx"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        try:
+            shutil.copy2(local_path, tmp.name)
+        except Exception as exc:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            frappe.throw(f"Failed to read local BoQ file: {exc}", title="File access failed")
+        return tmp.name
+
+    # S3 path
+    from frappe_s3_attachment.controller import S3Operations  # noqa: PLC0415
+
+    parsed_url = urllib.parse.urlparse(source_file_url)
+    params = urllib.parse.parse_qs(parsed_url.query)
+
+    # Derive real extension from file_name query param (frappe_s3_attachment sets this)
+    ext = ".xlsx"
+    file_name_list = params.get("file_name")
+    if file_name_list:
+        raw_name = urllib.parse.unquote(file_name_list[0])
+        _, candidate_ext = os.path.splitext(raw_name)
+        if candidate_ext.lower() in {".xlsx", ".xlsm"}:
+            ext = candidate_ext.lower()
+
+    # Derive S3 key: prefer 'key' query param; fall back to File.content_hash
+    key_list = params.get("key")
+    if key_list:
+        key = key_list[0]
+    else:
+        key = frappe.db.get_value("File", {"file_url": source_file_url}, "content_hash")
+        if not key:
+            frappe.throw(
+                f"Cannot derive S3 key from source_file_url: {source_file_url!r}",
+                title="S3 key not found",
+            )
+
+    try:
+        s3 = S3Operations()
+        response = s3.read_file_from_s3(key)
+        file_bytes = response["Body"].read()
+    except Exception as exc:
+        frappe.throw(
+            f"Failed to fetch BoQ file from S3 (key={key!r}): {exc}",
+            title="S3 fetch failed",
+        )
+
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    try:
+        tmp.write(file_bytes)
+    finally:
+        tmp.close()
+    return tmp.name
+
+
+def _set_draft_status(boq_name: str, sheet_name: str, status: str) -> None:
+    """Set wizard_status on the matching BoQ Sheet Draft child row. Silently ignores missing."""
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if child_name:
+        frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", status)
+
+
+def _publish_parse_event(
+    boq_name: str,
+    status: str,
+    user: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Publish boq:parse_run_done targeted to the enqueueing user (if known)."""
+    payload = {"status": status, "boq_name": boq_name, **kwargs}
+    publish_kwargs: dict[str, Any] = {}
+    if user:
+        publish_kwargs["user"] = user
+    frappe.publish_realtime("boq:parse_run_done", payload, **publish_kwargs)
