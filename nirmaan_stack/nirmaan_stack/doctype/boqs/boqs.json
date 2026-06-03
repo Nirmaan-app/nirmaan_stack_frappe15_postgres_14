@@ -24,6 +24,7 @@
   "source_file_url",
   "area_dimensions",
   "general_specs_sheet",
+  "master_preamble",
   "wizard_state",
   "sheet_drafts"
  ],
@@ -139,6 +140,13 @@
    "fieldname": "general_specs_sheet",
    "fieldtype": "Data",
    "label": "General Specifications Sheet"
+  },
+  {
+   "description": "Master preamble text extracted from the general-specifications sheet by the parse worker. Machine-written; do not hand-edit.",
+   "fieldname": "master_preamble",
+   "fieldtype": "Long Text",
+   "label": "Master Preamble",
+   "read_only": 1
   },
   {
    "fieldname": "wizard_state",

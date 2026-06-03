@@ -930,6 +930,25 @@ class TestRunParseWorker(FrappeTestCase):
             frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
         )
 
+    def test_master_preamble_written_for_general_specs_sheet(self):
+        """BOQs.master_preamble is stored with SOW text; SOW still produces no rows."""
+        boq = self._make_boq(include_sow=True)
+        self._run(boq.name)
+
+        master_preamble = frappe.db.get_value("BOQs", boq.name, "master_preamble")
+        self.assertIsNotNone(master_preamble, "BOQs.master_preamble was not set")
+        self.assertTrue(len(master_preamble) > 0, "BOQs.master_preamble is empty")
+        self.assertIn(
+            "IS standards", master_preamble,
+            f"Expected SOW text not found in master_preamble: {master_preamble!r}",
+        )
+        # general-specs sheet must never produce BoQ Review Rows
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SOW"}),
+            0,
+            "SOW sheet produced BoQ Review Rows (must not -- it is master_preamble)",
+        )
+
     def test_general_specs_sheet_empty_string_is_safe(self):
         """general_specs_sheet='' is treated as 'none' -- no crash, SheetA rows inserted."""
         boq = self._make_boq()

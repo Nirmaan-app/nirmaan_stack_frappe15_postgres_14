@@ -282,8 +282,8 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
       Parsed    --[re-parse success]--> Parsed  (rows replaced, status stays Parsed)
 
     General-specs sheet (treat_as=master_preamble): never set to Parsed; produces no rows.
-    Master-preamble text: extracted by parse_boq but discarded (no BOQs field for it yet --
-    see self-report finding #21 in the Slice 2 build session).
+    Master-preamble text: extracted by parse_boq and written to BOQs.master_preamble when
+    non-empty. Falsy result does NOT blank an existing value.
 
     Event published (user-targeted): 'boq:parse_run_done'
       success: {status, boq_name, parsed_sheets, not_parsed_sheets, failed_sheets}
@@ -393,12 +393,13 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
                 _set_draft_status(boq_name, sheet_name, "Parse failed")
                 failed_sheets.append(sheet_name)
 
-        # Step 6: Master preamble text -- BOQs has no field to store it (finding: no
-        # 'master_preamble' text column exists on the BOQs doctype as of Slice 2 build).
-        # Log the extraction and discard; a future phase can add the field and write it.
+        # Step 6: Persist master preamble text when extracted. Falsy result on re-parse
+        # does NOT blank an existing value -- a sheet with no preamble sheet is ambiguous
+        # (sheet may have been un-designated mid-run); only write when there is real text.
         if parsed.master_preamble:
+            frappe.db.set_value("BOQs", boq_name, "master_preamble", parsed.master_preamble)
             logger.info(
-                "BoQ %s: master_preamble extracted (%d chars); no BOQs.master_preamble field -- discarded",
+                "BoQ %s: master_preamble extracted (%d chars); stored",
                 boq_name,
                 len(parsed.master_preamble),
             )
