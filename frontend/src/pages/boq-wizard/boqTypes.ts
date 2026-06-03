@@ -116,6 +116,16 @@ export interface SheetPreviewResponse {
   has_more: boolean;
 }
 
+/** One row in BoQ General Specs Sheet child table (Slice 2c). */
+export interface BoQGeneralSpecsSheetRow {
+  /** Frappe child-row docname. */
+  name: string;
+  /** The Excel sheet name designated as a general-specifications sheet. EXACT match. */
+  source_sheet_name: string;
+  /** Preamble text extracted by the parse worker. Empty until parsed. */
+  preamble_text?: string;
+}
+
 export interface BOQsDoc {
   name: string;
   /** Human-readable title derived from the uploaded filename. */
@@ -128,13 +138,15 @@ export interface BOQsDoc {
   /** All sheet drafts for this workbook -- returned automatically by Frappe get_doc. */
   sheet_drafts: BoQSheetDraft[];
   /**
-   * Exact sheet name of the designated general-specifications sheet, "" or undefined
-   * when none is set.
+   * General-specifications sheets for this workbook (Slice 2c, replaces the former scalar
+   * general_specs_sheet field). Serializes directly on the BOQs parent via useFrappeGetDoc
+   * because it is a first-level child table (not a grandchild like work_packages), so no
+   * separate read endpoint is needed -- read from this array directly.
    *
    * IMPORTANT (M2.16): The "General specs" status badge on a card is DERIVED from
-   * this pointer, never from BoQSheetDraft.wizard_status. The backend never writes
-   * "General specs" to wizard_status. Do NOT write "General specs" to wizard_status
-   * in frontend code either -- always read/write the pointer via this field.
+   * this array (set membership on source_sheet_name), never from BoQSheetDraft.wizard_status.
+   * The backend never writes "General specs" to wizard_status. Do NOT write "General specs"
+   * to wizard_status in frontend code either.
    */
-  general_specs_sheet?: string;
+  general_specs_sheets?: BoQGeneralSpecsSheetRow[];
 }

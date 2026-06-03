@@ -56,7 +56,7 @@ class ParsedSheet(BaseModel):
 
 class ParsedBoq(BaseModel):
     file_path: str
-    master_preamble: str | None = None
+    master_preambles: dict[str, str] = {}
     sheets: list[ParsedSheet] = []
     validation_warnings: list[str] = []
 
@@ -171,13 +171,14 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
     reader = BoqReader(file_path)
     global_settings = config.global_settings
 
-    master_preamble: str | None = None
+    master_preambles: dict[str, str] = {}
     parsed_sheets: list[ParsedSheet] = []
 
     for sheet_config in config.sheets:
-        # Master preamble sheet — extract text, do not parse as data
+        # Master preamble sheet -- extract text, do not parse as data
         if sheet_config.treat_as == "master_preamble":
-            master_preamble = reader.get_master_preamble_text(sheet_config.sheet_name)
+            text = reader.get_master_preamble_text(sheet_config.sheet_name)
+            master_preambles[sheet_config.sheet_name] = text or ""
             continue
 
         # Skipped sheet — exclude from output
@@ -282,7 +283,7 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
     return ParsedBoq(
         file_path=file_path,
-        master_preamble=master_preamble,
+        master_preambles=master_preambles,
         sheets=parsed_sheets,
         validation_warnings=[],
     )

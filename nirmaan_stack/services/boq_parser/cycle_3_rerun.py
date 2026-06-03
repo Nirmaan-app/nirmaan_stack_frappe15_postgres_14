@@ -142,7 +142,7 @@ def _serialize_boq(boq) -> dict:
         })
     return {
         "file_path": boq.file_path,
-        "master_preamble": boq.master_preamble,
+        "master_preambles": boq.master_preambles,
         "sheets": sheets,
     }
 

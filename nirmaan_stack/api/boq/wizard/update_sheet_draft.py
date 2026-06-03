@@ -96,15 +96,20 @@ def set_sheet_label(boq_name: str = None, sheet_name: str = None, label: str = N
 
 @frappe.whitelist(methods=["POST"])
 def set_general_specs_sheet(boq_name: str = None, sheet_name_or_none: str = None):
-    """Set or clear the general_specs_sheet pointer on a BOQs row.
+    """Designate or un-designate a sheet as a general-specifications sheet.
 
-    Division of responsibility:
-    - Backend: stores the sheet name string on BOQs.general_specs_sheet.
-    - Frontend: derives the 'General specs' display badge for the designated
-      sheet card; handles warn-and-confirm (M2.23) before calling this endpoint.
-    - Backend does NOT touch wizard_status on any BoQ Sheet Draft row.
-    When cleared (None or ''), the frontend is responsible for reverting the
-    released sheet's card display to Pending.
+    Uses replace-all semantics for the interim single-select UI (Slice 2c):
+    designating a sheet removes ALL existing general_specs_sheets child rows and
+    inserts one new row for the named sheet. Un-designating (sheet_name_or_none=None
+    or '') removes all rows. Full multi-select (additive) semantics are Slice 2b.
+
+    Division of responsibility (M2.23 unchanged):
+    - Backend: writes child-table membership ONLY; never touches wizard_status on
+      any BoQ Sheet Draft row.
+    - Frontend: derives the 'General specs' badge from the child table; handles
+      warn-and-confirm before calling this endpoint.
+    - Un-designation removes the child row; preamble_text is NOT preserved (it is
+      re-extractable on re-parse when the sheet is re-designated).
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -113,6 +118,7 @@ def set_general_specs_sheet(boq_name: str = None, sheet_name_or_none: str = None
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
     target = sheet_name_or_none or None
+
     if target:
         child_name = _get_child_name(boq_name, target)
         if not child_name:
@@ -121,7 +127,18 @@ def set_general_specs_sheet(boq_name: str = None, sheet_name_or_none: str = None
                 title="Sheet not found",
             )
 
-    frappe.db.set_value("BOQs", boq_name, "general_specs_sheet", target or "")
+    # Replace-all: remove all existing general-specs designations first.
+    frappe.db.delete("BoQ General Specs Sheet", {"parent": boq_name, "parenttype": "BOQs"})
+
+    if target:
+        child = frappe.new_doc("BoQ General Specs Sheet")
+        child.parent = boq_name
+        child.parenttype = "BOQs"
+        child.parentfield = "general_specs_sheets"
+        child.source_sheet_name = target
+        child.preamble_text = ""  # populated by parse worker; blank on designation
+        child.insert(ignore_permissions=True)
+
     frappe.db.commit()
     return {"status": "saved"}
 

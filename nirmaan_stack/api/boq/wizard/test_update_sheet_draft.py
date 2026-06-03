@@ -241,8 +241,15 @@ class TestSetGeneralSpecsSheet(FrappeTestCase):
             frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
-    def _get_pointer(self) -> str:
-        return frappe.db.get_value("BOQs", self.boq.name, "general_specs_sheet")
+    def _get_designated_sheets(self) -> list:
+        """Return list of source_sheet_name values in the general_specs_sheets child table."""
+        rows = frappe.db.get_all(
+            "BoQ General Specs Sheet",
+            filters={"parent": self.boq.name, "parenttype": "BOQs"},
+            fields=["source_sheet_name"],
+            order_by="creation asc",
+        )
+        return [r.source_sheet_name for r in rows]
 
     def _get_child_status(self, sheet_name: str) -> str:
         return frappe.db.get_value(
@@ -251,38 +258,70 @@ class TestSetGeneralSpecsSheet(FrappeTestCase):
             "wizard_status",
         )
 
-    def test_set_pointer(self):
+    def test_set_designates_one_child_row(self):
+        """Designating a sheet creates exactly one child row with the correct source_sheet_name."""
         result = set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
         self.assertEqual(result["status"], "saved")
-        self.assertEqual(self._get_pointer(), _SHEET_HVAC)
+        designated = self._get_designated_sheets()
+        self.assertEqual(designated, [_SHEET_HVAC])
 
-    def test_change_pointer(self):
+    def test_change_designation_replaces_existing_row(self):
+        """Designating a second sheet removes the first (replace-all semantics)."""
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_ELEC)
-        self.assertEqual(self._get_pointer(), _SHEET_ELEC)
+        designated = self._get_designated_sheets()
+        self.assertEqual(designated, [_SHEET_ELEC])
 
-    def test_clear_pointer_with_none(self):
+    def test_clear_designation_with_none(self):
+        """Clearing with None removes all child rows."""
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
         result = set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=None)
         self.assertEqual(result["status"], "saved")
-        self.assertFalse(self._get_pointer())
+        self.assertEqual(self._get_designated_sheets(), [])
 
-    def test_clear_pointer_with_empty_string(self):
+    def test_clear_designation_with_empty_string(self):
+        """Clearing with '' removes all child rows."""
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none="")
-        self.assertFalse(self._get_pointer())
+        self.assertEqual(self._get_designated_sheets(), [])
 
     def test_wizard_status_not_touched_on_set(self):
-        """Backend must NOT modify wizard_status when setting the pointer."""
+        """Backend must NOT modify wizard_status when designating (M2.23 unchanged)."""
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
         self.assertEqual(self._get_child_status(_SHEET_HVAC), "Pending")
         self.assertEqual(self._get_child_status(_SHEET_ELEC), "Pending")
 
     def test_wizard_status_not_touched_on_clear(self):
-        """Backend must NOT modify wizard_status when clearing the pointer."""
+        """Backend must NOT modify wizard_status when clearing (M2.23 unchanged)."""
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
         set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=None)
         self.assertEqual(self._get_child_status(_SHEET_HVAC), "Pending")
+
+    def test_un_designating_removes_child_row(self):
+        """Un-designating removes the child row entirely (not just clears the field)."""
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
+        self.assertEqual(len(self._get_designated_sheets()), 1)
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=None)
+        self.assertEqual(
+            len(self._get_designated_sheets()), 0,
+            "Child row was not removed on un-designation",
+        )
+
+    def test_two_designated_sheets_produce_two_rows_with_distinct_names(self):
+        """Two child rows directly inserted have distinct source_sheet_names (multi-sheet data model)."""
+        for sheet in [_SHEET_HVAC, _SHEET_ELEC]:
+            child = frappe.new_doc("BoQ General Specs Sheet")
+            child.parent = self.boq.name
+            child.parenttype = "BOQs"
+            child.parentfield = "general_specs_sheets"
+            child.source_sheet_name = sheet
+            child.preamble_text = ""
+            child.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        designated = self._get_designated_sheets()
+        self.assertEqual(len(designated), 2)
+        self.assertEqual(set(designated), {_SHEET_HVAC, _SHEET_ELEC})
 
     def test_rejects_unknown_sheet(self):
         with self.assertRaises(frappe.ValidationError):

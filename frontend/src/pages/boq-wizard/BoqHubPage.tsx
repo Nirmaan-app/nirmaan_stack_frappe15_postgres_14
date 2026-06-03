@@ -143,10 +143,19 @@ const BoqHubPage = () => {
   };
 
   // ── Effective-status derivation (M2.16) ───────────────────────────────────
-  // "General specs" is DERIVED from the pointer, never from wizard_status.
-  // EXACT: sheet_name compared verbatim (no trimming).
+  // "General specs" is DERIVED from child-table set membership, never from wizard_status.
+  // EXACT: sheet_name compared verbatim against source_sheet_name (no trimming).
+  // Slice 2c: general_specs_sheets child array replaces the former scalar pointer.
+  // It serializes on the BOQs parent (first-level child, not grandchild) so no
+  // separate read endpoint is needed.
+  const generalSpecsSheetNames = new Set<string>(
+    (boq.general_specs_sheets ?? [])
+      .map((r) => r.source_sheet_name)
+      .filter(Boolean)
+  );
+
   const getEffectiveStatus = (draft: BoQSheetDraft): string => {
-    if (boq.general_specs_sheet && draft.sheet_name === boq.general_specs_sheet) {
+    if (generalSpecsSheetNames.has(draft.sheet_name)) {
       return "General specs";
     }
     return draft.wizard_status || "Pending";
@@ -208,7 +217,11 @@ const BoqHubPage = () => {
 
   // ── General-specs selector value ───────────────────────────────────────────
   // EXACT: SelectItem values use sheet_name verbatim for the endpoint call.
-  const generalSpecsValue = boq.general_specs_sheet || NONE_SENTINEL;
+  // Single-select interim (Slice 2c): show the first designated sheet, or NONE_SENTINEL.
+  // Multi-select designation UI is Slice 2b; existing migrated multi-rows display via
+  // getEffectiveStatus (set membership above) even if the selector only shows one.
+  const generalSpecsValue =
+    boq.general_specs_sheets?.[0]?.source_sheet_name || NONE_SENTINEL;
 
   // ── General-specs endpoint handler ────────────────────────────────────────
   // Design: backend stores pointer ONLY; no set_sheet_status call.

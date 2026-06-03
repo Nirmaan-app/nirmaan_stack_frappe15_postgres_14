@@ -98,7 +98,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(sheet.sheet_name, "Sheet1")
         self.assertEqual(sheet.validation_warnings, [])
         self.assertEqual(result.validation_warnings, [])
-        self.assertIsNone(result.master_preamble)
+        self.assertEqual(result.master_preambles, {})
 
     # ---------------------------------------------------------------- #
     # Test 2 — multi-sheet workbook: both sheets in output               #
@@ -624,8 +624,8 @@ class TestSnitchIntegration(unittest.TestCase):
     # ---------------------------------------------------------------- #
 
     def test_snitch_workbook_master_preamble_empty(self):
-        """No master_preamble sheet configured; result.master_preamble must be None."""
-        self.assertIsNone(self.result.master_preamble)
+        """No master_preamble sheet configured; result.master_preambles must be empty dict."""
+        self.assertEqual(self.result.master_preambles, {})
 
     # ---------------------------------------------------------------- #
     # Test 4 — no validation warnings anywhere                         #

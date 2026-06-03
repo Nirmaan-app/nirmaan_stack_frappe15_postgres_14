@@ -143,7 +143,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.boq_name = f"Assemble Test {frappe.generate_hash(length=4)}"
         boq.tax_treatment = "Pre-tax"
         boq.notes = "test notes"
-        boq.general_specs_sheet = "Sheet5"
+        boq.append("general_specs_sheets", {"source_sheet_name": "Sheet5", "preamble_text": ""})
         boq.append("sheet_drafts", {
             "sheet_name": "Sheet1", "sheet_order": 1,
             "wizard_status": "Reviewed", "sheet_config": blob,
@@ -289,18 +289,18 @@ class TestAssembleMappingConfig(FrappeTestCase):
 
     def test_skip_sheet_designated_as_general_specs_routes_to_master_preamble(self):
         """
-        Rule-order fix: a sheet with wizard_status='Skip' that matches the
-        general_specs_sheet pointer must route to treat_as='master_preamble',
+        Rule-order fix: a sheet with wizard_status='Skip' that is in the
+        general_specs_sheets child table must route to treat_as='master_preamble',
         NOT skip=True.  Mirrors real-data case: BOQ-26-00145 sheet 'SOW'
-        (wizard_status='Skip', pointer='SOW').
+        (wizard_status='Skip', designated via child table).
         """
         boq = frappe.new_doc("BOQs")
         boq.project = self.__class__.test_project.name
         boq.boq_name = f"Skip+Pointer Test {frappe.generate_hash(length=4)}"
         boq.tax_treatment = "Pre-tax"
-        boq.general_specs_sheet = "SOW"
+        boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
         # SOW is stored as Skip (as it would be after hub Skip designation before
-        # the user later designates it as general-specs via the pointer)
+        # the user later designates it as general-specs via the child table)
         boq.append("sheet_drafts", {
             "sheet_name": "SOW", "sheet_order": 1,
             "wizard_status": "Skip",
@@ -388,6 +388,47 @@ class TestAssembleMappingConfig(FrappeTestCase):
         self.assertFalse(sc.skip)
         self.assertEqual(sc.treat_as, "data")
         self.assertEqual(sc.header_row, 2)
+
+    def test_two_general_specs_sheets_both_route_to_master_preamble(self):
+        """Two entries in general_specs_sheets route both sheets to treat_as='master_preamble'."""
+        sc = SheetConfig(
+            sheet_name="DataSheet",
+            header_row=1,
+            column_role_map={"A": ColumnRole(role="sl_no")},
+        )
+        blob = json.dumps(sc.model_dump())
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Two GS Test {frappe.generate_hash(length=4)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
+        boq.append("general_specs_sheets", {"source_sheet_name": "General Notes", "preamble_text": ""})
+        boq.append("sheet_drafts", {"sheet_name": "SOW", "sheet_order": 1, "wizard_status": "Skip"})
+        boq.append("sheet_drafts", {"sheet_name": "General Notes", "sheet_order": 2, "wizard_status": "Skip"})
+        boq.append("sheet_drafts", {
+            "sheet_name": "DataSheet", "sheet_order": 3,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Verify two distinct source_sheet_names exist in child table
+        gss_rows = frappe.db.get_all(
+            "BoQ General Specs Sheet",
+            filters={"parent": boq.name, "parenttype": "BOQs"},
+            fields=["source_sheet_name"],
+        )
+        self.assertEqual(len(gss_rows), 2)
+        self.assertEqual({r.source_sheet_name for r in gss_rows}, {"SOW", "General Notes"})
+
+        # Both sheets must route to master_preamble
+        config, _ = assemble_mapping_config(boq.name)
+        sow_sc = next((s for s in config.sheets if s.sheet_name == "SOW"), None)
+        self.assertIsNotNone(sow_sc)
+        self.assertEqual(sow_sc.treat_as, "master_preamble")
+        gn_sc = next((s for s in config.sheets if s.sheet_name == "General Notes"), None)
+        self.assertIsNotNone(gn_sc)
+        self.assertEqual(gn_sc.treat_as, "master_preamble")
 
 
 # ---------------------------------------------------------------------------
@@ -822,7 +863,7 @@ class TestRunParseWorker(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.source_file_url = self.__class__._worker_wb_path
         if include_sow:
-            boq.general_specs_sheet = "SOW"
+            boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
         boq.append("sheet_drafts", {
             "sheet_name": "SheetA", "sheet_order": 1,
             "wizard_status": sheet_a_status, "sheet_config": blob,
@@ -976,16 +1017,21 @@ class TestRunParseWorker(FrappeTestCase):
         )
 
     def test_master_preamble_written_for_general_specs_sheet(self):
-        """BOQs.master_preamble is stored with SOW text; SOW still produces no rows."""
+        """Preamble text stored in general_specs_sheets child row; SOW produces no data rows."""
         boq = self._make_boq(include_sow=True)
         self._run(boq.name)
 
-        master_preamble = frappe.db.get_value("BOQs", boq.name, "master_preamble")
-        self.assertIsNotNone(master_preamble, "BOQs.master_preamble was not set")
-        self.assertTrue(len(master_preamble) > 0, "BOQs.master_preamble is empty")
+        rows = frappe.db.get_all(
+            "BoQ General Specs Sheet",
+            filters={"parent": boq.name, "parenttype": "BOQs", "source_sheet_name": "SOW"},
+            fields=["preamble_text"],
+        )
+        self.assertEqual(len(rows), 1, "Expected exactly 1 BoQ General Specs Sheet row for SOW")
+        preamble_text = rows[0].preamble_text
+        self.assertTrue(preamble_text, "preamble_text is empty or None")
         self.assertIn(
-            "IS standards", master_preamble,
-            f"Expected SOW text not found in master_preamble: {master_preamble!r}",
+            "IS standards", preamble_text,
+            f"Expected SOW text not found in preamble_text: {preamble_text!r}",
         )
         # general-specs sheet must never produce BoQ Review Rows
         self.assertEqual(
@@ -996,14 +1042,12 @@ class TestRunParseWorker(FrappeTestCase):
 
     def test_master_preamble_written_when_general_specs_sheet_has_skip_status(self):
         """
-        Rule-order fix (real-data regression): SOW designated as general-specs pointer
-        but wizard_status='Skip' -- worker must still extract and store master_preamble.
+        Rule-order fix (real-data regression): SOW in general_specs_sheets child table
+        but wizard_status='Skip' -- worker must still extract and store preamble.
 
         Differs from test_master_preamble_written_for_general_specs_sheet: that test
-        creates SOW with wizard_status='Reviewed' (the clean-state case), so the old
-        Rule 1 / Rule 2 order happened to work (Reviewed falls through Skip/Hidden to
-        reach the pointer check).  This test uses wizard_status='Skip', which is the
-        real-data shape from BOQ-26-00145 and is what the rule-order bug muted.
+        creates SOW with wizard_status='Reviewed'. This uses wizard_status='Skip', which
+        is the real-data shape from BOQ-26-00145 and is what the rule-order bug muted.
         """
         blob = json.dumps(_PROD_BLOB_TMPL)
         boq = frappe.new_doc("BOQs")
@@ -1011,12 +1055,12 @@ class TestRunParseWorker(FrappeTestCase):
         boq.boq_name = f"Skip+Pointer Worker {frappe.generate_hash(length=6)}"
         boq.tax_treatment = "Pre-tax"
         boq.source_file_url = self.__class__._worker_wb_path
-        boq.general_specs_sheet = "SOW"
+        boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
         boq.append("sheet_drafts", {
             "sheet_name": "SheetA", "sheet_order": 1,
             "wizard_status": "Reviewed", "sheet_config": blob,
         })
-        # SOW stored as "Skip" -- mirrors real data; pointer designation does not
+        # SOW stored as "Skip" -- mirrors real data; designation in child table does not
         # change wizard_status per M2.16 (status is derived, not stored).
         boq.append("sheet_drafts", {
             "sheet_name": "SOW", "sheet_order": 3,
@@ -1027,12 +1071,17 @@ class TestRunParseWorker(FrappeTestCase):
 
         self._run(boq.name)
 
-        master_preamble = frappe.db.get_value("BOQs", boq.name, "master_preamble")
-        self.assertIsNotNone(master_preamble, "BOQs.master_preamble was not set")
-        self.assertTrue(len(master_preamble) > 0, "BOQs.master_preamble is empty")
+        rows = frappe.db.get_all(
+            "BoQ General Specs Sheet",
+            filters={"parent": boq.name, "parenttype": "BOQs", "source_sheet_name": "SOW"},
+            fields=["preamble_text"],
+        )
+        self.assertEqual(len(rows), 1, "No BoQ General Specs Sheet row for SOW after parse")
+        preamble_text = rows[0].preamble_text
+        self.assertTrue(preamble_text, "preamble_text is empty or None")
         self.assertIn(
-            "IS standards", master_preamble,
-            f"Expected SOW text not found in master_preamble: {master_preamble!r}",
+            "IS standards", preamble_text,
+            f"Expected SOW text not found in preamble_text: {preamble_text!r}",
         )
         # SOW must produce no BoQ Review Rows regardless of its wizard_status
         self.assertEqual(
@@ -1041,24 +1090,54 @@ class TestRunParseWorker(FrappeTestCase):
             "SOW sheet produced BoQ Review Rows (must not -- it is master_preamble)",
         )
 
-    def test_general_specs_sheet_empty_string_is_safe(self):
-        """general_specs_sheet='' is treated as 'none' -- no crash, SheetA rows inserted."""
+    def test_no_general_specs_sheets_is_safe(self):
+        """Empty general_specs_sheets child table is treated as 'none' -- no crash."""
         boq = self._make_boq()
-        frappe.db.set_value("BOQs", boq.name, "general_specs_sheet", "")
-        frappe.db.commit()
-
+        # _make_boq without include_sow creates no general_specs_sheets rows
         self._run(boq.name)
         self.assertGreater(
             frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
         )
 
     def test_general_specs_sheet_none_is_safe(self):
-        """general_specs_sheet=None (never set) is treated as 'none' -- no crash."""
+        """No general_specs_sheets designations (never set) -- no crash, SheetA rows inserted."""
         boq = self._make_boq()
-        # default: general_specs_sheet is None / ""
         self._run(boq.name)
         self.assertGreater(
             frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0
+        )
+
+    def test_re_parse_replaces_general_specs_preamble_not_duplicates(self):
+        """Re-parsing a general-specs sheet replaces the child row's preamble_text, not duplicates."""
+        boq = self._make_boq(include_sow=True)
+        self._run(boq.name)
+        rows_after_1 = frappe.db.get_all(
+            "BoQ General Specs Sheet",
+            filters={"parent": boq.name, "parenttype": "BOQs", "source_sheet_name": "SOW"},
+            fields=["preamble_text"],
+        )
+        self.assertEqual(len(rows_after_1), 1, "Expected exactly 1 child row after first parse")
+
+        # Second parse -- sheet is now 'Parsed' status (treated same as Reviewed)
+        self._run(boq.name)
+        rows_after_2 = frappe.db.get_all(
+            "BoQ General Specs Sheet",
+            filters={"parent": boq.name, "parenttype": "BOQs", "source_sheet_name": "SOW"},
+            fields=["preamble_text"],
+        )
+        self.assertEqual(len(rows_after_2), 1, "Re-parse duplicated the child row instead of replacing")
+        self.assertIn("IS standards", rows_after_2[0].preamble_text or "")
+
+    def test_general_specs_sheet_not_marked_parsed_after_worker(self):
+        """General-specs sheets (in child table) are never marked 'Parsed' by the worker."""
+        boq = self._make_boq(include_sow=True)
+        self._run(boq.name)
+
+        boq.reload()
+        sow_draft = next(d for d in boq.sheet_drafts if d.sheet_name == "SOW")
+        self.assertNotEqual(
+            sow_draft.wizard_status, "Parsed",
+            "SOW (general-specs sheet) was wrongly marked 'Parsed' by the worker",
         )
 
     # -- skip / hidden ---------------------------------------------------

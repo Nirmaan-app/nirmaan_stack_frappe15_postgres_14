@@ -74,7 +74,15 @@ def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
         notes=boq_doc.notes or "",
     )
     project = boq_doc.project or ""
-    general_specs_sheet = boq_doc.general_specs_sheet or ""
+
+    # Build set of general-specs sheet names from child table (Slice 2c).
+    # Checked FIRST in the routing loop -- outranks wizard_status so a Skip-designated
+    # sheet that is also a general-specs sheet correctly routes to master_preamble.
+    general_specs_sheet_names: set[str] = {
+        row.source_sheet_name
+        for row in (boq_doc.general_specs_sheets or [])
+        if row.source_sheet_name
+    }
 
     # GlobalSettings: always use defaults -- no per-BoQ override exists or is wanted.
     global_settings = GlobalSettings()
@@ -86,13 +94,13 @@ def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
         sheet_name = draft.sheet_name
         status = draft.wizard_status or ""
 
-        # Rule 1: general-specs pointer -- checked FIRST, outranks wizard_status.
-        # The "General specs" effective status is DERIVED from the BOQs.general_specs_sheet
-        # pointer per M2.16; wizard_status on the draft row is never set to "General specs".
+        # Rule 1: general-specs set membership -- checked FIRST, outranks wizard_status.
+        # The "General specs" effective status is DERIVED from the general_specs_sheets child
+        # table per M2.16; wizard_status on the draft row is never set to "General specs".
         # A sheet can legally be designated while its stored wizard_status is still "Skip"
-        # (common real-data case: Skip sheet later designated via hub), so the pointer check
-        # must precede the Skip/Hidden branch.
-        if general_specs_sheet and sheet_name == general_specs_sheet:
+        # (common real-data case: Skip sheet later designated via hub), so the set-membership
+        # check must precede the Skip/Hidden branch.
+        if sheet_name in general_specs_sheet_names:
             sheet_configs.append(SheetConfig(
                 sheet_name=sheet_name,
                 treat_as="master_preamble",
@@ -357,8 +365,18 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
             _publish_parse_event(boq_name, "error", user=user, error_code="parse_failed")
             return
 
-        # Step 5: Persist results per-sheet
-        general_specs_sheet = frappe.db.get_value("BOQs", boq_name, "general_specs_sheet") or ""
+        # Step 5: Persist results per-sheet.
+        # Read-site 2: query child table for general-specs sheet names to gate the
+        # "mark Parsed" step -- general-specs sheets must never receive "Parsed" status.
+        general_specs_sheet_names_worker: set[str] = {
+            row.source_sheet_name
+            for row in frappe.db.get_all(
+                "BoQ General Specs Sheet",
+                filters={"parent": boq_name, "parenttype": "BOQs"},
+                fields=["source_sheet_name"],
+            )
+            if row.source_sheet_name
+        }
 
         for parsed_sheet in parsed.sheets:
             sheet_name = parsed_sheet.sheet_name
@@ -377,8 +395,8 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
                     doc.update(row_dict)
                     doc.insert(ignore_permissions=True)
 
-                # Mark Parsed -- but NOT the general-specs sheet (it is not a data sheet)
-                if sheet_name != general_specs_sheet:
+                # Mark Parsed -- but NOT general-specs sheets (they are not data sheets)
+                if sheet_name not in general_specs_sheet_names_worker:
                     _set_draft_status(boq_name, sheet_name, "Parsed")
 
                 parsed_sheets.append(sheet_name)
@@ -398,15 +416,26 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
                 _set_draft_status(boq_name, sheet_name, "Parse failed")
                 failed_sheets.append(sheet_name)
 
-        # Step 6: Persist master preamble text when extracted. Falsy result on re-parse
-        # does NOT blank an existing value -- a sheet with no preamble sheet is ambiguous
-        # (sheet may have been un-designated mid-run); only write when there is real text.
-        if parsed.master_preamble:
-            frappe.db.set_value("BOQs", boq_name, "master_preamble", parsed.master_preamble)
+        # Step 6: Persist preamble text per general-specs sheet.
+        # Replace semantics: delete-then-insert per sheet so re-parse updates the child row
+        # rather than duplicating it. Falsy text is skipped per row (mirrors old falsy-skip).
+        for gs_sheet_name, preamble_text in parsed.master_preambles.items():
+            if not preamble_text:
+                continue
+            frappe.db.delete(
+                "BoQ General Specs Sheet",
+                {"parent": boq_name, "parenttype": "BOQs", "source_sheet_name": gs_sheet_name},
+            )
+            child = frappe.new_doc("BoQ General Specs Sheet")
+            child.parent = boq_name
+            child.parenttype = "BOQs"
+            child.parentfield = "general_specs_sheets"
+            child.source_sheet_name = gs_sheet_name
+            child.preamble_text = preamble_text
+            child.insert(ignore_permissions=True)
             logger.info(
-                "BoQ %s: master_preamble extracted (%d chars); stored",
-                boq_name,
-                len(parsed.master_preamble),
+                "BoQ %s: sheet %r preamble extracted (%d chars); stored",
+                boq_name, gs_sheet_name, len(preamble_text),
             )
 
         # Step 7: Stamp parsed_at on any successful (possibly partial) completion
