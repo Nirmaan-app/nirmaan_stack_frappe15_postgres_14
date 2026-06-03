@@ -7,8 +7,9 @@ from frappe.utils import flt, get_datetime
 def get_po_ledger_data(vendor_id):
     """
     Fetches all POs, Service Requests, their Invoices (from Vendor Invoices doctype),
-    and related Project Payments. It calculates the SR total by summing quantity * rate
-    from the nested 'service_order_list' JSON field.
+    and related Project Payments. SR totals come directly from `sr.total_amount`
+    (kept fresh by the SR's calculate_total_amount hook); GST is stripped for the
+    ledger row to match pre-migration behavior.
 
     Updated in v3.0 to use Vendor Invoices doctype instead of invoice_data JSON.
     """
