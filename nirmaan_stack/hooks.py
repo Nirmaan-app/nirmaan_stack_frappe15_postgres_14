@@ -285,7 +285,8 @@ scheduler_events = {
 	# ],
 	"daily": [
 		"nirmaan_stack.populate_target_rates.populate_target_rates_by_unit",
-        "nirmaan_stack.tasks.item_status_update.update_item_status"
+        "nirmaan_stack.tasks.item_status_update.update_item_status",
+        "nirmaan_stack.tasks.cashflow_gap_limit_default.set_default_cashflow_gap_limit"
 	],
 	"cron": {
 		"30 4 * * *": [
