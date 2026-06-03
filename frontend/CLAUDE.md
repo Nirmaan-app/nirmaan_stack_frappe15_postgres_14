@@ -332,13 +332,19 @@ from URL param (survives refresh; not from the transient store). Module export:
 
 **Hub components in `src/pages/boq-wizard/`:**
 - `boqTypes.ts` -- shared types: `BOQsDoc` + `BoQSheetDraft` + `WizardStatus` +
-  `BoQSheetWorkPackage`. Both `BoqUploadScreen` and `BoqHubPage` import from here --
-  do not duplicate the type. Current `BoQSheetDraft` shape (feat ba4fb738):
+  `BoQSheetWorkPackage` + `BoQGeneralSpecsSheetRow` (Slice 2c). Both `BoqUploadScreen`
+  and `BoqHubPage` import from here -- do not duplicate the type.
+  Current `BoQSheetDraft` shape (feat ba4fb738):
   `{ name, sheet_name, sheet_order, wizard_status, work_packages?: BoQSheetWorkPackage[], sheet_label? }`.
   `BoQSheetWorkPackage = { name: string; work_header: string }` (mirrors the backend child
   doctype "BoQ Sheet Work Package", field `work_header` Link -> "Work Headers").
   NOTE: `work_package` (singular string) is GONE -- it was the pre-3a legacy field. The
   array `work_packages` replaced it (feat b14e9015 backend, ba4fb738 frontend).
+  `BoQGeneralSpecsSheetRow = { name: string; source_sheet_name: string; preamble_text?: string }`.
+  `BOQsDoc.general_specs_sheet?: string` is GONE (Slice 2c). Replaced by
+  `BOQsDoc.general_specs_sheets?: BoQGeneralSpecsSheetRow[]`. This is a FIRST-LEVEL child
+  table on BOQs (not a grandchild like work_packages), so it SERIALIZES directly on the
+  parent via `useFrappeGetDoc("BOQs", ...)` -- no focused read endpoint needed.
 - `BoqHubPage.tsx` -- hub page with wired interactions (2b-ii). Four regions: header
   strip, general-specs selector, sheet-card list, parse-gate footer.
 - `SheetCard.tsx` -- sheet card with status pill, summary line, per-card saving state,
@@ -376,13 +382,19 @@ for JSON endpoints; use `useFrappePostCall` + `mutate()`.
 - Discard BoQ (header menu): still disabled/stubbed -- destructive, separate slice.
 - Parse workbook (footer): still no-op stub -- Module 5.
 
-**General-specs derivation rule (M2.16) -- CRITICAL:**
-The "General specs" display badge on a card is DERIVED from `BOQs.general_specs_sheet`
-pointer, not from `BoQSheetDraft.wizard_status`. The backend NEVER writes "General specs"
-to `wizard_status` (see backend CLAUDE.md). Do NOT write "General specs" to
-`wizard_status` in frontend code either. The derivation logic: if
-`draft.sheet_name === boq.general_specs_sheet` (EXACT string match), return "General specs"
-as the effective status regardless of what `wizard_status` contains.
+**General-specs derivation rule (M2.16) -- CRITICAL (Slice 2c updated):**
+The "General specs" display badge on a card is DERIVED from set membership in
+`BOQs.general_specs_sheets` child array, NOT from `BoQSheetDraft.wizard_status`.
+The backend NEVER writes "General specs" to `wizard_status` (see backend CLAUDE.md).
+Do NOT write "General specs" to `wizard_status` in frontend code either.
+The derivation logic (Slice 2c): build `generalSpecsSheetNames = new Set(boq.general_specs_sheets
+.map(r => r.source_sheet_name))`; return "General specs" if `generalSpecsSheetNames.has(draft.sheet_name)`.
+EXACT match -- sheet_name verbatim, no trimming. The old scalar `BOQs.general_specs_sheet`
+was removed in Slice 2c; do NOT reference it. `general_specs_sheets` serializes on the
+BOQs parent (first-level child) -- no focused read endpoint needed.
+Single-select interim (Slice 2c): `generalSpecsValue = boq.general_specs_sheets?.[0]?.source_sheet_name || NONE_SENTINEL`.
+Full multi-select designation UI is Slice 2b. Existing migrated multi-rows display
+correctly via set membership even when the single-select only shows one.
 
 **EXACT sheet_name constraint (verified 2026-05-31):**
 `sheet_name` is stored and matched VERBATIM by the backend -- Frappe does NOT strip
