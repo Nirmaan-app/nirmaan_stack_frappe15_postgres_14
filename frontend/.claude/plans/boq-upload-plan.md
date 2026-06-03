@@ -149,10 +149,17 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Frontend keep-alive (NOT multi-select UI -- deferred to Slice 2b):** `BOQsDoc.general_specs_sheet?: string` -> `general_specs_sheets?: BoQGeneralSpecsSheetRow[]` (new interface; serializes on parent -- first-level child, no focused read needed). `getEffectiveStatus`: set membership on `source_sheet_name`. `generalSpecsValue`: first child row's name (interim single-select still works; migrated multi-rows display correctly via set membership).
 - **Tests:** 588 parser (unchanged -- A-narrow touched only 2 assertions). Wizard: 50 test_parse_run (was 47; +3 new: two_general_specs_sheets, re_parse_replaces_preamble, not_marked_parsed) + 49 test_update_sheet_draft (was 47; +2 new: un_designating_removes_child_row, two_rows_distinct_names). Total wizard 99 (+5 net; some tests renamed but count delta is net new).
 
+**Slice 2-fix ✅ COMPLETE (fix 24312cab; frontend-only; pre-existing Slice-2 gap -- NOT a 2c regression):**
+- **Root cause:** The parse worker (Slice 2) writes `wizard_status = "Parsed"` on successfully-parsed data sheets, but the frontend was never taught this 7th status value. `WizardStatus` union, `STATUS_PILL` map, and `SheetCard` button branches all lacked `"Parsed"`. Result: Parsed cards rendered a fake-Pending blue pill and an empty body (no button branch matched), so the spoke was unreachable. Live-observed on BOQ-26-00145 sheet "HVAC" (confirmed via direct DB query).
+- **Three edits, no scope creep:** (1) `boqTypes.ts`: `"Parsed"` added to `WizardStatus` union. (2) `SheetCard.tsx` `STATUS_PILL`: `"Parsed"` entry added -- `bg-green-600 text-white dark:bg-green-700 dark:text-white` (solid green, distinct from "Reviewed" emerald; does NOT fall back to Pending). (3) `SheetCard.tsx`: `effectiveStatus === "Parsed"` branch -- single **Edit** button calling `onOpenSpoke?.(draft.sheet_name)`, mirroring the Reviewed branch's Edit button prop-for-prop.
+- **Re-parse affordance:** deferred to Slice 2b. No re-parse button added.
+- **tsc:** 0 errors in boq-wizard files. 21 pre-existing errors in unrelated utility files unchanged.
+- **Tests:** no existing SheetCard test harness; manual verification is Nitesh's (HVAC card on BOQ-26-00145 must show green "Parsed" pill + "Edit" button → spoke after frontend de-stale ritual).
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-03 (Slice 2c: general-specs scalar->child table + A-narrow reshape + worker fan-out + frontend keep-alive; +5 new tests (50 test_parse_run / 99 wizard / 588 parser); feat b5381c0c)
+**Last updated:** 2026-06-03 (Slice 2-fix: "Parsed" status taught to frontend -- WizardStatus union + green pill + Edit-to-spoke branch; fix 24312cab; pre-existing gap not 2c regression; Module 2b next)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat b5381c0c (Slice 2c -- general-specs scalar->child table migration + parser A-narrow reshape + worker fan-out + frontend keep-alive)
+**Latest commit:** fix 24312cab (Slice 2-fix -- "Parsed" wizard_status frontend handling: WizardStatus union + green pill + Edit-to-spoke button)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
