@@ -51,8 +51,11 @@ export const useProjectGSTData = (selectedGST?: string) => {
     const { data: procurementOrders, isLoading: isLoadingPOs } = useFrappeGetDocList<any>("Procurement Orders", poOptions);
 
     // 2.2 Fetch Service Requests for GST Mapping
+    //     `gst` is included so we can give each SR-linked Vendor Invoice the right
+    //     GST ratio (1.18 when gst==="true", 1.0 when "false"). Without this, every
+    //     SR invoice would be assumed to carry 18% GST — inflating GST for non-GST SRs.
     const srOptions = useMemo(() => ({
-        fields: ["name", "project_gst"] as any,
+        fields: ["name", "project_gst", "gst"] as any,
         limit: 0
     }), []);
     const { data: serviceRequests, isLoading: isLoadingSRs } = useFrappeGetDocList<any>("Service Requests", srOptions);
@@ -69,6 +72,15 @@ export const useProjectGSTData = (selectedGST?: string) => {
         const map: Record<string, string> = {};
         (serviceRequests || []).forEach(sr => {
             if (sr.name && sr.project_gst) map[sr.name] = sr.project_gst;
+        });
+        return map;
+    }, [serviceRequests]);
+
+    // SR-name → GST ratio: 1.18 if SR has GST enabled, else 1.0 (no GST to extract)
+    const srRatioMap = useMemo(() => {
+        const map: Record<string, number> = {};
+        (serviceRequests || []).forEach(sr => {
+            if (sr.name) map[sr.name] = sr.gst === "true" ? 1.18 : 1.0;
         });
         return map;
     }, [serviceRequests]);
@@ -133,7 +145,8 @@ export const useProjectGSTData = (selectedGST?: string) => {
             return 1.18; // Default to 18%
         };
 
-        // Only POs have explicit ratio fields, SRs will naturally fallback to 1.18 in the map lookup
+        // POs get an exact ratio from total_amount / amount (matches mixed-rate items).
+        // SRs get 1.18 or 1.0 from srRatioMap depending on their gst flag.
         (procurementOrders || []).forEach(po => {
             if (po.name) documentRatioMap[po.name] = calculateRatio(po);
         });
@@ -170,7 +183,16 @@ export const useProjectGSTData = (selectedGST?: string) => {
 
                 monthVendorInvoices.forEach(vi => {
                     const viAmt = parseNumber(vi.invoice_amount);
-                    const ratio = vi.document_name ? (documentRatioMap[vi.document_name] || 1.18) : 1.18;
+                    // PO Invoice → use computed ratio from PO.total_amount/amount.
+                    // SR Invoice → use 1.18 / 1.0 from srRatioMap based on sr.gst.
+                    let ratio = 1.18;
+                    if (vi.document_name) {
+                        if (vi.document_type === "Procurement Orders") {
+                            ratio = documentRatioMap[vi.document_name] || 1.18;
+                        } else if (vi.document_type === "Service Requests") {
+                            ratio = srRatioMap[vi.document_name] || 1.18;
+                        }
+                    }
                     vendorTotalIncl += viAmt;
                     vendorTotalExcl += (viAmt / ratio);
                 });
@@ -208,7 +230,7 @@ export const useProjectGSTData = (selectedGST?: string) => {
         }).filter(row => row.hasAnyValue);
         
         return rows.map(({ hasAnyValue, ...rest }) => rest as ProjectGSTRow);
-    }, [projects, vendorInvoices, projectInvoices, months, selectedGST, poGstMap, srGstMap, procurementOrders, serviceRequests]);
+    }, [projects, vendorInvoices, projectInvoices, months, selectedGST, poGstMap, srGstMap, srRatioMap, procurementOrders, serviceRequests]);
 
     // 6. Calculate Totals for Footer
     const totals = useMemo(() => {

@@ -242,8 +242,10 @@ export const getPOForProjectInvoiceOptions = (): POListParams => ({
 });
 
 export const getSRForProjectInvoiceOptions = (): SRListParams => ({
-  fields: ['name', 'project', 'gst', 'invoice_data', 'creation'], // Only fields needed for invoice calc
-  filters: [['status', '=', "Approved"]], // Match SR report filters
+  // `total_amount` is required by getSRTotal() (reads sr.total_amount directly).
+  // Used by Cash Sheet report to compute "Total PO+SR Value incl. GST" per project.
+  fields: ['name', 'project', 'gst', 'invoice_data', 'creation', 'total_amount'],
+  filters: [['status', '=', "Approved"]],
   limit: 100000,
 });
 

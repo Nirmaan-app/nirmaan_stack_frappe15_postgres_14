@@ -8,7 +8,6 @@ import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses'; // --- (Indicator) NEW: Import ProjectExpenses type ---
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
-import {getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
@@ -364,16 +363,17 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
             const relatedPOs = posByProject.get(projectId) || [];
             const relatedSRs = srsByProject.get(projectId) || [];
-// console.log("DEBUG: relatedPOs, relatedSRs",relatedPOs,relatedSRs)
+
+            // Both PO.total_amount and SR.total_amount are kept fresh by their
+            // respective doctype hooks and already include GST when applicable.
+            // No client-side GST math required.
             let totalInvoiced = 0;
             relatedPOs.forEach(po => {
-                totalInvoiced += po?.total_amount || 0;
+                totalInvoiced += parseNumber(po?.total_amount);
             });
             relatedSRs.forEach(sr => {
-                const amount = getSRTotal(sr) || 0;
-                totalInvoiced += sr?.gst === "true" ? amount * 1.18 : amount;
+                totalInvoiced += parseNumber(sr?.total_amount);
             });
-            // console.log("DEBUG: totalInvoiced",totalInvoiced)
 
             const totalInflow = totalInflowByProject.get(projectId) || 0;
             const totalProjectInvoiced = totalProjectInvoiceByProject.get(projectId) || 0;
