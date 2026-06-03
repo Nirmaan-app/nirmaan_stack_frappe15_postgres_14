@@ -287,6 +287,51 @@ class TestAssembleMappingConfig(FrappeTestCase):
         sheet_names = [s.sheet_name for s in config.sheets]
         self.assertNotIn("NoBlob", sheet_names)
 
+    def test_skip_sheet_designated_as_general_specs_routes_to_master_preamble(self):
+        """
+        Rule-order fix: a sheet with wizard_status='Skip' that matches the
+        general_specs_sheet pointer must route to treat_as='master_preamble',
+        NOT skip=True.  Mirrors real-data case: BOQ-26-00145 sheet 'SOW'
+        (wizard_status='Skip', pointer='SOW').
+        """
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Skip+Pointer Test {frappe.generate_hash(length=4)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.general_specs_sheet = "SOW"
+        # SOW is stored as Skip (as it would be after hub Skip designation before
+        # the user later designates it as general-specs via the pointer)
+        boq.append("sheet_drafts", {
+            "sheet_name": "SOW", "sheet_order": 1,
+            "wizard_status": "Skip",
+        })
+        # Include one data sheet so assemble_mapping_config does not raise
+        sc_blob = json.dumps({
+            "area_dimensions": [], "column_role_map": {"A": {"role": "sl_no", "area": None}},
+            "header_row": 1, "header_row_count": 1,
+            "skip_top_rows_after_header": [], "top_header_rows_override": None,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "Data Sheet", "sheet_order": 2,
+            "wizard_status": "Reviewed", "sheet_config": sc_blob,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        config, not_eligible = assemble_mapping_config(boq.name)
+
+        sow_sc = next((s for s in config.sheets if s.sheet_name == "SOW"), None)
+        self.assertIsNotNone(sow_sc, "SOW not found in config.sheets")
+        self.assertFalse(
+            sow_sc.skip,
+            "SOW routed as skip=True; pointer should outrank wizard_status='Skip'",
+        )
+        self.assertEqual(
+            sow_sc.treat_as, "master_preamble",
+            f"SOW treat_as={sow_sc.treat_as!r}; expected 'master_preamble'",
+        )
+        self.assertNotIn("SOW", not_eligible)
+
     def test_unknown_boq_raises_validation_error(self):
         with self.assertRaises(frappe.ValidationError):
             assemble_mapping_config("BOQ-DOES-NOT-EXIST-99999")
@@ -943,6 +988,53 @@ class TestRunParseWorker(FrappeTestCase):
             f"Expected SOW text not found in master_preamble: {master_preamble!r}",
         )
         # general-specs sheet must never produce BoQ Review Rows
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SOW"}),
+            0,
+            "SOW sheet produced BoQ Review Rows (must not -- it is master_preamble)",
+        )
+
+    def test_master_preamble_written_when_general_specs_sheet_has_skip_status(self):
+        """
+        Rule-order fix (real-data regression): SOW designated as general-specs pointer
+        but wizard_status='Skip' -- worker must still extract and store master_preamble.
+
+        Differs from test_master_preamble_written_for_general_specs_sheet: that test
+        creates SOW with wizard_status='Reviewed' (the clean-state case), so the old
+        Rule 1 / Rule 2 order happened to work (Reviewed falls through Skip/Hidden to
+        reach the pointer check).  This test uses wizard_status='Skip', which is the
+        real-data shape from BOQ-26-00145 and is what the rule-order bug muted.
+        """
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Skip+Pointer Worker {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.source_file_url = self.__class__._worker_wb_path
+        boq.general_specs_sheet = "SOW"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        # SOW stored as "Skip" -- mirrors real data; pointer designation does not
+        # change wizard_status per M2.16 (status is derived, not stored).
+        boq.append("sheet_drafts", {
+            "sheet_name": "SOW", "sheet_order": 3,
+            "wizard_status": "Skip",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        self._run(boq.name)
+
+        master_preamble = frappe.db.get_value("BOQs", boq.name, "master_preamble")
+        self.assertIsNotNone(master_preamble, "BOQs.master_preamble was not set")
+        self.assertTrue(len(master_preamble) > 0, "BOQs.master_preamble is empty")
+        self.assertIn(
+            "IS standards", master_preamble,
+            f"Expected SOW text not found in master_preamble: {master_preamble!r}",
+        )
+        # SOW must produce no BoQ Review Rows regardless of its wizard_status
         self.assertEqual(
             frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SOW"}),
             0,

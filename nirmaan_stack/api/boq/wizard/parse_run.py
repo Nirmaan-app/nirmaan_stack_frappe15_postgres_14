@@ -86,17 +86,22 @@ def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
         sheet_name = draft.sheet_name
         status = draft.wizard_status or ""
 
-        # Rule 1: skip / hidden sheets -- wizard_status is the single source of truth.
-        if status in {"Hidden", "Skip"}:
-            sheet_configs.append(SheetConfig(sheet_name=sheet_name, skip=True))
-            continue
-
-        # Rule 2: general-specs pointer (checked before wizard_status for active sheets).
+        # Rule 1: general-specs pointer -- checked FIRST, outranks wizard_status.
+        # The "General specs" effective status is DERIVED from the BOQs.general_specs_sheet
+        # pointer per M2.16; wizard_status on the draft row is never set to "General specs".
+        # A sheet can legally be designated while its stored wizard_status is still "Skip"
+        # (common real-data case: Skip sheet later designated via hub), so the pointer check
+        # must precede the Skip/Hidden branch.
         if general_specs_sheet and sheet_name == general_specs_sheet:
             sheet_configs.append(SheetConfig(
                 sheet_name=sheet_name,
                 treat_as="master_preamble",
             ))
+            continue
+
+        # Rule 2: skip / hidden sheets that are NOT the general-specs pointer.
+        if status in {"Hidden", "Skip"}:
+            sheet_configs.append(SheetConfig(sheet_name=sheet_name, skip=True))
             continue
 
         # Rule 3: Reviewed or Parsed (next lifecycle state after Reviewed).
