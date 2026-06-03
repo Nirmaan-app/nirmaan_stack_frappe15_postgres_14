@@ -266,23 +266,28 @@ def get_list_with_count_enhanced_impl(
                 # OR all token regex tests inside a single EXISTS so the union
                 # resolves in one round-trip; EXISTS short-circuits on the
                 # first matching JSON element per parent.
-                token_conditions = []
-                sql_params: dict = {"names_tuple": tuple(potential_parent_names)}
-                for i, token in enumerate(filter_tokens):
-                    key = f"token_{i}"
-                    token_conditions.append(f"item_obj->>'{item_name_key_in_json}' ~* %({key})s")
-                    sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
-                or_clause = " OR ".join(token_conditions)
-                sql = (
-                    f"SELECT DISTINCT name FROM `tab{doctype}` "
-                    f"WHERE name IN %(names_tuple)s AND EXISTS("
-                    f"SELECT 1 FROM jsonb_array_elements("
-                    f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
-                    f") AS item_obj WHERE ({or_clause}))"
-                )
-                union_set = {r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]}
-                # Preserve original order on ties.
-                final_matching_parent_names = [n for n in potential_parent_names if n in union_set]
+                if filter_tokens:
+                    token_conditions = []
+                    sql_params: dict = {"names_tuple": tuple(potential_parent_names)}
+                    for i, token in enumerate(filter_tokens):
+                        key = f"token_{i}"
+                        token_conditions.append(f"item_obj->>'{item_name_key_in_json}' ~* %({key})s")
+                        sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
+                    or_clause = " OR ".join(token_conditions)
+                    sql = (
+                        f"SELECT DISTINCT name FROM `tab{doctype}` "
+                        f"WHERE name IN %(names_tuple)s AND EXISTS("
+                        f"SELECT 1 FROM jsonb_array_elements("
+                        f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                        f") AS item_obj WHERE ({or_clause}))"
+                    )
+                    union_set = {r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]}
+                    # Preserve original order on ties.
+                    final_matching_parent_names = [n for n in potential_parent_names if n in union_set]
+                else:
+                    # search_term tokenizes to nothing (e.g. only separators).
+                    # No usable narrowing — keep all parents from the base filter.
+                    final_matching_parent_names = potential_parent_names
                 total_records = len(final_matching_parent_names)
 
         elif use_json_pending_filter:
@@ -313,9 +318,14 @@ def get_list_with_count_enhanced_impl(
         # Python ranking bounded regardless of how broad the search is, while
         # always surfacing relevance-sorted matches at the top of page 1.
         ranked_names = final_matching_parent_names
+        # Pre-tokenize once for the should_rank gate: a search_term that is
+        # truthy but only made of separators (e.g. " ", "-", "/") tokenizes
+        # to []; running the ranker against that produces an empty OR clause
+        # and crashes the SQL with `AND ()`.
+        _rank_tokens_check = tokenize(search_term) if search_term else []
         should_rank = (
             doctype in TOKEN_SCORE_OPTED_IN_DOCTYPES
-            and search_term
+            and _rank_tokens_check
             and final_matching_parent_names
             and not for_export_bool
             and (use_child_table_item_search or use_json_item_search)

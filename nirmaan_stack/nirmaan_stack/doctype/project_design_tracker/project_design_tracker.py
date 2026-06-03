@@ -25,16 +25,17 @@ class ProjectDesignTracker(Document):
 
     def validate_file_link_for_submitted(self):
         import frappe
+        SUBMISSION_STATUSES = {"Submitted", "Revision Submitted"}
         old_tasks_map = self._get_old_tasks_map()
         for task in self.get("design_tracker_task", []):
-            if task.task_status != "Submitted" or task.file_link:
+            if task.task_status not in SUBMISSION_STATUSES or task.file_link:
                 continue
-            # Only enforce on tasks newly transitioning TO Submitted
+            # Only enforce on tasks newly transitioning INTO a submission state
             old_task = old_tasks_map.get(task.name)
             old_status = old_task.task_status if old_task else None
-            if old_status != "Submitted":
+            if old_status not in SUBMISSION_STATUSES:
                 frappe.throw(
-                    f"Task '{task.task_name}' requires a design file link before setting status to Submitted.",
+                    f"Task '{task.task_name}' requires a design file link before setting status to {task.task_status}.",
                     title="File Link Required"
                 )
 
@@ -57,9 +58,11 @@ class ProjectDesignTracker(Document):
         import frappe
         from frappe.utils import nowdate
 
+        SUBMISSION_STATUSES = {"Submitted", "Revision Submitted"}
+
         # Get the previous state of the document
         before_save_doc = self.get_doc_before_save()
-        
+
         # Create a map of old tasks for quick lookup by name
         old_tasks_map = {}
         if before_save_doc:
@@ -70,8 +73,11 @@ class ProjectDesignTracker(Document):
             # If the task is new (no name yet or not in old map), we treat old status as None/Empty
             old_task = old_tasks_map.get(task.name)
             old_status = old_task.task_status if old_task else None
+            old_last_submitted = old_task.last_submitted if old_task else None
             new_status = task.task_status
 
-            # Logic: If status changed TO "Submitted" from something else
-            if new_status == "Submitted" and old_status != "Submitted":
-                task.last_submitted = nowdate()
+            # Stamp on any fresh transition INTO a submission state,
+            # unless the user manually edited last_submitted in the same save.
+            if new_status in SUBMISSION_STATUSES and old_status not in SUBMISSION_STATUSES:
+                if task.last_submitted == old_last_submitted:
+                    task.last_submitted = nowdate()

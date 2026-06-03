@@ -238,19 +238,35 @@ def get_facet_values_impl(
             return result
         
         facet_values = []
-        
+
         # Check if the field is a JSON field
         is_json_field = field_meta.fieldtype == 'JSON' if field_meta else False
-        
+
+        # Postgres rejects `column != ''` against non-text columns — comparing
+        # smallint/int/timestamp to '' raises `invalid input syntax`. Only emit
+        # the empty-string guard when the column actually stores text.
+        _NON_TEXT_FIELDTYPES = {
+            'Int', 'Float', 'Currency', 'Percent', 'Rating',
+            'Date', 'Datetime', 'Time', 'Duration', 'Check',
+        }
+        _STANDARD_NON_TEXT_FIELDS = {'docstatus', 'creation', 'modified'}
+        if is_standard_field:
+            field_is_text = field not in _STANDARD_NON_TEXT_FIELDS
+        elif field_meta:
+            field_is_text = field_meta.fieldtype not in _NON_TEXT_FIELDTYPES
+        else:
+            field_is_text = True
+
         if child_doctype:
             limit_clause = "LIMIT %(limit)s" if limit_int else ""
+            empty_check = f"AND `tab{child_doctype}`.`{field}` != ''" if field_is_text else ""
             sql = f"""
                 SELECT `tab{child_doctype}`.`{field}` as value, COUNT(*) as count
                 FROM `tab{child_doctype}`
                 WHERE `tab{child_doctype}`.parent IN %(names)s
                   AND `tab{child_doctype}`.parenttype = %(parent_doctype)s
                   AND `tab{child_doctype}`.`{field}` IS NOT NULL
-                  AND `tab{child_doctype}`.`{field}` != ''
+                  {empty_check}
                 GROUP BY `tab{child_doctype}`.`{field}`
                 ORDER BY count DESC, `tab{child_doctype}`.`{field}` ASC
                 {limit_clause}
@@ -286,7 +302,8 @@ def get_facet_values_impl(
             results = frappe.db.sql(sql, params, as_dict=True)
         else:
             limit_clause = "LIMIT %(limit)s" if limit_int else ""
-            sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL AND `{field}` != '' GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC {limit_clause}"
+            empty_check = f"AND `{field}` != ''" if field_is_text else ""
+            sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL {empty_check} GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC {limit_clause}"
             params = {"names": tuple(matching_names)}
             if limit_int:
                 params["limit"] = limit_int
