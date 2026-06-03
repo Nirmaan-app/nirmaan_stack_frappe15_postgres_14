@@ -51,7 +51,8 @@ export type WizardStatus =
   | "Reviewed"
   | "Skip"
   | "General specs"
-  | "Parse failed";
+  | "Parse failed"
+  | "Parsed";
 
 /**
  * Whole-BoQ work-package map returned by get_boq_work_packages.

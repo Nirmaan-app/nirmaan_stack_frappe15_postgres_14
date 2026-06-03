@@ -20,6 +20,7 @@ const STATUS_PILL: Record<string, { label: string; className: string }> = {
   "Reviewed":       { label: "Reviewed",      className: "bg-emerald-600 text-white dark:bg-emerald-700 dark:text-white" },
   "Skip":           { label: "Skip",          className: "bg-amber-500 text-white dark:bg-amber-600 dark:text-white" },
   "General specs":  { label: "General specs", className: "bg-sky-500 text-white dark:bg-sky-600 dark:text-white" },
+  "Parsed":         { label: "Parsed",        className: "bg-green-600 text-white dark:bg-green-700 dark:text-white" },
 };
 
 
@@ -221,6 +222,17 @@ export function SheetCard({
             <Button size="sm" variant="outline" disabled={isSaving}
               onClick={() => void handleStatusChange("Skip")}>
               Skip
+            </Button>
+          </div>
+        )}
+
+        {/* ── Parsed ──────────────────────────────────────────────────────── */}
+        {effectiveStatus === "Parsed" && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
+            <Button size="sm" variant="ghost" disabled={isSaving}
+              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+              Edit
             </Button>
           </div>
         )}
