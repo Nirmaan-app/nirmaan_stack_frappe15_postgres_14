@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-03 (Phase-1 Slice 2: run_parse endpoint + _run_parse_worker + FIX 1 sheet_name injection + FIX 2 list-JSON pre-serialization; +13 tests; 44 test_parse_run / 102 wizard / 588 parser; feat 842b2b1a)
+**Last updated:** 2026-06-03 (BOQs.master_preamble Long Text field + worker write wired; +1 test; 45 test_parse_run / 102 wizard / 588 parser; feat 8db5a8d8; bench migrate run + has_column verified True)
 
 ## Overview
 
@@ -253,6 +253,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 - `BoQ Sheet Draft.work_packages` -- Table, options "BoQ Sheet Work Package". Multi-link to Work Headers. REPLACES the former single-Link `work_package` field (renamed + converted in feat b14e9015). FRONTEND NOTE: `boqTypes.ts` still has `work_package?: string | null` -- a later frontend slice must update to `work_packages: BoQSheetWorkPackage[]`.
 - `BoQ Sheet Draft.sheet_config` -- JSON, optional. Per-sheet parser config blob (header_row, header_row_count, column_role_map, area_dimensions, etc.). Written by `set_sheet_config`; consumed by parse pass. Never query cross-sheet; always treat as opaque blob outside the wizard.
 - `BOQs.general_specs_sheet` -- Data, optional, in `parser_metadata_section`. Sheet name string of the general-specifications sheet, if any. At most one per workbook (single scalar on parent). NOT a Link.
+- `BOQs.master_preamble` -- Long Text, optional, read_only, in `parser_metadata_section` (after `general_specs_sheet`). Machine-written by the parse worker from the general-specs sheet's extracted text. Kept separate from user's `notes` field. bench migrate run + `has_column` verified True (feat 8db5a8d8).
 
 **New child doctype BoQ Sheet Work Package (feat b14e9015):**
 - Path: `nirmaan_stack/nirmaan_stack/doctype/boq_sheet_work_package/`
@@ -279,7 +280,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 - `run_parse(boq_name, sheet_names=None)` -- `@frappe.whitelist(methods=["POST"])`. Enqueues `_run_parse_worker` on `queue="long"`, `timeout=600`. `sheet_names=None` parses all eligible Reviewed/Parsed sheets; `sheet_names=[...]` parses only the named subset (per-sheet re-parse). Returns `{"status":"queued","job_id":...}`. URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse`
 
-- `_run_parse_worker(boq_name, sheet_names=None, user=None)` -- background worker. Fetches workbook from S3 or local (derives real `.xlsm`/`.xlsx` extension from URL -- does NOT hardcode `.xlsx` like `sheet_preview._fetch_boq_file_to_tempfile`). Calls `assemble_mapping_config` -> `parse_boq` -> per-sheet delete-then-insert loop (applying `_LIST_JSON_FIELDS` pre-serialization). Per-sheet failure: compensating delete + set `Parse failed` + continue. Global `parse_boq` failure: all eligible sheets -> `Parse failed` + error event. Stamps `BOQs.parsed_at` on any success. Commits BEFORE publishing `boq:parse_run_done` (targeted to `user=`). Does NOT touch `BOQs.wizard_state`. `master_preamble` text is extracted but discarded -- no `BOQs.master_preamble` field exists on the doctype.
+- `_run_parse_worker(boq_name, sheet_names=None, user=None)` -- background worker. Fetches workbook from S3 or local (derives real `.xlsm`/`.xlsx` extension from URL -- does NOT hardcode `.xlsx` like `sheet_preview._fetch_boq_file_to_tempfile`). Calls `assemble_mapping_config` -> `parse_boq` -> per-sheet delete-then-insert loop (applying `_LIST_JSON_FIELDS` pre-serialization). Per-sheet failure: compensating delete + set `Parse failed` + continue. Global `parse_boq` failure: all eligible sheets -> `Parse failed` + error event. Stamps `BOQs.parsed_at` on any success. Writes `parsed.master_preamble` to `BOQs.master_preamble` when non-empty (falsy result skips write -- does not blank existing value). Commits BEFORE publishing `boq:parse_run_done` (targeted to `user=`). Does NOT touch `BOQs.wizard_state`.
 
 **`_LIST_JSON_FIELDS` module constant** -- `frozenset` of the 4 list-type JSON fields that must be pre-serialized via `json.dumps()` before `doc.insert()`: `attached_notes`, `validation_warnings`, `classifier_warnings`, `preamble_candidate_signals`. Authoritative source for `_run_parse_worker` and `test_parse_run._insert_rows`. Do NOT add dict-type fields here.
 

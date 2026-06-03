@@ -708,6 +708,7 @@ API: `api/boq/wizard/` package with two whitelisted endpoints:
 - `BoQ Sheet Draft.wizard_status` options extended from 3 to 6: blank/Pending/Hidden/Reviewed/Skip/General specs/Parse failed. "Parse failed" included at enum-definition time (no writer until Module 5) so no future option-migration needed.
 - `BoQ Sheet Draft.sheet_label` Data field added (optional, after work_package in field_order). Human-reference label for Skip sheets. No parser coupling.
 - `BOQs.general_specs_sheet` Data field added (optional, in parser_metadata_section after area_dimensions). Stores the sheet name string of the designated general-specifications/master-preamble sheet. At most one per workbook (single scalar on parent). NOT a Link -- sheet drafts have no standalone linkable name; parser master_preamble already keys off sheet name.
+- `BOQs.master_preamble` Long Text field added (optional, read_only, in parser_metadata_section after general_specs_sheet; feat 8db5a8d8). Machine-written by the parse worker when `parsed.master_preamble` is non-empty. Kept separate from the user's free-form `notes` field (clean separation; Phase 2 review screen displays it). Search is within a single BoQ (UI/find-in-text concern) -- no full-text index, no splitting into points. C7-logged add: field has a live producer now (Slice 2 worker) and a named Phase-2 consumer (review screen).
 
 NOT added: any parse-status/auto-parse-failed field on either doctype. No per-sheet parse producer exists in current architecture (Module 1 worker only lists sheets; per-sheet pass/fail is produced by the deliberate parse in Module 5). Dead schema with no writer is out of scope.
 
@@ -5000,7 +5001,7 @@ URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse`
 4. `parse_boq(tempfile_path, config)` -- orchestrator handles skip + master_preamble internally.
 5. Per parsed sheet: delete existing BoQ Review Rows (`boq`+`sheet_name` filter) then insert new rows (FIX 2 applies). On per-sheet insert failure: compensating delete + set `Parse failed` status + continue.
 6. On `parse_boq` global failure: all eligible data sheets set to `Parse failed`, commit, publish error event, return.
-7. `master_preamble` text: extracted by `parse_boq` but discarded -- no `BOQs.master_preamble` field exists on the doctype (finding: not in `boqs.json`; field not invented; logged at INFO level).
+7. `master_preamble` text: when `parsed.master_preamble` is non-empty, written to `BOQs.master_preamble` via `frappe.db.set_value`. Falsy result skips the write -- a re-parse that finds no general-specs sheet does NOT blank a previously stored value. Logged at INFO level in both cases. Field added in feat 8db5a8d8; bench migrate run; `has_column` verified True.
 8. `BOQs.parsed_at` stamped with `frappe.utils.now()` if at least one sheet succeeded.
 9. `frappe.db.commit()` THEN `frappe.publish_realtime("boq:parse_run_done", ...)` (commit-before-publish per CLAUDE.md).
 10. Event targeted to enqueueing user via `user=user` param.
@@ -5020,10 +5021,10 @@ URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse`
 
 **`BOQs.wizard_state` NOT touched** -- the worker never sets this field. User-declared finalize is a later phase.
 
-**New test class `TestRunParseWorker` (13 tests)**
+**New test class `TestRunParseWorker` (14 tests)**
 - Uses a tiny 3-sheet openpyxl workbook (SheetA + SheetB + SOW) built in `setUpClass`; `source_file_url` set to the local tempfile path (triggers local-fetch branch in `_fetch_boq_file_to_tempfile`; no S3 dependency)
 - All blobs use 6-key production shape (no `sheet_name`) to exercise FIX 1 naturally
-- Tests: Reviewed->Parsed on success; rows inserted; `parsed_at` stamped; `parse_boq` failure->Parse failed (via `unittest.mock.patch`); re-parse no duplicate rows; subset parse leaves other sheets' rows untouched; Pending sheet not parsed + stays Pending; general-specs sheet no rows; `general_specs_sheet=""` safe; `general_specs_sheet=None` safe; Skip/Hidden no rows; FIX 2 list-JSON round-trip
+- Tests: Reviewed->Parsed on success; rows inserted; `parsed_at` stamped; `parse_boq` failure->Parse failed (via `unittest.mock.patch`); re-parse no duplicate rows; subset parse leaves other sheets' rows untouched; Pending sheet not parsed + stays Pending; general-specs sheet no rows; master_preamble written + contains SOW text + SOW still no rows; `general_specs_sheet=""` safe; `general_specs_sheet=None` safe; Skip/Hidden no rows; FIX 2 list-JSON round-trip
 - `test_fix1_production_blob_without_sheet_name_is_eligible` added to `TestAssembleMappingConfig`
 
 **`_LIST_JSON_FIELDS` promotion**
