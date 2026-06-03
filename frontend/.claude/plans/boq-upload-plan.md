@@ -139,9 +139,9 @@ Remaining Slice 3c next steps: Section 3 column-role grid, work-package assignme
 No .py files touched.
 Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; upload_file.py Step 10.5 added: after boq_doc.insert(), loops sheet_drafts -- for each Pending sheet calls reader.detect_header_row() then auto_guess_sheet_config() then frappe.db.set_value(sheet_config, json.dumps(model_dump())); Hidden/Skip sheets skipped entirely; detect_header_row returns None = no-op; failure per-sheet try/except calls frappe.log_error + leaves sheet_config None -- upload never fails due to auto-guess; full SheetConfig.model_dump() written so column_role_map also prefilled; reader + tempfile still open at Step 10.5; test_upload_file.py TestPrefillSheetConfig +3 tests: (a) Pending gets non-None sheet_config with header_row, (b) Hidden stays None + detect_header_row not called, (c) auto-guess raise doesn't fail upload; wizard tests 9 → 12; parser tests 588 unchanged).
 **Owner:** Internal team.
-**Last updated:** 2026-06-03 (Phase-1 Slice 1: BoQ Review Row doctype + assemble_mapping_config + flatten_resolved_row/flatten_parsed_boq in parse_run.py; +Parsed wizard_status; 31 new / 89 wizard / 588 parser tests; feat 7aaa0525)
+**Last updated:** 2026-06-03 (Phase-1 Slice 2: run_parse endpoint + _run_parse_worker + FIX 1 sheet_name injection + FIX 2 list-JSON pre-serialization; +13 new tests (44 test_parse_run / 102 wizard / 588 parser); feat 842b2b1a)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 7aaa0525 (Phase-1 Slice 1 -- BoQ Review Row doctype + parse_run.py)
+**Latest commit:** feat 842b2b1a (Phase-1 Slice 2 -- run_parse worker + FIX 1 + FIX 2)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -4931,7 +4931,7 @@ Field groups (from the .json field_order):
 - **Warnings:** `validation_warnings` JSON (list -- sum-mismatch warnings on ResolvedRow), `classifier_warnings` JSON (list -- classifier-level warnings on ClassifiedRow; distinct from validation_warnings)
 - **Flags:** `is_synthetic` Check
 
-**Frappe list-JSON serialization caveat:** Frappe's `get_valid_dict()` auto-serializes Python dicts for JSON fieldtype but REJECTS Python lists with "cannot be a list". The four list-type JSON fields (`attached_notes`, `validation_warnings`, `classifier_warnings`, `preamble_candidate_signals`) must be pre-serialized via `json.dumps()` before `doc.insert()`. Dict-type fields can be passed as Python dicts directly. See `TestBoQReviewRowRoundTrip._LIST_JSON_FIELDS` in `test_parse_run.py` for the authoritative set.
+**Frappe list-JSON serialization caveat:** Frappe's `get_valid_dict()` auto-serializes Python dicts for JSON fieldtype but REJECTS Python lists with "cannot be a list". The four list-type JSON fields (`attached_notes`, `validation_warnings`, `classifier_warnings`, `preamble_candidate_signals`) must be pre-serialized via `json.dumps()` before `doc.insert()`. Dict-type fields can be passed as Python dicts directly. See `_LIST_JSON_FIELDS` module-level constant in `parse_run.py` for the authoritative set (module-level since Slice 2; `TestBoQReviewRowRoundTrip._insert_rows` references the same constant).
 
 **"Parsed" wizard_status addition**
 
@@ -4963,3 +4963,75 @@ Pure function. Iterates `ParsedBoq.sheets`, calls `flatten_resolved_row` per res
 - `TestBoQReviewRowRoundTrip` (5 tests, FrappeTestCase): insert simple rows + read-back classification, multi-area line item JSON round-trip, validation_warnings DB round-trip, needs_classification_review + review_reason DB round-trip
 
 **Slice 2 next:** `trigger_parse_run` whitelisted endpoint + background worker + Parsed lifecycle (BOQs.wizard_state="Parsed") + old BoQ Review Rows cleanup on re-parse.
+
+---
+
+### Phase-1 Slice 2 -- parse_run worker + endpoint + two fixes
+
+**Status:** COMPLETE (feat 842b2b1a; +13 tests; 44 test_parse_run / 102 wizard / 588 parser; all 831 app Frappe tests green). Backend-only -- no frontend changes this slice.
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/parse_run.py` -- FIX 1 + FIX 2 + `_LIST_JSON_FIELDS` module constant + `run_parse` endpoint + `_run_parse_worker` + `_fetch_boq_file_to_tempfile` + `_set_draft_status` + `_publish_parse_event`
+- `nirmaan_stack/api/boq/wizard/test_parse_run.py` -- imports updated; `_LIST_JSON_FIELDS` moved to module-level; `test_fix1_production_blob_without_sheet_name_is_eligible` added to `TestAssembleMappingConfig`; `TestRunParseWorker` class added (13 new tests)
+
+**FIX 1 -- sheet_name injection (BLOCKING)**
+
+Production wizard blobs saved by `set_sheet_config` have exactly 6 keys: `area_dimensions`, `column_role_map`, `header_row`, `header_row_count`, `skip_top_rows_after_header`, `top_header_rows_override`. They NEVER contain `sheet_name` (verified live on BOQ-26-00150 and BOQ-26-00145). `SheetConfig.sheet_name` has no default; without the injection `model_validate` raises `ValidationError` and the sheet falls into `not_eligible` silently, making every Reviewed sheet ineligible.
+
+Fix: `raw["sheet_name"] = sheet_name` injected in `assemble_mapping_config` Rule 3 before `SheetConfig.model_validate(raw)`. One line.
+
+**FIX 2 -- list-JSON pre-serialization**
+
+The four list-type JSON fields (`attached_notes`, `validation_warnings`, `classifier_warnings`, `preamble_candidate_signals`) must be pre-serialized via `json.dumps()` before `doc.insert()`. Frappe's `get_valid_dict()` rejects Python lists for JSON fieldtype. The `_run_parse_worker` applies this per-field. The canonical set is `_LIST_JSON_FIELDS` (module-level `frozenset` in `parse_run.py`).
+
+**`run_parse` endpoint**
+
+`@frappe.whitelist(methods=["POST"])`. Enqueues `_run_parse_worker` on `queue="long"`, `timeout=600`, mirroring `upload_file.py`. Returns `{"status": "queued", "job_id": ...}`.
+
+`sheet_names=None` parses all eligible Reviewed/Parsed sheets. `sheet_names=[...]` narrows to the named subset (per-sheet re-parse; skip/master_preamble sheets always pass through).
+
+URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse`
+
+**`_run_parse_worker` design**
+
+1. Fetch workbook via `_fetch_boq_file_to_tempfile` -- S3 or local (dev/test). Real file extension derived from `file_name` query param in the S3 URL (unlike `sheet_preview._fetch_boq_file_to_tempfile` which hardcodes `.xlsx`). Local paths/`/private/` URLs copy to a tempfile via `shutil.copy2`.
+2. `assemble_mapping_config(boq_name)` -- FIX 1 fires here; returns `(config, not_eligible)`.
+3. If `sheet_names` subset given, narrow `config.sheets` (skip/master_preamble always included).
+4. `parse_boq(tempfile_path, config)` -- orchestrator handles skip + master_preamble internally.
+5. Per parsed sheet: delete existing BoQ Review Rows (`boq`+`sheet_name` filter) then insert new rows (FIX 2 applies). On per-sheet insert failure: compensating delete + set `Parse failed` status + continue.
+6. On `parse_boq` global failure: all eligible data sheets set to `Parse failed`, commit, publish error event, return.
+7. `master_preamble` text: extracted by `parse_boq` but discarded -- no `BOQs.master_preamble` field exists on the doctype (finding: not in `boqs.json`; field not invented; logged at INFO level).
+8. `BOQs.parsed_at` stamped with `frappe.utils.now()` if at least one sheet succeeded.
+9. `frappe.db.commit()` THEN `frappe.publish_realtime("boq:parse_run_done", ...)` (commit-before-publish per CLAUDE.md).
+10. Event targeted to enqueueing user via `user=user` param.
+
+**Status lifecycle (per `BoQ Sheet Draft.wizard_status`)**
+- Reviewed + successful parse -> `Parsed`
+- Re-parse of `Parsed` sheet -> rows replaced; status stays `Parsed`
+- `parse_boq` global failure -> all eligible sheets -> `Parse failed`
+- Per-sheet insert failure -> that sheet -> `Parse failed`; other sheets continue
+- General-specs sheet (master_preamble): status NOT changed by worker (it is not a data sheet)
+- Pending/Hidden/Skip/Parse-failed/Reviewed-without-blob: not parsed; status unchanged
+
+**Event: `boq:parse_run_done`**
+- Success: `{status:"success", boq_name, parsed_sheets:[], not_parsed_sheets:[], failed_sheets:[]}`
+- Error: `{status:"error", boq_name, error_code: "missing_file"|"fetch_failed"|"no_eligible_sheets"|"parse_failed"|"internal"}`
+- Targeted to enqueueing user (vs. `boq:wizard_parse_done` which is broadcast to all clients).
+
+**`BOQs.wizard_state` NOT touched** -- the worker never sets this field. User-declared finalize is a later phase.
+
+**New test class `TestRunParseWorker` (13 tests)**
+- Uses a tiny 3-sheet openpyxl workbook (SheetA + SheetB + SOW) built in `setUpClass`; `source_file_url` set to the local tempfile path (triggers local-fetch branch in `_fetch_boq_file_to_tempfile`; no S3 dependency)
+- All blobs use 6-key production shape (no `sheet_name`) to exercise FIX 1 naturally
+- Tests: Reviewed->Parsed on success; rows inserted; `parsed_at` stamped; `parse_boq` failure->Parse failed (via `unittest.mock.patch`); re-parse no duplicate rows; subset parse leaves other sheets' rows untouched; Pending sheet not parsed + stays Pending; general-specs sheet no rows; `general_specs_sheet=""` safe; `general_specs_sheet=None` safe; Skip/Hidden no rows; FIX 2 list-JSON round-trip
+- `test_fix1_production_blob_without_sheet_name_is_eligible` added to `TestAssembleMappingConfig`
+
+**`_LIST_JSON_FIELDS` promotion**
+Moved from `TestBoQReviewRowRoundTrip._LIST_JSON_FIELDS` (class attribute) to module-level `frozenset` in `parse_run.py`. `test_parse_run.py` imports it from `parse_run`; no re-hardcoding.
+
+**Live proof (to be run by Nitesh)**
+1. Designate "SOW" on BOQ-26-00145 as general-specs via wizard hub (`set_general_specs_sheet`)
+2. Call `run_parse` on BOQ-26-00145 and BOQ-26-00150 (or trigger via a temporary curl/bench console call until the Parse button is wired in Slice 2b)
+3. Assert: Reviewed sheets -> Parsed; 21/3 Skip sheets -> no rows; SOW -> master_preamble text logged, no rows; per-sheet re-parse replaces only that sheet's rows; `parsed_at` set on BOQs
+
+**Slice 2b next:** Wire "Parse workbook" button in hub frontend to call `run_parse`; handle `boq:parse_run_done` event in the hub; show parse progress/result. OR: Slice 3c (SheetConfigPanel wizard spoke) first if that is prioritized.
