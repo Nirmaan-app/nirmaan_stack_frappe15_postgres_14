@@ -135,6 +135,87 @@
    "read": 1,
    "report": 1,
    "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Tendering Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Sales Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Billing Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Tendering Lead",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Sales Lead",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Billing Lead",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan HR Lead",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
   }
  ],
  "search_fields": "scope_of_work_name, work_package",
