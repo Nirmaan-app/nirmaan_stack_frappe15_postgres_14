@@ -98,6 +98,42 @@
   {
    "read": 1,
    "role": "Nirmaan HR Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Procurement Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Accountant Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Tendering Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Sales Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Billing Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Tendering Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Sales Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Billing Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan HR Lead"
   }
  ],
  "sort_field": "creation",

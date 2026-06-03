@@ -92,6 +92,14 @@
   {
    "read": 1,
    "role": "Nirmaan Project Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Procurement Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Accountant Lead"
   }
  ],
  "sort_field": "modified",
