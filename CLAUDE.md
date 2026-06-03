@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-03 (BOQs.master_preamble Long Text field + worker write wired; +1 test; 45 test_parse_run / 102 wizard / 588 parser; feat 8db5a8d8; bench migrate run + has_column verified True)
+**Last updated:** 2026-06-03 (general-specs pointer outranks Skip/Hidden in assemble_mapping_config; +2 tests; 47 test_parse_run / 102 wizard / 588 parser; feat e997028b; real-data fix BOQ-26-00145/SOW)
 
 ## Overview
 
@@ -272,7 +272,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 **`parse_run.py`** (Phase-1 Slice 1 + Slice 2) -- pure helpers + background worker + endpoint:
 
-- `assemble_mapping_config(boq_name)` -- reads BOQs doc + BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Returns `(MappingConfig, not_eligible: list[str])`. Routing: Hidden/Skip -> `SheetConfig(skip=True)`; `general_specs_sheet` pointer -> `treat_as="master_preamble"`; Reviewed/Parsed with valid blob -> data sheet; Pending/Parse-failed/blank/Reviewed-without-blob -> `not_eligible`. Raises `frappe.ValidationError` if BOQ not found or no eligible sheets remain. `GlobalSettings` always defaults (no per-BoQ override). **IMPORTANT:** Injects `raw["sheet_name"] = sheet_name` before `SheetConfig.model_validate(raw)` in Rule 3 -- production wizard blobs omit `sheet_name`; without this injection all Reviewed sheets fall into `not_eligible`.
+- `assemble_mapping_config(boq_name)` -- reads BOQs doc + BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Returns `(MappingConfig, not_eligible: list[str])`. Routing (in order, feat e997028b): (1) `general_specs_sheet` pointer -> `treat_as="master_preamble"` -- checked FIRST, outranks wizard_status (a Skip sheet designated as general-specs must win); (2) Hidden/Skip -> `SheetConfig(skip=True)`; (3) Reviewed/Parsed with valid blob -> data sheet; (4) Pending/Parse-failed/blank/Reviewed-without-blob -> `not_eligible`. Raises `frappe.ValidationError` if BOQ not found or no eligible sheets remain. `GlobalSettings` always defaults (no per-BoQ override). **IMPORTANT:** Injects `raw["sheet_name"] = sheet_name` before `SheetConfig.model_validate(raw)` in Rule 3 -- production wizard blobs omit `sheet_name`; without this injection all Reviewed sheets fall into `not_eligible`.
 
 - `flatten_resolved_row(resolved_row, sheet_name, row_index)` -- maps a parser `ResolvedRow` + nested `ClassifiedRow` to a flat dict of BoQ Review Row field values. JSON fields returned as Python objects (list/dict), NOT pre-serialized strings. CAVEAT: Frappe rejects Python lists for JSON fieldtype (`get_valid_dict` "cannot be a list"). Callers must `json.dumps()` the four list-JSON fields before `doc.insert()` -- see `_LIST_JSON_FIELDS` module constant. Dict-type JSON fields (`qty_by_area`, `amount_by_area`, `rate_by_area`, `append_notes_raw`) can be passed as Python dicts.
 

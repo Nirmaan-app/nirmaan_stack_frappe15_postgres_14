@@ -4940,11 +4940,15 @@ Field groups (from the .json field_order):
 
 **`assemble_mapping_config(boq_name) -> (MappingConfig, not_eligible: list[str])`**
 
-Pure function (no DB writes). Reads the BOQs doc + all BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Routing rules applied in order:
-1. `wizard_status` in {Hidden, Skip} -> `SheetConfig(skip=True)`
-2. `sheet_name == BOQs.general_specs_sheet` -> `treat_as="master_preamble"`
+Pure function (no DB writes). Reads the BOQs doc + all BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Routing rules applied in order (feat e997028b -- pointer outranks Skip/Hidden):
+1. `sheet_name == BOQs.general_specs_sheet` -> `treat_as="master_preamble"` -- checked FIRST; pointer is source of truth per M2.16 and wins over any stored wizard_status
+2. `wizard_status` in {Hidden, Skip} -> `SheetConfig(skip=True)` -- only for sheets NOT matching the pointer
 3. `wizard_status` in {Reviewed, Parsed} + valid `sheet_config` blob -> deserialize + include as data
 4. Anything else (Pending, Parse failed, blank, Reviewed-without-blob) -> appended to `not_eligible`
+
+**Rule-order fix (feat e997028b, 2026-06-03).** Original order had Skip/Hidden (old Rule 1) before the pointer check (old Rule 2). Bug: a sheet designated as general-specs while its stored wizard_status was still "Skip" (the common real-data case -- hub pointer designation per M2.16 does NOT write "General specs" to wizard_status) was routed as skip=True and master_preamble text was never extracted. Verified live on BOQ-26-00145 sheet "SOW" (wizard_status="Skip", pointer="SOW"). Fix: pointer check promoted to Rule 1.
+
+**DEFERRED REQUIREMENT -- Multiple general-specs sheets per Master BoQ (raised 2026-06-03, real-BoQ-driven).** Real BoQs found with more than one general-specifications sheet. Current model (single BOQs.general_specs_sheet Data pointer + single BOQs.master_preamble Long Text, one-per-workbook per M2.16) is too narrow. Needs (to design, not yet specced): drop the one-per-workbook constraint (reverses M2.16); store multiple designations -- likely a child table on BOQs, one row per general-specs sheet, each capturing (source sheet name + extracted master-preamble text); frontend hub designation UI single-select -> multi-select/add-list (wizard-scope; pairs with Slice 2b); worker changes from one-pointer-one-preamble to all-designated-sheets -> N preambles each with source sheet name; migration of existing single-general_specs_sheet BoQs into the new structure; open design question -- are the multiple sheets distinct kinds (SOW/General Conditions/Preamble) or same kind split (shapes separate-labeled vs concatenated). Sequencing: its own design-close + build, likely with Slice 2b. The rule-order precedence fix is a stepping stone -- the multi-version checks "sheet is in the set of general-specs sheets" instead of "== the one pointer", same precedence principle.
 
 Raises `frappe.ValidationError` if the BOQ doesn't exist or no eligible sheets exist. `GlobalSettings` always uses defaults (no per-BoQ override exists or is wanted).
 
@@ -5021,11 +5025,11 @@ URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse`
 
 **`BOQs.wizard_state` NOT touched** -- the worker never sets this field. User-declared finalize is a later phase.
 
-**New test class `TestRunParseWorker` (14 tests)**
+**New test class `TestRunParseWorker` (15 tests; +1 from rule-order fix)**
 - Uses a tiny 3-sheet openpyxl workbook (SheetA + SheetB + SOW) built in `setUpClass`; `source_file_url` set to the local tempfile path (triggers local-fetch branch in `_fetch_boq_file_to_tempfile`; no S3 dependency)
 - All blobs use 6-key production shape (no `sheet_name`) to exercise FIX 1 naturally
-- Tests: Reviewed->Parsed on success; rows inserted; `parsed_at` stamped; `parse_boq` failure->Parse failed (via `unittest.mock.patch`); re-parse no duplicate rows; subset parse leaves other sheets' rows untouched; Pending sheet not parsed + stays Pending; general-specs sheet no rows; master_preamble written + contains SOW text + SOW still no rows; `general_specs_sheet=""` safe; `general_specs_sheet=None` safe; Skip/Hidden no rows; FIX 2 list-JSON round-trip
-- `test_fix1_production_blob_without_sheet_name_is_eligible` added to `TestAssembleMappingConfig`
+- Tests: Reviewed->Parsed on success; rows inserted; `parsed_at` stamped; `parse_boq` failure->Parse failed (via `unittest.mock.patch`); re-parse no duplicate rows; subset parse leaves other sheets' rows untouched; Pending sheet not parsed + stays Pending; general-specs sheet no rows; master_preamble written + contains SOW text + SOW still no rows; master_preamble written when general-specs sheet has wizard_status="Skip" (rule-order fix, real-data regression); `general_specs_sheet=""` safe; `general_specs_sheet=None` safe; Skip/Hidden no rows; FIX 2 list-JSON round-trip
+- `test_fix1_production_blob_without_sheet_name_is_eligible` + `test_skip_sheet_designated_as_general_specs_routes_to_master_preamble` (rule-order fix unit test) added to `TestAssembleMappingConfig` (+1)
 
 **`_LIST_JSON_FIELDS` promotion**
 Moved from `TestBoQReviewRowRoundTrip._LIST_JSON_FIELDS` (class attribute) to module-level `frozenset` in `parse_run.py`. `test_parse_run.py` imports it from `parse_run`; no re-hardcoding.
