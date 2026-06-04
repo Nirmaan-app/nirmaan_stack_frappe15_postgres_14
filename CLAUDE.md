@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-04 (Slice 2b-backend-3: set_general_specs_sheet accepts list replace-all-to-many + non-Hidden validation; feat e996d097; parser 588; wizard 163 total -- 66 test_update_sheet_draft)
+**Last updated:** 2026-06-04 (Slice 2b-frontend-ii: multi-select general-specs checklist; doSetGeneralSpecs fixed to send sheet_names list; un-breaks branch from 2b-backend-3; feat d1672c6f; parser 588; wizard 163 -- tsc/Vite-verified)
 
 ## Overview
 
@@ -181,7 +181,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Slice 2b-backend-3 (set_general_specs_sheet now accepts list replace-all-to-many; non-Hidden validation; closes the multi-select backend gap; doSetGeneralSpecs in BoqHubPage.tsx intentionally left broken until 2b-frontend-ii), feat e996d097. Wizard tests: 163 total (test_parse_run 55 + test_update_sheet_draft 66 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12). Module 2b-frontend-ii next (multi-select checklist UI). Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Slice 2b-frontend-ii (general-specs single-select replaced by multi-select checklist; doSetGeneralSpecs fixed to send sheet_names list -- un-breaks from 2b-backend-3; closes the C7 multi-general-specs UI gap; Module 2b parse-run surface COMPLETE pending end-to-end manual cert), feat d1672c6f. Wizard tests: 163 total (test_parse_run 55 + test_update_sheet_draft 66 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12); frontend slices verified by tsc + Vite build. Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 

@@ -166,10 +166,25 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Tests:** 14 call sites updated (sheet_name_or_none=X -> sheet_names=[X]; None/"" -> []). Bypass test `test_two_designated_sheets_produce_two_rows_with_distinct_names` REWRITTEN to actually call the endpoint with sheet_names=[HVAC, ELEC] (was a frappe.new_doc bypass). +6 new tests: multi-designate, multi-then-fewer replace-all, clear-with-empty-list, hidden-rejection-no-partial-write, one-hidden-among-two-no-partial-write, multi-wizard-status-untouched. Total: 60 -> 66 test_update_sheet_draft; wizard 157 -> 163.
 - **BREAKING NOTE:** `doSetGeneralSpecs` in `BoqHubPage.tsx` (passes `sheet_name_or_none: string`) is intentionally left broken by this slice. It is fixed in Slice 2b-frontend-ii (the multi-select checklist UI, next).
 
+**Slice 2b-frontend-ii COMPLETE (feat d1672c6f; multi-select general-specs checklist + caller fix):**
+- **Single-select replaced:** `<Select>` + `NONE_SENTINEL` + `generalSpecsValue` + `handleSpecsChange` + `pendingSpecsValue` state ALL REMOVED. Replaced by a multi-select checklist (`Checkbox` per sheet, `useState<Set<string>>` for local ticks, `toggleSpecsSheet` toggle, `handleSpecsSave` Save button).
+- **Candidate set = `nonHiddenDrafts` only.** Backend rejects Hidden sheets server-side; never offer them in the checklist. The old single-select used `allDrafts` (included Hidden) -- this is corrected.
+- **Seed/re-sync:** `useEffect([boq])` populates ticked set from `generalSpecsSheetNames`; re-syncs after `mutate()` so post-Save state reflects server truth.
+- **Save button (one write):** computes full ordered ticked list from `nonHiddenDrafts` order; sends `{ sheet_names: string[] }` in one `callSpecs` call. Rationale: backend is replace-all; per-toggle = N redundant whole-set writes.
+- **doSetGeneralSpecs FIXED:** now passes `{ sheet_names: sheetNamesList }` (was `{ sheet_name_or_none }` -- the broken 2b-backend-3 caller). **Un-breaks the branch.** General-specs designation is functional again.
+- **Combined M2.23 warn-on-Reviewed:** on Save, computes `newlyDesignatedReviewed` (ticked AND not already in `generalSpecsSheetNames` AND Reviewed). If non-empty: opens `AlertDialog` naming them (1 sheet -> names it; 2+ -> lists them; mirrors ParseRunDialog's 1-vs-N pattern). Continue -> commits full list; Cancel -> no write, checklist stays at local ticks. Un-designating never warns; non-Reviewed sheets never warn.
+- **Dead imports removed:** `Select`, `SelectContent`, `SelectItem`, `SelectTrigger`, `SelectValue` (confirmed no other use in `BoqHubPage.tsx`). `Checkbox` import added.
+- **Locked decisions:** checklist control (Option 1) + one combined warning (both locked).
+- **Closes C7:** the schema-ahead-of-UI interim flagged in the dashboard (Slice 2c added multi-row schema; this slice adds the multi-select UI to match).
+- **tsc:** 0 errors in boq-wizard files; 3177 pre-existing errors in unrelated utility files (CameraCapture, BulkPdfDownload, etc.) -- none introduced by this slice.
+- **Vite build:** see build result in commit session report.
+- **SheetCard wording holdover:** "Change it via the selector above." (SheetCard.tsx line ~263) still says "selector" -- a cosmetic wording holdover, out of scope for this slice; functional behavior is correct.
+- **Module 2b parse-run surface COMPLETE** (all Slice 2b-backend-3 + 2b-frontend-i + 2b-frontend-ii landed). Pending: end-to-end manual cert round (Nitesh).
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-04 (Slice 2b-backend-3: set_general_specs_sheet list replace-all-to-many + non-Hidden validation; feat e996d097; wizard 163 total (66 test_update_sheet_draft))
+**Last updated:** 2026-06-04 (Slice 2b-frontend-ii: multi-select general-specs checklist; doSetGeneralSpecs fixed; un-breaks from 2b-backend-3; closes C7; feat d1672c6f; wizard 163 -- tsc/Vite-verified)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat e996d097 (Slice 2b-backend-3 -- set_general_specs_sheet accepts list replace-all-to-many)
+**Latest commit:** feat d1672c6f (Slice 2b-frontend-ii -- multi-select general-specs checklist + caller fix)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
