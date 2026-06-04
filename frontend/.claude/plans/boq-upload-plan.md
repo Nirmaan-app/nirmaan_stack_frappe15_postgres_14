@@ -194,10 +194,19 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **tsc + Vite build:** 0 errors. Exit 0.
 - **Files touched (code only):** `SheetConfigPanel.tsx` only. Docs: all three (substantive: plan-doc + `frontend/CLAUDE.md`; minimal-touch: root `CLAUDE.md`).
 
+**Bucket-2 Slice 1 COMPLETE (feat cb86b92b; BACKEND ONLY -- no frontend changes this slice):**
+- **New field: `BOQs.parse_in_progress`** (Check, hidden=1, read_only=1, default 0). Transient job-state marker: 1 = "a parse job is currently running for this BoQ". Distinct from `wizard_state` (the lifecycle Select) -- never overload wizard_state for transient job state. bench migrate created the column (confirmed via `frappe.db.has_column`).
+- **SET on enqueue (`run_parse`):** `frappe.db.set_value("BOQs", boq_name, "parse_in_progress", 1)` + `frappe.db.commit()` placed AFTER the successful `frappe.enqueue()` call, before `return`. If enqueue raises, the flag is never set (no stuck-1 on enqueue failure).
+- **CLEAR at publish choke-point (`_publish_parse_event`):** `set_value("parse_in_progress", 0)` + `commit()` at the TOP of `_publish_parse_event`, before payload construction. All six completion paths (success + missing_file + fetch_failed + no_eligible_sheets + parse_failed + internal) funnel through this single function, so the clear is guaranteed uniform with zero scatter.
+- **Rollback survival (critical correctness):** The `internal` error path does `frappe.db.rollback()` THEN calls `_publish_parse_event`. Because `rollback()` completes before the function is called, the clear's own `set_value + commit` starts a brand-new transaction that is not subject to the prior rollback. The flag cannot be stuck at 1 on any error path.
+- **Done-event payload contract UNCHANGED:** All payload keys (`status`, `boq_name`, `parsed_sheets`, `not_parsed_sheets`, `failed_sheets`) and all 5 error codes (`missing_file`, `fetch_failed`, `no_eligible_sheets`, `parse_failed`, `internal`) are byte-for-byte unchanged. The clear is additive -- nothing reshaped.
+- **Tests: +5 in new `TestParseInProgressMarker` group (55 -> 60 wizard tests):** (1) `test_run_parse_sets_parse_in_progress_after_enqueue` -- mocks enqueue, calls `run_parse`, asserts flag=1; (2) `test_publish_clears_marker_on_success` -- sets to 1, calls `_publish_parse_event("success")`, asserts 0; (3) `test_publish_clears_marker_on_internal_error` -- same pattern for "internal"; (4) `test_publish_clears_marker_on_missing_file_error` -- early-return error path; (5) `test_clear_survives_prior_rollback` -- calls rollback() then publish, asserts 0 (documents the rollback-survival contract). All 60 green.
+- **Slice 2 (frontend modal + messages) is the consumer -- still to come.** `BoqHubPage.tsx` reads `parse_in_progress` to show the in-progress state (spinner, disable parse button, etc.) and the `boq:parse_run_done` completion modal. Slice 2 is a frontend-only slice that depends on this backend field landing first.
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-05 (Bucket-1 zone-differentiation follow-up COMPLETE -- feat 1ec901e7: spoke config/details zones boxed + secondary zone tinted bg-muted/30; frontend-only)
+**Last updated:** 2026-06-05 (Bucket-2 Slice 1 COMPLETE -- feat cb86b92b: parse_in_progress marker on BOQs; BACKEND ONLY; 55->60 wizard tests)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 1ec901e7 (box spoke config/details zones + tint secondary zone)
+**Latest commit:** feat cb86b92b (transient parse_in_progress marker on BOQs)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
