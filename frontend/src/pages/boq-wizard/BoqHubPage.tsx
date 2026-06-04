@@ -27,18 +27,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import type { BOQsDoc, BoQSheetDraft, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import { ParseRunDialog } from "./ParseRunDialog";
@@ -59,9 +53,6 @@ function isLikelySkipSheet(sheetName: string): boolean {
   return LIKELY_SKIP_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-// Sentinel for the Select when no general-specs sheet is designated.
-const NONE_SENTINEL = "__none__";
-
 const BoqHubPage = () => {
   const { boqId } = useParams<{ boqId: string }>();
   const navigate = useNavigate();
@@ -69,10 +60,14 @@ const BoqHubPage = () => {
   // ── All hooks must be called before any conditional return ────────────────
   const [showHidden, setShowHidden] = useState(false);
 
-  // M2.23 confirm dialog state -- stores the value awaiting confirmation.
-  const [pendingSpecsValue, setPendingSpecsValue] = useState<string | null>(null);
+  // General-specs checklist state (Slice 2b-frontend-ii).
+  // tickedSpecsSheets: local Set seeded from server; committed on Save (not per-toggle).
+  // pendingReviewedNames + pendingFullTickedSet: drive the combined Reviewed-warning dialog.
+  const [tickedSpecsSheets, setTickedSpecsSheets] = useState<Set<string>>(new Set());
   const [specsDialogOpen, setSpecsDialogOpen] = useState(false);
   const [specsError, setSpecsError] = useState<string | null>(null);
+  const [pendingReviewedNames, setPendingReviewedNames] = useState<string[]>([]);
+  const [pendingFullTickedSet, setPendingFullTickedSet] = useState<string[]>([]);
 
   // Parse-run dialog + result state.
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
@@ -154,6 +149,21 @@ const BoqHubPage = () => {
     // socket is a stable FrappeContext singleton ref; boqId from useParams is stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
+
+  // Seed/re-sync the checklist ticked set from server state whenever boq changes.
+  // mutate() after Save re-fetches boq, which fires this effect so ticks re-sync.
+  // Any unsaved local tick edits are overwritten on re-sync -- acceptable since the
+  // checklist commits via an explicit Save (never per-toggle).
+  useEffect(() => {
+    if (!boq) return;
+    setTickedSpecsSheets(
+      new Set(
+        (boq.general_specs_sheets ?? [])
+          .map((r) => r.source_sheet_name)
+          .filter(Boolean)
+      )
+    );
+  }, [boq]);
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -318,66 +328,73 @@ const BoqHubPage = () => {
     }
   };
 
-  // ── General-specs selector value ───────────────────────────────────────────
-  // EXACT: SelectItem values use sheet_name verbatim for the endpoint call.
-  // Single-select interim (Slice 2c): show the first designated sheet, or NONE_SENTINEL.
-  // Multi-select designation UI is Slice 2b; existing migrated multi-rows display via
-  // getEffectiveStatus (set membership above) even if the selector only shows one.
-  const generalSpecsValue =
-    boq.general_specs_sheets?.[0]?.source_sheet_name || NONE_SENTINEL;
-
-  // ── General-specs endpoint handler ────────────────────────────────────────
-  // Design: backend stores pointer ONLY; no set_sheet_status call.
-  // Releasing a designated sheet returns it to its TRUE prior wizard_status
-  // (M2.23 AMENDED: more resilient than returning to Pending; no two-call sequence).
-  const doSetGeneralSpecs = async (sheetNameOrNull: string | null) => {
+  // ── General-specs checklist handlers (Slice 2b-frontend-ii) ──────────────
+  // Fixes the 2b-backend-3 breaking change: sends sheet_names list, not single string.
+  // sheet_names=[] clears all designations. On success mutate() re-syncs ticks.
+  const doSetGeneralSpecs = async (sheetNamesList: string[]) => {
     setSpecsError(null);
     try {
-      // EXACT: sheet_name_or_none passed verbatim. "" clears the pointer.
+      // EXACT: sheet_names passes the full ticked set verbatim (list API, 2b-backend-3).
       await callSpecs({
         boq_name: boq.name,
-        sheet_name_or_none: sheetNameOrNull ?? "",
+        sheet_names: sheetNamesList,
       });
       void mutate();
     } catch (_e) {
       setSpecsError(
-        "Failed to update general specifications sheet. Please try again."
+        "Failed to update general specifications sheets. Please try again."
       );
     }
   };
 
-  // M2.23: warn-and-confirm only when the chosen sheet is currently Reviewed.
-  // All other statuses: call directly, no dialog.
-  const handleSpecsChange = (newValue: string) => {
-    const targetSheet = newValue === NONE_SENTINEL ? null : newValue;
+  const toggleSpecsSheet = (sheetName: string) => {
+    // EXACT: sheet_name toggled verbatim (mirrors ParseRunDialog toggleSheet).
+    setTickedSpecsSheets((prev) => {
+      const next = new Set(prev);
+      if (next.has(sheetName)) next.delete(sheetName);
+      else next.add(sheetName);
+      return next;
+    });
+  };
 
-    if (targetSheet !== null) {
-      const targetDraft = allDrafts.find(
-        // EXACT: sheet_name compared verbatim.
-        (s) => s.sheet_name === targetSheet
-      );
-      if (targetDraft && getEffectiveStatus(targetDraft) === "Reviewed") {
-        setPendingSpecsValue(targetSheet);
-        setSpecsDialogOpen(true);
-        return;
-      }
+  // On Save: compute newly-designated Reviewed sheets; show combined warning or commit.
+  // One Save = one write (backend is replace-all; per-toggle = N redundant whole-set writes).
+  const handleSpecsSave = () => {
+    // Full ordered list (preserves nonHiddenDrafts order for determinism).
+    const fullList = nonHiddenDrafts
+      .filter((d) => tickedSpecsSheets.has(d.sheet_name))
+      .map((d) => d.sheet_name);
+
+    // Newly designated Reviewed sheets: ticked now AND not already server-designated AND Reviewed.
+    const newlyDesignatedReviewed = nonHiddenDrafts.filter(
+      (d) =>
+        tickedSpecsSheets.has(d.sheet_name) &&
+        !generalSpecsSheetNames.has(d.sheet_name) &&
+        getEffectiveStatus(d) === "Reviewed"
+    );
+
+    if (newlyDesignatedReviewed.length > 0) {
+      // Combined M2.23 courtesy warning naming all affected Reviewed sheets.
+      setPendingReviewedNames(newlyDesignatedReviewed.map((d) => d.sheet_name));
+      setPendingFullTickedSet(fullList);
+      setSpecsDialogOpen(true);
+    } else {
+      void doSetGeneralSpecs(fullList);
     }
-
-    // No confirmation needed -- call directly.
-    void doSetGeneralSpecs(targetSheet);
   };
 
   const handleSpecsConfirm = () => {
-    const value = pendingSpecsValue; // capture before clearing
-    setPendingSpecsValue(null);
-    if (value !== null) void doSetGeneralSpecs(value);
-    // Dialog closes automatically via onOpenChange from AlertDialogAction.
+    const list = pendingFullTickedSet;
+    setPendingReviewedNames([]);
+    setPendingFullTickedSet([]);
+    void doSetGeneralSpecs(list);
+    // Dialog closes via onOpenChange from AlertDialogAction.
   };
 
   const handleSpecsCancel = () => {
-    setPendingSpecsValue(null);
-    // Selector reverts automatically -- it is controlled by boq.general_specs_sheet
-    // (server state), which has not changed since no endpoint was called.
+    setPendingReviewedNames([]);
+    setPendingFullTickedSet([]);
+    // No write; checklist stays at current local ticks (not auto-reverted).
     // Dialog closes via onOpenChange from AlertDialogCancel.
   };
 
@@ -435,43 +452,67 @@ const BoqHubPage = () => {
         </div>
       </div>
 
-      {/* ── General specifications selector (M2.10) ─────────────────────── */}
-      <div className="rounded-lg border border-border bg-muted/20 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">
-            General specifications sheet
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            One sheet may contain preamble text shared across all work packages.
-          </p>
-        </div>
-        <div className="flex flex-col gap-1 w-full sm:w-60 shrink-0">
-          {/*
-            onValueChange wired to handleSpecsChange (M2.23 confirm flow).
-            Selector is disabled only while a save is in flight (specsLoading).
-            EXACT: SelectItem value = sheet_name verbatim (endpoint call, no trim).
-          */}
-          <Select
-            value={generalSpecsValue}
-            onValueChange={handleSpecsChange}
+      {/* ── General specifications checklist (M2.10, Slice 2b-frontend-ii) ── */}
+      {/* Candidate set = nonHiddenDrafts; backend rejects Hidden sheets.      */}
+      {/* Ticked = currently designated (set membership M2.16). Save = 1 write. */}
+      <div className="rounded-lg border border-border bg-muted/20 p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              General specifications sheets
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              One or more sheets may contain preamble text shared across all
+              work packages. Tick each sheet that serves as a general
+              specifications sheet, then save.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={specsLoading}
+            onClick={handleSpecsSave}
+            className="shrink-0 mt-1 sm:mt-0"
           >
-            <SelectTrigger disabled={specsLoading} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE_SENTINEL}>None selected</SelectItem>
-              {allDrafts.map((s) => (
-                /* EXACT: value is sheet_name verbatim -- required for endpoint call. */
-                <SelectItem key={s.sheet_name} value={s.sheet_name}>
-                  {s.sheet_name.trim() || s.sheet_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {specsError && (
-            <p className="text-xs text-destructive">{specsError}</p>
-          )}
+            {specsLoading ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save"
+            )}
+          </Button>
         </div>
+        {nonHiddenDrafts.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No sheets available.</p>
+        ) : (
+          <ul className="space-y-2">
+            {nonHiddenDrafts.map((d) => {
+              const isTicked = tickedSpecsSheets.has(d.sheet_name);
+              return (
+                <li key={d.sheet_name} className="flex items-center gap-2.5">
+                  <Checkbox
+                    id={`specs-cb-${d.sheet_name}`}
+                    checked={isTicked}
+                    onCheckedChange={() => toggleSpecsSheet(d.sheet_name)}
+                    disabled={specsLoading}
+                    className="shrink-0"
+                  />
+                  <label
+                    htmlFor={`specs-cb-${d.sheet_name}`}
+                    className="text-sm leading-5 cursor-pointer select-none min-w-0 truncate"
+                  >
+                    {d.sheet_name.trim() || d.sheet_name}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {specsError && (
+          <p className="text-xs text-destructive">{specsError}</p>
+        )}
       </div>
 
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
@@ -598,22 +639,26 @@ const BoqHubPage = () => {
         isLoading={parseInFlight}
       />
 
-      {/* ── M2.23 warn-and-confirm dialog ────────────────────────────────── */}
-      {/*
-        Fires only when the user designates a sheet whose effective status is
-        "Reviewed". Wording is softened (M2.23 AMENDED): releasing the pointer
-        later returns the sheet to its TRUE underlying wizard_status (not forced
-        to Pending). Single call: set_general_specs_sheet only -- no set_sheet_status.
-      */}
+      {/* ── M2.23 combined warn-on-Reviewed dialog (Slice 2b-frontend-ii) ── */}
+      {/* Fires on Save when any newly-designated sheet is currently Reviewed. */}
+      {/* Un-designating never warns; non-Reviewed sheets never warn.          */}
       <AlertDialog open={specsDialogOpen} onOpenChange={setSpecsDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Set as general specifications sheet?</AlertDialogTitle>
+            <AlertDialogTitle>Designate reviewed sheets as general specs?</AlertDialogTitle>
             <AlertDialogDescription>
-              This sheet will be used as the general-specifications sheet instead
-              of as a data sheet for parsing. Continue?
+              {pendingReviewedNames.length === 1
+                ? `"${pendingReviewedNames[0].trim() || pendingReviewedNames[0]}" is Reviewed -- designating it as a general-specs sheet will set its review aside. Continue?`
+                : `These ${pendingReviewedNames.length} sheets are Reviewed -- designating them as general-specs sheets will set their reviews aside. Continue?`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingReviewedNames.length > 1 && (
+            <ul className="px-6 pb-2 space-y-0.5 text-sm text-muted-foreground">
+              {pendingReviewedNames.map((name) => (
+                <li key={name}>&middot; {name.trim() || name}</li>
+              ))}
+            </ul>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleSpecsCancel}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleSpecsConfirm}>Continue</AlertDialogAction>
