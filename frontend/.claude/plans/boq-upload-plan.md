@@ -203,10 +203,26 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Tests: +5 in new `TestParseInProgressMarker` group (55 -> 60 wizard tests):** (1) `test_run_parse_sets_parse_in_progress_after_enqueue` -- mocks enqueue, calls `run_parse`, asserts flag=1; (2) `test_publish_clears_marker_on_success` -- sets to 1, calls `_publish_parse_event("success")`, asserts 0; (3) `test_publish_clears_marker_on_internal_error` -- same pattern for "internal"; (4) `test_publish_clears_marker_on_missing_file_error` -- early-return error path; (5) `test_clear_survives_prior_rollback` -- calls rollback() then publish, asserts 0 (documents the rollback-survival contract). All 60 green.
 - **Slice 2 (frontend modal + messages) is the consumer -- still to come.** `BoqHubPage.tsx` reads `parse_in_progress` to show the in-progress state (spinner, disable parse button, etc.) and the `boq:parse_run_done` completion modal. Slice 2 is a frontend-only slice that depends on this backend field landing first.
 
+**Bucket-2 Slice 2 COMPLETE (feat 21e56963; FRONTEND ONLY -- no backend changes this slice):**
+- **boqTypes.ts:** `parse_in_progress?: 0 | 1` added to `BOQsDoc` -- consumes the Check field added by Slice 1.
+- **ParseRunDialog.tsx:** "runs in background ~10 min" note added to Step 1 confirm (below DialogDescription, above scrollable sheet list). No change to footer buttons, isLoading behavior, or dismiss-blocking.
+- **BoqHubPage.tsx -- completion AlertDialog:** Inline result strip (`{(parseResult || parseError) && (...)}` div, ~30 lines) REPLACED by an acknowledge-only `AlertDialog` (single OK action, no Cancel). Open-state derived from `parseResult || parseError`; OK action AND `onOpenChange(false)` both clear both states. HUB-SCOPED -- not app-global.
+- **Per-case messages (8-case matrix):**
+  - SUCCESS: up to 3 independent sub-lines, each shown only if non-empty: `Parsed: {names}` (font-medium text-foreground) / `Not parsed (skipped, hidden, or general-specs): {names}` (text-muted-foreground NEUTRAL) / `Failed to parse: {names}` (text-destructive). If all three are empty: "Parse complete." fallback.
+  - ERROR: one message, no lists. `no_eligible_sheets` is NEUTRAL (text-muted-foreground -- advisory, not a failure); all other error codes are destructive.
+  - Exact error messages: `missing_file` = "The source file for this BoQ could not be found. It may have been moved or deleted." / `fetch_failed` = "Could not retrieve the source file. Please try again; if it persists..." / `no_eligible_sheets` = "No sheets were eligible to parse. Mark at least one sheet as Reviewed before parsing." / `parse_failed` = "The parser could not process this workbook..." / `internal` = "An unexpected error occurred during parsing..." / fallback = "An unknown error occurred during parsing."
+- **Error-code-preserving state shape:** `parseError` state changed from `string | null` to `{ message: string; severity: "destructive" | "neutral" } | null`. The old per-handler `ERROR_MSGS: Record<string, string>` map (redefined on every socket event) moved to a module-level `PARSE_ERROR_MSGS` const with `{ message, severity }` objects. `PARSE_ERROR_FALLBACK` for unrecognised codes. The socket handler's `boq_name` guard and `[socket]`-only dep pattern are UNCHANGED.
+- **On-mount parse_in_progress recovery:** New `useEffect([boq])` (mirrors the specs-checklist `useEffect([boq])` pattern): `setParseInFlight(boq.parse_in_progress === 1)`. Recovers the true running state when user navigates away and back (or when a socket event was missed). The live socket event still clears `parseInFlight` on done -- this is the mount fallback only. NOT polling.
+- **Parse button in-progress indicator:** `disabled={!canParse || parseInFlight}` + `{parseInFlight ? <Loader2 spin> Parsing... : "Parse workbook"}`. Makes the recovered `parseInFlight=true` visible without re-opening the confirm dialog.
+- **Navigation not blocked (3d confirmed):** `parseInFlight` does not block navigation -- no `<Prompt>` or history blocker. User can freely navigate away during a parse. No change needed for this confirmation.
+- **Test counts unchanged:** parser 588 / wizard 168 (60 parse_run + 66 update_sheet_draft + 7 update_boq_draft + 23 sheet_preview + 12 upload_file) -- 0 added by this frontend-only slice.
+- **Build:** exit 0, no tsc errors, no new warnings (3 pre-existing: BoqProjectTab static/dynamic import, PWA theme_color, large chunks).
+- **Bucket-2 COMPLETE** (Slice 1 backend + Slice 2 frontend). Both the SET/CLEAR backend plumbing and the consuming frontend modal/recovery are landed.
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-05 (Bucket-2 Slice 1 COMPLETE -- feat cb86b92b: parse_in_progress marker on BOQs; BACKEND ONLY; 55->60 wizard tests)
+**Last updated:** 2026-06-05 (Bucket-2 COMPLETE -- Slice 2 frontend feat 21e56963: completion modal + per-case messages + on-mount parse_in_progress recovery)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat cb86b92b (transient parse_in_progress marker on BOQs)
+**Latest commit:** feat 21e56963 (parse completion modal + per-case messages + on-mount recovery)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 

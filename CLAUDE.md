@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-05 (Bucket-2 Slice 1 -- new `BOQs.parse_in_progress` Check field + SET/CLEAR logic in parse_run.py; feat cb86b92b; see plan-doc for full record) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+**Last updated:** 2026-06-05 (Bucket-2 Slice 2 frontend -- feat 21e56963; completion AlertDialog + per-case messages + on-mount parse_in_progress recovery in BoqHubPage.tsx; consumes the parse_in_progress field from Slice 1 cb86b92b; FRONTEND ONLY, no backend/convention change; see plan-doc + frontend/CLAUDE.md for full record) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
 ## Overview
 
@@ -181,7 +181,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Bucket-2 Slice 1 (parse_in_progress transient marker on BOQs; SET on enqueue, CLEAR at _publish_parse_event choke-point; rollback-survival guaranteed; BACKEND ONLY; feat cb86b92b). New field: `BOQs.parse_in_progress` Check (hidden, read_only, code-managed; distinct from wizard_state lifecycle Select). Convention: transient job-state markers like this are set by the endpoint after successful enqueue and cleared at the single publish choke-point with their own commit so they survive error-path rollbacks. Wizard tests: 168 total (test_parse_run 60 + test_update_sheet_draft 66 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12); frontend slices verified by tsc + Vite build. Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- Bucket-2 COMPLETE (Slice 1 backend feat cb86b92b + Slice 2 frontend feat 21e56963). Bucket-2 Slice 2: completion AlertDialog replacing inline strip; 8-case message matrix; error-code-preserving state shape; on-mount parse_in_progress recovery via useEffect([boq]); parse button in-progress spinner. Wizard tests: 168 total (test_parse_run 60 + test_update_sheet_draft 66 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12); frontend slices verified by tsc + Vite build. Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
