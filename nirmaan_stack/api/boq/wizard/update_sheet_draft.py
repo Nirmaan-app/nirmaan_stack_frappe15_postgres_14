@@ -95,47 +95,68 @@ def set_sheet_label(boq_name: str = None, sheet_name: str = None, label: str = N
 
 
 @frappe.whitelist(methods=["POST"])
-def set_general_specs_sheet(boq_name: str = None, sheet_name_or_none: str = None):
-    """Designate or un-designate a sheet as a general-specifications sheet.
+def set_general_specs_sheet(boq_name: str = None, sheet_names=None):
+    """Designate a set of sheets as general-specifications sheets (replace-all semantics).
 
-    Uses replace-all semantics for the interim single-select UI (Slice 2c):
-    designating a sheet removes ALL existing general_specs_sheets child rows and
-    inserts one new row for the named sheet. Un-designating (sheet_name_or_none=None
-    or '') removes all rows. Full multi-select (additive) semantics are Slice 2b.
+    Slice 2b-backend-3: sheet_names replaces the former single sheet_name_or_none param.
+    sheet_names must be a list of sheet names (or a JSON-encoded array string).
+    An empty list clears all designations.
 
-    Division of responsibility (M2.23 unchanged):
-    - Backend: writes child-table membership ONLY; never touches wizard_status on
-      any BoQ Sheet Draft row.
-    - Frontend: derives the 'General specs' badge from the child table; handles
-      warn-and-confirm before calling this endpoint.
-    - Un-designation removes the child row; preamble_text is NOT preserved (it is
-      re-extractable on re-parse when the sheet is re-designated).
+    Validate-all-before-write: every name is checked for (a) existence in this BOQs
+    and (b) non-Hidden status before any write is performed. The entire call is
+    rejected if any name is invalid or Hidden (no partial write).
+
+    M2.23 unchanged: never touches wizard_status on any BoQ Sheet Draft row.
+    preamble_text is blank on designation; populated by the parse worker on re-parse.
+
+    NOTE: the frontend single-string caller (doSetGeneralSpecs in BoqHubPage.tsx) is
+    intentionally left broken by this slice and is updated in Slice 2b-frontend-ii.
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if sheet_names is None:
+        frappe.throw("sheet_names is required.", title="Missing field: sheet_names")
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
-    target = sheet_name_or_none or None
+    # Normalize: accept JSON-array string or Python list (mirrors set_sheet_work_packages).
+    if isinstance(sheet_names, str):
+        try:
+            sheet_names = json.loads(sheet_names)
+        except (ValueError, TypeError):
+            frappe.throw(
+                "sheet_names must be a JSON array string or a list.",
+                title="Invalid JSON",
+            )
+    if not isinstance(sheet_names, list):
+        frappe.throw("sheet_names must be a list.", title="Invalid type")
 
-    if target:
-        child_name = _get_child_name(boq_name, target)
+    # Validate ALL names before any write (no partial write).
+    for name in sheet_names:
+        child_name = _get_child_name(boq_name, name)
         if not child_name:
             frappe.throw(
-                f"Sheet '{target}' not found in BOQs '{boq_name}'.",
+                f"Sheet '{name}' not found in BOQs '{boq_name}'. No changes were made.",
                 title="Sheet not found",
             )
+        # Non-Hidden only: Hidden sheets cannot be designated as general-specs.
+        status = frappe.db.get_value("BoQ Sheet Draft", child_name, "wizard_status")
+        if status == "Hidden":
+            frappe.throw(
+                f"Sheet '{name}' is Hidden and cannot be designated as a general-specs sheet."
+                " No changes were made.",
+                title="Sheet is Hidden",
+            )
 
-    # Replace-all: remove all existing general-specs designations first.
+    # Replace-all: remove all existing designations, then insert one row per name.
     frappe.db.delete("BoQ General Specs Sheet", {"parent": boq_name, "parenttype": "BOQs"})
-
-    if target:
+    for name in sheet_names:
         child = frappe.new_doc("BoQ General Specs Sheet")
         child.parent = boq_name
         child.parenttype = "BOQs"
         child.parentfield = "general_specs_sheets"
-        child.source_sheet_name = target
+        child.source_sheet_name = name
         child.preamble_text = ""  # populated by parse worker; blank on designation
         child.insert(ignore_permissions=True)
 

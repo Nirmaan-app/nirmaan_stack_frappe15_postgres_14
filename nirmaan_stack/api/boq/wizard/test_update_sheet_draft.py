@@ -260,78 +260,141 @@ class TestSetGeneralSpecsSheet(FrappeTestCase):
             "wizard_status",
         )
 
+    def _set_sheet_status_direct(self, sheet_name: str, status: str):
+        """Bypass endpoint to set wizard_status directly (test setup only)."""
+        frappe.db.set_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            "wizard_status",
+            status,
+        )
+        frappe.db.commit()
+
     def test_set_designates_one_child_row(self):
-        """Designating a sheet creates exactly one child row with the correct source_sheet_name."""
-        result = set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
+        """Designating a single sheet creates exactly one child row."""
+        result = set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
         self.assertEqual(result["status"], "saved")
         designated = self._get_designated_sheets()
         self.assertEqual(designated, [_SHEET_HVAC])
 
     def test_change_designation_replaces_existing_row(self):
-        """Designating a second sheet removes the first (replace-all semantics)."""
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_ELEC)
+        """Designating a different single sheet removes the previous one (replace-all)."""
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_ELEC])
         designated = self._get_designated_sheets()
         self.assertEqual(designated, [_SHEET_ELEC])
 
-    def test_clear_designation_with_none(self):
-        """Clearing with None removes all child rows."""
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
-        result = set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=None)
+    def test_clear_designation_with_empty_list(self):
+        """Clearing with [] after single-designation removes all child rows."""
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+        result = set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[])
         self.assertEqual(result["status"], "saved")
         self.assertEqual(self._get_designated_sheets(), [])
 
-    def test_clear_designation_with_empty_string(self):
-        """Clearing with '' removes all child rows."""
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none="")
+    def test_clear_designation_second_call_empty(self):
+        """A second empty-list call also leaves zero rows (idempotent clear)."""
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[])
         self.assertEqual(self._get_designated_sheets(), [])
 
     def test_wizard_status_not_touched_on_set(self):
         """Backend must NOT modify wizard_status when designating (M2.23 unchanged)."""
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
         self.assertEqual(self._get_child_status(_SHEET_HVAC), "Pending")
         self.assertEqual(self._get_child_status(_SHEET_ELEC), "Pending")
 
     def test_wizard_status_not_touched_on_clear(self):
         """Backend must NOT modify wizard_status when clearing (M2.23 unchanged)."""
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=None)
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[])
         self.assertEqual(self._get_child_status(_SHEET_HVAC), "Pending")
 
     def test_un_designating_removes_child_row(self):
-        """Un-designating removes the child row entirely (not just clears the field)."""
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=_SHEET_HVAC)
+        """Un-designating with [] removes the child row entirely."""
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
         self.assertEqual(len(self._get_designated_sheets()), 1)
-        set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none=None)
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[])
         self.assertEqual(
             len(self._get_designated_sheets()), 0,
             "Child row was not removed on un-designation",
         )
 
-    def test_two_designated_sheets_produce_two_rows_with_distinct_names(self):
-        """Two child rows directly inserted have distinct source_sheet_names (multi-sheet data model)."""
-        for sheet in [_SHEET_HVAC, _SHEET_ELEC]:
-            child = frappe.new_doc("BoQ General Specs Sheet")
-            child.parent = self.boq.name
-            child.parenttype = "BOQs"
-            child.parentfield = "general_specs_sheets"
-            child.source_sheet_name = sheet
-            child.preamble_text = ""
-            child.insert(ignore_permissions=True)
-        frappe.db.commit()
+    def test_two_designated_sheets_via_endpoint(self):
+        """set_general_specs_sheet([HVAC, ELEC]) creates exactly 2 child rows via the endpoint.
 
+        Replaces the former bypass test that inserted rows directly via frappe.new_doc
+        (which tested the data model, not this endpoint). Now exercises the real code path.
+        """
+        result = set_general_specs_sheet(
+            boq_name=self.boq.name, sheet_names=[_SHEET_HVAC, _SHEET_ELEC]
+        )
+        self.assertEqual(result["status"], "saved")
         designated = self._get_designated_sheets()
         self.assertEqual(len(designated), 2)
         self.assertEqual(set(designated), {_SHEET_HVAC, _SHEET_ELEC})
 
     def test_rejects_unknown_sheet(self):
         with self.assertRaises(frappe.ValidationError):
-            set_general_specs_sheet(boq_name=self.boq.name, sheet_name_or_none="NO SUCH SHEET")
+            set_general_specs_sheet(boq_name=self.boq.name, sheet_names=["NO SUCH SHEET"])
 
     def test_rejects_unknown_boq(self):
         with self.assertRaises(frappe.ValidationError):
-            set_general_specs_sheet(boq_name="BOQ-DOES-NOT-EXIST-99999", sheet_name_or_none=_SHEET_HVAC)
+            set_general_specs_sheet(boq_name="BOQ-DOES-NOT-EXIST-99999", sheet_names=[_SHEET_HVAC])
+
+    # -- New tests (Slice 2b-backend-3): multi-designate + validate-all + non-Hidden -----
+
+    def test_multi_designate_creates_two_rows(self):
+        """sheet_names=[HVAC, ELEC] -> exactly 2 child rows, both names present."""
+        result = set_general_specs_sheet(
+            boq_name=self.boq.name, sheet_names=[_SHEET_HVAC, _SHEET_ELEC]
+        )
+        self.assertEqual(result["status"], "saved")
+        designated = self._get_designated_sheets()
+        self.assertEqual(len(designated), 2)
+        self.assertIn(_SHEET_HVAC, designated)
+        self.assertIn(_SHEET_ELEC, designated)
+
+    def test_multi_then_fewer_replaces_all(self):
+        """Designate [HVAC, ELEC] then [HVAC] -> 1 row; ELEC removed by replace-all-to-many."""
+        set_general_specs_sheet(
+            boq_name=self.boq.name, sheet_names=[_SHEET_HVAC, _SHEET_ELEC]
+        )
+        set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+        designated = self._get_designated_sheets()
+        self.assertEqual(designated, [_SHEET_HVAC])
+
+    def test_clear_with_empty_list(self):
+        """[] after multi-designation clears all rows (empty list = clear path)."""
+        set_general_specs_sheet(
+            boq_name=self.boq.name, sheet_names=[_SHEET_HVAC, _SHEET_ELEC]
+        )
+        result = set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[])
+        self.assertEqual(result["status"], "saved")
+        self.assertEqual(self._get_designated_sheets(), [])
+
+    def test_rejects_hidden_sheet_no_partial_write(self):
+        """A Hidden sheet is rejected; zero child rows written (validate-all-before-write)."""
+        self._set_sheet_status_direct(_SHEET_HVAC, "Hidden")
+        with self.assertRaises(frappe.ValidationError):
+            set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+        self.assertEqual(self._get_designated_sheets(), [])
+
+    def test_rejects_one_hidden_among_two_no_partial_write(self):
+        """One valid + one Hidden: entire call rejected, 0 rows written (no partial write)."""
+        self._set_sheet_status_direct(_SHEET_HVAC, "Hidden")
+        with self.assertRaises(frappe.ValidationError):
+            set_general_specs_sheet(
+                boq_name=self.boq.name, sheet_names=[_SHEET_ELEC, _SHEET_HVAC]
+            )
+        self.assertEqual(self._get_designated_sheets(), [])
+
+    def test_wizard_status_not_touched_on_multi_set(self):
+        """Multi-designate must NOT modify wizard_status on any sheet (M2.23 unchanged)."""
+        set_general_specs_sheet(
+            boq_name=self.boq.name, sheet_names=[_SHEET_HVAC, _SHEET_ELEC]
+        )
+        self.assertEqual(self._get_child_status(_SHEET_HVAC), "Pending")
+        self.assertEqual(self._get_child_status(_SHEET_ELEC), "Pending")
 
 
 # ---------------------------------------------------------------------------
