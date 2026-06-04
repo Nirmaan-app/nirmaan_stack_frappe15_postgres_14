@@ -25,6 +25,7 @@
   "area_dimensions",
   "general_specs_sheets",
   "wizard_state",
+  "parse_in_progress",
   "sheet_drafts"
  ],
  "fields": [
@@ -146,6 +147,14 @@
    "fieldtype": "Select",
    "label": "Wizard State",
    "options": "\nIn progress\nConfigured\nParsed"
+  },
+  {
+   "default": "0",
+   "fieldname": "parse_in_progress",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Parse In Progress",
+   "read_only": 1
   },
   {
    "fieldname": "sheet_drafts",

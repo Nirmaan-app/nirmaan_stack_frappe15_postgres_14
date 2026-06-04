@@ -281,6 +281,9 @@ def run_parse(boq_name: str = None, sheet_names=None):
         boq_name=boq_name,
         sheet_names=sheet_names,
     )
+    # SET only after a successful enqueue so a failed enqueue doesn't leave the flag stuck.
+    frappe.db.set_value("BOQs", boq_name, "parse_in_progress", 1)
+    frappe.db.commit()
     return {"status": "queued", "job_id": job.id if job else None}
 
 
@@ -588,6 +591,13 @@ def _publish_parse_event(
     **kwargs: Any,
 ) -> None:
     """Publish boq:parse_run_done targeted to the enqueueing user (if known)."""
+    # CLEAR the transient parse_in_progress marker with its own independent commit.
+    # All six completion paths funnel through here, so one choke-point clears uniformly.
+    # Critically, the "internal" error path calls frappe.db.rollback() BEFORE calling
+    # this function; that rollback is already done, so the set_value + commit below
+    # starts a brand-new transaction that is NOT subject to any prior rollback.
+    frappe.db.set_value("BOQs", boq_name, "parse_in_progress", 0)
+    frappe.db.commit()
     payload = {"status": status, "boq_name": boq_name, **kwargs}
     publish_kwargs: dict[str, Any] = {}
     if user:

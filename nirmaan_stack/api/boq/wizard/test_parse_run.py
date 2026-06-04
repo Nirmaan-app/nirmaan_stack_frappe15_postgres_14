@@ -27,10 +27,12 @@ from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import 
 
 from nirmaan_stack.api.boq.wizard.parse_run import (
     _LIST_JSON_FIELDS,
+    _publish_parse_event,
     _run_parse_worker,
     assemble_mapping_config,
     flatten_parsed_boq,
     flatten_resolved_row,
+    run_parse,
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     set_sheet_config,
@@ -1412,3 +1414,133 @@ class TestParseHistoryFields(FrappeTestCase):
             hist_ts_str, sentinel_ts,
             "last_parsed_at was not re-stamped on re-parse (still the sentinel past time)",
         )
+
+
+# ---------------------------------------------------------------------------
+# Group 6: parse_in_progress transient marker (Bucket-2 Slice 1)
+# ---------------------------------------------------------------------------
+
+class TestParseInProgressMarker(FrappeTestCase):
+    """
+    Tests for the transient parse_in_progress Check field on BOQs.
+
+    Contracts:
+      1. run_parse sets parse_in_progress=1 after a successful enqueue.
+      2. _publish_parse_event clears parse_in_progress=0 on the success path.
+      3. _publish_parse_event clears on error paths (internal, missing_file)
+         -- proving the stuck-flag failure mode is closed.
+      4. The clear in _publish_parse_event survives a prior frappe.db.rollback()
+         because it runs as its own independent set_value + commit after the rollback.
+
+    Uses a minimal BOQs (no workbook) -- marker logic is independent of parse content.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Marker Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        # Reset to 0 after each test so marker state does not leak between tests.
+        frappe.db.set_value("BOQs", self.boq_name, "parse_in_progress", 0)
+        frappe.db.commit()
+
+    def _get_marker(self):
+        return int(frappe.db.get_value("BOQs", self.boq_name, "parse_in_progress") or 0)
+
+    def _set_marker(self, value):
+        frappe.db.set_value("BOQs", self.boq_name, "parse_in_progress", value)
+        frappe.db.commit()
+
+    # -- SET on enqueue --------------------------------------------------
+
+    def test_run_parse_sets_parse_in_progress_after_enqueue(self):
+        """run_parse sets parse_in_progress=1 on the BOQs row after successful enqueue."""
+        from unittest.mock import MagicMock, patch
+        self._set_marker(0)
+
+        mock_job = MagicMock()
+        mock_job.id = "mock-job-id"
+        with patch.object(frappe, "enqueue", return_value=mock_job):
+            run_parse(boq_name=self.boq_name)
+
+        self.assertEqual(self._get_marker(), 1,
+            "parse_in_progress was not set to 1 after successful enqueue")
+
+    # -- CLEAR at the publish choke-point --------------------------------
+
+    def test_publish_clears_marker_on_success(self):
+        """_publish_parse_event clears parse_in_progress=0 on the success completion path."""
+        from unittest.mock import patch
+        self._set_marker(1)
+
+        with patch.object(frappe, "publish_realtime"):
+            _publish_parse_event(
+                self.boq_name, "success", user=None,
+                parsed_sheets=["SheetA"], not_parsed_sheets=[], failed_sheets=[],
+            )
+
+        self.assertEqual(self._get_marker(), 0,
+            "parse_in_progress not cleared on success publish path")
+
+    def test_publish_clears_marker_on_internal_error(self):
+        """_publish_parse_event clears parse_in_progress=0 on the error/internal path.
+        This is the stuck-flag regression: a failed parse must not leave the flag at 1."""
+        from unittest.mock import patch
+        self._set_marker(1)
+
+        with patch.object(frappe, "publish_realtime"):
+            _publish_parse_event(self.boq_name, "error", user=None, error_code="internal")
+
+        self.assertEqual(self._get_marker(), 0,
+            "parse_in_progress not cleared on error/internal path (stuck-flag risk)")
+
+    def test_publish_clears_marker_on_missing_file_error(self):
+        """_publish_parse_event clears parse_in_progress=0 on the missing_file early-return path."""
+        from unittest.mock import patch
+        self._set_marker(1)
+
+        with patch.object(frappe, "publish_realtime"):
+            _publish_parse_event(self.boq_name, "error", user=None, error_code="missing_file")
+
+        self.assertEqual(self._get_marker(), 0,
+            "parse_in_progress not cleared on error/missing_file path")
+
+    def test_clear_survives_prior_rollback(self):
+        """
+        The clear in _publish_parse_event persists even after a prior frappe.db.rollback().
+
+        The 'internal' error path calls rollback() then _publish_parse_event.
+        After rollback() completes, _publish_parse_event starts a fresh transaction
+        (set_value + commit) that is independent of the rolled-back transaction.
+        parse_in_progress must be 0 after the publish, not stuck at 1.
+        """
+        from unittest.mock import patch
+        self._set_marker(1)
+        # _set_marker committed the 1; rollback here undoes nothing (empty transaction).
+        # This mirrors the real error path where rollback() precedes _publish_parse_event.
+        frappe.db.rollback()
+
+        with patch.object(frappe, "publish_realtime"):
+            _publish_parse_event(self.boq_name, "error", user=None, error_code="internal")
+
+        self.assertEqual(self._get_marker(), 0,
+            "parse_in_progress not cleared after rollback+publish (stuck-flag on error path)")
