@@ -590,12 +590,15 @@ thead { display: table-header-group; }
                             {%- if ns_row.any -%}{%- set _ = ns_rows.list.append(row) -%}{%- endif -%}
                         {%- endfor -%}
                         <div class="cv-sub-head">{{ tr_section.title or "3. Electrical Parameters" }}</div>
+                        {# Data table excludes image columns; photos render below as a gallery. #}
+                        {%- set data_cols  = (tr_section.columns or []) | rejectattr('type', 'equalto', 'image') | list -%}
+                        {%- set photo_cols = (tr_section.columns or []) | selectattr('type', 'equalto', 'image') | list -%}
                         <table class="cv-tr-table">
-                            <thead><tr>{% for c in (tr_section.columns or []) %}<th{% if c.width %} style="width: {{ c.width }};"{% endif %}>{{ c.label }}</th>{% endfor %}</tr></thead>
+                            <thead><tr>{% for c in data_cols %}<th{% if c.width %} style="width: {{ c.width }};"{% endif %}>{{ c.label }}</th>{% endfor %}</tr></thead>
                             <tbody>
                                 {% for row in ns_rows.list %}
                                     <tr class="cv-tr-row">
-                                        {% for c in (tr_section.columns or []) %}
+                                        {% for c in data_cols %}
                                             {%- set v = row.get(c.key) if row is mapping else none -%}
                                             <td style="text-align: center; font-weight: 600;">{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
                                         {% endfor %}
@@ -603,6 +606,126 @@ thead { display: table-header-group; }
                                 {% endfor %}
                             </tbody>
                         </table>
+
+                        {# Photo gallery — each image is labeled with the row's
+                           `type` (e.g. "Earth Pit 1") and `remarks` (PASS/FAIL/N/A).
+                           Only rows that actually have a photo are rendered. #}
+                        {% if photo_cols | length > 0 %}
+                            {%- set ns_photos = namespace(list=[]) -%}
+                            {%- for row in ns_rows.list -%}
+                                {%- for c in photo_cols -%}
+                                    {%- set p = row.get(c.key) if row is mapping else none -%}
+                                    {%- if p is mapping and p.file_url -%}
+                                        {%- set _ = ns_photos.list.append({"row": row, "url": p.file_url, "name": p.file_name or ''}) -%}
+                                    {%- endif -%}
+                                {%- endfor -%}
+                            {%- endfor -%}
+                            {% if ns_photos.list | length > 0 %}
+                                <div class="cv-spacer-md"></div>
+                                {%- set cols = 2 -%}
+                                {%- set total = ns_photos.list | length -%}
+                                {%- set rows_count = ((total + cols - 1) // cols) -%}
+                                {# Custom gallery — 2 per row. The "Earth Pit Photos" heading is
+                                   inside <thead> so wkhtmltopdf treats it as a table-header-group
+                                   and never orphans it: it stays attached to the first body row
+                                   and repeats on subsequent pages if the gallery overflows.
+                                   Each <tr> in tbody is `page-break-inside: avoid` so a row
+                                   never splits mid-card. Each card carries explicit labels
+                                   (EARTH PIT NAME / READING / RESULT) so the values are
+                                   self-explanatory in the printed report. #}
+                                {# Same heading style as "3. Electrical Parameters" — uses the
+                                   `cv-sub-head` class (bold + underlined + 11px). The thead /
+                                   tr / th approach earlier added extra cell padding + 8px
+                                   border-spacing; this plain div has neither.
+                                   `page-break-after: avoid` keeps it bonded to the first row;
+                                   each `<tr>` keeps `page-break-inside: avoid` so a card row
+                                   never splits mid-card. #}
+                                <div class="cv-sub-head" style="page-break-after: avoid;">Earth Pit Photos</div>
+                                <table style="width: 100%; border-collapse: separate; border-spacing: 8px; table-layout: fixed; margin-top: 0;">
+                                    <tbody>
+                                    {% for r in range(rows_count) %}
+                                        <tr style="page-break-inside: avoid;">
+                                            {% for c in range(cols) %}
+                                                {%- set idx = r * cols + c -%}
+                                                <td style="width: 50%; vertical-align: top; padding: 0; border: none;">
+                                                {% if idx < total %}
+                                                    {%- set ph = ns_photos.list[idx] -%}
+                                                    {%- set img_url = frappe.call("nirmaan_stack.api.frappe_s3_attachment.get_s3_temp_url", file_url=ph.url) -%}
+                                                    {%- set tr_val   = ph.row.get('test_results') -%}
+                                                    {%- set tr_units = ph.row.get('units') or 'Ohms' -%}
+                                                    {%- set rmk      = ph.row.get('remarks') -%}
+                                                    {# Outer card border wraps header + image area.
+                                                       Header has explicit labels above each value so
+                                                       the printed PDF is self-explanatory. Both
+                                                       header + image areas are fixed-height for
+                                                       consistent card heights regardless of image
+                                                       aspect. #}
+                                                    <div style="border: 1px solid #d4d4d4; background: #fff;">
+                                                        <div style="min-height: 48px; padding: 4px 4px; border-bottom: 1px solid #d4d4d4; background: #fff;">
+                                                            <div style="font-size: 7.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; text-align: center;">
+                                                                Earth Pit Name
+                                                            </div>
+                                                            <div style="font-size: 11px; font-weight: 700; color: #1f2937; text-transform: uppercase; text-align: center; margin-top: 1px;">
+                                                                {{ ph.row.get('type') or '—' }}
+                                                            </div>
+                                                            <table style="width: 100%; border-collapse: collapse; margin-top: 3px;">
+                                                                <tr>
+                                                                    <td style="width: 60%; text-align: center; padding: 0;">
+                                                                        <div style="font-size: 7.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px;">
+                                                                            Reading
+                                                                        </div>
+                                                                        <div style="font-size: 10px; font-weight: 600; color: #1f2937; margin-top: 1px;">
+                                                                            {%- if tr_val is not none and tr_val != '' -%}
+                                                                                {{ tr_val }} {{ tr_units }}
+                                                                            {%- else -%}—{%- endif -%}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td style="width: 40%; text-align: center; padding: 0;">
+                                                                        <div style="font-size: 7.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px;">
+                                                                            Result
+                                                                        </div>
+                                                                        <div style="margin-top: 1px;">
+                                                                            {%- if rmk and rmk != '' -%}
+                                                                                <span style="display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 700;
+                                                                                    {% if rmk == 'PASS' %}background:#dcfce7;color:#15803d;{% elif rmk == 'FAIL' %}background:#fee2e2;color:#b91c1c;{% else %}background:#fef3c7;color:#a16207;{% endif %}">
+                                                                                    {{ rmk }}
+                                                                                </span>
+                                                                            {%- else -%}—{%- endif -%}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            </table>
+                                                        </div>
+                                                        {# Background-image instead of <img> — wkhtmltopdf reliably
+                                                           respects the explicit 200px container height with this
+                                                           approach. `background-size: contain` letterboxes any
+                                                           aspect ratio without distortion, so every card's image
+                                                           area is exactly the same height regardless of source. #}
+                                                        {% if img_url %}
+                                                            <div style="width: 100%; height: 200px;
+                                                                background-color: #fafafa;
+                                                                background-image: url('{{ img_url }}');
+                                                                background-repeat: no-repeat;
+                                                                background-position: center center;
+                                                                background-size: contain;"></div>
+                                                        {% else %}
+                                                            <div style="width: 100%; height: 200px;
+                                                                background-color: #fafafa;
+                                                                text-align: center; line-height: 200px;
+                                                                color: #bbb; font-size: 10px;">
+                                                                (image unavailable)
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                {% else %}&nbsp;{% endif %}
+                                                </td>
+                                            {% endfor %}
+                                        </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            {% endif %}
+                        {% endif %}
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">

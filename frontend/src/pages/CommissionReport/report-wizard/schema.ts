@@ -63,6 +63,18 @@ export const buildFieldSchema = (field: Field): ZodTypeAny => {
                 ? enumSchema
                 : z.union([z.literal(''), enumSchema]).optional().default('');
         }
+        case 'image': {
+            // AttachmentRecord shape: { file_url, file_name, file_doc? }
+            // Stored inline in the row's column value (not under top-level attachments).
+            const record = z.object({
+                file_url: z.string().min(1),
+                file_name: z.string(),
+                file_doc: z.string().optional(),
+            });
+            return required
+                ? record.refine((v) => !!v.file_url, `${field.label} is required`)
+                : record.nullable().optional();
+        }
         default:
             return optionalText();
     }
@@ -315,6 +327,25 @@ export const validateStep = (
                         runField(fieldDef, value, `responses.${sid}.${idx}.${col.key}`);
                     }
                 });
+
+                // Earth Pit Resistance Report: the Parameters table's row count
+                // must match `Number of Earth Pits` from the Header step. The
+                // wizard auto-seeds rows on growth; reduction is manual, so we
+                // block Next/Submit until the user deletes the extras.
+                if (
+                    template.templateId === 'earth-pit-resistance-report' &&
+                    sid === 'parameters'
+                ) {
+                    const hdrResponses = (responses['hdr'] || {}) as Record<string, unknown>;
+                    const declared = Number(hdrResponses['num_earth_pits']);
+                    if (Number.isFinite(declared) && declared > 0 && rows.length > declared) {
+                        const extra = rows.length - declared;
+                        errors.push({
+                            path: `responses.${sid}`,
+                            message: `Header says ${declared} earth pit(s) but you have ${rows.length}. Either remove ${extra} unwanted earth pit(s) here, or increase Number of Earth Pits in the Header step.`,
+                        });
+                    }
+                }
 
                 // LT Cable Megger Test Report: each row must pick a unique
                 // `cable_size`. We flag every offending row so the user can

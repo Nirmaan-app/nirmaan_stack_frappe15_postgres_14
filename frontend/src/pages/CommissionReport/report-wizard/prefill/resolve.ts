@@ -34,6 +34,11 @@ const emptyForType = (f: Pick<Field, 'type'>): unknown => {
             return '';
         case 'date':
             return '';
+        case 'image':
+            // Per-row image cell: no value = null. Truthy `existing` check in
+            // resolveFieldValue treats null as "fall through to default", which
+            // is what we want — the cell renders its empty Upload button.
+            return null;
         case 'select':
         case 'text':
         case 'textarea':

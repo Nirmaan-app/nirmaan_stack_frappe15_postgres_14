@@ -3619,6 +3619,15 @@
             "type": "text",
             "default": "EARTH PIT RESISTANCE MEASUREMENT",
             "readonly": true
+          },
+          {
+            "key": "num_earth_pits",
+            "label": "Number of Earth Pits",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "max": 50,
+            "helpText": "Drives the initial row count in the Electrical Parameters table."
           }
         ]
       },
@@ -3762,7 +3771,7 @@
             "label": "Type",
             "type": "text",
             "required": true,
-            "width": "25%"
+            "width": "20%"
           },
           {
             "key": "units",
@@ -3770,7 +3779,7 @@
             "type": "text",
             "default": "Ohms",
             "required": true,
-            "width": "12%"
+            "width": "10%"
           },
           {
             "key": "test_results",
@@ -3778,15 +3787,16 @@
             "type": "number",
             "required": true,
             "min": 0,
-            "width": "15%"
+            "width": "14%"
           },
           {
             "key": "acceptable_criteria",
             "label": "Acceptable Criteria",
             "type": "text",
             "required": true,
-            "width": "18%",
-            "placeholder": "e.g. <1"
+            "default": "<1",
+            "readonly": true,
+            "width": "16%"
           },
           {
             "key": "remarks",
@@ -3798,7 +3808,14 @@
               "N/A"
             ],
             "default": "PASS",
-            "width": "12%"
+            "width": "11%"
+          },
+          {
+            "key": "photo",
+            "label": "Photo",
+            "type": "image",
+            "required": false,
+            "width": "13%"
           }
         ]
       },

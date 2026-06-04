@@ -19,6 +19,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
     'number',
     'date',
     'select',
+    'image',
 ] as const;
 
 export const REVIEW_STEP_KEY = 'review';

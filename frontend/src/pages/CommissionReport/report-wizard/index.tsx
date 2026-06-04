@@ -239,7 +239,10 @@ export const CommissionReportWizard: React.FC = () => {
     const keepNamesRef = useRef<string[]>([]);
 
     const updateKeepNames = useCallback(
-        (attachments: Record<string, AttachmentSlotValue[]>) => {
+        (
+            attachments: Record<string, AttachmentSlotValue[]>,
+            responses?: Record<string, unknown>,
+        ) => {
             const all: string[] = [];
             for (const arr of Object.values(attachments)) {
                 if (!Array.isArray(arr)) continue;
@@ -248,6 +251,26 @@ export const CommissionReportWizard: React.FC = () => {
                         all.push((v as AttachmentRecord).file_doc as string);
                     }
                 }
+            }
+            // Also walk `responses` for inline per-row AttachmentRecords (used by
+            // trainees_data_table image columns, e.g. Earth Pit per-row photos).
+            if (responses) {
+                const visit = (node: unknown): void => {
+                    if (!node) return;
+                    if (Array.isArray(node)) {
+                        for (const item of node) visit(item);
+                        return;
+                    }
+                    if (typeof node === 'object') {
+                        const obj = node as Record<string, unknown>;
+                        if (typeof obj.file_doc === 'string' && obj.file_doc) {
+                            all.push(obj.file_doc);
+                            return;
+                        }
+                        for (const v of Object.values(obj)) visit(v);
+                    }
+                };
+                visit(responses);
             }
             keepNamesRef.current = all;
         },
@@ -292,7 +315,18 @@ export const CommissionReportWizard: React.FC = () => {
                     message: err.message,
                 });
             }
-            toast({ title: 'Please fix errors before continuing', variant: 'destructive' });
+            // Surface the first 3 messages so the user sees the actual reason,
+            // not just a generic "fix errors" prompt.
+            const preview = stepErrors
+                .slice(0, 3)
+                .map((e) => `• ${e.message}`)
+                .join('\n');
+            const more = stepErrors.length > 3 ? `\n…and ${stepErrors.length - 3} more` : '';
+            toast({
+                title: 'Please fix errors before continuing',
+                description: preview + more,
+                variant: 'destructive',
+            });
             return;
         }
 
@@ -319,7 +353,16 @@ export const CommissionReportWizard: React.FC = () => {
                     message: err.message,
                 });
             }
-            toast({ title: 'Form has errors', description: 'Review previous steps.', variant: 'destructive' });
+            const preview = fullErrors
+                .slice(0, 3)
+                .map((e) => `• ${e.message}`)
+                .join('\n');
+            const more = fullErrors.length > 3 ? `\n…and ${fullErrors.length - 3} more` : '';
+            toast({
+                title: 'Form has errors',
+                description: preview + more,
+                variant: 'destructive',
+            });
             return;
         }
 
@@ -346,7 +389,7 @@ export const CommissionReportWizard: React.FC = () => {
                 expectedModified: parentDoc.modified || '',
             });
             // Refresh keep set so the cleanup-on-unmount knows what's committed.
-            updateKeepNames(values.attachments);
+            updateKeepNames(values.attachments, values.responses);
             setIsCommitted(true);
             draft.clearDraftAfterSubmit();
 
@@ -552,7 +595,10 @@ export const CommissionReportWizard: React.FC = () => {
                                     forceReadonly={mode === 'view'}
                                     onAttachmentCreated={(fileDoc) => {
                                         track(fileDoc);
-                                        updateKeepNames(form.getValues('attachments'));
+                                        updateKeepNames(
+                                            form.getValues('attachments'),
+                                            form.getValues('responses'),
+                                        );
                                     }}
                                 />
                             );
@@ -965,9 +1011,40 @@ const ReviewSummary: React.FC<{
                                                         {idx + 1}
                                                     </td>
                                                     {section.columns.map((c) => {
+                                                        const cellValue = row?.[c.key];
+                                                        // Image column: render a thumbnail
+                                                        // instead of stringifying the object.
+                                                        if (c.type === 'image') {
+                                                            const rec = cellValue as
+                                                                | AttachmentRecord
+                                                                | null
+                                                                | undefined;
+                                                            return (
+                                                                <td key={c.key} className="py-2 pr-2">
+                                                                    {rec && rec.file_url ? (
+                                                                        <a
+                                                                            href={rec.file_url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            title={rec.file_name}
+                                                                        >
+                                                                            <img
+                                                                                src={rec.file_url}
+                                                                                alt={rec.file_name}
+                                                                                className="h-12 w-12 rounded border object-cover"
+                                                                            />
+                                                                        </a>
+                                                                    ) : (
+                                                                        <span className="italic text-muted-foreground">
+                                                                            —
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                            );
+                                                        }
                                                         const display = formatReviewValue(
                                                             { ...c, bind: undefined } as Field,
-                                                            row?.[c.key],
+                                                            cellValue,
                                                         );
                                                         const isEmpty = display === '—';
                                                         return (

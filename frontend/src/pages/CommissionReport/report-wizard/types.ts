@@ -3,7 +3,7 @@
 
 // ─── Field-level shapes (used inside header + fields + checklist items) ───────
 
-export type FieldType = 'text' | 'textarea' | 'number' | 'date' | 'select';
+export type FieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'image';
 
 export interface BaseField {
     key: string;
@@ -47,7 +47,18 @@ export interface SelectField extends BaseField {
     options: string[];
 }
 
-export type Field = TextField | TextareaField | NumberField | DateField | SelectField;
+/** Per-cell image field, used inside `trainees_data_table` columns. The cell
+ *  uploads to S3 via the same `useFrappeFileUpload` flow as `image_attachments`
+ *  and stores an `AttachmentRecord` inline in the row's column value. */
+export interface ImageField extends BaseField {
+    type: 'image';
+    /** Max upload size in MB. Default 5. */
+    maxSizeMb?: number;
+    /** MIME hint, e.g. "image/*". Default "image/*". */
+    accept?: string;
+}
+
+export type Field = TextField | TextareaField | NumberField | DateField | SelectField | ImageField;
 
 // ─── Section-level shapes ────────────────────────────────────────────────────
 

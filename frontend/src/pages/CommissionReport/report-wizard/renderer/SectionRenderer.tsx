@@ -75,9 +75,12 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
             return (
                 <TraineesDataTableSection
                     section={section}
+                    parentName={parentName}
+                    childRowName={childRowName}
                     projectId={projectId}
                     templateId={templateId}
                     forceReadonly={forceReadonly}
+                    onAttachmentCreated={onAttachmentCreated}
                 />
             );
         case 'measurement_matrix':
