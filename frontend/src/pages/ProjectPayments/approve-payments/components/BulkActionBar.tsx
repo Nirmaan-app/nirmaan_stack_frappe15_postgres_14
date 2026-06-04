@@ -116,7 +116,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
         variant="default"
         disabled={loading}
         onClick={() => openDialog("approve")}
-        className="h-8 gap-1"
+        className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
       >
         {loading && dialogAction === "approve" ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -127,7 +127,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
       </Button>
       <Button
         size="sm"
-        variant="destructive"
+        variant="default"
         disabled={loading}
         onClick={() => openDialog("reject")}
         className="h-8 gap-1"
