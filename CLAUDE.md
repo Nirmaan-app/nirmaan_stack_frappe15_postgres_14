@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-05 (Bucket-1 hub-polish slice -- frontend-only, no backend/convention impact on root; feat f5dcfdd6; see plan-doc + frontend/CLAUDE.md for full record) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+**Last updated:** 2026-06-05 (Bucket-1 zone-differentiation follow-up -- frontend-only styling, no backend/convention impact on root; feat 1ec901e7; see plan-doc + frontend/CLAUDE.md for full record) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
 ## Overview
 
@@ -181,7 +181,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Bucket-1 hub-polish (hub Parsed count + 2-col general-specs checklist + spoke Option-B parsing-vs-details zone grouping; frontend-only; feat f5dcfdd6; Vite build exit 0). Wizard tests: 163 total (test_parse_run 55 + test_update_sheet_draft 66 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12); frontend slices verified by tsc + Vite build. Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Bucket-1 zone-differentiation follow-up (spoke config/details zones boxed + secondary zone tinted; frontend-only styling; feat 1ec901e7; Vite build exit 0). Wizard tests: 163 total (test_parse_run 55 + test_update_sheet_draft 66 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12); frontend slices verified by tsc + Vite build. Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 

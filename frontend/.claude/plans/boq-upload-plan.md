@@ -189,10 +189,15 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **tsc:** 0 errors on boq-wizard files. Vite build exit 0 (7862 modules, 4m 58s). No new warnings.
 - **Files touched (code only):** `BoqHubPage.tsx`, `SheetConfigPanel.tsx`. `SheetCard.tsx`, `boqTypes.ts`, all `.py` files, all doctype JSON unchanged.
 
+**Bucket-1 zone-differentiation follow-up COMPLETE (feat 1ec901e7; frontend-only styling only, 0 tests added, parser 588 / wizard 163 unchanged):**
+- **Zone boxing + secondary tint (SheetConfigPanel.tsx):** Zone A ("Parsing configuration") given `rounded-md border border-border p-3` wrapper (untinted, primary box on normal card surface). Zone B ("Sheet details") given `rounded-md border border-border bg-muted/30 p-3` wrapper (tinted secondary box using existing `muted` token). Zone B's former `border-t border-border pt-3` removed -- the box border + outer `space-y-5` gap now provides the visual separation. Within-Zone-A section dividers (`pt-3 border-t border-border` on Sections 2 and 3) kept -- they serve as clear within-group section separators inside the box (complementary to the box border, not redundant). Captions, section headings, gate logic, sparkle conditions, save handlers: byte-for-byte unchanged.
+- **tsc + Vite build:** 0 errors. Exit 0.
+- **Files touched (code only):** `SheetConfigPanel.tsx` only. Docs: all three (substantive: plan-doc + `frontend/CLAUDE.md`; minimal-touch: root `CLAUDE.md`).
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-05 (Bucket-1 hub-polish slice COMPLETE -- feat f5dcfdd6: hub Parsed count + 2-col general-specs checklist + spoke parsing-vs-details zone grouping; Vite build exit 0)
+**Last updated:** 2026-06-05 (Bucket-1 zone-differentiation follow-up COMPLETE -- feat 1ec901e7: spoke config/details zones boxed + secondary zone tinted bg-muted/30; frontend-only)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat f5dcfdd6 (hub Parsed count + 2-col general-specs checklist + spoke parsing-vs-details zone grouping)
+**Latest commit:** feat 1ec901e7 (box spoke config/details zones + tint secondary zone)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
