@@ -272,6 +272,9 @@ const BoqHubPage = () => {
     (s) => getEffectiveStatus(s) === "Skip"
   ).length;
   const hiddenCount = hiddenDrafts.length;
+  const parsedCount = dataSheets.filter(
+    (s) => getEffectiveStatus(s) === "Parsed"
+  ).length;
 
   const parseGateReason = (() => {
     if (canParse) return "Workbook is ready to parse";
@@ -487,7 +490,7 @@ const BoqHubPage = () => {
         {nonHiddenDrafts.length === 0 ? (
           <p className="text-xs text-muted-foreground">No sheets available.</p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             {nonHiddenDrafts.map((d) => {
               const isTicked = tickedSpecsSheets.has(d.sheet_name);
               return (
@@ -573,6 +576,7 @@ const BoqHubPage = () => {
         <p className="text-sm text-muted-foreground">
           {reviewedCount} of {totalDataCount} data{" "}
           {totalDataCount === 1 ? "sheet" : "sheets"} reviewed
+          {parsedCount > 0 && ` · ${parsedCount} parsed`}
           {generalSpecsCount > 0 && ` · ${generalSpecsCount} general specs`}
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}

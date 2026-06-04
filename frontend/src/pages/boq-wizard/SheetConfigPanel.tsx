@@ -737,6 +737,12 @@ export function SheetConfigPanel({
     <TooltipProvider delayDuration={300}>
     <div className="rounded-lg border border-border bg-card p-4 space-y-5">
 
+      {/* ── Zone A: Parsing configuration ────────────────────────────────── */}
+      <div>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
+        Parsing configuration — changes here require re-parsing
+      </p>
+
       {/* ── Section 1: Rows ─────────────────────────────────────────────── */}
       <div className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
@@ -1211,9 +1217,16 @@ export function SheetConfigPanel({
           )}
         </div>
       </div>
+      </div>
+
+      {/* ── Zone B: Sheet details ─────────────────────────────────────────── */}
+      <div className="border-t border-border pt-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
+        Sheet details — saved without re-parsing
+      </p>
 
       {/* ── Section 4: Work Packages ────────────────────────────────────── */}
-      <div className="space-y-4 pt-3 border-t border-border">
+      <div className="space-y-4">
         <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
           Section 4 — Work Packages
           {(workPackages?.length ?? 0) > 0 && !confirmedFields.has("section:workpackages") && (
@@ -1252,6 +1265,7 @@ export function SheetConfigPanel({
             </div>
           ))}
         </div>
+      </div>
       </div>
 
       {/* ── Bulk-accept + Review gate ────────────────────────────────────── */}
