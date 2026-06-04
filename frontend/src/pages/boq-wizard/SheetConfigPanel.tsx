@@ -738,7 +738,7 @@ export function SheetConfigPanel({
     <div className="rounded-lg border border-border bg-card p-4 space-y-5">
 
       {/* ── Zone A: Parsing configuration ────────────────────────────────── */}
-      <div>
+      <div className="rounded-md border border-border p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
         Parsing configuration — changes here require re-parsing
       </p>
@@ -1220,7 +1220,7 @@ export function SheetConfigPanel({
       </div>
 
       {/* ── Zone B: Sheet details ─────────────────────────────────────────── */}
-      <div className="border-t border-border pt-3">
+      <div className="rounded-md border border-border bg-muted/30 p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
         Sheet details — saved without re-parsing
       </p>
