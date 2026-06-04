@@ -156,10 +156,20 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **tsc:** 0 errors in boq-wizard files. 21 pre-existing errors in unrelated utility files unchanged.
 - **Tests:** no existing SheetCard test harness; manual verification is Nitesh's (HVAC card on BOQ-26-00145 must show green "Parsed" pill + "Edit" button → spoke after frontend de-stale ritual).
 
+**Slice 2b-backend-3 COMPLETE (feat e996d097; set_general_specs_sheet list replace-all-to-many + non-Hidden validation):**
+- **Signature change (Option A -- clean break):** `set_general_specs_sheet(boq_name, sheet_name_or_none: str)` -> `set_general_specs_sheet(boq_name, sheet_names)`. No backward-compat shim; only two callers confirmed (this test file + BoqHubPage.tsx).
+- **Normalization:** accepts Python list OR JSON-array string (mirrors `set_sheet_work_packages` house style -- inline, no shared helper). Empty list `[]` = clear all designations (replaces old None/"" clear path).
+- **Validate-all-before-write:** two checks per name before any write: (a) sheet exists in this BOQs (via `_get_child_name`); (b) sheet is non-Hidden (`frappe.db.get_value("BoQ Sheet Draft", child_name, "wizard_status")` -- Hidden rejected with "No changes were made." message). Entire call rejected if any name fails; no partial write.
+- **Only Hidden is rejected.** Reviewed/Pending/Skip/Parsed sheets are all designatable. The M2.23 courtesy warn-on-Reviewed lives in the frontend, not here.
+- **Replace-all-to-many:** delete all BoQ General Specs Sheet rows, then insert one per name in the list. Empty list = delete-only.
+- **M2.23 unchanged:** wizard_status never touched; preamble_text blank on insert (worker-owned).
+- **Tests:** 14 call sites updated (sheet_name_or_none=X -> sheet_names=[X]; None/"" -> []). Bypass test `test_two_designated_sheets_produce_two_rows_with_distinct_names` REWRITTEN to actually call the endpoint with sheet_names=[HVAC, ELEC] (was a frappe.new_doc bypass). +6 new tests: multi-designate, multi-then-fewer replace-all, clear-with-empty-list, hidden-rejection-no-partial-write, one-hidden-among-two-no-partial-write, multi-wizard-status-untouched. Total: 60 -> 66 test_update_sheet_draft; wizard 157 -> 163.
+- **BREAKING NOTE:** `doSetGeneralSpecs` in `BoqHubPage.tsx` (passes `sheet_name_or_none: string`) is intentionally left broken by this slice. It is fixed in Slice 2b-frontend-ii (the multi-select checklist UI, next).
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-04 (Slice 2b-frontend-i: hub Parse button wired to run_parse; ParseRunDialog; dirty badge + last_parsed_at on cards; boq:parse_run_done socket listener; feat c9fc37fd; wizard tests 157 total unchanged -- frontend slice verified by tsc + Vite build)
+**Last updated:** 2026-06-04 (Slice 2b-backend-3: set_general_specs_sheet list replace-all-to-many + non-Hidden validation; feat e996d097; wizard 163 total (66 test_update_sheet_draft))
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat c9fc37fd (Slice 2b-frontend-i -- wire hub Parse workbook button to run_parse)
+**Latest commit:** feat e996d097 (Slice 2b-backend-3 -- set_general_specs_sheet accepts list replace-all-to-many)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
