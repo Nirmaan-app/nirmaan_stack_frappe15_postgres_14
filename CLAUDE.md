@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-04 (Slice 2b-backend-2: has_prior_parse + last_parsed_at on BoQ Sheet Draft; feat 896f3a3c; parser 588; wizard 157 total)
+**Last updated:** 2026-06-04 (Slice 2b-frontend-i: hub Parse button wired to run_parse + ParseRunDialog + dirty badge; feat c9fc37fd; parser 588; wizard 157 total -- frontend slice tsc/Vite-verified)
 
 ## Overview
 
@@ -181,7 +181,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Slice 2b-backend-2 (parse-history fields `has_prior_parse` + `last_parsed_at`), feat 896f3a3c. Wizard tests: 157 total (test_parse_run 55 + test_update_sheet_draft 60 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12). Module 2b next. Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Module 1a/1b + Module 2a COMPLETE. Parse-run Phase 1 IN PROGRESS -- latest landed slice: Slice 2b-frontend-i (hub Parse button wired to run_parse; ParseRunDialog four-list confirm; subset checkboxes; warn-before-reparse; boq:parse_run_done socket listener; dirty badge on cards; last_parsed_at display), feat c9fc37fd. Wizard tests: 157 total (test_parse_run 55 + test_update_sheet_draft 60 + test_update_boq_draft 7 + test_sheet_preview 23 + test_upload_file 12); frontend slices verified by tsc + Vite build. Module 2b-frontend-ii next (multi-select general-specs UI). Full sub-phase history + as-built detail: see boq-upload-plan.md (per-slice sections). Do not duplicate the changelog here. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
