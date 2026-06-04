@@ -219,8 +219,13 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** exit 0, no tsc errors, no new warnings (3 pre-existing: BoqProjectTab static/dynamic import, PWA theme_color, large chunks).
 - **Bucket-2 COMPLETE** (Slice 1 backend + Slice 2 frontend). Both the SET/CLEAR backend plumbing and the consuming frontend modal/recovery are landed.
 
+**Bucket-2 follow-up COMPLETE (feat 295e3881; ParseRunDialog.tsx only -- styling/copy only, no logic changes):**
+- **Step 1 note:** className updated from `text-xs text-muted-foreground` to `text-sm font-semibold text-amber-600 dark:text-amber-400` -- bold + amber + slightly larger. Reuses existing wizard amber token (same as Section-3 unmapped-column warning). Copy unchanged.
+- **Step 2 note added:** same bold-amber note (`text-sm font-semibold text-amber-600 dark:text-amber-400`) added to the Step-2 re-parse warning dialog, below the sheet list and above the Go back / Re-parse anyway buttons. Same copy. No behavior change.
+- Build: exit 0. 0 tests added (parser 588 / wizard 168 unchanged).
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-05 (Bucket-2 COMPLETE -- Slice 2 frontend feat 21e56963: completion modal + per-case messages + on-mount parse_in_progress recovery)
+**Last updated:** 2026-06-05 (Bucket-2 follow-up feat 295e3881: bold-amber ~10-min note + Step-2 placement; ParseRunDialog.tsx only)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
 **Latest commit:** feat 21e56963 (parse completion modal + per-case messages + on-mount recovery)
 

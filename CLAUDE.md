@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-05 (Bucket-2 Slice 2 frontend -- feat 21e56963; completion AlertDialog + per-case messages + on-mount parse_in_progress recovery in BoqHubPage.tsx; consumes the parse_in_progress field from Slice 1 cb86b92b; FRONTEND ONLY, no backend/convention change; see plan-doc + frontend/CLAUDE.md for full record) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+**Last updated:** 2026-06-05 (Bucket-2 follow-up -- feat 295e3881; bold-amber ~10-min note in ParseRunDialog.tsx Step 1 + Step 2; FRONTEND ONLY, no backend/convention change; minimal-touch) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
 ## Overview
 
