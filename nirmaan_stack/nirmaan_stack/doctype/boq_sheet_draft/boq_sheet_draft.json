@@ -9,7 +9,9 @@
   "wizard_status",
   "work_packages",
   "sheet_label",
-  "sheet_config"
+  "sheet_config",
+  "has_prior_parse",
+  "last_parsed_at"
  ],
  "fields": [
   {
@@ -49,6 +51,17 @@
    "fieldname": "sheet_config",
    "fieldtype": "JSON",
    "label": "Sheet Config"
+  },
+  {
+   "fieldname": "has_prior_parse",
+   "fieldtype": "Check",
+   "label": "Has Prior Parse"
+  },
+  {
+   "fieldname": "last_parsed_at",
+   "fieldtype": "Datetime",
+   "label": "Last Parsed At",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,

@@ -92,6 +92,14 @@ export interface BoQSheetDraft {
    * always read-modify-write to preserve column_role_map and other keys).
    */
   sheet_config?: Record<string, unknown> | string | null;
+  /**
+   * Set to 1 by the parse worker when it marks a sheet "Parsed". Never cleared.
+   * Dirty-detection contract: wizard_status="Reviewed" + has_prior_parse=1 means
+   * the sheet was parsed then had its config changed (parse is stale).
+   */
+  has_prior_parse?: 0 | 1;
+  /** UTC datetime of the most recent successful parse for this sheet. Never cleared. */
+  last_parsed_at?: string | null;
 }
 
 // ── Preview response types (Slice 3b-i endpoint, feat bf1a2e64) ───────────────

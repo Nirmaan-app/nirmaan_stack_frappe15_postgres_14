@@ -395,9 +395,14 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
                     doc.update(row_dict)
                     doc.insert(ignore_permissions=True)
 
-                # Mark Parsed -- but NOT general-specs sheets (they are not data sheets)
+                # Mark Parsed -- but NOT general-specs sheets (they are not data sheets).
+                # Stamp parse-history fields alongside status in the same DB write so the
+                # frontend can distinguish "never parsed" from "Reviewed after config change".
                 if sheet_name not in general_specs_sheet_names_worker:
-                    _set_draft_status(boq_name, sheet_name, "Parsed")
+                    _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields={
+                        "has_prior_parse": 1,
+                        "last_parsed_at": frappe.utils.now(),
+                    })
 
                 parsed_sheets.append(sheet_name)
 
@@ -554,14 +559,25 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
     return tmp.name
 
 
-def _set_draft_status(boq_name: str, sheet_name: str, status: str) -> None:
-    """Set wizard_status on the matching BoQ Sheet Draft child row. Silently ignores missing."""
+def _set_draft_status(
+    boq_name: str,
+    sheet_name: str,
+    status: str,
+    extra_fields: dict | None = None,
+) -> None:
+    """Set wizard_status (and optionally extra fields) on the matching BoQ Sheet Draft child row.
+    Silently ignores missing rows.  extra_fields is merged in the same db write as wizard_status.
+    """
     child_name = frappe.db.get_value(
         "BoQ Sheet Draft",
         {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
         "name",
     )
-    if child_name:
+    if not child_name:
+        return
+    if extra_fields:
+        frappe.db.set_value("BoQ Sheet Draft", child_name, {"wizard_status": status, **extra_fields})
+    else:
         frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", status)
 
 

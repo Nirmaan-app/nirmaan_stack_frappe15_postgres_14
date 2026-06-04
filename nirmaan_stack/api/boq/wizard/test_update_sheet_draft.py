@@ -1,3 +1,5 @@
+import json
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -888,3 +890,124 @@ class TestGetBoqWorkPackages(FrappeTestCase):
         result2 = get_boq_work_packages(boq_name=self.boq.name)
         self.assertEqual(result2.get(_SHEET_HVAC), [_WH_GET_BETA])
         self.assertEqual(result2.get(_SHEET_ELEC), [_WH_GET_BETA])
+
+
+# ---------------------------------------------------------------------------
+# Parse-history fields NOT touched by update_sheet_draft endpoints -- Slice 2b-backend-2
+# ---------------------------------------------------------------------------
+
+class TestParseHistoryNotTouched(FrappeTestCase):
+    """
+    Asserts that set_sheet_config and set_sheet_status do NOT read or modify
+    has_prior_parse / last_parsed_at.  These are write-once-by-the-worker fields;
+    the update_sheet_draft endpoints must leave them untouched.
+    """
+
+    _SENTINEL_TS = "2026-01-01 00:00:00"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+        # Simulate parse history on HVAC sheet (as if worker ran and stamped it)
+        child_name = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": _SHEET_HVAC},
+            "name",
+        )
+        frappe.db.set_value("BoQ Sheet Draft", child_name, {
+            "wizard_status": "Parsed",
+            "has_prior_parse": 1,
+            "last_parsed_at": self._SENTINEL_TS,
+        })
+        frappe.db.commit()
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _get_history(self, sheet_name: str) -> dict:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            ["has_prior_parse", "last_parsed_at"],
+            as_dict=True,
+        )
+
+    @staticmethod
+    def _ts_str(val) -> str:
+        """Normalize a Frappe Datetime return to a 19-char string for comparison.
+        Frappe returns Datetime fields as datetime.datetime objects, not strings."""
+        return str(val)[:19] if val is not None else ""
+
+    def test_set_sheet_config_dirty_drop_does_not_clear_parse_history(self):
+        """
+        set_sheet_config with a changed config drops Parsed->Reviewed but must NOT
+        touch has_prior_parse or last_parsed_at.
+        """
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 7, "area_dimensions": []},
+        )
+
+        status = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": _SHEET_HVAC},
+            "wizard_status",
+        )
+        self.assertEqual(status, "Reviewed", "dirty-marker drop did not fire -- test precondition failed")
+
+        hist = self._get_history(_SHEET_HVAC)
+        self.assertEqual(hist.has_prior_parse, 1,
+            "set_sheet_config cleared has_prior_parse during dirty-drop")
+        self.assertEqual(self._ts_str(hist.last_parsed_at), self._SENTINEL_TS,
+            "set_sheet_config modified last_parsed_at during dirty-drop")
+
+    def test_set_sheet_config_noop_save_does_not_clear_parse_history(self):
+        """
+        set_sheet_config with an identical config (no status change) also must NOT
+        touch the parse-history fields.
+        """
+        cfg = {"header_row": 1, "area_dimensions": []}
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=cfg)
+        # Write it again identically (no-op save path)
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=cfg)
+
+        hist = self._get_history(_SHEET_HVAC)
+        self.assertEqual(hist.has_prior_parse, 1,
+            "set_sheet_config (no-op path) cleared has_prior_parse")
+        self.assertEqual(self._ts_str(hist.last_parsed_at), self._SENTINEL_TS,
+            "set_sheet_config (no-op path) modified last_parsed_at")
+
+    def test_set_sheet_status_pending_does_not_clear_parse_history(self):
+        """
+        set_sheet_status("Pending") must leave has_prior_parse and last_parsed_at
+        exactly as they were.  A Pending sheet that was parsed before carries history.
+        """
+        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Pending")
+
+        hist = self._get_history(_SHEET_HVAC)
+        self.assertEqual(hist.has_prior_parse, 1,
+            "set_sheet_status('Pending') cleared has_prior_parse")
+        self.assertEqual(self._ts_str(hist.last_parsed_at), self._SENTINEL_TS,
+            "set_sheet_status('Pending') modified last_parsed_at")
+
+    def test_set_sheet_status_reviewed_does_not_clear_parse_history(self):
+        """set_sheet_status('Reviewed') must also leave parse history intact."""
+        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+
+        hist = self._get_history(_SHEET_HVAC)
+        self.assertEqual(hist.has_prior_parse, 1,
+            "set_sheet_status('Reviewed') cleared has_prior_parse")
+        self.assertEqual(self._ts_str(hist.last_parsed_at), self._SENTINEL_TS,
+            "set_sheet_status('Reviewed') modified last_parsed_at")

@@ -32,6 +32,10 @@ from nirmaan_stack.api.boq.wizard.parse_run import (
     flatten_parsed_boq,
     flatten_resolved_row,
 )
+from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
+    set_sheet_config,
+    set_sheet_status,
+)
 
 _FIXTURES = Path(__file__).parent.parent.parent.parent / "services" / "boq_parser" / "tests" / "fixtures"
 
@@ -1203,3 +1207,208 @@ class TestRunParseWorker(FrappeTestCase):
                     parsed, dict,
                     f"{field} should be a dict after round-trip, got {type(parsed)}",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Group 5: parse-history fields (has_prior_parse + last_parsed_at) -- Slice 2b-backend-2
+# ---------------------------------------------------------------------------
+
+class TestParseHistoryFields(FrappeTestCase):
+    """
+    Tests for has_prior_parse + last_parsed_at on BoQ Sheet Draft.
+
+    Design contract (LOCKED):
+      - Worker stamps both fields when it writes wizard_status="Parsed" for a data sheet.
+      - General-specs sheets are never marked Parsed, so they never receive stamps.
+      - Nothing clears these fields: set_sheet_config dirty-drop and set_sheet_status
+        both leave them untouched.  History is history.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        generate_all()
+        cls.test_project = _make_project()
+
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "DataSheet"
+        ws1.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws1.append([1, "History Item", "nos", 1, 100.0, 100.0])
+        ws_sow = wb.create_sheet("SOW")
+        ws_sow.append(["General Specifications"])
+        ws_sow.append(["1. All work per IS standards."])
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        cls._wb_path = tmp.name
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls._wb_path)
+        except OSError:
+            pass
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
+        ):
+            frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_boq(self, include_sow: bool = False):
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"History Test {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.source_file_url = self.__class__._wb_path
+        if include_sow:
+            boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
+        boq.append("sheet_drafts", {
+            "sheet_name": "DataSheet", "sheet_order": 1,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        if include_sow:
+            boq.append("sheet_drafts", {
+                "sheet_name": "SOW", "sheet_order": 2,
+                "wizard_status": "Reviewed",
+            })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def _run(self, boq_name, sheet_names=None):
+        _run_parse_worker(boq_name, sheet_names=sheet_names, user="Administrator")
+
+    def _get_history(self, boq_name: str, sheet_name: str) -> dict:
+        """Return has_prior_parse + last_parsed_at for the given sheet draft."""
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            ["has_prior_parse", "last_parsed_at"],
+            as_dict=True,
+        )
+
+    def test_data_sheet_has_prior_parse_and_last_parsed_at_set_after_parse(self):
+        """Worker parses a data sheet -> has_prior_parse=1 and last_parsed_at is non-null."""
+        boq = self._make_boq()
+        self._run(boq.name)
+
+        hist = self._get_history(boq.name, "DataSheet")
+        self.assertEqual(hist.has_prior_parse, 1,
+            "has_prior_parse was not set to 1 after successful parse")
+        self.assertIsNotNone(hist.last_parsed_at,
+            "last_parsed_at was not stamped after successful parse")
+
+    def test_general_specs_sheet_never_stamped(self):
+        """General-specs sheet is never marked Parsed -> has_prior_parse stays 0 / last_parsed_at null."""
+        boq = self._make_boq(include_sow=True)
+        self._run(boq.name)
+
+        hist = self._get_history(boq.name, "SOW")
+        self.assertFalse(
+            hist.has_prior_parse,
+            "has_prior_parse was set on a general-specs sheet (must never be Parsed)",
+        )
+        self.assertIsNone(
+            hist.last_parsed_at,
+            "last_parsed_at was set on a general-specs sheet (must never be Parsed)",
+        )
+        # DataSheet must still be stamped
+        data_hist = self._get_history(boq.name, "DataSheet")
+        self.assertEqual(data_hist.has_prior_parse, 1)
+
+    def test_parse_history_survives_config_change_dirty_drop(self):
+        """
+        Dirty-signal contract (Check 5 support):
+        After parse, a config change via set_sheet_config drops Parsed->Reviewed.
+        has_prior_parse must STILL be 1 and last_parsed_at STILL be set.
+        The combination wizard_status=Reviewed + has_prior_parse=1 is the dirty signal.
+        """
+        boq = self._make_boq()
+        self._run(boq.name)
+
+        hist_before = self._get_history(boq.name, "DataSheet")
+        self.assertEqual(hist_before.has_prior_parse, 1)
+        self.assertIsNotNone(hist_before.last_parsed_at)
+
+        # Config change -> drops Parsed to Reviewed
+        set_sheet_config(
+            boq_name=boq.name,
+            sheet_name="DataSheet",
+            sheet_config={"header_row": 99, "area_dimensions": [], "column_role_map": {}},
+        )
+
+        hist_after = self._get_history(boq.name, "DataSheet")
+        # Status dropped
+        status = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq.name, "sheet_name": "DataSheet"},
+            "wizard_status",
+        )
+        self.assertEqual(status, "Reviewed", "Expected dirty-drop to Reviewed")
+        # History fields MUST NOT be cleared
+        self.assertEqual(hist_after.has_prior_parse, 1,
+            "has_prior_parse was cleared by set_sheet_config -- history must survive dirty-drop")
+        self.assertEqual(hist_after.last_parsed_at, hist_before.last_parsed_at,
+            "last_parsed_at was changed by set_sheet_config -- history must survive dirty-drop")
+
+    def test_parse_history_survives_set_pending_via_set_sheet_status(self):
+        """
+        History is history: set_sheet_status("Pending") must leave has_prior_parse=1
+        and last_parsed_at intact.  A Pending sheet that was parsed before legitimately
+        carries its parse history.
+        """
+        boq = self._make_boq()
+        self._run(boq.name)
+
+        hist_before = self._get_history(boq.name, "DataSheet")
+        self.assertEqual(hist_before.has_prior_parse, 1)
+        ts_before = hist_before.last_parsed_at
+        self.assertIsNotNone(ts_before)
+
+        set_sheet_status(boq_name=boq.name, sheet_name="DataSheet", status="Pending")
+
+        hist_after = self._get_history(boq.name, "DataSheet")
+        self.assertEqual(hist_after.has_prior_parse, 1,
+            "has_prior_parse cleared by set_sheet_status -- history must survive status changes")
+        self.assertEqual(hist_after.last_parsed_at, ts_before,
+            "last_parsed_at changed by set_sheet_status -- history must survive status changes")
+
+    def test_reparse_restamps_last_parsed_at(self):
+        """
+        Re-parse of an already-parsed sheet must re-stamp last_parsed_at to the
+        newer time; has_prior_parse stays 1.
+        """
+        boq = self._make_boq()
+        self._run(boq.name)
+
+        # Overwrite last_parsed_at with a known sentinel past time
+        child_name = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq.name, "parenttype": "BOQs", "sheet_name": "DataSheet"},
+            "name",
+        )
+        sentinel_ts = "2020-01-01 00:00:00"
+        frappe.db.set_value("BoQ Sheet Draft", child_name, "last_parsed_at", sentinel_ts)
+        frappe.db.commit()
+
+        # Re-parse
+        self._run(boq.name)
+
+        hist = self._get_history(boq.name, "DataSheet")
+        self.assertEqual(hist.has_prior_parse, 1)
+        self.assertIsNotNone(hist.last_parsed_at)
+        # Normalize: Frappe returns Datetime as datetime.datetime; compare as 19-char strings.
+        hist_ts_str = str(hist.last_parsed_at)[:19] if hist.last_parsed_at else ""
+        self.assertNotEqual(
+            hist_ts_str, sentinel_ts,
+            "last_parsed_at was not re-stamped on re-parse (still the sentinel past time)",
+        )
