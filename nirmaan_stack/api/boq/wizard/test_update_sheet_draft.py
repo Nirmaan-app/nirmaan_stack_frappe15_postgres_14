@@ -465,6 +465,133 @@ class TestSetSheetConfig(FrappeTestCase):
 
 
 # ---------------------------------------------------------------------------
+# set_sheet_config -- dirty marker (Parsed -> Reviewed on config change)
+# ---------------------------------------------------------------------------
+
+class TestSetSheetConfigDirtyMarker(FrappeTestCase):
+    """Truth-table tests for the Parsed->Reviewed dirty marker in set_sheet_config."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _get_status(self, sheet_name: str) -> str:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            "wizard_status",
+        )
+
+    def _set_status_direct(self, sheet_name: str, status: str):
+        """Bypass the endpoint to set wizard_status directly (for test setup)."""
+        frappe.db.set_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": sheet_name},
+            "wizard_status",
+            status,
+        )
+        frappe.db.commit()
+
+    def test_parsed_changed_config_drops_to_reviewed(self):
+        """Parsed + changed config -> wizard_status drops to Reviewed."""
+        self._set_status_direct(_SHEET_HVAC, "Parsed")
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 5},
+        )
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Reviewed")
+
+    def test_parsed_identical_config_stays_parsed(self):
+        """Parsed + identical config (no-op save) -> wizard_status stays Parsed."""
+        cfg = {"header_row": 3, "column_role_map": {"A": "sl_no"}}
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=cfg)
+        self._set_status_direct(_SHEET_HVAC, "Parsed")
+        # Second write with the same config -- must not drop to Reviewed.
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=cfg)
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Parsed")
+
+    def test_parsed_reordered_keys_semantically_identical_stays_parsed(self):
+        """Parsed + config with reordered keys (same semantics) -> stays Parsed.
+
+        Regression guard for compare soundness: the stored form is non-canonical
+        (json.dumps without sort_keys), so a raw string compare would report
+        'changed' here. The normalized sort_keys compare correctly returns False.
+        """
+        original = {"header_row": 3, "column_role_map": {"A": "sl_no"}}
+        reordered = {"column_role_map": {"A": "sl_no"}, "header_row": 3}
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=original)
+        self._set_status_direct(_SHEET_HVAC, "Parsed")
+        # Reversed key order -- semantically identical; must not drop to Reviewed.
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=reordered)
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Parsed")
+
+    def test_reviewed_changed_config_stays_reviewed(self):
+        """Reviewed + changed config -> wizard_status stays Reviewed (not touched)."""
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 1},
+        )
+        self._set_status_direct(_SHEET_HVAC, "Reviewed")
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 99},
+        )
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Reviewed")
+
+    def test_pending_changed_config_stays_pending(self):
+        """Pending + changed config -> wizard_status stays Pending (not touched)."""
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 99},
+        )
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Pending")
+
+    def test_skip_changed_config_status_untouched(self):
+        """Skip + changed config -> wizard_status stays Skip (only Parsed is affected)."""
+        self._set_status_direct(_SHEET_HVAC, "Skip")
+        set_sheet_config(
+            boq_name=self.boq.name,
+            sheet_name=_SHEET_HVAC,
+            sheet_config={"header_row": 2},
+        )
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Skip")
+
+    def test_changed_config_blob_written_correctly(self):
+        """Config blob is correctly written in the Parsed->Reviewed drop path."""
+        import json as _json
+        self._set_status_direct(_SHEET_HVAC, "Parsed")
+        new_cfg = {"header_row": 7, "area_dimensions": ["C3"]}
+        set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=new_cfg)
+        raw = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "sheet_name": _SHEET_HVAC},
+            "sheet_config",
+        )
+        self.assertIsNotNone(raw)
+        parsed = _json.loads(raw) if isinstance(raw, str) else raw
+        self.assertEqual(parsed["header_row"], 7)
+        self.assertEqual(parsed["area_dimensions"], ["C3"])
+
+
+# ---------------------------------------------------------------------------
 # set_sheet_work_packages -- positive + negative
 # ---------------------------------------------------------------------------
 

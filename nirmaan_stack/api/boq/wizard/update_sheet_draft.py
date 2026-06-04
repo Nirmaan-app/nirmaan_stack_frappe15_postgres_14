@@ -150,6 +150,12 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
     sheet_config may be a dict or a JSON-encoded string; both are accepted.
     Stores the config as a JSON string in the sheet_config field.
     To clear the config, pass sheet_config={} or sheet_config='{}' .
+
+    Dirty-marker: if the sheet's current wizard_status is "Parsed" and the new
+    config differs from the stored config (semantic compare with sort_keys
+    normalization, not raw-string), the status is dropped to "Reviewed" -- the
+    config change invalidates the prior parse. A no-op save (identical config,
+    including key-reordering) leaves a Parsed sheet as Parsed.
     URL: /api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_config
     """
     if not boq_name:
@@ -162,17 +168,20 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
-    # Normalize: accept dict or JSON string; validate JSON string if string
+    # Normalize: accept dict or JSON string; validate JSON string if string.
+    # Capture config_obj (Python object) for the semantic compare below.
     if isinstance(sheet_config, dict):
+        config_obj = sheet_config
         config_str = json.dumps(sheet_config)
     else:
         try:
-            json.loads(sheet_config)
+            config_obj = json.loads(sheet_config)
         except (ValueError, TypeError):
             frappe.throw(
                 "sheet_config must be a valid JSON string or object.",
                 title="Invalid JSON",
             )
+            config_obj = {}  # unreachable; frappe.throw() raises
         config_str = sheet_config
 
     child_name = _get_child_name(boq_name, sheet_name)
@@ -181,6 +190,45 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
             f"Sheet '{sheet_name}' not found in BOQs '{boq_name}'.",
             title="Sheet not found",
         )
+
+    # Read current state for dirty-marker detection.
+    current = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        child_name,
+        ["wizard_status", "sheet_config"],
+        as_dict=True,
+    )
+    current_status = (current.wizard_status or "") if current else ""
+    current_config_raw = (current.sheet_config or "") if current else ""
+
+    # Sound semantic compare: normalize both sides with sort_keys=True.
+    # Stored and incoming forms are both non-canonical (key order follows
+    # insertion order or original string order), so a raw string compare
+    # produces false "changed" reports on key-reordered but semantically
+    # identical configs. sort_keys=True serialization is deterministic for
+    # any two semantically-equal objects.
+    # Note: Frappe may return JSON fieldtype values as already-deserialized
+    # Python objects (dict/list) rather than raw strings; handle both.
+    incoming_canonical = json.dumps(config_obj, sort_keys=True)
+    if current_config_raw:
+        try:
+            if isinstance(current_config_raw, str):
+                stored_obj = json.loads(current_config_raw)
+            else:
+                stored_obj = current_config_raw  # already deserialized by Frappe
+            stored_canonical = json.dumps(stored_obj, sort_keys=True)
+        except (ValueError, TypeError):
+            stored_canonical = None  # malformed stored blob -> treat as changed
+    else:
+        stored_canonical = None  # no stored config -> always changed
+
+    changed = incoming_canonical != stored_canonical
+
+    # Dirty-marker: drop Parsed -> Reviewed on an actual config change only.
+    # Other statuses (Pending, Reviewed, Skip, Hidden, Parse failed) are not
+    # affected -- the marker is only meaningful for a post-parse sheet.
+    if current_status == "Parsed" and changed:
+        frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", "Reviewed")
 
     frappe.db.set_value("BoQ Sheet Draft", child_name, "sheet_config", config_str)
     frappe.db.commit()
