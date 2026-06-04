@@ -157,9 +157,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Tests:** no existing SheetCard test harness; manual verification is Nitesh's (HVAC card on BOQ-26-00145 must show green "Parsed" pill + "Edit" button → spoke after frontend de-stale ritual).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-03 (Slice 2-fix: "Parsed" status taught to frontend -- WizardStatus union + green pill + Edit-to-spoke branch; fix 24312cab; pre-existing gap not 2c regression; Module 2b next)
+**Last updated:** 2026-06-04 (Slice 2b-backend: dirty-marker drop Parsed->Reviewed on actual config change in set_sheet_config; feat 7795582f; 56 wizard tests)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** fix 24312cab (Slice 2-fix -- "Parsed" wizard_status frontend handling: WizardStatus union + green pill + Edit-to-spoke button)
+**Latest commit:** feat 7795582f (Slice 2b-backend -- dirty-marker drop Parsed->Reviewed on config change)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -5058,3 +5058,51 @@ Moved from `TestBoQReviewRowRoundTrip._LIST_JSON_FIELDS` (class attribute) to mo
 3. Assert: Reviewed sheets -> Parsed; 21/3 Skip sheets -> no rows; SOW -> master_preamble text logged, no rows; per-sheet re-parse replaces only that sheet's rows; `parsed_at` set on BOQs
 
 **Slice 2b next:** Wire "Parse workbook" button in hub frontend to call `run_parse`; handle `boq:parse_run_done` event in the hub; show parse progress/result. OR: Slice 3c (SheetConfigPanel wizard spoke) first if that is prioritized.
+
+---
+
+### Phase-1 Slice 2b-backend -- dirty-marker drop (Parsed -> Reviewed on config change)
+
+**Status:** COMPLETE (feat 7795582f; 7 new tests; 56 wizard tests total; 588 parser tests unchanged). Backend-only -- no frontend changes this slice.
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/update_sheet_draft.py` -- `set_sheet_config` dirty-marker logic
+- `nirmaan_stack/api/boq/wizard/test_update_sheet_draft.py` -- `TestSetSheetConfigDirtyMarker` class (7 tests)
+
+**What this slice does**
+
+`set_sheet_config` is the sole config writer (verified: no other endpoint touches `sheet_config`). Before writing the new blob it now:
+
+1. Reads the child row's current `wizard_status` + `sheet_config` via `frappe.db.get_value(child_name, [...], as_dict=True)`.
+2. Computes `changed` via a **sound semantic compare**: normalizes both the incoming config (Python object from dict input or `json.loads` of string input) and the stored config (stored blob re-parsed; handles Frappe auto-deserialization of JSON fields -- see note below) to `json.dumps(..., sort_keys=True)` and compares those canonical strings.
+3. If `current_status == "Parsed"` and `changed`: sets `wizard_status = "Reviewed"` (separate `db.set_value` call before the blob write).
+4. Writes the config blob unconditionally (identical blob write is harmless; simpler than skipping).
+
+**Compare-soundness note (load-bearing)**
+
+The stored and incoming forms are both non-canonical: dict input uses Python insertion-order via `json.dumps(dict)` (no `sort_keys`); string input is stored verbatim. Key reordering alone would cause a raw `==` compare to report "changed" on a semantically identical no-op save, producing a false dirty flag.
+
+The `sort_keys=True` normalization makes semantically-equal configs compare equal regardless of key order or original string formatting.
+
+**Additional finding during implementation:** Frappe's `db.get_value` with `as_dict=True` on a JSON fieldtype auto-deserializes the field to a Python dict (not a raw string). The comparison code handles both string and already-deserialized-object forms when reading the stored blob. Without this, `json.loads(dict)` raises `TypeError`, the except clause catches it, `stored_canonical` becomes `None`, and every save reports "changed" -- verified by two initial test failures.
+
+**Status-machine contract (LOCKED per plan §4)**
+
+| Prior status | changed | Result |
+|---|---|---|
+| Parsed | True | drops to Reviewed |
+| Parsed | False | stays Parsed (no-op save) |
+| Reviewed / Pending / Skip / Hidden / Parse failed | any | status untouched |
+
+`set_sheet_config` is the only endpoint that implements this drop; it is called by SheetConfigPanel's read-modify-write save. No schema changes (no dirty boolean, no hash field, no timestamp -- the status drop IS the dirty marker, per plan §4).
+
+**New test class `TestSetSheetConfigDirtyMarker` (7 tests)**
+- Parsed + changed config -> drops to Reviewed
+- Parsed + identical config (no-op save) -> stays Parsed
+- Parsed + reordered-keys (same semantic) -> stays Parsed (compare-soundness regression guard; included because stored form IS non-canonical)
+- Reviewed + changed config -> stays Reviewed (not touched)
+- Pending + changed config -> stays Pending (not touched)
+- Skip + changed config -> stays Skip (only-Parsed invariant)
+- Config blob correctly written in the Parsed->Reviewed drop path
+
+**No schema change.** No frontend change. No parser change. No CLAUDE.md convention-level change (dirty-marker behavior is fully documented here; set_sheet_config docstring updated inline).
