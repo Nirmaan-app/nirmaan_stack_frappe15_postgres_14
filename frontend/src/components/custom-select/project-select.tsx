@@ -7,6 +7,7 @@ import { StylesConfig } from "react-select";
 interface SelectOptions extends FuzzyOptionType {
     value: string;
     label: string;
+    isDisabled?: boolean;
 }
 
 interface ProjectSelectProps {
@@ -19,7 +20,7 @@ interface ProjectSelectProps {
     styles?: StylesConfig<SelectOptions, false>;
     /** Disable the select */
     disabled?: boolean;
-    filterByProjects?: Set<string> | string[] | null;
+    eligibleProjects?: Record<string, { po: number; itm: number }> | null;
 }
 
 // Token-based search config optimized for projects
@@ -43,7 +44,7 @@ export default function ProjectSelect({
     usePortal = false,
     styles,
     disabled = false,
-    filterByProjects,
+    eligibleProjects,
 }: ProjectSelectProps) {
     // First build the filters array dynamically
     const projectFilters: any[] = [];
@@ -85,15 +86,9 @@ export default function ProjectSelect({
             value: item.name,
             label: item.project_name,
         })) || [];
-        // null/undefined → no filter. A populated Set → strict filter. An
-        // empty Set DOES mean "show nothing" — callers should pass undefined
-        // (not an empty Set) while their eligibility fetch is still loading.
-        if (filterByProjects == null) return all;
-        const allowed = filterByProjects instanceof Set
-            ? filterByProjects
-            : new Set(filterByProjects);
-        return all.filter((o) => allowed.has(o.value));
-    }, [data, filterByProjects]);
+        if (eligibleProjects == null) return all;
+        return all.map((o) => ({ ...o, isDisabled: !eligibleProjects[o.value] }));
+    }, [data, eligibleProjects]);
 
     // Portal props for rendering dropdown in document.body (fixes clipping in dialogs)
     const portalProps = usePortal
@@ -116,6 +111,31 @@ export default function ProjectSelect({
             isClearable
             onMenuOpen={() => handleChange(null)}
             styles={styles}
+            formatOptionLabel={(option, meta) => {
+                const counts = eligibleProjects?.[option.value];
+                // Colored count pills show only in the menu — the selected-value
+                // chip stays a clean project name. PO=sky / ITM=purple mirrors
+                // the Type-chip convention used elsewhere in the DN flow.
+                if (meta.context === "value" || !counts) return option.label;
+                if (counts.po <= 0 && counts.itm <= 0) return option.label;
+                return (
+                    <span className="flex items-center justify-between gap-2 w-full">
+                        <span className="truncate">{option.label}</span>
+                        <span className="flex items-center gap-1 whitespace-nowrap">
+                            {counts.po > 0 && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
+                                    {counts.po} PO
+                                </span>
+                            )}
+                            {counts.itm > 0 && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                                    {counts.itm} ITM
+                                </span>
+                            )}
+                        </span>
+                    </span>
+                );
+            }}
             {...portalProps}
         />
     );

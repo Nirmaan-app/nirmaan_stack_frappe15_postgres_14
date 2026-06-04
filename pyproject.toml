@@ -16,7 +16,11 @@ dependencies = [
     "Pillow>=10.0.0",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
-    "google-cloud-documentai>=2.31.0"
+    # Pinned: google-genai >= 1.56 raises its google-auth floor to >=2.48.1,
+    # which conflicts with Frappe's google-auth~=2.40.3 pin. 1.55.x supports the
+    # Gemini 3 APIs we use (thinking_level, media_resolution, vertexai). Bumping
+    # this requires coordinating a Frappe google-auth bump.
+    "google-genai>=1.55.0,<1.56.0"
 ]
 
 [build-system]

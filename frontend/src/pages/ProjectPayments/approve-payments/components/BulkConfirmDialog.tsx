@@ -48,11 +48,13 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
   vendorLabelFor,
 }) => {
   const [reason, setReason] = useState("");
+  const [reasonTouched, setReasonTouched] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) {
       setReason("");
+      setReasonTouched(false);
       setExpanded(new Set());
     }
   }, [open]);
@@ -215,17 +217,30 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               htmlFor="bulk-reject-reason"
               className="text-xs font-medium text-muted-foreground"
             >
-              Reason (required, applied to all)
+              Reason <span className="text-red-600">*</span> (applied to all)
             </label>
             <Textarea
               id="bulk-reject-reason"
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              onBlur={() => setReasonTouched(true)}
               disabled={isLoading}
+              required
+              aria-required="true"
+              aria-invalid={reasonTouched && trimmedReason.length === 0}
               placeholder="e.g. Vendor invoice missing"
-              className="mt-1 resize-none"
+              className={`mt-1 resize-none ${
+                reasonTouched && trimmedReason.length === 0
+                  ? "border-red-500 focus-visible:ring-red-500"
+                  : ""
+              }`}
             />
+            {reasonTouched && trimmedReason.length === 0 && (
+              <p className="text-[11px] text-red-600 mt-1">
+                Reason is required to reject.
+              </p>
+            )}
           </div>
         )}
 
@@ -243,7 +258,8 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               </AlertDialogCancel>
               <Button
                 disabled={!canSubmit}
-                variant={isReject ? "destructive" : "default"}
+                variant="default"
+                className={isReject ? undefined : "bg-green-600 hover:bg-green-700 text-white"}
                 onClick={() => onConfirm(isReject ? trimmedReason : undefined)}
               >
                 {isReject ? "Reject" : "Approve"} {count}

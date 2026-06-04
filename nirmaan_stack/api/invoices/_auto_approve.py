@@ -19,11 +19,15 @@ from nirmaan_stack.api.invoices._validation import (
     existing_invoiced_sum,
     normalize_gstin,
 )
+from nirmaan_stack.services.extraction.validation import (
+    ABSENT as V_ABSENT,
+    INVALID as V_INVALID,
+    reconcile_amounts,
+    validate_gstin,
+)
 
 
 # ---- Tunable knobs ----------------------------------------------------------
-# Per-field AI confidence required for auto-approve (gate 5).
-AUTO_APPROVE_CONFIDENCE_THRESHOLD = 0.80
 # ₹ tolerance for cumulative amount checks (gates 9 & 10). Matches the
 # existing `_check_po_amount_overage` tolerance in update_invoice_data.py.
 AMOUNT_TOLERANCE_RUPEES = 10
@@ -72,15 +76,12 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
     except (TypeError, ValueError):
         reasons.append("invoice_amount_unparseable")
 
-    # Gate 5: Per-field confidence ≥ threshold for invoice_no, invoice_date, amount.
-    confidence = _parse_confidence(invoice_doc.get("autofill_confidence_json"))
-    for field in ("invoice_no", "invoice_date", "amount"):
-        try:
-            field_conf = float(confidence.get(field) or 0)
-        except (TypeError, ValueError):
-            field_conf = 0.0
-        if field_conf < AUTO_APPROVE_CONFIDENCE_THRESHOLD:
-            reasons.append(f"low_confidence_{field}")
+    # Gate 5 (redefined): deterministic intrinsic validity replaces the old
+    # per-field model-confidence gate. A generative extractor self-reports ~100%
+    # confidence, so trust is computed from rules that don't depend on the model:
+    # GSTIN checksum + amount reconciliation. (GSTIN cross-match is gates 6/7;
+    # future/unparseable date is gate 11 — no overlap.)
+    reasons.extend(_intrinsic_validation_reasons(invoice_doc))
 
     # Resolve AI-extracted GSTINs + PO number. Prefer dedicated columns where
     # available; fall back to parsing autofill_all_entities_json for older
@@ -231,16 +232,45 @@ def apply_auto_approval(invoice_doc, fail_reasons=None):
 # ---- Internal helpers -------------------------------------------------------
 
 
-def _parse_confidence(json_str):
-    if not json_str:
-        return {}
-    try:
-        parsed = json.loads(json_str)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return parsed
+def _intrinsic_validation_reasons(invoice_doc):
+    """Gate 5: deterministic intrinsic validity — GSTIN checksum + amount
+    reconciliation over the AI-extracted values.
+
+    Checksum is flagged only when a GSTIN is PRESENT (a missing GSTIN is gates
+    6/7's concern), so no reason token is emitted by two gates. Reconciliation
+    that can't run (missing net/tax/total) counts as a fail under the strict
+    policy → the invoice stays Pending for human review.
+    """
+    reasons = []
+    entities = _parse_entities(invoice_doc.get("autofill_all_entities_json"))
+
+    supplier = (
+        invoice_doc.get("autofill_extracted_supplier_gstin")
+        or entities.get("supplier_gstin", "")
+    )
+    receiver = (
+        invoice_doc.get("autofill_extracted_receiver_gstin")
+        or entities.get("receiver_gstin", "")
+    )
+    if validate_gstin(supplier)["state"] == V_INVALID:
+        reasons.append("supplier_gstin_checksum_failed")
+    if validate_gstin(receiver)["state"] == V_INVALID:
+        reasons.append("receiver_gstin_checksum_failed")
+
+    recon = reconcile_amounts(
+        entities.get("net_amount"),
+        entities.get("total_tax_amount"),
+        entities.get("total_amount"),
+        round_off=entities.get("round_off"),
+        other_charges=entities.get("other_charges"),
+        tcs=entities.get("tcs_amount"),
+    )
+    if recon["state"] == V_INVALID:
+        reasons.append("amount_unreconciled")
+    elif recon["state"] == V_ABSENT:
+        reasons.append("amounts_incomplete")
+
+    return reasons
 
 
 def _parse_entities(json_str):

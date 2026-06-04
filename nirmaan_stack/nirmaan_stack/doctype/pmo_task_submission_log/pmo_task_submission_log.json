@@ -1,0 +1,184 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-05-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "task_section",
+  "task",
+  "project",
+  "task_master",
+  "cycle_section",
+  "cycle_number",
+  "cycle_start_date",
+  "cycle_end_date",
+  "result_section",
+  "result",
+  "was_force_marked",
+  "closed_on",
+  "attachment"
+ ],
+ "fields": [
+  {
+   "fieldname": "task_section",
+   "fieldtype": "Section Break",
+   "label": "Task"
+  },
+  {
+   "fieldname": "task",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Task",
+   "options": "PMO Project Task",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Projects",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "task_master",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Task Master",
+   "options": "PMO Task Master",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cycle_section",
+   "fieldtype": "Section Break",
+   "label": "Cycle"
+  },
+  {
+   "fieldname": "cycle_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Cycle #",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cycle_start_date",
+   "fieldtype": "Date",
+   "label": "Cycle Start Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cycle_end_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Cycle End Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result_section",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "result",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Result",
+   "options": "Done\nNot Done",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "was_force_marked",
+   "fieldtype": "Check",
+   "label": "Auto Force-Marked",
+   "description": "1 if cron flipped a non-Done status to Not Done at close time.",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_on",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Closed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Attachment",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-05-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "PMO Task Submission Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Admin Profile",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -216,7 +216,23 @@ def trigger_check(project_id):
 
 
 def on_project_payment(doc, method=None):
-	trigger_check(doc.project)
+	"""
+	Cashflow gap counts only Paid payments (see _compute_cashflow_gap).
+	Skip the evaluation for any status that doesn't touch the gap
+	(Requested / CEO Pending / Approved / Rejected).
+
+	Fires only when:
+	  * a row enters Paid (status flipped to 'Paid')
+	  * a row leaves  Paid (status flipped away from 'Paid')
+	  * a Paid row is trashed
+	"""
+	
+	if not doc.has_value_changed("status"):
+		return
+
+	prev_status = (doc.get_doc_before_save() or {}).get("status") if not doc.is_new() else None
+	if doc.status == "Paid" or prev_status == "Paid":
+		trigger_check(doc.project)
 
 
 def on_project_expense(doc, method=None):

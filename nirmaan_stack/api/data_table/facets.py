@@ -4,6 +4,7 @@ from frappe.utils import cint
 from frappe.desk.reportview import execute as reportview_execute
 import json
 import hashlib
+import re
 import traceback
 
 from .constants import CACHE_EXPIRY, LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
@@ -11,6 +12,7 @@ from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field
 )
+from .token_search import tokenize
 
 def get_facet_values_impl(
     doctype=None,
@@ -57,17 +59,133 @@ def get_facet_values_impl(
         
         if search_term and current_search_fields:
             target_search_field = _parse_target_search_field(current_search_fields, doctype)
-            
+
             if target_search_field and target_search_field != field:
-                for token in search_term.split():
-                    processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
+                # If the search field is a child-table or JSON item field, do a
+                # separate sub-query for matching parents and append as a
+                # `name in [...]` filter. A plain LIKE on a relationship field
+                # crashes (e.g. `tabProcurement Requests.order_list does not
+                # exist`) because it isn't a real column on the parent table.
+                search_tokens = tokenize(search_term)
+                doctype_str = str(doctype)
+                is_child_table_field = (
+                    doctype_str in CHILD_TABLE_ITEM_SEARCH_MAP
+                    and target_search_field in CHILD_TABLE_ITEM_SEARCH_MAP[doctype_str]
+                )
+                is_json_field = (
+                    doctype_str in JSON_ITEM_SEARCH_DOCTYPE_MAP
+                    and JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype_str]["json_field"] == target_search_field
+                )
+
+                if is_child_table_field and search_tokens:
+                    item_search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype_str][target_search_field]
+                    child_doctype_name = str(item_search_config["child_doctype"])
+                    child_link_field = str(item_search_config["link_field_to_parent"])
+                    searchable_child_fields = list(item_search_config["searchable_child_fields"])
+                    # Drop short tokens from SQL filter (mirrors search.py).
+                    filter_tokens = [t for t in search_tokens if len(t) >= 1] or search_tokens
+                    # Scope the child sub-query to parents that already match
+                    # the other facet filters. Without this, `~*` falls back to
+                    # a sequential scan of the full child table on every request.
+                    candidate_parent_names = [
+                        doc.get("name") for doc in reportview_execute(
+                            doctype=doctype, filters=processed_filters,
+                            fields=["name"], limit_page_length=0,
+                        ) if doc.get("name")
+                    ]
+                    if not candidate_parent_names:
+                        processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                    else:
+                        # Token-OR (union) at PARENT level: a parent qualifies if any
+                        # of its rows matches any token. Matches search.py's behavior
+                        # so the facet panel agrees with the list.
+                        # Word-boundary regex: matches token only at start of a "word"
+                        # (after whitespace/hyphen/underscore/slash/paren/start-of-string).
+                        # Expand the OR clause across every (field × token) pair so
+                        # the union resolves in one round-trip instead of N.
+                        field_token_clauses = []
+                        regex_params = []
+                        for f in searchable_child_fields:
+                            for token in filter_tokens:
+                                field_token_clauses.append(f"`tab{child_doctype_name}`.`{f}` ~* %s")
+                                regex_params.append(r"(^|[\s\-_/()])" + re.escape(token))
+                        or_clause = " OR ".join(field_token_clauses)
+                        sql = (
+                            f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
+                            f"FROM `tab{child_doctype_name}` "
+                            f"WHERE `tab{child_doctype_name}`.`{child_link_field}` IN %s "
+                            f"AND `parenttype` = %s AND ({or_clause})"
+                        )
+                        union_set = {
+                            r[0] for r in frappe.db.sql(
+                                sql, (tuple(candidate_parent_names), doctype, *regex_params),
+                                as_list=True,
+                            ) if r and r[0]
+                        }
+                        item_matches = list(union_set)
+                        if item_matches:
+                            processed_filters.append([doctype, "name", "in", item_matches])
+                        else:
+                            processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                elif is_json_field and search_tokens:
+                    item_search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype_str]
+                    json_field_name = item_search_config["json_field"]
+                    item_path_parts = item_search_config["item_path_parts"]
+                    item_name_key = item_search_config.get("item_name_key_in_json", "item")
+                    json_array_key = item_path_parts[0]
+                    # Drop short tokens from SQL filter (mirrors search.py).
+                    filter_tokens = [t for t in search_tokens if len(t) >= 2] or search_tokens
+                    # Scope the JSON sub-query to parents that already match
+                    # the other facet filters. Without this, the EXISTS clause
+                    # is evaluated against every row in the parent table.
+                    candidate_parent_names = [
+                        doc.get("name") for doc in reportview_execute(
+                            doctype=doctype, filters=processed_filters,
+                            fields=["name"], limit_page_length=0,
+                        ) if doc.get("name")
+                    ]
+                    if not candidate_parent_names:
+                        processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                    else:
+                        # Token-OR (union) at PARENT level — mirrors the search.py
+                        # JSON branch so facets agree with the list.
+                        # OR all token regex tests inside a single EXISTS so the
+                        # union resolves in one round-trip; EXISTS short-circuits
+                        # on the first matching JSON element per parent.
+                        token_conditions = []
+                        sql_params: dict = {"names_tuple": tuple(candidate_parent_names)}
+                        for i, token in enumerate(filter_tokens):
+                            key = f"token_{i}"
+                            token_conditions.append(f"item_obj->>'{item_name_key}' ~* %({key})s")
+                            sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
+                        or_clause = " OR ".join(token_conditions)
+                        sql = (
+                            f"SELECT DISTINCT name FROM `tab{doctype_str}` "
+                            f"WHERE name IN %(names_tuple)s AND EXISTS("
+                            f"SELECT 1 FROM jsonb_array_elements("
+                            f"COALESCE(`tab{doctype_str}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                            f") AS item_obj WHERE ({or_clause}))"
+                        )
+                        union_set = {
+                            r[0] for r in frappe.db.sql(sql, sql_params, as_list=True)
+                            if r and r[0]
+                        }
+                        item_matches = list(union_set)
+                        if item_matches:
+                            processed_filters.append([doctype, "name", "in", item_matches])
+                        else:
+                            processed_filters.append([doctype, "name", "=", "__NO_MATCH__"])
+                else:
+                    # Plain column field — original behavior
+                    for token in search_tokens:
+                        processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
         
         # limit=0 means no limit, otherwise use the requested limit (no artificial cap)
         limit_int = cint(limit) if cint(limit) > 0 else None
         require_pending_items_bool = (
             isinstance(require_pending_items, str) and require_pending_items.lower() == 'true'
         ) or require_pending_items is True
-        cache_key_params = {"v_api": "facet_5.4", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int, "require_pending_items": require_pending_items_bool}
+        cache_key_params = {"v_api": "facet_5.5", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int, "require_pending_items": require_pending_items_bool}
         cache_key = f"facet_values_{hashlib.sha1(json.dumps(cache_key_params, sort_keys=True, default=str).encode()).hexdigest()}"
         
         cached_result = frappe.cache().get_value(cache_key)
@@ -120,19 +238,35 @@ def get_facet_values_impl(
             return result
         
         facet_values = []
-        
+
         # Check if the field is a JSON field
         is_json_field = field_meta.fieldtype == 'JSON' if field_meta else False
-        
+
+        # Postgres rejects `column != ''` against non-text columns — comparing
+        # smallint/int/timestamp to '' raises `invalid input syntax`. Only emit
+        # the empty-string guard when the column actually stores text.
+        _NON_TEXT_FIELDTYPES = {
+            'Int', 'Float', 'Currency', 'Percent', 'Rating',
+            'Date', 'Datetime', 'Time', 'Duration', 'Check',
+        }
+        _STANDARD_NON_TEXT_FIELDS = {'docstatus', 'creation', 'modified'}
+        if is_standard_field:
+            field_is_text = field not in _STANDARD_NON_TEXT_FIELDS
+        elif field_meta:
+            field_is_text = field_meta.fieldtype not in _NON_TEXT_FIELDTYPES
+        else:
+            field_is_text = True
+
         if child_doctype:
             limit_clause = "LIMIT %(limit)s" if limit_int else ""
+            empty_check = f"AND `tab{child_doctype}`.`{field}` != ''" if field_is_text else ""
             sql = f"""
                 SELECT `tab{child_doctype}`.`{field}` as value, COUNT(*) as count
                 FROM `tab{child_doctype}`
                 WHERE `tab{child_doctype}`.parent IN %(names)s
                   AND `tab{child_doctype}`.parenttype = %(parent_doctype)s
                   AND `tab{child_doctype}`.`{field}` IS NOT NULL
-                  AND `tab{child_doctype}`.`{field}` != ''
+                  {empty_check}
                 GROUP BY `tab{child_doctype}`.`{field}`
                 ORDER BY count DESC, `tab{child_doctype}`.`{field}` ASC
                 {limit_clause}
@@ -168,7 +302,8 @@ def get_facet_values_impl(
             results = frappe.db.sql(sql, params, as_dict=True)
         else:
             limit_clause = "LIMIT %(limit)s" if limit_int else ""
-            sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL AND `{field}` != '' GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC {limit_clause}"
+            empty_check = f"AND `{field}` != ''" if field_is_text else ""
+            sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL {empty_check} GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC {limit_clause}"
             params = {"names": tuple(matching_names)}
             if limit_int:
                 params["limit"] = limit_int

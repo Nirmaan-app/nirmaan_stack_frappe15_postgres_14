@@ -11,9 +11,9 @@ class DesignTrackerTaskChildTable(Document):
         self.validate_approval_proof_for_approved()
 
     def validate_file_link_for_submitted(self):
-        if self.task_status == "Submitted" and not self.file_link:
+        if self.task_status in ("Submitted", "Revision Submitted") and not self.file_link:
             frappe.throw(
-                f"Task '{self.task_name}' requires a design file link before setting status to Submitted.",
+                f"Task '{self.task_name}' requires a design file link before setting status to {self.task_status}.",
                 title="File Link Required"
             )
 

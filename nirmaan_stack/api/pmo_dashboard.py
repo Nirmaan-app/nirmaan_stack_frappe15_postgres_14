@@ -167,7 +167,7 @@ def get_pmo_projects():
                 category_summary[cat] = {"total": 0, "done": 0}
 
             project_task_counts[cat] = project_task_counts.get(cat, 0) + 1
-            if task.status == "Approve by client":
+            if task.status in ("Approve by client", "Done"):
                 category_summary[cat]["done"] += 1
 
         # Keep package totals by default, but if project has more rows than master
@@ -219,21 +219,35 @@ def get_project_tasks(project):
     handover_visible = _is_handover_phase(project_status)
 
     tasks = frappe.db.sql(f"""
-        SELECT 
+        SELECT
             pt.name, pt.task_name, pt.category, pt.status,
             pt.expected_completion_date, pt.completion_date, pt.attachment,
             pt.task_master, pt.assigned_to, tm.deadline_offset, pc.is_handover_restricted
-        FROM 
+        FROM
             `tabPMO Project Task` pt
-        LEFT JOIN 
+        LEFT JOIN
             `tabPMO Task Category` pc ON pt.category = pc.category_name
-        LEFT JOIN 
+        LEFT JOIN
             `tabPMO Task Master` tm ON pt.task_master = tm.name
-        WHERE 
+        WHERE
             pt.project = %s
-        ORDER BY 
+        ORDER BY
             pc.`order` ASC, tm.`order` ASC
     """, (project,), as_dict=True)
+
+    # Build a lookup of which task_masters are recurring — pre-migration safe.
+    # If the is_recurring column doesn't exist yet (migrate not run), treat all
+    # tasks as non-recurring so the legacy flow continues to work.
+    recurring_master_ids = set()
+    if frappe.db.has_column("PMO Task Master", "is_recurring"):
+        recurring_master_ids = {
+            row["name"]
+            for row in frappe.get_all(
+                "PMO Task Master",
+                filters={"is_recurring": 1},
+                fields=["name"],
+            )
+        }
 
     # Group by category maintaining order
     grouped = {}
@@ -247,6 +261,8 @@ def get_project_tasks(project):
             task.expected_completion_date = _compute_expected_date(
                 handover_status_date, task.deadline_offset
             )
+
+        task["is_recurring"] = 1 if task.task_master in recurring_master_ids else 0
 
         cat = task.category
         if cat not in grouped:
@@ -280,6 +296,11 @@ def update_task_status(task_name, status, completion_date=None, attachment=None)
     elif status == "Sent/Submision":
         doc.completion_date = completion_date or today()
         # Keep expected_completion_date as is
+    elif status in ("Done", "Not Done"):
+        # Recurring cycle verdict — record when the user made the call so
+        # the dashboard reflects it during the open cycle. Resets to None
+        # on the next cron rollover.
+        doc.completion_date = completion_date or today()
     elif status == "WIP":
         # Keep expected_completion_date as is (set from master offset)
         doc.completion_date = None
@@ -359,11 +380,18 @@ def initialize_project_tasks(project):
                     "task_name": task.task_name,
                     "category": cat.category_name,
                 }
-                # Keep expected date synced with the active date anchor.
-                if expected_date:
-                    update_vals["expected_completion_date"] = expected_date
-                elif is_handover_restricted:
-                    update_vals["expected_completion_date"] = None
+                # Date sync: only seed the date when the row has none yet.
+                # Preserves both (a) cron-advanced dates on recurring tasks, and
+                # (b) any manual override an admin made via Desk. The original
+                # "always re-sync" behavior silently clobbered both.
+                existing_date = frappe.db.get_value(
+                    "PMO Project Task", existing_name, "expected_completion_date"
+                )
+                if not existing_date:
+                    if expected_date:
+                        update_vals["expected_completion_date"] = expected_date
+                    elif is_handover_restricted:
+                        update_vals["expected_completion_date"] = None
                 frappe.db.set_value("PMO Project Task", existing_name, update_vals, update_modified=False)
             else:
                 doc = frappe.new_doc("PMO Project Task")

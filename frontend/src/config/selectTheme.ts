@@ -68,22 +68,29 @@ export function getSelectStyles<
 
         option: (base, state) => ({
             ...base,
-            backgroundColor: state.isSelected
+            backgroundColor: state.isDisabled
+                ? "transparent"
+                : state.isSelected
                 ? "hsl(var(--primary))"
                 : state.isFocused
                 ? "hsl(var(--accent))"
                 : "transparent",
-            color: state.isSelected
+            color: state.isDisabled
+                ? "hsl(var(--muted-foreground))"
+                : state.isSelected
                 ? "hsl(var(--primary-foreground))"
                 : "hsl(var(--popover-foreground))",
+            opacity: state.isDisabled ? 0.55 : 1,
             borderRadius: "calc(var(--radius) - 4px)", // 4px
-            cursor: "pointer",
+            cursor: state.isDisabled ? "not-allowed" : "pointer",
             padding: "8px 12px",
             fontSize: "14px",
             // Ensure options are clickable inside Radix dialogs
             pointerEvents: "auto" as const,
             "&:active": {
-                backgroundColor: state.isSelected
+                backgroundColor: state.isDisabled
+                    ? "transparent"
+                    : state.isSelected
                     ? "hsl(var(--primary))"
                     : "hsl(var(--accent))",
             },

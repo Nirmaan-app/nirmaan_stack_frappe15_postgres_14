@@ -65,6 +65,7 @@ interface PMOTaskMaster {
   category_link: string;
   order?: number;
   deadline_offset?: number;
+  is_recurring?: 0 | 1;
 }
 
 // --- Zod Schemas ---
@@ -77,6 +78,7 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 const taskFormSchema = z.object({
   task_name: z.string().min(1, "Task Name is required."),
   deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
+  is_recurring: z.boolean().default(false),
 });
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
@@ -104,7 +106,7 @@ export const PMOPackagesMaster: React.FC = () => {
     error: taskError,
     mutate: mutateTasks,
   } = useFrappeGetDocList<PMOTaskMaster>("PMO Task Master", {
-    fields: ["name", "task_name", "category_link", "order", "deadline_offset"],
+    fields: ["name", "task_name", "category_link", "order", "deadline_offset", "is_recurring"],
     limit: 0,
     orderBy: { field: "`order`", order: "asc" },
   });
@@ -699,15 +701,16 @@ const EditCategoryDialog: React.FC<{
 // --- Create Task Dialog ---
 const CreateTaskDialog: React.FC<{
   categoryId: string;
+  categoryIsHandoverRestricted: boolean;
   mutate: () => Promise<any>;
   maxOrder: number;
-}> = ({ categoryId, mutate, maxOrder }) => {
+}> = ({ categoryId, categoryIsHandoverRestricted, mutate, maxOrder }) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: { task_name: "", deadline_offset: 0 },
+    defaultValues: { task_name: "", deadline_offset: 0, is_recurring: false },
   });
 
   const onSubmit = async (values: TaskFormValues) => {
@@ -717,13 +720,14 @@ const CreateTaskDialog: React.FC<{
         category_link: categoryId,
         order: maxOrder + 1,
         deadline_offset: values.deadline_offset || 0,
+        is_recurring: values.is_recurring ? 1 : 0,
       });
       toast({
         title: "Success",
         description: "Task added successfully.",
         variant: "success",
       });
-      form.reset({ task_name: "", deadline_offset: 0 });
+      form.reset({ task_name: "", deadline_offset: 0, is_recurring: false });
       await mutate();
       setOpen(false);
     } catch (error: any) {
@@ -740,7 +744,7 @@ const CreateTaskDialog: React.FC<{
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) form.reset({ task_name: "", deadline_offset: 0 });
+        if (!val) form.reset({ task_name: "", deadline_offset: 0, is_recurring: false });
       }}
     >
       <DialogTrigger asChild>
@@ -804,6 +808,31 @@ const CreateTaskDialog: React.FC<{
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="is_recurring"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border border-slate-200 p-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      disabled={categoryIsHandoverRestricted}
+                      onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel className="text-sm font-medium text-slate-700">
+                      Auto-Renew After Each Cycle
+                    </FormLabel>
+                    <p className="text-xs text-slate-500">
+                      {categoryIsHandoverRestricted
+                        ? "Can't be turned on for handover-only categories."
+                        : "Turn this on for tasks that should repeat — like a weekly update. When the due date passes, a fresh one starts automatically."}
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"
@@ -838,20 +867,36 @@ const CreateTaskDialog: React.FC<{
 // --- Edit Task Dialog ---
 const EditTaskDialog: React.FC<{
   task: PMOTaskMaster;
+  categoryIsHandoverRestricted: boolean;
   mutate: () => Promise<any>;
-}> = ({ task, mutate }) => {
+}> = ({ task, categoryIsHandoverRestricted, mutate }) => {
   const [open, setOpen] = useState(false);
   const { updateDoc, loading } = useFrappeUpdateDoc();
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0 },
+    defaultValues: {
+      task_name: task.task_name,
+      deadline_offset: task.deadline_offset || 0,
+      is_recurring: Boolean(task.is_recurring),
+    },
   });
+
+  React.useEffect(() => {
+    if (open) {
+      form.reset({
+        task_name: task.task_name,
+        deadline_offset: task.deadline_offset || 0,
+        is_recurring: Boolean(task.is_recurring),
+      });
+    }
+  }, [open, task]);
 
   const onSubmit = async (values: TaskFormValues) => {
     try {
       await updateDoc("PMO Task Master", task.name, {
         task_name: values.task_name,
         deadline_offset: values.deadline_offset || 0,
+        is_recurring: values.is_recurring ? 1 : 0,
       });
       toast({
         title: "Success",
@@ -923,6 +968,31 @@ const EditTaskDialog: React.FC<{
                     />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="is_recurring"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border border-slate-200 p-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      disabled={categoryIsHandoverRestricted}
+                      onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel className="text-sm font-medium text-slate-700">
+                      Auto-Renew After Each Cycle
+                    </FormLabel>
+                    <p className="text-xs text-slate-500">
+                      {categoryIsHandoverRestricted
+                        ? "Can't be turned on for handover-only categories."
+                        : "Turn this on for tasks that should repeat — like a weekly update. When the due date passes, a fresh one starts automatically."}
+                    </p>
+                  </div>
                 </FormItem>
               )}
             />
@@ -1174,7 +1244,12 @@ const CategoryCard: React.FC<{
                 <GripVertical className="w-3.5 h-3.5 mr-1" />
                 Reorder
               </Button>
-              <CreateTaskDialog categoryId={category.name} mutate={mutateTasks} maxOrder={maxTaskOrder} />
+              <CreateTaskDialog
+                categoryId={category.name}
+                categoryIsHandoverRestricted={Boolean(category.is_handover_restricted)}
+                mutate={mutateTasks}
+                maxOrder={maxTaskOrder}
+              />
             </>
           )}
         </div>
@@ -1231,13 +1306,22 @@ const CategoryCard: React.FC<{
                         T + {task.deadline_offset}d
                       </span>
                     )}
+                    {task.is_recurring === 1 && (
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100">
+                        Recurring
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {isReorderingTasks ? (
                        <GripVertical className="w-4 h-4 text-slate-300 ml-auto" />
                     ) : (
                       <div className="flex items-center justify-end gap-0.5">
-                        <EditTaskDialog task={task} mutate={mutateTasks} />
+                        <EditTaskDialog
+                          task={task}
+                          categoryIsHandoverRestricted={Boolean(category.is_handover_restricted)}
+                          mutate={mutateTasks}
+                        />
                         <DeleteTaskDialog task={task} mutate={mutateTasks} />
                       </div>
                     )}

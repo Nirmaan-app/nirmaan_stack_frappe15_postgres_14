@@ -21,7 +21,6 @@ import { ListChecks, CirclePlus } from "lucide-react";
 
 import { ProcurementRequestItem, CategoryOption } from '../types';
 import { useUserData } from '@/hooks/useUserData';
-import { FuseResult } from 'fuse.js';
 import { Items } from '@/types/NirmaanStack/Items';
 import { Category } from '@/types/NirmaanStack/Category';
 import { getFrappeError } from '@/utils/frappeErrors';
@@ -34,7 +33,7 @@ interface NewItemDialogProps {
     selectedHeaderTags: { tag_header: string; tag_package: string }[];
     categoryToPackageMap: Record<string, string>;
     onSubmit: (itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">, isRequest?: boolean) => void;
-    fuzzySearch: (input: string) => FuseResult<Items>[];
+    fuzzySearch: (input: string) => Items[];
     itemMutate: () => Promise<any>;
 }
 
@@ -68,7 +67,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
 
     const [selectedCategory, setSelectedCategory] = useState<SingleValue<CategoryOption>>(null);
     const [newItem, setNewItem] = useState<NewItemState>(initialNewItemState);
-    const [fuzzyMatches, setFuzzyMatches] = useState<FuseResult<Items>[]>([]);
+    const [fuzzyMatches, setFuzzyMatches] = useState<Items[]>([]);
     const [isFocused, setIsFocused] = useState(false);
 
     const catOptions: CategoryOption[] = useMemo(() => {
@@ -255,7 +254,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                         {isFocused && fuzzyMatches.length > 0 && selectedCategory && (
                             <ul className="absolute z-20 mt-1 top-full left-0 right-0 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 w-full overflow-y-auto">
                                 <li className='px-2 py-1 text-xs font-semibold text-gray-500 bg-gray-50'>Similar Existing Items:</li>
-                                {fuzzyMatches.slice(0,10).map(({ item }) => (
+                                {fuzzyMatches.slice(0,10).map((item) => (
                                      <li
                                         key={item.name}
                                         className="p-2 hover:bg-gray-100 flex justify-between items-center text-sm cursor-default"

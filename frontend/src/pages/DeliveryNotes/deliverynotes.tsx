@@ -432,17 +432,23 @@ const DeliveryNotes: React.FC = () => {
   // Build the allow-set lazily. Returns `undefined` while either fetch is
   // still loading so `ProjectSelect` doesn't briefly render an empty list
   // — once both finish, the populated Set takes over.
-  const eligibleProjectIds = useMemo<Set<string> | undefined>(() => {
+  const eligibleProjectCounts = useMemo<
+    Record<string, { po: number; itm: number }> | undefined
+  >(() => {
     if (!shouldFetchEligibleProjects) return undefined;
     if (eligiblePOLoading || eligibleITMLoading) return undefined;
-    const set = new Set<string>();
+    const counts: Record<string, { po: number; itm: number }> = {};
     (eligiblePOProjectsRaw || []).forEach((row) => {
-      if (row.project) set.add(row.project);
+      if (!row.project) return;
+      if (!counts[row.project]) counts[row.project] = { po: 0, itm: 0 };
+      counts[row.project].po += 1;
     });
     (eligibleITMResult?.message?.data || []).forEach((itm) => {
-      if (itm.target_project) set.add(itm.target_project);
+      if (!itm.target_project) return;
+      if (!counts[itm.target_project]) counts[itm.target_project] = { po: 0, itm: 0 };
+      counts[itm.target_project].itm += 1;
     });
-    return set;
+    return counts;
   }, [
     shouldFetchEligibleProjects,
     eligiblePOLoading,
@@ -531,7 +537,7 @@ const DeliveryNotes: React.FC = () => {
             <div className="mb-4">
               <ProjectSelect
                 onChange={handleProjectChange}
-                filterByProjects={eligibleProjectIds}
+                eligibleProjects={eligibleProjectCounts}
               />
             </div>
             {selectedProject && (
