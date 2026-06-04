@@ -42,6 +42,19 @@ const EARTH_PIT_TEMPLATE_ID = 'earth-pit-resistance-report';
 const EARTH_PIT_PARAMETERS_SECTION_ID = 'parameters';
 const EARTH_PIT_HEADER_FIELD_PATH = 'responses.hdr.num_earth_pits';
 
+// Lux Level Report's `area` column always stores uppercase, matching how the
+// printed PDF prefers to render area names. Scoped here so the grammar stays
+// minimal — no per-field `transform` property to maintain.
+const LUX_LEVEL_TEMPLATE_ID = 'lux-level-report';
+const LUX_LEVEL_AREA_COL_KEY = 'area';
+const isLuxAreaColumn = (
+    templateId: string | undefined,
+    col: { key: string; type: string },
+): boolean =>
+    templateId === LUX_LEVEL_TEMPLATE_ID &&
+    col.key === LUX_LEVEL_AREA_COL_KEY &&
+    col.type === 'text';
+
 // Template-specific dropdown source for the LT Cable Megger Test Report's
 // `cable_size` column — pulls distinct item names from the project's Material
 // Usage data (PO + Custom items) filtered to category "Wires & Cables" with
@@ -175,6 +188,45 @@ const MeasurementPassCell: React.FC<{
                     </div>
                 );
             }}
+        />
+    );
+};
+
+/** Lux Level Report's `area` cell — auto-uppercases as the user types so the
+ *  stored value and the printed PDF stay consistent. Scoped via
+ *  `isLuxAreaColumn`. */
+const LuxAreaCell: React.FC<{
+    name: string;
+    placeholder?: string;
+    required?: boolean;
+    forceReadonly?: boolean;
+}> = ({ name, placeholder, required, forceReadonly }) => {
+    const { control, formState } = useFormContext();
+    const error = name.split('.').reduce<unknown>((acc, k) => {
+        if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[k];
+        return undefined;
+    }, formState.errors) as { message?: string } | undefined;
+    return (
+        <Controller
+            control={control}
+            name={name}
+            defaultValue=""
+            render={({ field }) => (
+                <Input
+                    value={(field.value as string) ?? ''}
+                    onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    disabled={forceReadonly}
+                    placeholder={placeholder}
+                    aria-required={required}
+                    className={cn(
+                        'uppercase',
+                        error && 'border-destructive focus-visible:ring-destructive',
+                    )}
+                />
+            )}
         />
     );
 };
@@ -539,6 +591,19 @@ export const TraineesDataTableSection: React.FC<Props> = ({
                                 <td className="py-2 px-2 text-muted-foreground">{(section.rowLabelPrefix || '') + (idx + 1)}</td>
                                 {section.columns.map((col) => {
                                     const cellName = `${fieldName}.${idx}.${col.key}`;
+                                    // Lux Level Report's `area` always stores uppercase.
+                                    if (isLuxAreaColumn(templateId, col)) {
+                                        return (
+                                            <td key={col.key} className="py-2 px-2 align-top">
+                                                <LuxAreaCell
+                                                    name={cellName}
+                                                    placeholder={(col as { placeholder?: string }).placeholder}
+                                                    required={col.required}
+                                                    forceReadonly={forceReadonly}
+                                                />
+                                            </td>
+                                        );
+                                    }
                                     // Per-row image cell: upload to S3 + store the
                                     // AttachmentRecord inline in the row.
                                     if (col.type === 'image') {

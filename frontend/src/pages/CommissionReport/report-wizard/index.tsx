@@ -980,6 +980,20 @@ const ReviewSummary: React.FC<{
 
                 if (section.type === 'trainees_data_table') {
                     const rows = (formValues.responses?.[section.id] || []) as unknown as Array<Record<string, unknown>>;
+                    // Lux Level Report computes a LUX Average per row in the
+                    // print format (mean of lux1/lux2/lux3). Show the same
+                    // column in the review for parity. Scoped to the template
+                    // + section so other trainees tables stay unchanged.
+                    const showLuxAverage =
+                        template.templateId === 'lux-level-report' && section.id === 'readings';
+                    const luxAverageAfter = 'lux3'; // insert the column after this col.key
+                    const luxAvgFor = (row: Record<string, unknown>): string => {
+                        const v1 = Number(row?.['lux1']);
+                        const v2 = Number(row?.['lux2']);
+                        const v3 = Number(row?.['lux3']);
+                        if ([v1, v2, v3].some((n) => !Number.isFinite(n))) return '—';
+                        return ((v1 + v2 + v3) / 3).toFixed(2);
+                    };
                     return (
                         <div key={section.id} className="rounded-md border p-3">
                             <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
@@ -992,12 +1006,16 @@ const ReviewSummary: React.FC<{
                                             <tr className="border-b text-xs text-muted-foreground">
                                                 <th className="w-12 py-1.5 pr-2 text-left font-medium">#</th>
                                                 {section.columns.map((c) => (
-                                                    <th
-                                                        key={c.key}
-                                                        className="py-1.5 pr-2 text-left font-medium"
-                                                    >
-                                                        {c.label}
-                                                    </th>
+                                                    <React.Fragment key={c.key}>
+                                                        <th className="py-1.5 pr-2 text-left font-medium">
+                                                            {c.label}
+                                                        </th>
+                                                        {showLuxAverage && c.key === luxAverageAfter && (
+                                                            <th className="py-1.5 pr-2 text-left font-medium">
+                                                                LUX Average
+                                                            </th>
+                                                        )}
+                                                    </React.Fragment>
                                                 ))}
                                             </tr>
                                         </thead>
@@ -1020,45 +1038,70 @@ const ReviewSummary: React.FC<{
                                                                 | null
                                                                 | undefined;
                                                             return (
-                                                                <td key={c.key} className="py-2 pr-2">
-                                                                    {rec && rec.file_url ? (
-                                                                        <a
-                                                                            href={rec.file_url}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            title={rec.file_name}
-                                                                        >
-                                                                            <img
-                                                                                src={rec.file_url}
-                                                                                alt={rec.file_name}
-                                                                                className="h-12 w-12 rounded border object-cover"
-                                                                            />
-                                                                        </a>
-                                                                    ) : (
-                                                                        <span className="italic text-muted-foreground">
-                                                                            —
-                                                                        </span>
+                                                                <React.Fragment key={c.key}>
+                                                                    <td className="py-2 pr-2">
+                                                                        {rec && rec.file_url ? (
+                                                                            <a
+                                                                                href={rec.file_url}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                title={rec.file_name}
+                                                                            >
+                                                                                <img
+                                                                                    src={rec.file_url}
+                                                                                    alt={rec.file_name}
+                                                                                    className="h-12 w-12 rounded border object-cover"
+                                                                                />
+                                                                            </a>
+                                                                        ) : (
+                                                                            <span className="italic text-muted-foreground">
+                                                                                —
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    {showLuxAverage && c.key === luxAverageAfter && (
+                                                                        <td className="py-2 pr-2 font-medium">
+                                                                            {luxAvgFor(row)}
+                                                                        </td>
                                                                     )}
-                                                                </td>
+                                                                </React.Fragment>
                                                             );
                                                         }
-                                                        const display = formatReviewValue(
+                                                        let display = formatReviewValue(
                                                             { ...c, bind: undefined } as Field,
                                                             cellValue,
                                                         );
+                                                        // Lux Level Report's `area` always
+                                                        // displays uppercase — matches the
+                                                        // wizard cell + the printed PDF, even
+                                                        // for older saved entries.
+                                                        if (
+                                                            template.templateId === 'lux-level-report' &&
+                                                            section.id === 'readings' &&
+                                                            c.key === 'area' &&
+                                                            display !== '—'
+                                                        ) {
+                                                            display = display.toUpperCase();
+                                                        }
                                                         const isEmpty = display === '—';
                                                         return (
-                                                            <td
-                                                                key={c.key}
-                                                                className={
-                                                                    'py-2 pr-2 ' +
-                                                                    (isEmpty
-                                                                        ? 'italic text-muted-foreground'
-                                                                        : '')
-                                                                }
-                                                            >
-                                                                {display}
-                                                            </td>
+                                                            <React.Fragment key={c.key}>
+                                                                <td
+                                                                    className={
+                                                                        'py-2 pr-2 ' +
+                                                                        (isEmpty
+                                                                            ? 'italic text-muted-foreground'
+                                                                            : '')
+                                                                    }
+                                                                >
+                                                                    {display}
+                                                                </td>
+                                                                {showLuxAverage && c.key === luxAverageAfter && (
+                                                                    <td className="py-2 pr-2 font-medium">
+                                                                        {luxAvgFor(row)}
+                                                                    </td>
+                                                                )}
+                                                            </React.Fragment>
                                                         );
                                                     })}
                                                 </tr>

@@ -520,7 +520,7 @@ thead { display: table-header-group; }
                                     {%- set has_all = (v1 is not none and v2 is not none and v3 is not none and v1 != '' and v2 != '' and v3 != '') -%}
                                     <tr class="cv-tr-row">
                                         <td style="text-align:center;">{{ loop.index }}</td>
-                                        <td>{%- set a = row.get('area') -%}{%- if a is none or a == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ a }}{%- endif -%}</td>
+                                        <td>{%- set a = row.get('area') -%}{%- if a is none or a == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ a | upper }}{%- endif -%}</td>
                                         <td style="text-align:center;">{%- if v1 is none or v1 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v1 }}{%- endif -%}</td>
                                         <td style="text-align:center;">{%- if v2 is none or v2 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v2 }}{%- endif -%}</td>
                                         <td style="text-align:center;">{%- if v3 is none or v3 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v3 }}{%- endif -%}</td>
