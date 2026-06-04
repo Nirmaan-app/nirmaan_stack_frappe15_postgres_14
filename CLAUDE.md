@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-04 (Slice 2b-frontend-ii: multi-select general-specs checklist; doSetGeneralSpecs fixed to send sheet_names list; un-breaks branch from 2b-backend-3; feat d1672c6f; parser 588; wizard 163 -- tsc/Vite-verified)
+**Last updated:** 2026-06-04 (Module 2b complete -- parse-run hub surface; see plan-doc + frontend/CLAUDE.md for frontend conventions. Slice 2b-frontend-ii: multi-select general-specs checklist; doSetGeneralSpecs fixed to send sheet_names list; un-breaks branch from 2b-backend-3; feat d1672c6f; parser 588; wizard 163 -- tsc/Vite-verified) **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
 ## Overview
 
@@ -197,6 +197,8 @@ Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. A
 - New APIs: `nirmaan_stack/api/<feature>/<file>.py`, snake_case.
 - Frontend: stay within the existing stack (shadcn/ui + TanStack Table + Zustand + frappe-react-sdk + React Hook Form + Zod). Do not introduce new UI libraries.
 - Pure-Python modules (parsers, services) get real unit tests with fixture files — not stubs.
+
+**Docs discipline -- DOCS-UPDATE RULE (all three, every commit):** Every docs or feat+docs commit updates ALL THREE docs -- `frontend/.claude/plans/boq-upload-plan.md`, root `CLAUDE.md` (this file), and `frontend/CLAUDE.md` -- with NO exceptions. A doc not substantively affected still gets a MINIMAL TOUCH (bump its last-updated/status line + a one-line note of what landed), never a skip. Rationale: "update CLAUDE.md" without naming which one let `frontend/CLAUDE.md` silently fall a full module behind (stale through all of Module 2b). Naming all three by full path removes the routing ambiguity. **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
 ---
 

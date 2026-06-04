@@ -177,6 +177,8 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 ## BoQ Upload Wizard -- Frontend Conventions (Module 1b onward)
 
+**Docs discipline -- DOCS-UPDATE RULE (all three, every commit):** Every docs or feat+docs commit updates ALL THREE docs -- `frontend/.claude/plans/boq-upload-plan.md`, root `CLAUDE.md`, and `frontend/CLAUDE.md` (this file) -- with NO exceptions. A doc not substantively affected still gets a MINIMAL TOUCH (bump its last-updated/status line + a one-line note of what landed), never a skip. Rationale: "update CLAUDE.md" without naming which one let this file silently fall a full module behind (stale through all of Module 2b). Naming all three by full path removes the routing ambiguity. **This file's path: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+
 All wizard-frontend code lives in `src/pages/boq-wizard/`. Do not scatter
 wizard components into other page folders.
 

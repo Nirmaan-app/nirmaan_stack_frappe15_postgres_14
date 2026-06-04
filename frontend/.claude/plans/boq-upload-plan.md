@@ -182,9 +182,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Module 2b parse-run surface COMPLETE** (all Slice 2b-backend-3 + 2b-frontend-i + 2b-frontend-ii landed). Pending: end-to-end manual cert round (Nitesh).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-04 (Slice 2b-frontend-ii: multi-select general-specs checklist; doSetGeneralSpecs fixed; un-breaks from 2b-backend-3; closes C7; feat d1672c6f; wizard 163 -- tsc/Vite-verified)
+**Last updated:** 2026-06-04 (Module 2b COMPLETE -- exit-criterion-B live-certified on BOQ-26-00145; five Slice 2b commits: dirty-marker 7795582f, parse-history 896f3a3c, Parse button + ParseRunDialog c9fc37fd, multi-select endpoint e996d097, checklist + caller fix d1672c6f; frontend/CLAUDE.md catch-up 4295566d landed; all-three-docs rule encoded this commit)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat d1672c6f (Slice 2b-frontend-ii -- multi-select general-specs checklist + caller fix)
+**Latest commit:** docs 1f3ee909 (encode all-three-docs update rule -- plan-doc + root + frontend CLAUDE.md)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -2345,6 +2345,14 @@ rootless-row review flags; no parser-layer fix attempted.
 ## Decisions log
 
 Newest at the top.
+
+---
+
+### 2026-06-04 -- DOCS-UPDATE RULE: all three docs, every commit
+
+DOCS-UPDATE RULE (all three, every commit): every docs or feat+docs commit updates ALL THREE docs -- `frontend/.claude/plans/boq-upload-plan.md` (this file), root `CLAUDE.md`, and `frontend/CLAUDE.md` -- with NO exceptions. A doc not substantively affected still gets a MINIMAL TOUCH (bump its last-updated/status line + a one-line note of what landed), never a skip. Rationale: "update CLAUDE.md" without naming which one let `frontend/CLAUDE.md` silently fall a full module behind (stale through all of Module 2b). Naming all three by full path removes the routing ambiguity. **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+
+This commit is the first instance that obeys the rule -- touching all three docs. Also provides the retroactive minimal-touch bump for Module 2b COMPLETE: exit-criterion-B live-certified on BOQ-26-00145; five Slice 2b commits (dirty-marker 7795582f, parse-history 896f3a3c, Parse button + ParseRunDialog c9fc37fd, multi-select endpoint e996d097, checklist + caller fix d1672c6f); frontend/CLAUDE.md catch-up 4295566d.
 
 ---
 
