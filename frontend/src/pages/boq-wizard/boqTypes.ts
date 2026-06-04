@@ -170,4 +170,11 @@ export interface BOQsDoc {
    * to wizard_status in frontend code either.
    */
   general_specs_sheets?: BoQGeneralSpecsSheetRow[];
+  /**
+   * Transient parse-job marker (Bucket-2 Slice 1, feat cb86b92b).
+   * Set to 1 by run_parse after successful enqueue; cleared to 0 by
+   * _publish_parse_event at the parse-run choke-point. Frontend uses
+   * this to recover parseInFlight on hub mount (Bucket-2 Slice 2).
+   */
+  parse_in_progress?: 0 | 1;
 }

@@ -106,6 +106,10 @@ export function ParseRunDialog({
                 default; untick any you want to skip this run.
               </DialogDescription>
             </DialogHeader>
+            <p className="text-xs text-muted-foreground mt-1">
+              This runs in the background and can take up to ~10 minutes. You
+              can keep working; you'll see a summary here when it's done.
+            </p>
 
             {/* Scrollable sheet lists */}
             <div className="space-y-4 py-1 max-h-72 overflow-y-auto pr-1">

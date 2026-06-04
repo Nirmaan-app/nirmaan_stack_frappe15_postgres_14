@@ -53,6 +53,42 @@ function isLikelySkipSheet(sheetName: string): boolean {
   return LIKELY_SKIP_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
+// Error message map for "boq:parse_run_done" error events. Module-level (not
+// redefined per socket event). Severity drives modal styling: "neutral" is
+// advisory (no_eligible_sheets), "destructive" is a genuine parse failure.
+const PARSE_ERROR_MSGS: Record<string, { message: string; severity: "destructive" | "neutral" }> = {
+  missing_file: {
+    message:
+      "The source file for this BoQ could not be found. It may have been moved or deleted.",
+    severity: "destructive",
+  },
+  fetch_failed: {
+    message:
+      "Could not retrieve the source file. Please try again; if it persists, the file storage may be unavailable.",
+    severity: "destructive",
+  },
+  no_eligible_sheets: {
+    message:
+      "No sheets were eligible to parse. Mark at least one sheet as Reviewed before parsing.",
+    severity: "neutral",
+  },
+  parse_failed: {
+    message:
+      "The parser could not process this workbook. The file may be malformed or in an unexpected format.",
+    severity: "destructive",
+  },
+  internal: {
+    message:
+      "An unexpected error occurred during parsing. Please try again or contact support if it continues.",
+    severity: "destructive",
+  },
+};
+
+const PARSE_ERROR_FALLBACK = {
+  message: "An unknown error occurred during parsing.",
+  severity: "destructive" as const,
+};
+
 const BoqHubPage = () => {
   const { boqId } = useParams<{ boqId: string }>();
   const navigate = useNavigate();
@@ -77,7 +113,7 @@ const BoqHubPage = () => {
     notParsed: string[];
     failed: string[];
   } | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
+  const [parseError, setParseError] = useState<{ message: string; severity: "destructive" | "neutral" } | null>(null);
 
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
@@ -129,15 +165,8 @@ const BoqHubPage = () => {
           failed: payload.failed_sheets ?? [],
         });
       } else {
-        const ERROR_MSGS: Record<string, string> = {
-          missing_file: "Parse failed: the BoQ file could not be found.",
-          fetch_failed: "Parse failed: could not retrieve the BoQ file from storage.",
-          no_eligible_sheets: "Parse failed: no eligible sheets were found (are any Reviewed?).",
-          parse_failed: "Parse failed: the parser encountered an error.",
-          internal: "Parse failed: an internal server error occurred.",
-        };
         setParseError(
-          ERROR_MSGS[payload.error_code ?? ""] ?? "Parse failed: an unknown error occurred."
+          PARSE_ERROR_MSGS[payload.error_code ?? ""] ?? PARSE_ERROR_FALLBACK
         );
       }
     };
@@ -163,6 +192,15 @@ const BoqHubPage = () => {
           .filter(Boolean)
       )
     );
+  }, [boq]);
+
+  // On-mount parse_in_progress recovery (Bucket-2 Slice 2): when the doc loads
+  // or refreshes, sync parseInFlight from the server flag so the hub correctly
+  // reflects running state across navigation and missed socket events. The live
+  // socket event still clears parseInFlight on done; this is the mount fallback.
+  useEffect(() => {
+    if (!boq) return;
+    setParseInFlight(boq.parse_in_progress === 1);
   }, [boq]);
 
   // ── Loading state ──────────────────────────────────────────────────────────
@@ -326,7 +364,7 @@ const BoqHubPage = () => {
       await callRunParse({ boq_name: boqId, sheet_names: sheetNames });
     } catch (_e) {
       setParseInFlight(false);
-      setParseError("Failed to start parse job. Please try again.");
+      setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
       setParseDialogOpen(false);
     }
   };
@@ -586,10 +624,17 @@ const BoqHubPage = () => {
             <TooltipTrigger asChild>
               <span tabIndex={0}>
                 <Button
-                  disabled={!canParse}
+                  disabled={!canParse || parseInFlight}
                   onClick={handleParseClick}
                 >
-                  Parse workbook
+                  {parseInFlight ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Parsing...
+                    </>
+                  ) : (
+                    "Parse workbook"
+                  )}
                 </Button>
               </span>
             </TooltipTrigger>
@@ -597,38 +642,6 @@ const BoqHubPage = () => {
           </Tooltip>
         </TooltipProvider>
       </div>
-
-      {/* ── Parse-run result panel (Slice 2b-frontend-i) ─────────────────── */}
-      {(parseResult || parseError) && (
-        <div className={cn(
-          "rounded-lg border px-4 py-3 text-sm",
-          parseError
-            ? "border-destructive/50 bg-destructive/10 text-destructive"
-            : "border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 text-foreground"
-        )}>
-          {parseError ? (
-            <p>{parseError}</p>
-          ) : parseResult ? (
-            <div className="space-y-0.5">
-              {parseResult.parsed.length > 0 && (
-                <p className="font-medium">
-                  Parsed: {parseResult.parsed.join(", ")}
-                </p>
-              )}
-              {parseResult.notParsed.length > 0 && (
-                <p className="text-muted-foreground">
-                  Not parsed (not eligible): {parseResult.notParsed.join(", ")}
-                </p>
-              )}
-              {parseResult.failed.length > 0 && (
-                <p className="text-destructive">
-                  Failed: {parseResult.failed.join(", ")}
-                </p>
-              )}
-            </div>
-          ) : null}
-        </div>
-      )}
 
       {/* ── Parse-run confirm dialog (Slice 2b-frontend-i) ───────────────── */}
       <ParseRunDialog
@@ -642,6 +655,79 @@ const BoqHubPage = () => {
         generalSpecsSheetNames={generalSpecsDialogList}
         isLoading={parseInFlight}
       />
+
+      {/* ── Parse completion modal (Bucket-2 Slice 2) ──────────────────────── */}
+      {/* Acknowledge-only: single OK action. Open driven from result/error state.  */}
+      {/* Escape also dismisses (onOpenChange). HUB-SCOPED -- not app-global.      */}
+      <AlertDialog
+        open={!!(parseResult || parseError)}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setParseResult(null);
+            setParseError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {parseResult ? "Parse complete" : "Parse error"}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+
+          {/* SUCCESS: up to three sub-lines, each shown only if non-empty. */}
+          {parseResult && (
+            <div className="space-y-1 py-1 text-sm">
+              {parseResult.parsed.length > 0 && (
+                <p className="font-medium text-foreground">
+                  Parsed: {parseResult.parsed.join(", ")}
+                </p>
+              )}
+              {parseResult.notParsed.length > 0 && (
+                <p className="text-muted-foreground">
+                  Not parsed (skipped, hidden, or general-specs):{" "}
+                  {parseResult.notParsed.join(", ")}
+                </p>
+              )}
+              {parseResult.failed.length > 0 && (
+                <p className="text-destructive">
+                  Failed to parse: {parseResult.failed.join(", ")}
+                </p>
+              )}
+              {parseResult.parsed.length === 0 &&
+                parseResult.notParsed.length === 0 &&
+                parseResult.failed.length === 0 && (
+                  <p className="text-foreground">Parse complete.</p>
+                )}
+            </div>
+          )}
+
+          {/* ERROR: one message; no_eligible_sheets is neutral (advisory), rest destructive. */}
+          {parseError && (
+            <p
+              className={cn(
+                "py-1 text-sm",
+                parseError.severity === "neutral"
+                  ? "text-muted-foreground"
+                  : "text-destructive"
+              )}
+            >
+              {parseError.message}
+            </p>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setParseResult(null);
+                setParseError(null);
+              }}
+            >
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── M2.23 combined warn-on-Reviewed dialog (Slice 2b-frontend-ii) ── */}
       {/* Fires on Save when any newly-designated sheet is currently Reviewed. */}
