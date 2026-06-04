@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +39,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { BOQsDoc, BoQSheetDraft, WorkPackageMap } from "./boqTypes";
+import { cn } from "@/lib/utils";
+import type { BOQsDoc, BoQSheetDraft, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -72,6 +74,16 @@ const BoqHubPage = () => {
   const [specsDialogOpen, setSpecsDialogOpen] = useState(false);
   const [specsError, setSpecsError] = useState<string | null>(null);
 
+  // Parse-run dialog + result state.
+  const [parseDialogOpen, setParseDialogOpen] = useState(false);
+  const [parseInFlight, setParseInFlight] = useState(false);
+  const [parseResult, setParseResult] = useState<{
+    parsed: string[];
+    notParsed: string[];
+    failed: string[];
+  } | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
@@ -94,6 +106,54 @@ const BoqHubPage = () => {
   const { call: callSpecs, loading: specsLoading } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_general_specs_sheet"
   );
+
+  // Parse-run endpoint (Slice 2b-frontend-i).
+  const { call: callRunParse } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.parse_run.run_parse"
+  );
+
+  // Socket for "boq:parse_run_done" (mirrors BoqUploadScreen.tsx pattern).
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handler = (payload: ParseRunDonePayload) => {
+      // Guard: only act on events for THIS boq (a concurrent parse by the same
+      // user on a different boq must not trigger a refresh here).
+      if (payload.boq_name !== boqId) return;
+
+      setParseInFlight(false);
+      setParseDialogOpen(false);
+
+      if (payload.status === "success") {
+        void mutate();
+        setParseResult({
+          parsed: payload.parsed_sheets ?? [],
+          notParsed: payload.not_parsed_sheets ?? [],
+          failed: payload.failed_sheets ?? [],
+        });
+      } else {
+        const ERROR_MSGS: Record<string, string> = {
+          missing_file: "Parse failed: the BoQ file could not be found.",
+          fetch_failed: "Parse failed: could not retrieve the BoQ file from storage.",
+          no_eligible_sheets: "Parse failed: no eligible sheets were found (are any Reviewed?).",
+          parse_failed: "Parse failed: the parser encountered an error.",
+          internal: "Parse failed: an internal server error occurred.",
+        };
+        setParseError(
+          ERROR_MSGS[payload.error_code ?? ""] ?? "Parse failed: an unknown error occurred."
+        );
+      }
+    };
+
+    socket.on("boq:parse_run_done", handler);
+    return () => {
+      socket.off("boq:parse_run_done", handler);
+    };
+    // socket is a stable FrappeContext singleton ref; boqId from useParams is stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket]);
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -214,6 +274,49 @@ const BoqHubPage = () => {
       parts.push("mark at least one sheet as Reviewed");
     return `Still needed: ${parts.join("; ")}`;
   })();
+
+  // ── Dialog data for ParseRunDialog (Slice 2b-frontend-i) ──────────────────
+  // Computed from effective statuses -- same source as the gate.
+  const reviewedDraftsForDialog = allDrafts.filter(
+    (d) => getEffectiveStatus(d) === "Reviewed"
+  );
+  const parsedDraftsForDialog = allDrafts.filter(
+    (d) => getEffectiveStatus(d) === "Parsed"
+  );
+  const pendingDialogSheetNames = allDrafts
+    .filter((d) => {
+      const eff = getEffectiveStatus(d);
+      return eff === "Pending" || eff === "Parse failed";
+    })
+    .map((d) => d.sheet_name);
+  const skippedDialogSheetNames = allDrafts
+    .filter((d) => {
+      const eff = getEffectiveStatus(d);
+      return eff === "Skip" || eff === "Hidden";
+    })
+    .map((d) => d.sheet_name);
+  const generalSpecsDialogList = [...generalSpecsSheetNames];
+
+  // ── Parse-run handlers ──────────────────────────────────────────────────────
+  const handleParseClick = () => {
+    // Clear any prior result before opening the dialog.
+    setParseResult(null);
+    setParseError(null);
+    setParseDialogOpen(true);
+  };
+
+  const handleParseConfirm = async (sheetNames: string[]) => {
+    if (!boqId) return;
+    setParseInFlight(true);
+    try {
+      // Enqueue the background worker; result arrives via "boq:parse_run_done".
+      await callRunParse({ boq_name: boqId, sheet_names: sheetNames });
+    } catch (_e) {
+      setParseInFlight(false);
+      setParseError("Failed to start parse job. Please try again.");
+      setParseDialogOpen(false);
+    }
+  };
 
   // ── General-specs selector value ───────────────────────────────────────────
   // EXACT: SelectItem values use sheet_name verbatim for the endpoint call.
@@ -439,9 +542,7 @@ const BoqHubPage = () => {
               <span tabIndex={0}>
                 <Button
                   disabled={!canParse}
-                  onClick={() => {
-                    /* Module 5 owns the actual parse -- no-op in 2b */
-                  }}
+                  onClick={handleParseClick}
                 >
                   Parse workbook
                 </Button>
@@ -451,6 +552,51 @@ const BoqHubPage = () => {
           </Tooltip>
         </TooltipProvider>
       </div>
+
+      {/* ── Parse-run result panel (Slice 2b-frontend-i) ─────────────────── */}
+      {(parseResult || parseError) && (
+        <div className={cn(
+          "rounded-lg border px-4 py-3 text-sm",
+          parseError
+            ? "border-destructive/50 bg-destructive/10 text-destructive"
+            : "border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 text-foreground"
+        )}>
+          {parseError ? (
+            <p>{parseError}</p>
+          ) : parseResult ? (
+            <div className="space-y-0.5">
+              {parseResult.parsed.length > 0 && (
+                <p className="font-medium">
+                  Parsed: {parseResult.parsed.join(", ")}
+                </p>
+              )}
+              {parseResult.notParsed.length > 0 && (
+                <p className="text-muted-foreground">
+                  Not parsed (not eligible): {parseResult.notParsed.join(", ")}
+                </p>
+              )}
+              {parseResult.failed.length > 0 && (
+                <p className="text-destructive">
+                  Failed: {parseResult.failed.join(", ")}
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* ── Parse-run confirm dialog (Slice 2b-frontend-i) ───────────────── */}
+      <ParseRunDialog
+        open={parseDialogOpen}
+        onClose={() => setParseDialogOpen(false)}
+        onConfirm={(sheetNames) => { void handleParseConfirm(sheetNames); }}
+        reviewedDrafts={reviewedDraftsForDialog}
+        parsedDrafts={parsedDraftsForDialog}
+        pendingSheetNames={pendingDialogSheetNames}
+        skippedSheetNames={skippedDialogSheetNames}
+        generalSpecsSheetNames={generalSpecsDialogList}
+        isLoading={parseInFlight}
+      />
 
       {/* ── M2.23 warn-and-confirm dialog ────────────────────────────────── */}
       {/*

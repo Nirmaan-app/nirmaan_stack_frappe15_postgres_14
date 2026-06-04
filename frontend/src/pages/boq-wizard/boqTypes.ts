@@ -135,6 +135,18 @@ export interface BoQGeneralSpecsSheetRow {
   preamble_text?: string;
 }
 
+/** Payload of the "boq:parse_run_done" socket event (parse_run.py _publish_parse_event). */
+export interface ParseRunDonePayload {
+  status: "success" | "error";
+  boq_name: string;
+  // success fields
+  parsed_sheets?: string[];
+  not_parsed_sheets?: string[];
+  failed_sheets?: string[];
+  // error fields
+  error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
+}
+
 export interface BOQsDoc {
   name: string;
   /** Human-readable title derived from the uploaded filename. */

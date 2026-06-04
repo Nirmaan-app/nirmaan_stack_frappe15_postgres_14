@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import { formatDate } from "@/utils/FormatDate";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -152,6 +153,12 @@ export function SheetCard({
           )}>
             {pill.label}
           </span>
+          {/* Dirty indicator: Reviewed sheet whose config changed since last parse. */}
+          {effectiveStatus === "Reviewed" && draft.has_prior_parse === 1 && (
+            <span className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              needs re-parse
+            </span>
+          )}
         </div>
       </div>
 
@@ -174,7 +181,7 @@ export function SheetCard({
 
         {/* ── Reviewed ────────────────────────────────────────────────────── */}
         {effectiveStatus === "Reviewed" && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
             <Button size="sm" variant="ghost" disabled={isSaving}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
@@ -184,6 +191,12 @@ export function SheetCard({
               onClick={() => void handleStatusChange("Pending")}>
               Set pending
             </Button>
+            {/* Optional nicety: show last parse date on dirty cards. */}
+            {draft.has_prior_parse === 1 && draft.last_parsed_at && (
+              <span className="text-xs text-muted-foreground">
+                &middot; last parsed {formatDate(draft.last_parsed_at)}
+              </span>
+            )}
           </div>
         )}
 
@@ -228,12 +241,17 @@ export function SheetCard({
 
         {/* ── Parsed ──────────────────────────────────────────────────────── */}
         {effectiveStatus === "Parsed" && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
             <Button size="sm" variant="ghost" disabled={isSaving}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Edit
             </Button>
+            {draft.last_parsed_at && (
+              <span className="text-xs text-muted-foreground">
+                &middot; Parsed {formatDate(draft.last_parsed_at)}
+              </span>
+            )}
           </div>
         )}
 
