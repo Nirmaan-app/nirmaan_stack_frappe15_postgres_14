@@ -407,7 +407,7 @@ export const CommissionReportWizard: React.FC = () => {
     }
     if (isParentLoading || isTemplateLoading || isPrefillLoading) {
         return (
-            <div className="mx-auto max-w-4xl p-4">
+            <div className="mx-auto max-w-6xl p-4">
                 <FormSkeleton />
             </div>
         );
@@ -465,7 +465,7 @@ export const CommissionReportWizard: React.FC = () => {
     const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
 
     return (
-        <div className="mx-auto max-w-4xl space-y-4 p-4">
+        <div className="mx-auto max-w-6xl space-y-4 p-4">
             <FormProvider {...form}>
                 <header className="flex flex-col gap-2 border-b pb-3">
                     <div className="flex items-center justify-between gap-2">
@@ -484,7 +484,17 @@ export const CommissionReportWizard: React.FC = () => {
                                     variant="outline"
                                     size="sm"
                                     onClick={() => {
-                                        const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent('Project Commission Report')}&name=${encodeURIComponent(parentName)}&format=${encodeURIComponent('Project Commission Report - Filled Task')}&task_row=${encodeURIComponent(childRowName)}&letterhead=No+Letterhead`;
+                                        // Templates declare `printOrientation: "landscape"` in
+                                        // their source_format to opt into the LS print format
+                                        // (Orientation = Landscape on the Print Format doctype).
+                                        // Default is portrait.
+                                        const isLandscape =
+                                            (template as { printOrientation?: string } | null)
+                                                ?.printOrientation === 'landscape';
+                                        const printFormat = isLandscape
+                                            ? 'LSProject Commission Report - Filled Task'
+                                            : 'Project Commission Report - Filled Task';
+                                        const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent('Project Commission Report')}&name=${encodeURIComponent(parentName)}&format=${encodeURIComponent(printFormat)}&task_row=${encodeURIComponent(childRowName)}&letterhead=No+Letterhead`;
                                         window.open(url, '_blank', 'noopener');
                                     }}
                                 >

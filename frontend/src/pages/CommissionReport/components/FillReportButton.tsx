@@ -11,14 +11,19 @@ import { cn } from '@/lib/utils';
 
 import type { CommissionReportTask } from '../types';
 
-const PREVIEW_PRINT_FORMAT = 'Project Commission Report - Filled Task';
+const PREVIEW_PRINT_FORMAT_PORTRAIT = 'Project Commission Report - Filled Task';
+const PREVIEW_PRINT_FORMAT_LANDSCAPE = 'LSProject Commission Report - Filled Task';
 const PARENT_DOCTYPE = 'Project Commission Report';
 
-const buildPreviewUrl = (parentName: string, childRowName: string): string => {
+const buildPreviewUrl = (
+    parentName: string,
+    childRowName: string,
+    isLandscape: boolean,
+): string => {
     const params = new URLSearchParams({
         doctype: PARENT_DOCTYPE,
         name: parentName,
-        format: PREVIEW_PRINT_FORMAT,
+        format: isLandscape ? PREVIEW_PRINT_FORMAT_LANDSCAPE : PREVIEW_PRINT_FORMAT_PORTRAIT,
         task_row: childRowName,
         letterhead: 'No Letterhead',
     });
@@ -29,6 +34,9 @@ export interface MasterTaskInfo {
     masterName: string;
     hasTemplate: boolean;
     isActive: boolean;
+    /** True when the template's source_format declares `printOrientation: "landscape"`.
+     *  Drives the preview/print URL toward the LS print format. */
+    isLandscape: boolean;
 }
 
 interface Props {
@@ -80,7 +88,11 @@ export const FillReportButton: React.FC<Props> = ({ parentName, task, masterMap,
                     size="icon"
                     className="h-6 w-6 text-slate-500 hover:bg-blue-50 hover:text-blue-600"
                     onClick={() =>
-                        window.open(buildPreviewUrl(parentName, task.name), '_blank', 'noopener')
+                        window.open(
+                            buildPreviewUrl(parentName, task.name, !!info.isLandscape),
+                            '_blank',
+                            'noopener',
+                        )
                     }
                     title="Preview PDF"
                 >

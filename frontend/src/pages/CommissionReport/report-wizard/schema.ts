@@ -315,6 +315,34 @@ export const validateStep = (
                         runField(fieldDef, value, `responses.${sid}.${idx}.${col.key}`);
                     }
                 });
+
+                // LT Cable Megger Test Report: each row must pick a unique
+                // `cable_size`. We flag every offending row so the user can
+                // see which ones collide. Scoped to the template that needs
+                // this constraint; safely no-op elsewhere.
+                if (template.templateId === 'lt-cable-megger-test-report') {
+                    const hasCableSizeCol = section.columns.some((c) => c.key === 'cable_size');
+                    if (hasCableSizeCol) {
+                        const seenAt = new Map<string, number[]>();
+                        rows.forEach((row, idx) => {
+                            const v = (row as Record<string, unknown> | undefined)?.['cable_size'];
+                            if (typeof v !== 'string' || !v.trim()) return;
+                            const k = v.trim();
+                            const arr = seenAt.get(k) || [];
+                            arr.push(idx);
+                            seenAt.set(k, arr);
+                        });
+                        for (const [, idxs] of seenAt) {
+                            if (idxs.length <= 1) continue;
+                            for (const idx of idxs) {
+                                errors.push({
+                                    path: `responses.${sid}.${idx}.cable_size`,
+                                    message: 'Each cable can only be tested once — pick a unique cable size.',
+                                });
+                            }
+                        }
+                    }
+                }
                 break;
             }
             case 'measurement_matrix': {

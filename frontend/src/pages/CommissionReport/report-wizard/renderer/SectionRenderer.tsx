@@ -72,7 +72,14 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
                 />
             );
         case 'trainees_data_table':
-            return <TraineesDataTableSection section={section} forceReadonly={forceReadonly} />;
+            return (
+                <TraineesDataTableSection
+                    section={section}
+                    projectId={projectId}
+                    templateId={templateId}
+                    forceReadonly={forceReadonly}
+                />
+            );
         case 'measurement_matrix':
             return <MeasurementMatrixSection section={section} forceReadonly={forceReadonly} />;
         default: {

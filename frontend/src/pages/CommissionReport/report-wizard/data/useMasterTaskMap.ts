@@ -42,10 +42,16 @@ export const useMasterTaskMap = (): UseMasterTaskMapResult => {
         for (const m of data || []) {
             const key = masterMapKey(m.category_link, m.task_name);
             const hasTemplate = !!(m.source_format && m.source_format.trim());
+            // Cheap detection — avoid full JSON.parse for the list view. A template
+            // declares `"printOrientation": "landscape"` at the top level; the
+            // substring check is unique enough for routing the preview/print URL.
+            const isLandscape =
+                hasTemplate && /"printOrientation"\s*:\s*"landscape"/i.test(m.source_format || '');
             map.set(key, {
                 masterName: m.name,
                 hasTemplate,
                 isActive: m.is_active !== 0,
+                isLandscape,
             });
         }
         return { isLoading, map };

@@ -7233,5 +7233,240 @@
       }
     ]
   },
+  "────── NEXT: LT Cable Megger Test Report ──────",
+  {
+    "templateId": "lt-cable-megger-test-report",
+    "templateVersion": 1,
+    "title": "LT Cable Megger Test Report",
+    "printOrientation": "landscape",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": [
+          "hdr"
+        ]
+      },
+      {
+        "key": "results",
+        "title": "Test Results",
+        "sections": [
+          "results"
+        ]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": [
+          "sigs"
+        ]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "INSULATION RESISTANCE TEST RESULTS OF VARIOUS CABLE",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "testing",
+            "label": "TESTING",
+            "type": "text",
+            "default": "INSULATION RESISTANCE TEST",
+            "readonly": true
+          },
+          {
+            "key": "test_condition",
+            "label": "TEST CONDITION",
+            "type": "text",
+            "default": "Test carried out with 500 Volt DC Megger",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "cable_type",
+            "label": "CABLE TYPE",
+            "type": "text",
+            "default": "ARMOURED CABLE",
+            "readonly": true
+          },
+          {
+            "key": "cable_make",
+            "label": "CABLE MAKE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. Polycab"
+          },
+          {
+            "key": "megger_make",
+            "label": "MEGGER MAKE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. MECO"
+          },
+          {
+            "key": "serial_no",
+            "label": "SERIAL NO",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. 0959287"
+          }
+        ]
+      },
+      {
+        "id": "results",
+        "type": "trainees_data_table",
+        "title": "Insulation Resistance Test Results (Values in MΩ)",
+        "minRows": 1,
+        "maxRows": 50,
+        "addRowLabel": "Add another cable",
+        "columns": [
+          {
+            "key": "cable_size",
+            "label": "Cable Size",
+            "type": "text",
+            "required": true,
+            "width": "18%",
+            "placeholder": "e.g. 3.5C x 95 sqmm Al. Cable"
+          },
+          {
+            "key": "from",
+            "label": "From",
+            "type": "text",
+            "required": true,
+            "width": "13%",
+            "placeholder": "e.g. Bus bar panel"
+          },
+          {
+            "key": "to",
+            "label": "To",
+            "type": "text",
+            "required": true,
+            "width": "13%",
+            "placeholder": "e.g. Floor Panel"
+          },
+          {
+            "key": "ry",
+            "label": "RY",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "yb",
+            "label": "YB",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "rb",
+            "label": "RB",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "rn",
+            "label": "RN",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "yn",
+            "label": "YN",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "bn",
+            "label": "BN",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "re",
+            "label": "RE",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "ye",
+            "label": "YE",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "be",
+            "label": "BE",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          },
+          {
+            "key": "ne",
+            "label": "NE",
+            "type": "text",
+            "default": ">200 MΩ",
+            "width": "5%"
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          {
+            "key": "vendor",
+            "label": "VENDOR"
+          },
+          {
+            "key": "consultant",
+            "label": "CONSULTANT"
+          },
+          {
+            "key": "client",
+            "label": "CLIENT"
+          }
+        ]
+      }
+    ]
+  },
   "────── END OF TEMPLATES ──────"
 ]
