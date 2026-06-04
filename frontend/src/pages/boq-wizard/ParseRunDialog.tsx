@@ -106,7 +106,7 @@ export function ParseRunDialog({
                 default; untick any you want to skip this run.
               </DialogDescription>
             </DialogHeader>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
               This runs in the background and can take up to ~10 minutes. You
               can keep working; you'll see a summary here when it's done.
             </p>
@@ -271,6 +271,10 @@ export function ParseRunDialog({
                 ))}
               </ul>
             )}
+            <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
+              This runs in the background and can take up to ~10 minutes. You
+              can keep working; you'll see a summary here when it's done.
+            </p>
 
             <DialogFooter>
               <Button
