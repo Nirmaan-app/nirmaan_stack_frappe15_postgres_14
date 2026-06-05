@@ -472,7 +472,7 @@ SheetConfigPanel's four sections are grouped into two visually distinct boxed zo
 - **Review/Edit wiring:** `MODULE3_TOOLTIP` constant and `Tooltip`/`TooltipContent`/`TooltipTrigger` imports removed from `SheetCard.tsx`. Review (Pending, Parse-failed) and Edit (Reviewed) now call `onOpenSpoke?.(draft.sheet_name)` — optional so cards without a spoke callback still compile. `BoqHubPage` passes `onOpenSpoke={handleOpenSpoke}` where `handleOpenSpoke` calls `navigate(\`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}\`)`. All other card buttons (Mark reviewed, Set pending, Skip, Include, Edit label) are UNCHANGED.
 - **Preview types in boqTypes.ts:** `SheetPreviewRow { row_number, cells: Record<string, string|number|boolean|null> }` and `SheetPreviewResponse { sheet_name, start_row, end_row_requested, rows, returned_count, has_more }`.
 
-**Module 3 Slice 3c -- spoke config Sections 1 (rows) + 2 (areas) (feat 1ec901e7):**
+**Module 3 Slice 3c -- spoke config Sections 1 (rows) + 2 (areas) (feat 16a6a4dc):**
 
 - **New component:** `SheetConfigPanel.tsx` in `src/pages/boq-wizard/`. Props: `boqName`, `sheetName` (verbatim), `draftConfig` (from the draft row's `sheet_config` field), `onSaveSuccess` callback.
 - **sheet_config read-modify-write convention (CRITICAL):** `set_sheet_config` is WHOLE-BLOB REPLACE. Any write must: (1) parse the existing `draftConfig` blob, (2) update only the keys this component owns (Section 1/2: `header_row_count`, `header_row`, `top_header_rows_override`, `skip_top_rows_after_header`, `area_dimensions`), (3) re-serialize the FULL merged object, (4) POST that. Never POST a partial blob -- it wipes `column_role_map` and any other keys later slices own.
@@ -486,7 +486,7 @@ SheetConfigPanel's four sections are grouped into two visually distinct boxed zo
 - **boqTypes.ts:** `sheet_config?: Record<string, unknown> | string | null` added to `BoQSheetDraft`. Frappe JSON fields return as parsed objects via useFrappeGetDoc; the string variant is a safety fallback. `parseConfig()` helper in SheetConfigPanel handles both.
 - **Remaining next:** Section 3 column-role grid (column_role_map), area-per-column assignment, work-package assignment, two-layer review gate (Slice 3d+). No .py files touched in 3c.
 
-**Module 3 Slice 3c-fix -- persistence + sparkle-on-confirm + Section-2 toggle/boxes (feat 1ec901e7):**
+**Module 3 Slice 3c-fix -- persistence + sparkle-on-confirm + Section-2 toggle/boxes (feat 9f8fb6f7):**
 
 - **Persistence fix:** `setInitialized(true)` in the init `useEffect` was OUTSIDE the `if (parsedConfig !== null)` guard, causing it to fire on first render when `parsedConfig` was null (doc not yet loaded). This prematurely locked out re-seeding when the doc arrived. Fix: `setInitialized(true)` moved INSIDE the guard. Effect comment updated to reflect the correct contract: "only fires when real config data is present."
 - **Sparkle-on-confirm (Select):** `onClick` on `SelectTrigger` removed. `onOpenChange={(open) => { if (open) touch(key); }}` added to the `Select` component instead. `onOpenChange` fires reliably when the dropdown opens, even when the user re-selects the already-active value -- the case `onClick` on Trigger did not handle reliably with Radix event propagation. **Convention for all future wizard Selects with sparkle:** use `onOpenChange` on `Select`, not `onClick` on `SelectTrigger`.
