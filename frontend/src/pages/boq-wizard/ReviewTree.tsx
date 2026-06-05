@@ -4,9 +4,18 @@
  * B1.1b-i: column layer replaced with config-driven columns from column_descriptors
  * (B1.1a backend, feat 58d2ed44). Tree mechanic preserved verbatim from B1.
  *
+ * B1.1b-fix-B: four display fixes --
+ *   FIX 1: Parent column (after Sl.No) -- shows parent's Excel row number; clicking
+ *           expands collapsed ancestors, scrolls to the parent row, 1.5s highlight.
+ *   FIX 2: Classification pill label no-truncation (aided by FIX 4's layout).
+ *   FIX 3: isVisible ancestor-only -- collapsed row stays visible; only descendants hide.
+ *   FIX 4: Description cell -- pill on its own line (top), description text below.
+ *
  * Fixed anchor columns (always shown):
  *   Excel Row  -- source_row_number. Positional; no mapped letter.
  *   Sl.No (X)  -- sl_no_value. X = col letter from the sl_no descriptor, if mapped.
+ *   Parent     -- parent row's source_row_number (Excel row). Derived; no mapped letter.
+ *                 Clickable: expands collapsed ancestors + scrolls to parent row.
  *   Description (Y) -- description text + tree indent/chevron/pill. Y = col letter
  *                       from the description descriptor, if mapped.
  *
@@ -26,7 +35,7 @@
  *
  * B1.1b-ii (next slice): column-subset selector + spacer-hide toggle.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
@@ -191,6 +200,10 @@ interface ReviewTreeProps {
 
 export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
+  const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
+  // FIX 1: row DOM element refs for scrollIntoView
+  const rowRefs = useRef<Map<number, HTMLElement>>(new Map());
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
@@ -227,12 +240,52 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
     });
   };
 
-  // A row is visible if none of its effective ancestors are in the collapsed set.
-  // Cap at VISIBILITY_HOP_CAP to prevent infinite loops on malformed chains.
+  // FIX 1: clear highlight after 1.5s
+  useEffect(() => {
+    if (highlightedIdx === null) return;
+    const timer = setTimeout(() => setHighlightedIdx(null), 1500);
+    return () => clearTimeout(timer);
+  }, [highlightedIdx]);
+
+  // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
+  // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
+  const revealAndScrollToRow = (targetRowIdx: number) => {
+    const toExpand: number[] = [];
+    let cur: number | null | undefined = byIdx.get(targetRowIdx)?.effective_parent_index ?? null;
+    let hops = 0;
+    while (cur !== null && cur !== undefined && cur >= 0 && hops < VISIBILITY_HOP_CAP) {
+      if (collapsed.has(cur)) toExpand.push(cur);
+      const ancestor = byIdx.get(cur);
+      cur = ancestor ? (ancestor.effective_parent_index ?? null) : null;
+      hops++;
+    }
+    if (toExpand.length > 0) {
+      setCollapsed(prev => {
+        const next = new Set(prev);
+        for (const idx of toExpand) next.delete(idx);
+        return next;
+      });
+    }
+    setTimeout(() => {
+      rowRefs.current.get(targetRowIdx)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setHighlightedIdx(targetRowIdx);
+    }, 50);
+  };
+
+  // FIX 3: a row is hidden only if an ANCESTOR is collapsed, never itself.
+  // Collapsing row R hides R's descendants; R stays visible as the expand affordance.
+  //
+  // Guards added vs the B1.1b-i version:
+  //   cur < 0  -- treats -1 sentinel (pre-fix-A rows have parent_index=0, not -1; this
+  //               guard stops any stale -1 value from being looked up in collapsed).
+  //   cur === row.row_index  -- self-reference guard; prevents a cyclic row from being
+  //               hidden when it is itself collapsed.
   const isVisible = (row: ReviewRow): boolean => {
-    let cur = row.effective_parent_index;
+    let cur: number | null | undefined = row.effective_parent_index;
     let hops = 0;
     while (cur !== null && cur !== undefined && hops < VISIBILITY_HOP_CAP) {
+      if (cur < 0) break;                  // -1 sentinel treated as root
+      if (cur === row.row_index) break;    // self-reference guard
       if (collapsed.has(cur)) return false;
       const parent = byIdx.get(cur);
       cur = parent ? (parent.effective_parent_index ?? null) : null;
@@ -259,6 +312,10 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
             {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
             <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
               {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
+            </th>
+            {/* Parent (FIX 1): parent row's Excel row number -- derived, no mapped letter */}
+            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
+              Parent
             </th>
             {/* Description: letter from the description descriptor col, if mapped */}
             <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap">
@@ -293,12 +350,22 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
             const isPreamble = row.effective_classification === "preamble";
             const isLineItem = row.effective_classification === "line_item";
 
+            // FIX 1: resolve parent's Excel row number (null for roots / invalid parent)
+            const pIdx = row.effective_parent_index ?? -1;
+            const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
+
             return (
               <tr
                 key={row.row_index}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(row.row_index, el);
+                  else rowRefs.current.delete(row.row_index);
+                }}
                 className={cn(
                   "border-b border-border hover:bg-muted/30 transition-colors",
                   isPreamble && "bg-muted/20",
+                  // FIX 1: transient amber flash when this row is the scroll target
+                  highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
                 )}
               >
                 {/* Excel Row */}
@@ -311,7 +378,22 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
                   {row.sl_no_value ?? ""}
                 </td>
 
-                {/* Description: indent + toggle + pill + text (tree mechanic verbatim from B1) */}
+                {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
+                <td className="px-2 py-1.5 align-top w-16 border-r border-border">
+                  {parentExcelRow !== null ? (
+                    <button
+                      type="button"
+                      onClick={() => revealAndScrollToRow(pIdx)}
+                      className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                    >
+                      ↑ {parentExcelRow}
+                    </button>
+                  ) : null}
+                </td>
+
+                {/* Description: FIX 4 -- pill on its own line (top), text below.
+                    Indent + chevron aligned with the pill+text block.
+                    FIX 2 -- pill has full horizontal room; whitespace-nowrap prevents clip. */}
                 <td className="px-2 py-1.5 align-top">
                   <div
                     className="flex items-start gap-1.5"
@@ -335,18 +417,21 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
                         : <ChevronDown className="h-3 w-3" />}
                     </button>
 
-                    <ClassificationPill cls={row.effective_classification} />
-
-                    <span className={cn(
-                      "leading-snug break-words min-w-0",
-                      isPreamble && "font-medium text-foreground",
-                      isLineItem && "text-foreground",
-                      !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                    )}>
-                      {row.description || (
-                        <span className="not-italic text-muted-foreground">(no description)</span>
-                      )}
-                    </span>
+                    {/* FIX 4: pill stacked above description text in a flex-col block.
+                        The block sits after the chevron; indent applies to the outer div. */}
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <ClassificationPill cls={row.effective_classification} />
+                      <span className={cn(
+                        "leading-snug break-words min-w-0",
+                        isPreamble && "font-medium text-foreground",
+                        isLineItem && "text-foreground",
+                        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                      )}>
+                        {row.description || (
+                          <span className="not-italic text-muted-foreground">(no description)</span>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 </td>
 
