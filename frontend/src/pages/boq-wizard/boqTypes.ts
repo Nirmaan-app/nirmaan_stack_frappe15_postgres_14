@@ -52,7 +52,8 @@ export type WizardStatus =
   | "Skip"
   | "General specs"
   | "Parse failed"
-  | "Parsed";
+  | "Parsed"
+  | "Parsed Check Done";
 
 /**
  * Whole-BoQ work-package map returned by get_boq_work_packages.
@@ -177,4 +178,115 @@ export interface BOQsDoc {
    * this to recover parseInFlight on hub mount (Bucket-2 Slice 2).
    */
   parse_in_progress?: 0 | 1;
+}
+
+// ── Review screen types (Slice B1) ─────────────────────────────────────────────
+
+/** One entry in a BoQ Review Row's edit_log JSON list. */
+export interface EditLogEntry {
+  field: string;
+  from: unknown;
+  to: unknown;
+  by: string;
+  at: string;
+}
+
+/**
+ * One BoQ Review Row as returned by get_review_rows.
+ * Includes all DB fields plus effective_classification / effective_parent_index
+ * added by resolve_effective on the backend.
+ * JSON list/dict fields are returned as parsed Python objects (lists/dicts, not strings).
+ */
+export interface ReviewRow {
+  name: string;
+  boq: string;
+  sheet_name: string;
+  source_row_number: number;
+  row_index: number;
+  // hierarchy
+  classification: string | null;
+  level: number | null;
+  parent_index: number | null;
+  path: string | null;
+  attached_to_index: number | null;
+  attached_notes: unknown[] | null;
+  // classifier metadata
+  promoted_from_line_item: 0 | 1;
+  preamble_level_override: number | null;
+  preamble_candidate_score: number | null;
+  preamble_candidate_signals: unknown[] | null;
+  needs_classification_review: 0 | 1;
+  review_reason: string | null;
+  // content
+  sl_no_value: string | null;
+  description: string | null;
+  unit: string | null;
+  make_model: string | null;
+  is_rate_only: 0 | 1;
+  is_synthetic: 0 | 1;
+  // quantities / rates / amounts
+  qty_total: number | null;
+  qty_by_area: Record<string, number> | null;
+  rate_supply: number | null;
+  rate_install: number | null;
+  rate_combined: number | null;
+  rate_by_area: Record<string, number> | null;
+  amount_total: number | null;
+  amount_supply: number | null;
+  amount_install: number | null;
+  amount_by_area: Record<string, number> | null;
+  // notes / warnings
+  row_notes: string | null;
+  append_notes_raw: Record<string, unknown> | null;
+  validation_warnings: unknown[] | null;
+  classifier_warnings: unknown[] | null;
+  // human edit layer
+  human_classification: string | null;
+  human_parent: number | null;
+  edit_log: EditLogEntry[] | null;
+  edited_by: string | null;
+  edited_at: string | null;
+  // effective values (computed by resolve_effective on backend)
+  effective_classification: string | null;
+  effective_parent_index: number | null;
+}
+
+/** Response shape of get_review_rows. */
+export interface GetReviewRowsResponse {
+  rows: ReviewRow[];
+  work_packages: string[];
+}
+
+// ── Structural break types (from check_structural_integrity / get_structural_breaks) ──
+
+export interface StructuralBreakOrphan {
+  type: "orphan";
+  row_index: number;
+  source_row_number: number;
+  reason: string;
+}
+
+export interface StructuralBreakLineItemAsParent {
+  type: "line_item_as_parent";
+  row_index: number;
+  source_row_number: number;
+  parent_row_index: number;
+  reason: string;
+}
+
+export interface StructuralBreakCycle {
+  type: "cycle";
+  row_index: number;
+  source_row_number: number;
+  reason: string;
+}
+
+export type StructuralBreak =
+  | StructuralBreakOrphan
+  | StructuralBreakLineItemAsParent
+  | StructuralBreakCycle;
+
+/** Response shape of get_structural_breaks. */
+export interface GetStructuralBreaksResponse {
+  breaks: StructuralBreak[];
 }

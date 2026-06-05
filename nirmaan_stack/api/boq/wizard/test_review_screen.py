@@ -19,6 +19,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     append_edit_log_entry,
     check_structural_integrity,
     get_review_rows,
+    get_structural_breaks,
     mark_sheet_parsed_check_done,
     resolve_effective,
     save_review_edit,
@@ -654,3 +655,93 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
                         "overridden must be True when breaks existed and user confirmed past them")
         self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed Check Done",
                          "wizard_status must be written to 'Parsed Check Done' when confirmed")
+
+
+# ===========================================================================
+# Group 7: get_structural_breaks -- DB (Slice B1)
+# ===========================================================================
+
+class TestGetStructuralBreaks(FrappeTestCase):
+    """
+    Verifies the read-only get_structural_breaks endpoint.
+
+    Fixtures:
+      CleanSheet2: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks.
+      OrphanSheet2: orphan line_item (row 0, parent=None, source_row_number=5) -> ORPHAN break.
+
+    Naming is distinct from TestMarkSheetParsedCheckDone fixtures (CleanSheet / BreakSheet)
+    so both test classes can coexist in the same test database run without interference.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "StructBreaks Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "CleanSheet2", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "OrphanSheet2", "sheet_order": 2, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+        # CleanSheet2: valid preamble + child line_item (no structural breaks)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("CleanSheet2", 0, "preamble", parent_index=None),
+            _minimal_row("CleanSheet2", 1, "line_item", parent_index=0),
+        ])
+
+        # OrphanSheet2: orphan line_item (no parent -> ORPHAN break)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("OrphanSheet2", 0, "line_item", parent_index=None,
+                         source_row_number=5),
+        ])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def _get_wizard_status(self, sheet_name: str) -> str:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            "wizard_status",
+        ) or ""
+
+    def test_orphan_sheet_returns_break_of_type_orphan(self):
+        """A sheet with an orphan line_item returns exactly one break of type orphan."""
+        result = get_structural_breaks(boq_name=self.boq_name, sheet_name="OrphanSheet2")
+        self.assertIn("breaks", result)
+        self.assertEqual(len(result["breaks"]), 1,
+                         "expect exactly one break for the single orphan line_item")
+        brk = result["breaks"][0]
+        self.assertEqual(brk["type"], "orphan")
+        self.assertEqual(brk["row_index"], 0,
+                         "break row_index must match the inserted orphan row")
+        self.assertEqual(brk["source_row_number"], 5,
+                         "source_row_number must match the fixture value passed at insert")
+
+    def test_clean_sheet_returns_empty_breaks(self):
+        """A structurally clean sheet returns {"breaks": []}."""
+        result = get_structural_breaks(boq_name=self.boq_name, sheet_name="CleanSheet2")
+        self.assertIn("breaks", result)
+        self.assertEqual(result["breaks"], [],
+                         "clean sheet must return an empty breaks list")
+
+    def test_does_not_mutate_wizard_status(self):
+        """get_structural_breaks must never modify wizard_status on any sheet."""
+        status_before = self._get_wizard_status("OrphanSheet2")
+        get_structural_breaks(boq_name=self.boq_name, sheet_name="OrphanSheet2")
+        status_after = self._get_wizard_status("OrphanSheet2")
+        self.assertEqual(status_before, status_after,
+                         "get_structural_breaks must not write wizard_status")

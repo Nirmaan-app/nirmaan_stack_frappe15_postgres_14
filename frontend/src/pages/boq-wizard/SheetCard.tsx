@@ -22,6 +22,8 @@ const STATUS_PILL: Record<string, { label: string; className: string }> = {
   "Skip":           { label: "Skip",          className: "bg-amber-500 text-white dark:bg-amber-600 dark:text-white" },
   "General specs":  { label: "General specs", className: "bg-sky-500 text-white dark:bg-sky-600 dark:text-white" },
   "Parsed":         { label: "Parsed",        className: "bg-green-600 text-white dark:bg-green-700 dark:text-white" },
+  // Teal = "green + checked" register, clearly distinct from Parsed green.
+  "Parsed Check Done": { label: "Checked",   className: "bg-teal-600 text-white dark:bg-teal-700 dark:text-white" },
 };
 
 
@@ -35,11 +37,17 @@ interface SheetCardProps {
   /** Called after any successful write to trigger parent SWR re-fetch. */
   onSaved: () => void;
   /**
-   * Called when the user clicks Review (Pending/Parse-failed) or Edit (Reviewed).
+   * Called when the user clicks Review (Pending/Parse-failed) or Edit (Reviewed/Parsed).
    * Receives the VERBATIM sheet_name (no trimming). Parent (BoqHubPage) owns
    * navigate so SheetCard stays router-free.
    */
   onOpenSpoke?: (sheetName: string) => void;
+  /**
+   * Called when the user clicks Review on a Parsed Check Done card.
+   * Navigates to the review screen (distinct from the config spoke).
+   * Receives the VERBATIM sheet_name. Hub owns navigate; SheetCard stays router-free.
+   */
+  onOpenReview?: (sheetName: string) => void;
   /**
    * Work-header docnames for this sheet from get_boq_work_packages (Slice 3f-readback).
    * Replaces draft.work_packages read; undefined while the map is loading.
@@ -54,6 +62,7 @@ export function SheetCard({
   boqName,
   onSaved,
   onOpenSpoke,
+  onOpenReview,
   workHeaders,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
@@ -246,6 +255,22 @@ export function SheetCard({
             <Button size="sm" variant="ghost" disabled={isSaving}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Edit
+            </Button>
+            {draft.last_parsed_at && (
+              <span className="text-xs text-muted-foreground">
+                &middot; Parsed {formatDate(draft.last_parsed_at)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* ── Parsed Check Done ──────────────────────────────────────────── */}
+        {/* Review navigates to the review screen (not the config spoke). */}
+        {effectiveStatus === "Parsed Check Done" && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="ghost" disabled={isSaving}
+              onClick={() => onOpenReview?.(draft.sheet_name)}>
+              Review
             </Button>
             {draft.last_parsed_at && (
               <span className="text-xs text-muted-foreground">

@@ -727,6 +727,10 @@ export const appRoutes: RouteObject[] = [
           // useParams values, so the spoke receives the verbatim original sheet_name.
           { path: "upload-boq/hub/:boqId/sheet/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetSpokePage") },
 
+          // BoQ per-sheet review screen (Slice B1).
+          // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
+          { path: "upload-boq/hub/:boqId/review/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetReviewPage") },
+
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
           // Commented out routes from original:

@@ -560,6 +560,38 @@ def save_review_edit(
     }
 
 
+@frappe.whitelist()
+def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
+    """
+    Return structural integrity breaks for (boq_name, sheet_name).
+
+    Read-only: does NOT write, does NOT change wizard_status, does NOT call
+    mark_sheet_parsed_check_done. Intended for display in the review screen
+    (Slice B2) and any caller that needs the raw break list.
+
+    @frappe.whitelist() bare -- GET-capable (mirrors get_review_rows style).
+
+    Returns: {"breaks": [...]}  (empty list = structurally clean)
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    rows = frappe.db.get_all(
+        "BoQ Review Row",
+        filters={"boq": boq_name, "sheet_name": sheet_name},
+        fields=["row_index", "source_row_number", "classification",
+                "human_classification", "parent_index", "human_parent"],
+        order_by="row_index asc",
+    )
+    rows_as_dicts = [dict(r) for r in rows]
+    breaks = check_structural_integrity(rows_as_dicts)
+    return {"breaks": breaks}
+
+
 @frappe.whitelist(methods=["POST"])
 def mark_sheet_parsed_check_done(
     boq_name: str = None,

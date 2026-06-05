@@ -259,6 +259,13 @@ const BoqHubPage = () => {
     navigate(`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}`);
   };
 
+  // ── Review-screen navigation callback (Slice B1) ────────────────────────
+  // Navigates to the per-sheet review screen for Parsed/Parsed Check Done sheets.
+  // Same encode/decode convention as handleOpenSpoke.
+  const handleOpenReview = (sheetName: string) => {
+    navigate(`/upload-boq/hub/${boqId}/review/${encodeURIComponent(sheetName)}`);
+  };
+
   // ── Effective-status derivation (M2.16) ───────────────────────────────────
   // "General specs" is DERIVED from child-table set membership, never from wizard_status.
   // EXACT: sheet_name compared verbatim against source_sheet_name (no trimming).
@@ -321,6 +328,17 @@ const BoqHubPage = () => {
   const hiddenCount = hiddenDrafts.length;
   const parsedCount = dataSheets.filter(
     (s) => getEffectiveStatus(s) === "Parsed"
+  ).length;
+
+  // Sheets available for review (Parsed or Parsed Check Done).
+  // Used to show/hide the "Review parsed sheets" section and to provide
+  // the picker list for navigating to SheetReviewPage.
+  const reviewableDrafts = allDrafts.filter((s) => {
+    const eff = getEffectiveStatus(s);
+    return eff === "Parsed" || eff === "Parsed Check Done";
+  });
+  const parsedCheckDoneCount = dataSheets.filter(
+    (s) => getEffectiveStatus(s) === "Parsed Check Done"
   ).length;
 
   const parseGateReason = (() => {
@@ -577,6 +595,7 @@ const BoqHubPage = () => {
             boqName={boq.name}
             onSaved={handleSaved}
             onOpenSpoke={handleOpenSpoke}
+            onOpenReview={handleOpenReview}
             workHeaders={workPackageMap[draft.sheet_name]}
           />
         ))}
@@ -609,6 +628,7 @@ const BoqHubPage = () => {
                     isLikelySkip={isLikelySkipSheet(draft.sheet_name)}
                     boqName={boq.name}
                     onSaved={handleSaved}
+                    onOpenReview={handleOpenReview}
                     workHeaders={workPackageMap[draft.sheet_name]}
                   />
                 ))}
@@ -618,12 +638,60 @@ const BoqHubPage = () => {
         )}
       </div>
 
+      {/* ── Review parsed sheets section (Slice B1) ──────────────────────── */}
+      {/* Shown when at least one sheet is Parsed or Parsed Check Done.        */}
+      {/* Each entry navigates to SheetReviewPage via handleOpenReview.        */}
+      {reviewableDrafts.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/20 p-4 flex flex-col gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Review parsed sheets</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Inspect extracted rows as a hierarchy tree. Read-only in this release.
+            </p>
+          </div>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+            {reviewableDrafts.map((draft) => {
+              const eff = getEffectiveStatus(draft);
+              const isChecked = eff === "Parsed Check Done";
+              return (
+                <li key={draft.sheet_name} className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-foreground truncate min-w-0">
+                    {/* Display-trimmed; sheet_name passed verbatim to handleOpenReview. */}
+                    {draft.sheet_name.trim() || draft.sheet_name}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-xs font-medium",
+                      isChecked
+                        ? "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300"
+                        : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                    )}>
+                      {isChecked ? "Checked" : "Parsed"}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      // EXACT: sheet_name passed verbatim — encodeURIComponent in handleOpenReview
+                      onClick={() => handleOpenReview(draft.sheet_name)}
+                    >
+                      Review
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* ── Parse-gate footer (M2.11/M2.12) ─────────────────────────────── */}
       <div className="border-t border-border pt-4 flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           {reviewedCount} of {totalDataCount} data{" "}
           {totalDataCount === 1 ? "sheet" : "sheets"} reviewed
           {parsedCount > 0 && ` · ${parsedCount} parsed`}
+          {parsedCheckDoneCount > 0 && ` · ${parsedCheckDoneCount} checked`}
           {generalSpecsCount > 0 && ` · ${generalSpecsCount} general specs`}
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
