@@ -154,6 +154,70 @@ export const resolveInitialValues = ({
                 }
                 break;
             }
+            case 'repeating_groups': {
+                // Each group = { ...groupFields, rows: [...rowsTable] }.
+                const existingArr = Array.isArray(existing)
+                    ? (existing as Array<Record<string, unknown>>)
+                    : null;
+                const buildEmptyRow = (): Record<string, unknown> => {
+                    const row: Record<string, unknown> = {};
+                    for (const col of section.rowsTable.columns) {
+                        row[col.key] = resolveFieldValue(
+                            { ...col, bind: undefined } as Field,
+                            undefined,
+                            prefillDict,
+                        );
+                    }
+                    return row;
+                };
+                const buildEmptyGroup = (): Record<string, unknown> => {
+                    const g: Record<string, unknown> = {};
+                    for (const f of section.groupFields) {
+                        g[f.key] = resolveFieldValue(f, undefined, prefillDict);
+                    }
+                    const minRows = Math.max(1, section.rowsTable.minRows ?? 1);
+                    g.rows = Array.from({ length: minRows }, () => buildEmptyRow());
+                    return g;
+                };
+                if (existingArr && existingArr.length > 0) {
+                    out[section.id] = existingArr.map((saved) => {
+                        const g: Record<string, unknown> = {};
+                        for (const f of section.groupFields) {
+                            const v = saved?.[f.key];
+                            g[f.key] =
+                                v === undefined || v === null
+                                    ? resolveFieldValue(f, undefined, prefillDict)
+                                    : v;
+                        }
+                        const savedRows = Array.isArray(saved?.rows)
+                            ? (saved.rows as Array<Record<string, unknown>>)
+                            : [];
+                        g.rows = savedRows.length > 0
+                            ? savedRows.map((row) => {
+                                  const filled: Record<string, unknown> = {};
+                                  for (const col of section.rowsTable.columns) {
+                                      const v = row?.[col.key];
+                                      filled[col.key] =
+                                          v === undefined || v === null
+                                              ? resolveFieldValue(
+                                                    { ...col, bind: undefined } as Field,
+                                                    undefined,
+                                                    prefillDict,
+                                                )
+                                              : v;
+                                  }
+                                  return filled;
+                              })
+                            : [buildEmptyRow()];
+                        return g;
+                    });
+                } else {
+                    // Fill: seed one empty group (more get auto-added by the
+                    // wizard when the user enters a count in the header).
+                    out[section.id] = [buildEmptyGroup()];
+                }
+                break;
+            }
             case 'measurement_matrix': {
                 // Fixed N rows. Each row is keyed by the declared `rows[i].id` so we can
                 // re-align saved responses to the template rows even if the user changes
@@ -231,6 +295,8 @@ export const collectUsedPrefillKeys = (template: ReportTemplate): string[] => {
             case 'image_attachments':
             case 'signatures':
             case 'trainees_data_table':
+            case 'measurement_matrix':
+            case 'repeating_groups':
                 break;
         }
     };

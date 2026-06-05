@@ -275,6 +275,54 @@ const validateSection = (
             return true;
         }
 
+        case 'repeating_groups': {
+            // Per-group flat fields (e.g. equipment, area).
+            if (!Array.isArray(obj.groupFields) || obj.groupFields.length === 0) {
+                errors.push(err('missing_field', `${path}.groupFields required (non-empty)`, path));
+                return false;
+            }
+            const gfKeys = new Set<string>();
+            for (let i = 0; i < obj.groupFields.length; i++) {
+                if (!validateField(obj.groupFields[i], `${path}.groupFields[${i}]`, errors)) return false;
+                const k = (obj.groupFields[i] as Record<string, unknown>).key as string;
+                if (gfKeys.has(k)) {
+                    errors.push(err('duplicate_id', `${path}.groupFields[${i}].key "${k}" duplicated`, path));
+                    return false;
+                }
+                gfKeys.add(k);
+            }
+            // Nested rowsTable mimics a trainees_data_table: required columns array.
+            const rowsTable = obj.rowsTable as Record<string, unknown> | undefined;
+            if (!rowsTable || typeof rowsTable !== 'object') {
+                errors.push(err('missing_field', `${path}.rowsTable required`, path));
+                return false;
+            }
+            if (!Array.isArray(rowsTable.columns) || rowsTable.columns.length === 0) {
+                errors.push(err('missing_field', `${path}.rowsTable.columns required (non-empty)`, path));
+                return false;
+            }
+            const rcKeys = new Set<string>();
+            for (let i = 0; i < rowsTable.columns.length; i++) {
+                const col = rowsTable.columns[i] as Record<string, unknown>;
+                if (!validateField(
+                    { ...col, bind: undefined } as object,
+                    `${path}.rowsTable.columns[${i}]`,
+                    errors,
+                )) return false;
+                const k = col.key as string;
+                if (rcKeys.has(k)) {
+                    errors.push(err('duplicate_id', `${path}.rowsTable.columns[${i}].key "${k}" duplicated`, path));
+                    return false;
+                }
+                rcKeys.add(k);
+            }
+            if (obj.countBoundTo !== undefined && typeof obj.countBoundTo !== 'string') {
+                errors.push(err('invalid_type', `${path}.countBoundTo must be a string path`, path));
+                return false;
+            }
+            return true;
+        }
+
         default:
             errors.push(err('invalid_type', `${path}.type unsupported`, path));
             return false;

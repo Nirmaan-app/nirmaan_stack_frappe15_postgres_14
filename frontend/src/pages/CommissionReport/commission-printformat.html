@@ -735,6 +735,13 @@ thead { display: table-header-group; }
 
         {% elif tpl.templateId == "duct-cfm-report" %}
 
+            {# New shape: header has PACKAGE + count; readings is a
+               `repeating_groups` section. Iterate each group as its own card:
+               EQUIPMENT + AREA headline, then a per-group CFM table with
+               R1/R2/R3 + Average + Designed + a Total / Variation rollup. #}
+            {%- set rg_section = (tpl.sections | selectattr("id", "equalto", "readings") | list | first) -%}
+            {%- set groups = (rd.responses or {}).get(rg_section.id, []) or [] if rg_section else [] -%}
+
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
@@ -747,68 +754,90 @@ thead { display: table-header-group; }
                         {% endif %}
                     </table>
                     <div class="cv-spacer-md"></div>
-                    <div class="cv-sub-head">HVAC CFM TESTING REPORT:</div>
-                    {% if tr_section %}
-                        {%- set rows_raw = (rd.responses or {}).get(tr_section.id, []) or [] -%}
-                        {%- set ns_rows = namespace(list=[]) -%}
-                        {%- for row in rows_raw -%}
-                            {%- set ns_row = namespace(any=false) -%}
-                            {%- for c in (tr_section.columns or []) -%}{%- if row is mapping and row.get(c.key) and row.get(c.key) != '' -%}{%- set ns_row.any = true -%}{%- endif -%}{%- endfor -%}
-                            {%- if ns_row.any -%}{%- set _ = ns_rows.list.append(row) -%}{%- endif -%}
-                        {%- endfor -%}
-                        {%- set tot = namespace(avg=0.0, des=0.0, n_avg=0, n_des=0) -%}
-                        <table class="cv-tr-table">
-                            <thead>
-                                <tr>
-                                    <th rowspan="2" style="width: 40px;">Sl No</th>
-                                    <th rowspan="2">Area</th>
-                                    <th rowspan="2" style="width: 110px;">Grill / Diffuser</th>
-                                    <th colspan="3" style="text-align: center;">Calculated CFM</th>
-                                    <th rowspan="2" style="width: 75px;">Average CFM</th>
-                                    <th rowspan="2" style="width: 75px;">Designed CFM</th>
-                                </tr>
-                                <tr><th style="width: 55px;">R1</th><th style="width: 55px;">R2</th><th style="width: 55px;">R3</th></tr>
-                            </thead>
-                            <tbody>
-                                {% for row in ns_rows.list %}
-                                    {%- set r1 = row.get('r1') if row is mapping else none -%}
-                                    {%- set r2 = row.get('r2') if row is mapping else none -%}
-                                    {%- set r3 = row.get('r3') if row is mapping else none -%}
-                                    {%- set des = row.get('designed_cfm') if row is mapping else none -%}
-                                    {%- set has_all = (r1 is not none and r2 is not none and r3 is not none and r1 != '' and r2 != '' and r3 != '') -%}
-                                    {%- if has_all -%}
-                                        {%- set avg_val = ((r1 | float) + (r2 | float) + (r3 | float)) / 3.0 -%}
-                                        {%- set tot.avg = tot.avg + avg_val -%}
-                                        {%- set tot.n_avg = tot.n_avg + 1 -%}
-                                    {%- endif -%}
-                                    {%- if des is not none and des != '' -%}
-                                        {%- set tot.des = tot.des + (des | float) -%}
-                                        {%- set tot.n_des = tot.n_des + 1 -%}
-                                    {%- endif -%}
-                                    <tr class="cv-tr-row">
-                                        <td style="text-align: center;">{{ loop.index }}</td>
-                                        <td>{%- set a = row.get('area') -%}{%- if a is none or a == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ a }}{%- endif -%}</td>
-                                        <td>{%- set g = row.get('grill_diffuser') -%}{%- if g is none or g == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ g }}{%- endif -%}</td>
-                                        <td style="text-align: center;">{%- if r1 is none or r1 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ r1 }}{%- endif -%}</td>
-                                        <td style="text-align: center;">{%- if r2 is none or r2 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ r2 }}{%- endif -%}</td>
-                                        <td style="text-align: center;">{%- if r3 is none or r3 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ r3 }}{%- endif -%}</td>
-                                        <td style="text-align: center; font-weight: 600;">{%- if has_all -%}{{ "%.2f" | format(((r1 | float) + (r2 | float) + (r3 | float)) / 3.0) }}{%- else -%}<span class="cv-blank">&nbsp;</span>{%- endif -%}</td>
-                                        <td style="text-align: center;">{%- if des is none or des == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ des }}{%- endif -%}</td>
+
+                    {% if rg_section and (groups | length > 0) %}
+                        {% for group in groups %}
+                            {%- set rows_raw = (group.get('rows') if group is mapping else []) or [] -%}
+                            {%- set ns_rows = namespace(list=[]) -%}
+                            {%- for row in rows_raw -%}
+                                {%- set ns_row = namespace(any=false) -%}
+                                {%- for c in (rg_section.rowsTable.columns or []) -%}{%- if row is mapping and row.get(c.key) and row.get(c.key) != '' -%}{%- set ns_row.any = true -%}{%- endif -%}{%- endfor -%}
+                                {%- if ns_row.any -%}{%- set _ = ns_rows.list.append(row) -%}{%- endif -%}
+                            {%- endfor -%}
+                            {%- set tot = namespace(avg=0.0, des=0.0, n_avg=0, n_des=0) -%}
+
+                            <div style="page-break-inside: avoid; margin-bottom: 14px;">
+                                {# Group heading sits OUTSIDE the equipment/area box, styled
+                                   like a section sub-head. #}
+                                <div class="cv-sub-head" style="margin-bottom: 0;">
+                                    {{ rg_section.groupTitlePrefix or 'Group' }} {{ loop.index }}
+                                </div>
+                                {# Equipment + Area pair inside its own bordered card. #}
+                                <table class="cv-table">
+                                    <tr>
+                                        <td class="cv-label" style="width: 18%;">EQUIPMENT</td>
+                                        <td style="width: 32%;">{%- set eq = group.get('equipment') if group is mapping else none -%}{%- if eq is none or eq == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ eq }}{%- endif -%}</td>
+                                        <td class="cv-label" style="width: 18%;">AREA</td>
+                                        <td>{%- set ar = group.get('area') if group is mapping else none -%}{%- if ar is none or ar == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ ar }}{%- endif -%}</td>
                                     </tr>
-                                {% endfor %}
-                                <tr>
-                                    <td colspan="6" style="text-align: center; font-weight: 700;">Total CFM</td>
-                                    <td style="text-align: center; font-weight: 700;">{%- if tot.n_avg > 0 -%}{{ "%.2f" | format(tot.avg) }}{%- else -%}—{%- endif -%}</td>
-                                    <td style="text-align: center; font-weight: 700;">{%- if tot.n_des > 0 -%}{{ "%.2f" | format(tot.des) }}{%- else -%}—{%- endif -%}</td>
-                                </tr>
-                                <tr>
-                                    <td colspan="6" style="text-align: center; font-weight: 700;">CFM Variation</td>
-                                    <td colspan="2" style="text-align: center; font-weight: 700;">
-                                        {%- if tot.n_avg > 0 and tot.n_des > 0 and tot.des > 0 -%}{{ "%.2f" | format(((tot.avg - tot.des) / tot.des) * 100) }}%{%- else -%}—{%- endif -%}
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                </table>
+
+                                {# Per-group CFM table #}
+                                <div class="cv-sub-head" style="margin-top: 4px;">{{ rg_section.rowsTable.title or "HVAC CFM Testing Report" }}</div>
+                                <table class="cv-tr-table">
+                                    <thead>
+                                        <tr>
+                                            <th rowspan="2" style="width: 40px;">Sl No</th>
+                                            <th rowspan="2" style="width: 22%;">Grill / Diffuser</th>
+                                            <th colspan="3" style="text-align: center;">Calculated CFM</th>
+                                            <th rowspan="2" style="width: 75px;">Average CFM</th>
+                                            <th rowspan="2" style="width: 75px;">Designed CFM</th>
+                                        </tr>
+                                        <tr><th style="width: 55px;">R1</th><th style="width: 55px;">R2</th><th style="width: 55px;">R3</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in ns_rows.list %}
+                                            {%- set r1 = row.get('r1') if row is mapping else none -%}
+                                            {%- set r2 = row.get('r2') if row is mapping else none -%}
+                                            {%- set r3 = row.get('r3') if row is mapping else none -%}
+                                            {%- set des = row.get('designed_cfm') if row is mapping else none -%}
+                                            {%- set has_all = (r1 is not none and r2 is not none and r3 is not none and r1 != '' and r2 != '' and r3 != '') -%}
+                                            {%- if has_all -%}
+                                                {%- set avg_val = ((r1 | float) + (r2 | float) + (r3 | float)) / 3.0 -%}
+                                                {%- set tot.avg = tot.avg + avg_val -%}
+                                                {%- set tot.n_avg = tot.n_avg + 1 -%}
+                                            {%- endif -%}
+                                            {%- if des is not none and des != '' -%}
+                                                {%- set tot.des = tot.des + (des | float) -%}
+                                                {%- set tot.n_des = tot.n_des + 1 -%}
+                                            {%- endif -%}
+                                            <tr class="cv-tr-row">
+                                                <td style="text-align: center;">{{ loop.index }}</td>
+                                                <td>{%- set g = row.get('grill_diffuser') -%}{%- if g is none or g == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ g }}{%- endif -%}</td>
+                                                <td style="text-align: center;">{%- if r1 is none or r1 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ r1 }}{%- endif -%}</td>
+                                                <td style="text-align: center;">{%- if r2 is none or r2 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ r2 }}{%- endif -%}</td>
+                                                <td style="text-align: center;">{%- if r3 is none or r3 == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ r3 }}{%- endif -%}</td>
+                                                <td style="text-align: center; font-weight: 600;">{%- if has_all -%}{{ "%.2f" | format(((r1 | float) + (r2 | float) + (r3 | float)) / 3.0) }}{%- else -%}<span class="cv-blank">&nbsp;</span>{%- endif -%}</td>
+                                                <td style="text-align: center;">{%- if des is none or des == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ des }}{%- endif -%}</td>
+                                            </tr>
+                                        {% endfor %}
+                                        <tr>
+                                            <td colspan="5" style="text-align: center; font-weight: 700;">Total CFM</td>
+                                            <td style="text-align: center; font-weight: 700;">{%- if tot.n_avg > 0 -%}{{ "%.2f" | format(tot.avg) }}{%- else -%}—{%- endif -%}</td>
+                                            <td style="text-align: center; font-weight: 700;">{%- if tot.n_des > 0 -%}{{ "%.2f" | format(tot.des) }}{%- else -%}—{%- endif -%}</td>
+                                        </tr>
+                                        <tr>
+                                            <td colspan="5" style="text-align: center; font-weight: 700;">CFM Variation</td>
+                                            <td colspan="2" style="text-align: center; font-weight: 700;">
+                                                {%- if tot.n_avg > 0 and tot.n_des > 0 and tot.des > 0 -%}{{ "%.2f" | format(((tot.avg - tot.des) / tot.des) * 100) }}%{%- else -%}—{%- endif -%}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="cv-error">No CFM Readings entered.</div>
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">

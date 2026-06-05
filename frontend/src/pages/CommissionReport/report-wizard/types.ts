@@ -188,6 +188,34 @@ export interface MeasurementMatrixSection {
     columns: MeasurementMatrixColumn[];
 }
 
+/** Repeating-groups section. N independent cards, each with a flat set of
+ *  `groupFields` (e.g. Equipment + Area) and a nested repeating data-table
+ *  of `rowsTable` rows. Used by the CFM / Air Balance Report where the
+ *  header declares how many groups to render. */
+export interface RepeatingGroupsSection {
+    id: string;
+    type: 'repeating_groups';
+    title?: string;
+    /** Header-field path whose number value drives the initial group count.
+     *  Wizard auto-seeds empty groups as the count grows; reductions are
+     *  manual (mirrors the Earth Pit count behavior). */
+    countBoundTo?: string;
+    /** Flat fields shown at the top of each group (e.g. equipment, area). */
+    groupFields: Field[];
+    /** Nested repeating data-table inside each group. */
+    rowsTable: {
+        title?: string;
+        columns: TraineesDataTableColumn[];
+        minRows?: number;
+        maxRows?: number;
+        addRowLabel?: string;
+    };
+    /** Used to label each group card, e.g. "CFM Reading 1". */
+    groupTitlePrefix?: string;
+    /** Max number of groups the wizard will allow. Default 50. */
+    maxGroups?: number;
+}
+
 export type Section =
     | ProcessSection
     | HeaderSection
@@ -196,7 +224,8 @@ export type Section =
     | FieldsSection
     | SignaturesSection
     | TraineesDataTableSection
-    | MeasurementMatrixSection;
+    | MeasurementMatrixSection
+    | RepeatingGroupsSection;
 
 export type SectionType = Section['type'];
 
@@ -220,6 +249,13 @@ export interface WizardStepDef {
     sections: string[];
     /** Optional visibility gate based on current form values. */
     visibleIf?: WizardStepVisibleIf;
+    /** Synthetic per-group step. Set by the wizard at runtime when expanding a
+     *  `repeating_groups` section into one wizard step per group. Renderers
+     *  use this to scope to a single group. */
+    groupSlice?: {
+        sectionId: string;
+        groupIndex: number;
+    };
 }
 
 export interface ReportTemplate {

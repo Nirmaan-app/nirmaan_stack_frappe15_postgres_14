@@ -162,7 +162,51 @@ export const CommissionReportWizard: React.FC = () => {
     // Filter steps by visibleIf; this drives navigation, validation, and rendering.
     const visibleStepDefs: WizardStepDef[] = useMemo(() => {
         if (!template?.wizardSteps) return [];
-        return template.wizardSteps.filter((s) => isStepVisible(s, watched));
+        const visible = template.wizardSteps.filter((s) => isStepVisible(s, watched));
+        if (!template.sections) return visible;
+        const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
+        // Expand any step whose single section is a `repeating_groups` with a
+        // `countBoundTo` header binding into N synthetic per-group steps.
+        // Count = max(declared, currentGroups) — preserves user-added extras so
+        // the user can navigate to and remove them.
+        const expanded: WizardStepDef[] = [];
+        for (const step of visible) {
+            if (step.sections.length === 1) {
+                const sec = sectionsById.get(step.sections[0]);
+                if (sec && sec.type === 'repeating_groups' && sec.countBoundTo) {
+                    const declaredRaw = sec.countBoundTo
+                        .split('.')
+                        .reduce<unknown>((acc, k) => {
+                            if (acc && typeof acc === 'object') {
+                                return (acc as Record<string, unknown>)[k];
+                            }
+                            return undefined;
+                        }, watched);
+                    const declared = Number(declaredRaw);
+                    const groupsArrRaw = (watched as { responses?: Record<string, unknown> } | undefined)
+                        ?.responses?.[sec.id];
+                    const actualLen = Array.isArray(groupsArrRaw) ? groupsArrRaw.length : 0;
+                    const n = Math.max(
+                        Number.isFinite(declared) && declared > 0 ? Math.floor(declared) : 0,
+                        actualLen,
+                    );
+                    if (n > 0) {
+                        const prefix = sec.groupTitlePrefix || step.title;
+                        for (let i = 0; i < n; i++) {
+                            expanded.push({
+                                key: `${step.key}_${i + 1}`,
+                                title: `${prefix} ${i + 1}`,
+                                sections: step.sections,
+                                groupSlice: { sectionId: sec.id, groupIndex: i },
+                            });
+                        }
+                        continue;
+                    }
+                }
+            }
+            expanded.push(step);
+        }
+        return expanded;
     }, [template, watched]);
 
     const wizardSteps: WizardStep[] = useMemo(
@@ -584,6 +628,13 @@ export const CommissionReportWizard: React.FC = () => {
                         step.sections.map((sid) => {
                             const section = sectionsById.get(sid);
                             if (!section) return null;
+                            // For synthetic per-group steps generated from a
+                            // `repeating_groups` section, pass the target group
+                            // index so the renderer shows only that group.
+                            const groupIndexFilter =
+                                step.groupSlice && step.groupSlice.sectionId === sid
+                                    ? step.groupSlice.groupIndex
+                                    : undefined;
                             return (
                                 <SectionRenderer
                                     key={sid}
@@ -600,6 +651,7 @@ export const CommissionReportWizard: React.FC = () => {
                                             form.getValues('responses'),
                                         );
                                     }}
+                                    groupIndexFilter={groupIndexFilter}
                                 />
                             );
                         })
@@ -1248,6 +1300,132 @@ const ReviewSummary: React.FC<{
                                     );
                                 })}
                             </div>
+                        </div>
+                    );
+                }
+
+                if (section.type === 'repeating_groups') {
+                    const groups = (formValues.responses?.[section.id] || []) as Array<
+                        Record<string, unknown>
+                    >;
+                    const titlePrefix = section.groupTitlePrefix || 'Group';
+                    return (
+                        <div key={section.id} className="rounded-md border p-3">
+                            <h3 className="mb-3 text-sm font-medium">
+                                {section.title || section.id}
+                            </h3>
+                            {groups.length === 0 ? (
+                                <p className="text-xs italic text-muted-foreground">
+                                    No groups entered.
+                                </p>
+                            ) : (
+                                <div className="space-y-4">
+                                    {groups.map((group, gIdx) => {
+                                        const rows = (Array.isArray(group?.rows)
+                                            ? (group.rows as Array<Record<string, unknown>>)
+                                            : []);
+                                        return (
+                                            <div
+                                                key={gIdx}
+                                                className="rounded-md border bg-muted/10"
+                                            >
+                                                <div className="border-b bg-muted/20 px-3 py-1.5 text-xs font-semibold text-foreground">
+                                                    {titlePrefix} {gIdx + 1}
+                                                </div>
+                                                <div className="space-y-3 p-3">
+                                                    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                                                        {section.groupFields.map((f) => {
+                                                            const display = formatReviewValue(
+                                                                f,
+                                                                group?.[f.key],
+                                                            );
+                                                            const isEmpty = display === '—';
+                                                            return (
+                                                                <div
+                                                                    key={f.key}
+                                                                    className="flex flex-col gap-0.5"
+                                                                >
+                                                                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                                        {f.label}
+                                                                    </dt>
+                                                                    <dd
+                                                                        className={
+                                                                            'text-sm ' +
+                                                                            (isEmpty
+                                                                                ? 'italic text-muted-foreground'
+                                                                                : 'text-foreground')
+                                                                        }
+                                                                    >
+                                                                        {display}
+                                                                    </dd>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </dl>
+                                                    {rows.length > 0 && (
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full border-collapse text-sm">
+                                                                <thead>
+                                                                    <tr className="border-b text-xs text-muted-foreground">
+                                                                        <th className="w-12 py-1.5 pr-2 text-left font-medium">
+                                                                            #
+                                                                        </th>
+                                                                        {section.rowsTable.columns.map(
+                                                                            (c) => (
+                                                                                <th
+                                                                                    key={c.key}
+                                                                                    className="py-1.5 pr-2 text-left font-medium"
+                                                                                >
+                                                                                    {c.label}
+                                                                                </th>
+                                                                            ),
+                                                                        )}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {rows.map((row, rIdx) => (
+                                                                        <tr
+                                                                            key={rIdx}
+                                                                            className="border-b last:border-0 align-top"
+                                                                        >
+                                                                            <td className="py-2 pr-2 text-muted-foreground">
+                                                                                {rIdx + 1}
+                                                                            </td>
+                                                                            {section.rowsTable.columns.map(
+                                                                                (c) => {
+                                                                                    const display = formatReviewValue(
+                                                                                        { ...c, bind: undefined } as Field,
+                                                                                        row?.[c.key],
+                                                                                    );
+                                                                                    const isEmpty =
+                                                                                        display === '—';
+                                                                                    return (
+                                                                                        <td
+                                                                                            key={c.key}
+                                                                                            className={
+                                                                                                'py-2 pr-2 ' +
+                                                                                                (isEmpty
+                                                                                                    ? 'italic text-muted-foreground'
+                                                                                                    : '')
+                                                                                            }
+                                                                                        >
+                                                                                            {display}
+                                                                                        </td>
+                                                                                    );
+                                                                                },
+                                                                            )}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     );
                 }

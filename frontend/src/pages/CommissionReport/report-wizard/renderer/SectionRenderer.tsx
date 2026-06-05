@@ -10,6 +10,7 @@ import { HeaderSection } from './HeaderSection';
 import { ImageAttachmentSection } from './ImageAttachmentSection';
 import { MeasurementMatrixSection } from './MeasurementMatrixSection';
 import { ProcessSection } from './ProcessSection';
+import { RepeatingGroupsSection } from './RepeatingGroupsSection';
 import { SignaturesSection } from './SignaturesSection';
 import { TraineesDataTableSection } from './TraineesDataTableSection';
 
@@ -23,6 +24,9 @@ export interface SectionRendererProps {
     templateId?: string;
     forceReadonly?: boolean;
     onAttachmentCreated?: (attachmentName: string) => void;
+    /** When set, repeating_groups renders only this group index. Used when
+     *  the wizard expands a repeating-groups step into N synthetic steps. */
+    groupIndexFilter?: number;
 }
 
 export const SectionRenderer: React.FC<SectionRendererProps> = ({
@@ -33,6 +37,7 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
     templateId,
     forceReadonly,
     onAttachmentCreated,
+    groupIndexFilter,
 }) => {
     switch (section.type) {
         case 'process':
@@ -85,6 +90,14 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
             );
         case 'measurement_matrix':
             return <MeasurementMatrixSection section={section} forceReadonly={forceReadonly} />;
+        case 'repeating_groups':
+            return (
+                <RepeatingGroupsSection
+                    section={section}
+                    forceReadonly={forceReadonly}
+                    groupIndexFilter={groupIndexFilter}
+                />
+            );
         default: {
             const _exhaustive: never = section;
             void _exhaustive;

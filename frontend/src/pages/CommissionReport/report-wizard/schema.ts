@@ -11,6 +11,7 @@ import type {
     HeaderSection,
     ImageAttachmentsSection,
     MeasurementMatrixSection,
+    RepeatingGroupsSection,
     ReportTemplate,
     Section,
     WizardStepDef,
@@ -132,6 +133,26 @@ const buildTraineesDataTableSchema = (section: TraineesDataTableSection): ZodTyp
         .max(maxRows, `No more than ${maxRows} rows allowed`);
 };
 
+const buildRepeatingGroupsSchema = (section: RepeatingGroupsSection): ZodTypeAny => {
+    // Per-group object schema: groupFields (flat) + rows (array of rowsTable rows).
+    const groupShape: Record<string, ZodTypeAny> = {};
+    for (const f of section.groupFields) {
+        groupShape[f.key] = buildFieldSchema(f);
+    }
+    const rowShape: Record<string, ZodTypeAny> = {};
+    for (const col of section.rowsTable.columns) {
+        rowShape[col.key] = buildFieldSchema({ ...col, bind: undefined } as Field);
+    }
+    groupShape.rows = z
+        .array(z.object(rowShape))
+        .min(
+            Math.max(1, section.rowsTable.minRows ?? 1),
+            `At least ${Math.max(1, section.rowsTable.minRows ?? 1)} row(s) required per group`,
+        )
+        .max(section.rowsTable.maxRows ?? 100, `Too many rows in a group`);
+    return z.array(z.object(groupShape)).min(1, 'At least one group required');
+};
+
 const buildMeasurementMatrixSchema = (section: MeasurementMatrixSection): ZodTypeAny => {
     const rowShape: Record<string, ZodTypeAny> = {
         id: z.string(),
@@ -180,6 +201,9 @@ export const buildSchemaForSections = (sections: Section[]): z.ZodObject<any> =>
                 break;
             case 'measurement_matrix':
                 shape[s.id] = buildMeasurementMatrixSchema(s);
+                break;
+            case 'repeating_groups':
+                shape[s.id] = buildRepeatingGroupsSchema(s);
                 break;
             case 'process':
             case 'signatures':
@@ -393,6 +417,88 @@ export const validateStep = (
                 });
                 break;
             }
+            case 'repeating_groups': {
+                const groups = (responses[sid] || []) as unknown[];
+                if (!Array.isArray(groups) || groups.length === 0) {
+                    errors.push({
+                        path: `responses.${sid}`,
+                        message: 'At least one group required',
+                    });
+                    break;
+                }
+                // If the wizard step is a synthetic per-group slice, validate
+                // only that group. Otherwise validate every group (used by
+                // validateTemplate at submit time, where step.groupSlice is
+                // unset).
+                const sliceIdx =
+                    step.groupSlice && step.groupSlice.sectionId === sid
+                        ? step.groupSlice.groupIndex
+                        : null;
+                const indices: number[] =
+                    sliceIdx !== null && sliceIdx < groups.length
+                        ? [sliceIdx]
+                        : groups.map((_, i) => i);
+                indices.forEach((gIdx) => {
+                    const g = groups[gIdx];
+                    const group = (g as Record<string, unknown> | undefined) || {};
+                    for (const f of section.groupFields) {
+                        if (f.readonly) continue;
+                        runField(f, group[f.key], `responses.${sid}.${gIdx}.${f.key}`);
+                    }
+                    const rows = Array.isArray(group.rows) ? (group.rows as unknown[]) : [];
+                    const minR = Math.max(1, section.rowsTable.minRows ?? 1);
+                    const maxR = section.rowsTable.maxRows ?? 100;
+                    if (rows.length < minR) {
+                        errors.push({
+                            path: `responses.${sid}.${gIdx}.rows`,
+                            message: `Group ${gIdx + 1}: at least ${minR} row(s) required`,
+                        });
+                        return;
+                    }
+                    if (rows.length > maxR) {
+                        errors.push({
+                            path: `responses.${sid}.${gIdx}.rows`,
+                            message: `Group ${gIdx + 1}: no more than ${maxR} rows allowed`,
+                        });
+                    }
+                    rows.forEach((row, rIdx) => {
+                        for (const col of section.rowsTable.columns) {
+                            const fieldDef = { ...col, bind: undefined } as Field;
+                            const value = (row as Record<string, unknown> | undefined)?.[col.key];
+                            runField(
+                                fieldDef,
+                                value,
+                                `responses.${sid}.${gIdx}.rows.${rIdx}.${col.key}`,
+                            );
+                        }
+                    });
+                });
+                // Header-driven count guard: if countBoundTo points at a numeric
+                // header field, group count must match. Mismatch blocks Next/Submit
+                // until the user adjusts (same UX as Earth Pit). Skip on synthetic
+                // per-group slices — the user's local validation shouldn't fail
+                // because of an unrelated other group; the guard re-runs at
+                // submit (validateTemplate has step.groupSlice undefined).
+                if (section.countBoundTo && sliceIdx === null) {
+                    const declaredRaw = section.countBoundTo
+                        .split('.')
+                        .reduce<unknown>((acc, k) => {
+                            if (acc && typeof acc === 'object') {
+                                return (acc as Record<string, unknown>)[k];
+                            }
+                            return undefined;
+                        }, formValues);
+                    const declared = Number(declaredRaw);
+                    if (Number.isFinite(declared) && declared > 0 && groups.length > declared) {
+                        const extra = groups.length - declared;
+                        errors.push({
+                            path: `responses.${sid}`,
+                            message: `Header says ${declared} group(s) but you have ${groups.length}. Either remove ${extra} group(s) here, or increase the header count.`,
+                        });
+                    }
+                }
+                break;
+            }
             case 'process':
             case 'signatures':
                 break;
@@ -479,6 +585,15 @@ export const getRhfKeysForStep = (template: ReportTemplate, step: WizardStepDef)
             case 'measurement_matrix':
                 // Same array-path strategy as trainees_data_table.
                 out.push(`responses.${s.id}`);
+                break;
+            case 'repeating_groups':
+                // For a synthetic per-group step, narrow to that group's path
+                // so error-clearing on Next only touches the relevant slice.
+                if (step.groupSlice && step.groupSlice.sectionId === s.id) {
+                    out.push(`responses.${s.id}.${step.groupSlice.groupIndex}`);
+                } else {
+                    out.push(`responses.${s.id}`);
+                }
                 break;
             case 'process':
             case 'signatures':

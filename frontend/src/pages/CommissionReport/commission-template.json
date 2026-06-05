@@ -3176,6 +3176,25 @@
             "placeholder": "e.g. HVAC"
           },
           {
+            "key": "cfm_reading_count",
+            "label": "Number of CFM Readings",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "max": 10,
+            "helpText": "Drives the number of Equipment / Area groups in the next step."
+          }
+        ]
+      },
+      {
+        "id": "readings",
+        "type": "repeating_groups",
+        "title": "CFM Readings",
+        "countBoundTo": "responses.hdr.cfm_reading_count",
+        "groupTitlePrefix": "CFM Reading",
+        "maxGroups": 50,
+        "groupFields": [
+          {
             "key": "equipment",
             "label": "EQUIPMENT",
             "type": "text",
@@ -3189,63 +3208,54 @@
             "required": true,
             "placeholder": "e.g. 1st Floor"
           }
-        ]
-      },
-      {
-        "id": "readings",
-        "type": "trainees_data_table",
-        "title": "HVAC CFM Testing Report",
-        "minRows": 1,
-        "maxRows": 100,
-        "addRowLabel": "Add another reading",
-        "columns": [
-          {
-            "key": "area",
-            "label": "Area",
-            "type": "text",
-            "required": true,
-            "width": "23%"
-          },
-          {
-            "key": "grill_diffuser",
-            "label": "Grill / Diffuser",
-            "type": "text",
-            "required": true,
-            "width": "18%"
-          },
-          {
-            "key": "r1",
-            "label": "Calculated CFM R1",
-            "type": "number",
-            "required": true,
-            "min": 0,
-            "width": "11%"
-          },
-          {
-            "key": "r2",
-            "label": "Calculated CFM R2",
-            "type": "number",
-            "required": true,
-            "min": 0,
-            "width": "11%"
-          },
-          {
-            "key": "r3",
-            "label": "Calculated CFM R3",
-            "type": "number",
-            "required": true,
-            "min": 0,
-            "width": "11%"
-          },
-          {
-            "key": "designed_cfm",
-            "label": "Designed CFM",
-            "type": "number",
-            "required": true,
-            "min": 0,
-            "width": "13%"
-          }
-        ]
+        ],
+        "rowsTable": {
+          "title": "HVAC CFM Testing Report",
+          "minRows": 1,
+          "maxRows": 100,
+          "addRowLabel": "Add another reading",
+          "columns": [
+            {
+              "key": "grill_diffuser",
+              "label": "Grill / Diffuser",
+              "type": "text",
+              "required": true,
+              "width": "22%"
+            },
+            {
+              "key": "r1",
+              "label": "Calculated CFM R1",
+              "type": "number",
+              "required": true,
+              "min": 0,
+              "width": "15%"
+            },
+            {
+              "key": "r2",
+              "label": "Calculated CFM R2",
+              "type": "number",
+              "required": true,
+              "min": 0,
+              "width": "15%"
+            },
+            {
+              "key": "r3",
+              "label": "Calculated CFM R3",
+              "type": "number",
+              "required": true,
+              "min": 0,
+              "width": "15%"
+            },
+            {
+              "key": "designed_cfm",
+              "label": "Designed CFM",
+              "type": "number",
+              "required": true,
+              "min": 0,
+              "width": "16%"
+            }
+          ]
+        }
       },
       {
         "id": "sigs",
