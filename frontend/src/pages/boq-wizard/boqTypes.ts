@@ -251,10 +251,30 @@ export interface ReviewRow {
   effective_parent_index: number | null;
 }
 
+/**
+ * One column descriptor as returned by get_review_rows (Slice B1.1a, feat 58d2ed44).
+ * Compiled from sheet_config.column_role_map on the backend. Non-display roles
+ * (append_to_notes, ignore, reference_images) excluded. Sorted Excel order.
+ *
+ * Value resolution:
+ *   row[value_field]                          -- singleton roles
+ *   row[value_field][value_key]               -- qty/amount by area
+ *   row[value_field][value_key][rate_subkey]  -- rate_*_by_area
+ */
+export interface ColumnDescriptor {
+  col: string;                 // Excel column letter (column_role_map key)
+  role: string;                // raw ColumnRole string
+  area: string | null;         // area name for by-area roles, else null
+  value_field: string;         // top-level ReviewRow field to read
+  value_key: string | null;    // dict key within value_field for by-area fields
+  rate_subkey: string | null;  // inner key within rate_by_area[area], else null
+}
+
 /** Response shape of get_review_rows. */
 export interface GetReviewRowsResponse {
   rows: ReviewRow[];
   work_packages: string[];
+  column_descriptors: ColumnDescriptor[];
 }
 
 // ── Structural break types (from check_structural_integrity / get_structural_breaks) ──

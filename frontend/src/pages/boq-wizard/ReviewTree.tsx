@@ -1,28 +1,38 @@
 /**
  * ReviewTree -- nesting-tree renderer for parsed BoQ Review Rows (Slice B1).
  *
- * Reads effective_parent_index from each row (as returned by get_review_rows /
- * resolve_effective -- -1 sentinel already translated to null on the backend).
- * Computes per-row depth by walking the effective_parent_index chain.
+ * B1.1b-i: column layer replaced with config-driven columns from column_descriptors
+ * (B1.1a backend, feat 58d2ed44). Tree mechanic preserved verbatim from B1.
  *
- * Cycle protection: the depth-walk uses a visited set per chain; rows involved
- * in a cycle receive depth 0 (silent cap for B1 -- B2 surfaces cycle flags).
+ * Fixed anchor columns (always shown):
+ *   Excel Row  -- source_row_number. Positional; no mapped letter.
+ *   Sl.No (X)  -- sl_no_value. X = col letter from the sl_no descriptor, if mapped.
+ *   Description (Y) -- description text + tree indent/chevron/pill. Y = col letter
+ *                       from the description descriptor, if mapped.
  *
- * Expand/collapse: click a row that has children to toggle its subtree.
- * Visibility check walks up the parent chain; capped at 60 hops for safety.
+ * Descriptor columns: one per ColumnDescriptor (after FIXED_ROLE_DEDUPE), headed by
+ *   "{col} -- {ROLE_LABELS[role]}{ * area}". Descriptors with role "sl_no" or
+ *   "description" are excluded (they render as fixed anchors instead).
  *
- * B1 scope (read-only):
- *   - Shows source_row_number, classification badge, description, unit,
- *     qty_total, rate_combined/rate_supply fallback, amount_total.
- *   - No flag overlays, no row-detail panel, no integrity indicators (B2).
- *   - No editing affordances (C).
+ * Value resolution per descriptor:
+ *   row[value_field]                         -- singleton roles
+ *   row[value_field][value_key]              -- qty/amount by area
+ *   row[value_field][value_key][rate_subkey] -- rate_*_by_area
+ *
+ * Absent-vs-zero: undefined/null -> blank cell; 0 -> "0".
+ *
+ * Classification pill: locked 5-colour left-bordered pill (locked design §2 hex map).
+ *   header_repeat not in locked map; uses neutral #94A3B8.
+ *
+ * B1.1b-ii (next slice): column-subset selector + spacer-hide toggle.
  */
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ReviewRow } from "./boqTypes";
+import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
+import { ROLE_LABELS } from "./boqTypes";
 
-// ── Depth computation ─────────────────────────────────────────────────────────
+// ── Depth computation (verbatim from B1) ──────────────────────────────────────
 //
 // Builds a Map<row_index, depth> for all rows. Root rows (effective_parent_index
 // null) get depth 0. Each child is one deeper than its parent.
@@ -82,31 +92,43 @@ function computeDepths(rows: ReviewRow[]): Map<number, number> {
   return depths;
 }
 
-// ── Classification badge ──────────────────────────────────────────────────────
+// ── Classification pill (replaces B1 badge) ───────────────────────────────────
+// Locked design §2 colour map. header_repeat is not in the locked map;
+// uses neutral #94A3B8 (slate-400 equivalent) so it stays visually subordinate.
 
-const CLS_BADGE: Record<string, { label: string; className: string }> = {
-  preamble:        { label: "Preamble",  className: "bg-slate-700 text-white dark:bg-slate-300 dark:text-slate-900" },
-  line_item:       { label: "Item",      className: "bg-blue-600 text-white dark:bg-blue-400 dark:text-blue-950" },
-  note:            { label: "Note",      className: "bg-muted text-muted-foreground border border-border" },
-  spacer:          { label: "Spacer",    className: "bg-muted text-muted-foreground border border-border" },
-  subtotal_marker: { label: "Subtotal",  className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" },
-  header_repeat:   { label: "Header",    className: "bg-muted text-muted-foreground border border-border" },
+const CLS_COLORS: Record<string, string> = {
+  preamble:        "#888780",
+  line_item:       "#378ADD",
+  note:            "#EF9F27",
+  subtotal_marker: "#1D9E75",
+  spacer:          "#D3D1C7",
+  header_repeat:   "#94A3B8", // neutral; not in locked map
 };
 
-function ClassificationBadge({ cls }: { cls: string | null }) {
+const CLS_LABELS: Record<string, string> = {
+  preamble:        "Preamble",
+  line_item:       "Item",
+  note:            "Note",
+  spacer:          "Spacer",
+  subtotal_marker: "Subtotal",
+  header_repeat:   "Header",
+};
+
+function ClassificationPill({ cls }: { cls: string | null }) {
   if (!cls) return null;
-  const entry = CLS_BADGE[cls] ?? { label: cls, className: "bg-muted text-muted-foreground border border-border" };
+  const color = CLS_COLORS[cls] ?? "#94A3B8";
+  const label = CLS_LABELS[cls] ?? cls;
   return (
-    <span className={cn(
-      "rounded px-1.5 py-0.5 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
-      entry.className,
-    )}>
-      {entry.label}
+    <span
+      style={{ borderLeft: `3px solid ${color}` }}
+      className="rounded-sm py-0.5 px-1.5 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-muted/60 text-foreground"
+    >
+      {label}
     </span>
   );
 }
 
-// ── Number formatter ──────────────────────────────────────────────────────────
+// ── Number formatter (verbatim from B1) ───────────────────────────────────────
 
 function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined) return "";
@@ -114,18 +136,60 @@ function fmtNum(v: number | null | undefined): string {
   return v % 1 === 0 ? String(v) : v.toFixed(2).replace(/\.?0+$/, "");
 }
 
+// ── Area colour palette (local mirror of SheetDataGrid -- not exported there) ─
+
+const AREA_COLORS = [
+  "bg-blue-100 dark:bg-blue-900",
+  "bg-emerald-100 dark:bg-emerald-900",
+  "bg-amber-100 dark:bg-amber-900",
+  "bg-rose-100 dark:bg-rose-900",
+  "bg-violet-100 dark:bg-violet-900",
+  "bg-teal-100 dark:bg-teal-900",
+] as const;
+
+function buildAreaColorMap(areas: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  areas.forEach((area, i) => { map[area] = AREA_COLORS[i % AREA_COLORS.length]; });
+  return map;
+}
+
+// ── Descriptor value resolution ───────────────────────────────────────────────
+
+function resolveDescriptorValue(row: ReviewRow, d: ColumnDescriptor): unknown {
+  const top = (row as unknown as Record<string, unknown>)[d.value_field];
+  if (top === null || top === undefined) return undefined;
+  if (d.value_key === null) return top;
+  const dict = top as Record<string, unknown>;
+  if (!(d.value_key in dict)) return undefined;
+  const mid = dict[d.value_key];
+  if (mid === null || mid === undefined) return undefined;
+  if (d.rate_subkey === null) return mid;
+  return (mid as Record<string, unknown>)[d.rate_subkey];
+}
+
+// Absent-vs-zero rule: undefined/null -> blank; 0 -> "0"; numbers -> formatted.
+function renderDescriptorCell(val: unknown): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "number") return fmtNum(val);
+  return String(val);
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const INDENT_PX = 20;
 const VISIBILITY_HOP_CAP = 60; // max ancestor chain length for isVisible check
 
+// Roles shown as fixed anchor columns; excluded from the descriptor-driven layer.
+const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface ReviewTreeProps {
   rows: ReviewRow[];
+  columnDescriptors: ColumnDescriptor[];
 }
 
-export function ReviewTree({ rows }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
@@ -138,6 +202,22 @@ export function ReviewTree({ rows }: ReviewTreeProps) {
     }
     return { depths, hasChildrenSet, byIdx };
   }, [rows]);
+
+  // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
+  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap } = useMemo(() => {
+    const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
+    const slNoLetter = columnDescriptors.find(d => d.role === "sl_no")?.col ?? null;
+    const descriptionLetter = columnDescriptors.find(d => d.role === "description")?.col ?? null;
+    const areas = [
+      ...new Set(displayDescriptors.filter(d => d.area !== null).map(d => d.area as string)),
+    ];
+    return {
+      displayDescriptors,
+      slNoLetter,
+      descriptionLetter,
+      areaColorMap: buildAreaColorMap(areas),
+    };
+  }, [columnDescriptors]);
 
   const toggleCollapse = (rowIdx: number) => {
     setCollapsed(prev => {
@@ -172,24 +252,35 @@ export function ReviewTree({ rows }: ReviewTreeProps) {
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="bg-muted/50 sticky top-0 z-10 border-b border-border">
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border">
-              #
+            {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
+            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap">
+              Excel Row
             </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px]">
-              Description
+            {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
+            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
+              {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
             </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-l border-border">
-              Unit
+            {/* Description: letter from the description descriptor col, if mapped */}
+            <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap">
+              {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
             </th>
-            <th className="px-2 py-2 text-right font-medium text-muted-foreground w-20 border-l border-border">
-              Qty
-            </th>
-            <th className="px-2 py-2 text-right font-medium text-muted-foreground w-24 border-l border-border">
-              Rate
-            </th>
-            <th className="px-2 py-2 text-right font-medium text-muted-foreground w-24 border-l border-border">
-              Amount
-            </th>
+            {/* Descriptor-driven columns (no subset filter in this slice) */}
+            {displayDescriptors.map(d => {
+              const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+              const areaCls = d.area ? (areaColorMap[d.area] ?? "") : "";
+              return (
+                <th
+                  key={d.col}
+                  className={cn(
+                    "px-2 py-2 text-right font-medium text-muted-foreground",
+                    "w-28 min-w-[112px] border-l border-border whitespace-nowrap",
+                    areaCls,
+                  )}
+                >
+                  {label}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -202,9 +293,6 @@ export function ReviewTree({ rows }: ReviewTreeProps) {
             const isPreamble = row.effective_classification === "preamble";
             const isLineItem = row.effective_classification === "line_item";
 
-            // Rate: prefer rate_combined, fall back to rate_supply.
-            const rateVal = row.rate_combined ?? row.rate_supply;
-
             return (
               <tr
                 key={row.row_index}
@@ -213,12 +301,17 @@ export function ReviewTree({ rows }: ReviewTreeProps) {
                   isPreamble && "bg-muted/20",
                 )}
               >
-                {/* Source row number from Excel */}
+                {/* Excel Row */}
                 <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
                   {row.source_row_number}
                 </td>
 
-                {/* Description: indent + toggle + badge + text */}
+                {/* Sl.No */}
+                <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
+                  {row.sl_no_value ?? ""}
+                </td>
+
+                {/* Description: indent + toggle + pill + text (tree mechanic verbatim from B1) */}
                 <td className="px-2 py-1.5 align-top">
                   <div
                     className="flex items-start gap-1.5"
@@ -242,7 +335,7 @@ export function ReviewTree({ rows }: ReviewTreeProps) {
                         : <ChevronDown className="h-3 w-3" />}
                     </button>
 
-                    <ClassificationBadge cls={row.effective_classification} />
+                    <ClassificationPill cls={row.effective_classification} />
 
                     <span className={cn(
                       "leading-snug break-words min-w-0",
@@ -257,25 +350,18 @@ export function ReviewTree({ rows }: ReviewTreeProps) {
                   </div>
                 </td>
 
-                {/* Unit */}
-                <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-l border-border">
-                  {row.unit ?? ""}
-                </td>
-
-                {/* Qty -- only shown for line_items */}
-                <td className="px-2 py-1.5 text-right align-top w-20 border-l border-border">
-                  {isLineItem ? fmtNum(row.qty_total) : ""}
-                </td>
-
-                {/* Rate (combined preferred, supply fallback) -- line_items only */}
-                <td className="px-2 py-1.5 text-right align-top w-24 border-l border-border">
-                  {isLineItem ? fmtNum(rateVal) : ""}
-                </td>
-
-                {/* Amount -- line_items only */}
-                <td className="px-2 py-1.5 text-right align-top w-24 border-l border-border">
-                  {isLineItem ? fmtNum(row.amount_total) : ""}
-                </td>
+                {/* Descriptor-driven data columns */}
+                {displayDescriptors.map(d => {
+                  const val = resolveDescriptorValue(row, d);
+                  return (
+                    <td
+                      key={d.col}
+                      className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                    >
+                      {renderDescriptorCell(val)}
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}
