@@ -92,8 +92,11 @@ export function ParseRunDialog({
     <Dialog
       open={open}
       onOpenChange={(isOpen) => {
-        // Block dismiss while in flight so the user sees the parsing state.
-        if (!isOpen && !isLoading) onClose();
+        // Dismiss is always allowed -- closing does not cancel the server parse job.
+        // The parse keeps running; the hub's Parse button stays in Parsing... state
+        // (driven by parseInFlight in BoqHubPage). Cancel button stays disabled while
+        // loading because "Cancel" implies aborting the job, which is not supported.
+        if (!isOpen) onClose();
       }}
     >
       <DialogContent className="max-w-lg">

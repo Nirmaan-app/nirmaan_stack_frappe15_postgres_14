@@ -171,11 +171,20 @@ const BoqHubPage = () => {
       }
     };
 
+    // Reconnect self-heal (#147 option-4): re-fetch the BoQ doc on socket (re)connect
+    // so the existing useEffect([boq]) recovery can sync parseInFlight from the fresh
+    // parse_in_progress server value. Also fires on initial connect -- harmless (SWR
+    // deduplicates; the doc is already being fetched on mount).
+    const onReconnect = () => { void mutate(); };
+
     socket.on("boq:parse_run_done", handler);
+    socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:parse_run_done", handler);
+      socket.off("connect", onReconnect);
     };
-    // socket is a stable FrappeContext singleton ref; boqId from useParams is stable
+    // socket is a stable FrappeContext singleton ref; boqId from useParams is stable;
+    // mutate is a stable useFrappeGetDoc SWR ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
 
