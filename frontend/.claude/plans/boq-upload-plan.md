@@ -224,10 +224,21 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Step 2 note added:** same bold-amber note (`text-sm font-semibold text-amber-600 dark:text-amber-400`) added to the Step-2 re-parse warning dialog, below the sheet list and above the Go back / Re-parse anyway buttons. Same copy. No behavior change.
 - Build: exit 0. 0 tests added (parser 588 / wizard 168 unchanged).
 
+**#147 option-4 slice COMPLETE (feat 193327b1; FRONTEND ONLY -- BoqHubPage.tsx + ParseRunDialog.tsx only):**
+- **Problem A -- Missed done-event = stuck hub:** WebSocket drop + reconnect during the ~5-10 min parse window can cause the `boq:parse_run_done` event to land on a dead connection. The existing on-mount `useEffect([boq])` recovery syncs `parseInFlight` from `parse_in_progress` only when `boq` changes (i.e. when `mutate()` is called). A user who stays on the hub the whole time never triggers `mutate()` and stays stuck forever.
+- **Fix A -- Hub reconnect mutate:** `BoqHubPage.tsx` socket `useEffect([socket])` now also registers `socket.on("connect", onReconnect)` where `onReconnect = () => { void mutate(); }`. Cleanup: `socket.off("connect", onReconnect)` in the same return. On socket reconnect, the BoQ doc is re-fetched; the existing `useEffect([boq])` re-syncs `parseInFlight` from the fresh `parse_in_progress` server value. Also fires on initial connect -- harmless (SWR deduplicates). Reuses the existing `mutate` from `useFrappeGetDoc`; no new fetch mechanism.
+- **Problem B -- Parse dialog blocks navigation:** `ParseRunDialog` `onOpenChange` guard `if (!isOpen && !isLoading) onClose()` blocked Escape, overlay-click, and the built-in X button (from `disableCloseIcon=true` in `DialogContent`) while loading. Radix modal also trapped pointer events away from the hub body during the parse.
+- **Fix B -- Allow dialog dismiss during parse:** `onOpenChange` simplified to `if (!isOpen) onClose()`. All three dismiss paths (X button, Escape, overlay-click) now work even while a parse is in flight. **Cancel button stays disabled** -- "Cancel" implies aborting the server job, which is not supported (no cancel API). Closing the dialog does NOT cancel the parse; the hub "Parse workbook" button keeps showing the Parsing... spinner (`disabled={!canParse || parseInFlight}`, BoqHubPage.tsx line 627).
+- **Fix B also enables (C) navigate-away-during-parse:** previously the modal trapped the hub body; with the dialog dismissible the user can close it mid-parse and navigate away. The on-mount recovery (`useEffect([boq])`) restores `parseInFlight=true` correctly on return.
+- **DEFERRED -- upload-screen in-place recovery:** `BoqUploadScreen.tsx` has no `boqDocName` (and hence no BOQs doc) available during parsing. A self-heal there requires a new read mechanism (job-status endpoint or boqDocName localStorage persistence). Deferred to a separate follow-up.
+- **DEFERRED -- name/version/GST persistence:** `BoqMasterPanel` panel values are Zustand-only; no API saves them. Navigate-away workaround still loses them. Deferred.
+- **Files touched:** `BoqHubPage.tsx`, `ParseRunDialog.tsx` only. No backend, no doctype JSON, no boqTypes.ts, no BoqUploadScreen.tsx.
+- **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
+
 **Owner:** Internal team.
-**Last updated:** 2026-06-05 (Bucket-2 follow-up feat 295e3881: bold-amber ~10-min note + Step-2 placement; ParseRunDialog.tsx only)
+**Last updated:** 2026-06-05 (#147 option-4 feat 193327b1: hub reconnect self-heal + parse dialog dismissable mid-parse; BoqHubPage.tsx + ParseRunDialog.tsx)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat b2ca0895 (docs(boq-wizard): record Bucket-2 follow-up (feat 295e3881) in all three docs)
+**Latest commit:** feat 193327b1 (feat(boq-wizard): self-heal hub on socket reconnect + make parse dialog dismissable mid-parse (#147 option-4))
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
