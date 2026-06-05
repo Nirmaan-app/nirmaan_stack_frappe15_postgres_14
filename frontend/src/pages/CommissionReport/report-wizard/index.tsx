@@ -256,6 +256,31 @@ export const CommissionReportWizard: React.FC = () => {
             }
         }
 
+        // Duct Pressure / Leak Test: detect Test Type from the task name
+        // (Smoke / Light / Pressure) and seed both header.test_type AND
+        // general_desc.test_type. Header is readonly (compliance / audit);
+        // general_desc.test_type is editable so the user can override if the
+        // task name is misleading. `Type of Duct` is a separate user-entered
+        // field. Existing saved values are preserved.
+        if (template.templateId === 'duct-pressure/smoke/light-testing-report' && childRow?.task_name) {
+            const lower = childRow.task_name.toLowerCase();
+            const detected = lower.includes('pressure')
+                ? 'Pressure'
+                : lower.includes('smoke')
+                  ? 'Smoke'
+                  : lower.includes('light')
+                    ? 'Light'
+                    : '';
+            if (detected) {
+                const hdr = (initialResponses['hdr'] || {}) as Record<string, unknown>;
+                if (!hdr.test_type) hdr.test_type = detected;
+                initialResponses['hdr'] = hdr;
+                const gd = (initialResponses['general_desc'] || {}) as Record<string, unknown>;
+                if (!gd.test_type) gd.test_type = detected;
+                initialResponses['general_desc'] = gd;
+            }
+        }
+
         const seededAttachments: Record<string, AttachmentSlotValue[]> = {};
         if (existingResponse?.attachments) {
             for (const [k, v] of Object.entries(existingResponse.attachments)) {

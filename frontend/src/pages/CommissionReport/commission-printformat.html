@@ -949,9 +949,28 @@ thead { display: table-header-group; }
                 </td></tr>
             </table>
 
-        {% elif tpl.templateId == "duct-pressure-testing-report" %}
+        {% elif tpl.templateId == "duct-pressure/smoke/light-testing-report" %}
 
             {%- set general_desc_section = (tpl.sections | selectattr("id", "equalto", "general_desc") | list | first) -%}
+            {%- set imgs_section = (tpl.sections | selectattr("id", "equalto", "images") | list | first) -%}
+            {# Resolve the live test type for the `{type}` placeholder in
+               observation #5. Prefer the saved response (set by the wizard
+               from the task name), fall back to a substring match on the
+               task name itself for older saved reports. #}
+            {%- set _hvals_pre = (rd.responses or {}).get('hdr', {}) -%}
+            {%- set _saved_type = (_hvals_pre.get('test_type') if _hvals_pre is mapping else none) or '' -%}
+            {%- set _tn_lower = (target.task_name or '') | lower -%}
+            {%- if _saved_type -%}
+                {%- set test_kind = _saved_type -%}
+            {%- elif 'pressure' in _tn_lower -%}
+                {%- set test_kind = 'Pressure' -%}
+            {%- elif 'smoke' in _tn_lower -%}
+                {%- set test_kind = 'Smoke' -%}
+            {%- elif 'light' in _tn_lower -%}
+                {%- set test_kind = 'Light' -%}
+            {%- else -%}
+                {%- set test_kind = '' -%}
+            {%- endif -%}
 
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
@@ -997,14 +1016,51 @@ thead { display: table-header-group; }
                             <tbody>
                                 {% for item in (chk_section["items"] or []) %}
                                     {%- set ival = cvals.get(item.id, {}) -%}
+                                    {%- set particular = (item.particular or '') | replace('{type}', test_kind or '—') -%}
                                     <tr>
                                         <td class="cv-num">{{ loop.index }}</td>
-                                        <td>{{ item.particular }}</td>
+                                        <td>{{ particular }}</td>
                                         <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}—{%- else -%}{{ rv }}{%- endif -%}</td>
                                         <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
+                        </table>
+                    {% endif %}
+                    {% if imgs_section %}
+                        <div class="cv-spacer-md"></div>
+                        {%- set cols = imgs_section.columns or 2 -%}
+                        {%- set ns_imgs = namespace(list=[]) -%}
+                        {%- for slot in (imgs_section.slots or []) -%}
+                            {%- set slot_items = (rd.attachments or {}).get(slot.key) or [] -%}
+                            {%- if slot_items -%}
+                                {%- for item in slot_items -%}
+                                    {%- if item is mapping -%}{%- set raw_url = item.file_url or "" -%}
+                                    {%- else -%}{%- set raw_url = frappe.db.get_value("Nirmaan Attachments", item, "attachment") or "" -%}{%- endif -%}
+                                    {%- if raw_url -%}{%- set _ = ns_imgs.list.append({"url": raw_url, "label": slot.label}) -%}{%- endif -%}
+                                {%- endfor -%}
+                            {%- else -%}{%- set _ = ns_imgs.list.append({"url": "", "label": slot.label}) -%}{%- endif -%}
+                        {%- endfor -%}
+                        {%- set total = ns_imgs.list | length -%}
+                        {%- set rows_count = ((total + cols - 1) // cols) if total > 0 else 1 -%}
+                        <table class="cv-img-grid">
+                            {% for r in range(rows_count) %}
+                                <tr>
+                                    {% for c in range(cols) %}
+                                        {%- set idx = r * cols + c -%}
+                                        {% if idx < total %}
+                                            {%- set img = ns_imgs.list[idx] -%}
+                                            <td>
+                                                <div class="cv-img-label">{{ img.label }}</div>
+                                                {% if img.url %}
+                                                    {%- set img_url = frappe.call("nirmaan_stack.api.frappe_s3_attachment.get_s3_temp_url", file_url=img.url) -%}
+                                                    {% if img_url %}<img src="{{ img_url }}" alt="{{ img.label }}" />{% endif %}
+                                                {% else %}<div class="cv-img-empty">(no image)</div>{% endif %}
+                                            </td>
+                                        {% else %}<td>&nbsp;</td>{% endif %}
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
                         </table>
                     {% endif %}
                 </td></tr>

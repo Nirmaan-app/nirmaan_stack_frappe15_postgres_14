@@ -3279,9 +3279,9 @@
   },
   "────── NEXT: Duct Pressure Testing Report  ──────",
   {
-    "templateId": "duct-pressure-testing-report",
+    "templateId": "duct-pressure/smoke/light-testing-report",
     "templateVersion": 1,
-    "title": "Duct Pressure / Leak Test Report",
+     "title": "Duct Pressure Testing Report / Duct Smoke Test Report / Duct Light Test Report",
     "wizardSteps": [
       {
         "key": "header",
@@ -3302,6 +3302,13 @@
         "title": "Observations",
         "sections": [
           "obs"
+        ]
+      },
+      {
+        "key": "testing_images",
+        "title": "Testing Images",
+        "sections": [
+          "images"
         ]
       },
       {
@@ -3347,9 +3354,14 @@
           {
             "key": "test_type",
             "label": "TEST TYPE",
-            "type": "text",
-            "required": true,
-            "placeholder": "e.g. Smoke Leak Test"
+            "type": "select",
+            "options": [
+              "Smoke",
+              "Light",
+              "Pressure"
+            ],
+            "readonly": true,
+            "helpText": "Auto-detected from the task name (Smoke / Light / Pressure). Drives the dynamic wording of observation #5."
           },
           {
             "key": "date",
@@ -3387,13 +3399,15 @@
             "key": "type_of_duct",
             "label": "Type of Duct",
             "type": "text",
-            "required": true
+            "required": true,
+            "placeholder": "e.g. Round duct, Rectangular duct"
           },
           {
             "key": "test_type",
             "label": "Test Type",
             "type": "text",
-            "required": true
+            "required": true,
+            "helpText": "Auto-filled from the task name. Editable — override if the task name is misleading."
           },
           {
             "key": "tested_by",
@@ -3428,7 +3442,7 @@
         "items": [
           {
             "id": "q1",
-            "particular": "Visual inspection for Duct general state",
+            "particular": "Visual inspection of Duct for Leakage Test",
             "result": {
               "type": "select",
               "options": [
@@ -3444,7 +3458,7 @@
           },
           {
             "id": "q2",
-            "particular": "All joints identified before test",
+            "particular": "Inspected all joints before conducting the test",
             "result": {
               "type": "select",
               "options": [
@@ -3460,7 +3474,7 @@
           },
           {
             "id": "q3",
-            "particular": "Smoke leakage at joints (Yes / No)",
+            "particular": "All joints are proper & filled with sealant; if required",
             "result": {
               "type": "select",
               "options": [
@@ -3468,7 +3482,7 @@
                 "No",
                 "N/A"
               ],
-              "default": "No"
+              "default": "Yes"
             },
             "remarks": {
               "type": "text"
@@ -3476,7 +3490,7 @@
           },
           {
             "id": "q4",
-            "particular": "Leakage correction, if any",
+            "particular": "Required amount of smoke filled in the duct",
             "result": {
               "type": "select",
               "options": [
@@ -3484,7 +3498,7 @@
                 "No",
                 "N/A"
               ],
-              "default": "No"
+              "default": "Yes"
             },
             "remarks": {
               "type": "text"
@@ -3492,7 +3506,7 @@
           },
           {
             "id": "q5",
-            "particular": "Corrective action taken (Yes / No)",
+            "particular": "{type} leakage at joints?",
             "result": {
               "type": "select",
               "options": [
@@ -3521,6 +3535,26 @@
             "remarks": {
               "type": "text"
             }
+          }
+        ]
+      },
+      {
+        "id": "images",
+        "type": "image_attachments",
+        "title": "Testing Images",
+        "columns": 2,
+        "slots": [
+          {
+            "key": "testing_image_1",
+            "label": "Testing Image 1",
+            "accept": "image/*",
+            "maxSizeMb": 5
+          },
+          {
+            "key": "testing_image_2",
+            "label": "Testing Image 2",
+            "accept": "image/*",
+            "maxSizeMb": 5
           }
         ]
       },

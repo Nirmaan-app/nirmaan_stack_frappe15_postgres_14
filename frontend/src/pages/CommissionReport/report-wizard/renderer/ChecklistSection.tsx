@@ -1,6 +1,7 @@
 // Tabular Q&A checklist. Mobile-friendly: stacks per row on small screens.
 
 import React from 'react';
+import { useWatch } from 'react-hook-form';
 
 import type { ChecklistSection as ChecklistSectionT, Field } from '../types';
 import { FieldControl } from './FieldControl';
@@ -14,8 +15,18 @@ interface Props {
     pathRoot?: string;
 }
 
+/** Substitute `{type}` in an item's particular text with the live value of
+ *  the header's `test_type` field (e.g. Smoke / Light / Pressure on the Duct
+ *  Pressure / Leak Test Report). No-op for items without the placeholder. */
+const renderParticular = (particular: string, testType: unknown): string => {
+    if (!particular.includes('{type}')) return particular;
+    const v = typeof testType === 'string' && testType ? testType : '—';
+    return particular.replace(/\{type\}/g, v);
+};
+
 export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly, pathRoot }) => {
     const root = pathRoot || 'responses';
+    const testType = useWatch({ name: 'responses.hdr.test_type' });
     return (
         <section className="space-y-3">
             {/* Desktop table */}
@@ -47,7 +58,7 @@ export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly, path
                             return (
                                 <tr key={item.id} className="border-t align-top">
                                     <td className="w-12 px-3 py-2 text-muted-foreground">{idx + 1}</td>
-                                    <td className="px-3 py-2">{item.particular}</td>
+                                    <td className="px-3 py-2">{renderParticular(item.particular, testType)}</td>
                                     <td className="w-40 px-3 py-2">
                                         <FieldControl
                                             name={`${root}.${section.id}.${item.id}.result`}
@@ -94,7 +105,7 @@ export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly, path
                         <div key={item.id} className="rounded-md border p-3">
                             <p className="mb-2 text-sm font-medium">
                                 <span className="mr-2 text-muted-foreground">{idx + 1}.</span>
-                                {item.particular}
+                                {renderParticular(item.particular, testType)}
                             </p>
                             <div className="space-y-2">
                                 <FieldControl
