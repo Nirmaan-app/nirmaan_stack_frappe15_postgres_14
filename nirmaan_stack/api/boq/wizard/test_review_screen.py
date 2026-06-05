@@ -16,6 +16,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.review_screen import (
+    _build_column_descriptors,
     append_edit_log_entry,
     check_structural_integrity,
     get_review_rows,
@@ -745,3 +746,193 @@ class TestGetStructuralBreaks(FrappeTestCase):
         status_after = self._get_wizard_status("OrphanSheet2")
         self.assertEqual(status_before, status_after,
                          "get_structural_breaks must not write wizard_status")
+
+
+# ===========================================================================
+# Group 8: get_review_rows column_descriptors -- DB + pure Python (Slice B1.1a)
+# ===========================================================================
+
+# 2-area sheet_config fixture (mirrors the real Electrical sheet shape).
+_COLUMN_DESCRIPTORS_SHEET_CONFIG = {
+    "header_row": 1,
+    "header_row_count": 1,
+    "area_dimensions": ["Area1", "Area2"],
+    "column_role_map": {
+        "A": {"role": "sl_no", "area": None},
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "qty", "area": "Area1"},
+        "E": {"role": "rate_combined_by_area", "area": "Area1"},
+        "F": {"role": "amount_by_area", "area": "Area1"},
+        "G": {"role": "qty", "area": "Area2"},
+        "H": {"role": "rate_combined_by_area", "area": "Area2"},
+        "I": {"role": "amount_by_area", "area": "Area2"},
+        "J": {"role": "append_to_notes", "area": None},   # non-display
+        "K": {"role": "ignore", "area": None},             # non-display
+    },
+}
+_EXPECTED_DISPLAY_COUNT = 9   # 11 mapped - 2 non-display
+
+
+class TestBuildColumnDescriptors(unittest.TestCase):
+    """Pure-Python unit tests for _build_column_descriptors."""
+
+    def test_empty_config_returns_empty(self):
+        self.assertEqual(_build_column_descriptors(None), [])
+        self.assertEqual(_build_column_descriptors({}), [])
+        self.assertEqual(_build_column_descriptors({"column_role_map": {}}), [])
+
+    def test_non_display_roles_excluded(self):
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        roles = [d["role"] for d in descs]
+        self.assertNotIn("append_to_notes", roles)
+        self.assertNotIn("ignore", roles)
+
+    def test_count_and_excel_order(self):
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        self.assertEqual(len(descs), _EXPECTED_DISPLAY_COUNT)
+        cols = [d["col"] for d in descs]
+        self.assertEqual(cols, ["A", "B", "C", "D", "E", "F", "G", "H", "I"])
+
+    def test_singleton_descriptor_shape(self):
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        a_desc = next(d for d in descs if d["col"] == "A")
+        self.assertEqual(a_desc["role"], "sl_no")
+        self.assertEqual(a_desc["value_field"], "sl_no_value")
+        self.assertIsNone(a_desc["area"])
+        self.assertIsNone(a_desc["value_key"])
+        self.assertIsNone(a_desc["rate_subkey"])
+
+    def test_rate_by_area_descriptor_shape(self):
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        e_desc = next(d for d in descs if d["col"] == "E")
+        self.assertEqual(e_desc["role"], "rate_combined_by_area")
+        self.assertEqual(e_desc["area"], "Area1")
+        self.assertEqual(e_desc["value_field"], "rate_by_area")
+        self.assertEqual(e_desc["value_key"], "Area1")
+        self.assertEqual(e_desc["rate_subkey"], "combined_rate")
+
+    def test_qty_by_area_descriptor_shape(self):
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        d_desc = next(d for d in descs if d["col"] == "D")
+        self.assertEqual(d_desc["role"], "qty")
+        self.assertEqual(d_desc["value_field"], "qty_by_area")
+        self.assertEqual(d_desc["value_key"], "Area1")
+        self.assertIsNone(d_desc["rate_subkey"])
+
+    def test_amount_by_area_descriptor_shape(self):
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        f_desc = next(d for d in descs if d["col"] == "F")
+        self.assertEqual(f_desc["role"], "amount_by_area")
+        self.assertEqual(f_desc["value_field"], "amount_by_area")
+        self.assertEqual(f_desc["value_key"], "Area1")
+        self.assertIsNone(f_desc["rate_subkey"])
+
+    def test_multi_col_excel_sort(self):
+        """Multi-letter columns sort after single-letter ones: Z < AA < AB."""
+        cfg = {
+            "column_role_map": {
+                "AA": {"role": "qty", "area": "X"},
+                "Z": {"role": "qty", "area": "X"},
+                "AB": {"role": "qty", "area": "X"},
+            }
+        }
+        descs = _build_column_descriptors(cfg)
+        self.assertEqual([d["col"] for d in descs], ["Z", "AA", "AB"])
+
+    def test_unknown_role_skipped_silently(self):
+        cfg = {
+            "column_role_map": {
+                "A": {"role": "description", "area": None},
+                "B": {"role": "future_unknown_role", "area": None},
+            }
+        }
+        descs = _build_column_descriptors(cfg)
+        self.assertEqual(len(descs), 1)
+        self.assertEqual(descs[0]["col"], "A")
+
+
+class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
+    """
+    DB tests: get_review_rows returns column_descriptors alongside rows + work_packages.
+
+    ConfigSheet   -- has the 2-area sheet_config fixture.
+    NoConfigSheet -- no sheet_config; must return column_descriptors: [].
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "ColDesc Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "ConfigSheet",
+            "sheet_order": 1,
+            "wizard_status": "Parsed",
+            "sheet_config": json.dumps(_COLUMN_DESCRIPTORS_SHEET_CONFIG),
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "NoConfigSheet",
+            "sheet_order": 2,
+            "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+        _insert_rows(cls.boq_name, [
+            _minimal_row("ConfigSheet", 0, "preamble", parent_index=None),
+            _minimal_row("ConfigSheet", 1, "line_item", parent_index=0),
+        ])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def test_column_descriptors_ordered_and_shaped(self):
+        """2-area config: descriptors in Excel order, correct field/key/rate_subkey."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
+        self.assertIn("column_descriptors", result)
+        descs = result["column_descriptors"]
+        self.assertEqual(len(descs), _EXPECTED_DISPLAY_COUNT)
+        self.assertEqual([d["col"] for d in descs],
+                         ["A", "B", "C", "D", "E", "F", "G", "H", "I"])
+        e_desc = next(d for d in descs if d["col"] == "E")
+        self.assertEqual(e_desc["value_field"], "rate_by_area")
+        self.assertEqual(e_desc["value_key"], "Area1")
+        self.assertEqual(e_desc["rate_subkey"], "combined_rate")
+        a_desc = next(d for d in descs if d["col"] == "A")
+        self.assertEqual(a_desc["value_field"], "sl_no_value")
+        self.assertIsNone(a_desc["value_key"])
+        self.assertIsNone(a_desc["rate_subkey"])
+
+    def test_non_display_roles_excluded_from_endpoint(self):
+        """append_to_notes and ignore must not appear in column_descriptors from the endpoint."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
+        roles = [d["role"] for d in result["column_descriptors"]]
+        self.assertNotIn("append_to_notes", roles)
+        self.assertNotIn("ignore", roles)
+
+    def test_no_sheet_config_returns_empty_descriptors(self):
+        """Sheet with no sheet_config must return column_descriptors: []."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="NoConfigSheet")
+        self.assertIn("column_descriptors", result)
+        self.assertEqual(result["column_descriptors"], [])
+
+    def test_rows_and_work_packages_unchanged_by_extension(self):
+        """rows and work_packages must still be present and correctly shaped."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
+        self.assertIn("rows", result)
+        self.assertIn("work_packages", result)
+        self.assertIsInstance(result["rows"], list)
+        self.assertIsInstance(result["work_packages"], list)
+        row0 = next(r for r in result["rows"] if r["row_index"] == 0)
+        self.assertIn("effective_classification", row0)
+        self.assertIn("effective_parent_index", row0)

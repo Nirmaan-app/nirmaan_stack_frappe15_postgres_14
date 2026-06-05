@@ -24,7 +24,7 @@ from typing import Any
 
 import frappe
 
-from nirmaan_stack.services.boq_parser.classifier import RowClassification
+from nirmaan_stack.services.boq_parser.classifier import RowClassification, _RATE_ROLE_TO_KIND
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import get_boq_work_packages
 
 
@@ -69,6 +69,29 @@ _JSON_LIST_FIELDS: frozenset[str] = frozenset({
 _JSON_DICT_FIELDS: frozenset[str] = frozenset({
     "qty_by_area", "amount_by_area", "rate_by_area", "append_notes_raw",
 })
+
+# ---------------------------------------------------------------------------
+# Column-descriptor constants (_build_column_descriptors)
+# ---------------------------------------------------------------------------
+
+# Roles that produce no direct display column in the review screen.
+_NON_DISPLAY_ROLES: frozenset[str] = frozenset({"append_to_notes", "ignore", "reference_images"})
+
+# Maps singleton (non-by-area) ColumnRoles to their BoQ Review Row field names.
+_SINGLETON_ROLE_TO_FIELD: dict[str, str] = {
+    "sl_no": "sl_no_value",
+    "description": "description",
+    "unit": "unit",
+    "make_model": "make_model",
+    "row_notes": "row_notes",
+    "qty_total": "qty_total",
+    "rate_supply": "rate_supply",
+    "rate_install": "rate_install",
+    "rate_combined": "rate_combined",
+    "amount_supply": "amount_supply",
+    "amount_install": "amount_install",
+    "amount_total": "amount_total",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +309,95 @@ def append_edit_log_entry(
 
 
 # ---------------------------------------------------------------------------
+# Column descriptor builder
+# ---------------------------------------------------------------------------
+
+def _build_column_descriptors(sheet_config: dict | None) -> list:
+    """
+    Build a declarative column_descriptors list from a sheet's sheet_config blob.
+
+    Each descriptor encodes how the frontend should resolve a mapped column's value
+    from a BoQ Review Row:
+      col         -- Excel column letter (the column_role_map key)
+      role        -- raw ColumnRole string
+      area        -- area name for by-area roles, else null
+      value_field -- top-level BoQ Review Row field to read
+      value_key   -- dict key within value_field for by-area fields, else null
+      rate_subkey -- inner key within rate_by_area[area] for rate_*_by_area roles, else null
+
+    Non-display roles (append_to_notes, ignore, reference_images) are excluded.
+    Unknown roles are skipped silently.
+    Returns [] when sheet_config is absent or has no column_role_map.
+
+    Sorted by Excel column order: (len(col), col) -- shorter-then-lexical.
+    """
+    if not sheet_config:
+        return []
+    column_role_map = sheet_config.get("column_role_map") or {}
+    if not column_role_map:
+        return []
+
+    descriptors = []
+    for col, entry in column_role_map.items():
+        if not isinstance(entry, dict):
+            continue
+        role = entry.get("role")
+        area = entry.get("area")
+
+        if not role or role in _NON_DISPLAY_ROLES:
+            continue
+
+        if role in _SINGLETON_ROLE_TO_FIELD:
+            descriptors.append({
+                "col": col,
+                "role": role,
+                "area": None,
+                "value_field": _SINGLETON_ROLE_TO_FIELD[role],
+                "value_key": None,
+                "rate_subkey": None,
+            })
+        elif role == "qty":
+            descriptors.append({
+                "col": col,
+                "role": role,
+                "area": area,
+                "value_field": "qty_by_area",
+                "value_key": area,
+                "rate_subkey": None,
+            })
+        elif role == "amount_by_area":
+            descriptors.append({
+                "col": col,
+                "role": role,
+                "area": area,
+                "value_field": "amount_by_area",
+                "value_key": area,
+                "rate_subkey": None,
+            })
+        elif role in _RATE_ROLE_TO_KIND:
+            descriptors.append({
+                "col": col,
+                "role": role,
+                "area": area,
+                "value_field": "rate_by_area",
+                "value_key": area,
+                "rate_subkey": _RATE_ROLE_TO_KIND[role],
+            })
+        # else: unknown role -- skip silently
+
+    descriptors.sort(key=lambda d: (len(d["col"]), d["col"]))
+    return descriptors
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
 def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     """
-    Return BoQ Review Rows for (boq_name, sheet_name) with effective values + work packages.
+    Return BoQ Review Rows for (boq_name, sheet_name) with effective values + work packages
+    + a declarative column_descriptors list compiled from the sheet's sheet_config.
 
     @frappe.whitelist() bare -- GET-capable (mirrors get_boq_work_packages style).
 
@@ -307,7 +412,18 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
            "effective_parent_index": ...},
           ...
         ],
-        "work_packages": ["WH-001", ...]   # list for this sheet only
+        "work_packages": ["WH-001", ...],   # list for this sheet only
+        "column_descriptors": [             # Slice B1.1a: one entry per mapped display column
+          {
+            "col": "A",                     # Excel column letter
+            "role": "sl_no",                # raw ColumnRole
+            "area": null,                   # area name for by-area roles, else null
+            "value_field": "sl_no_value",   # BoQ Review Row field to read
+            "value_key": null,              # dict key for by-area fields, else null
+            "rate_subkey": null,            # inner key for rate_by_area, else null
+          },
+          ...
+        ]
       }
     """
     if not boq_name:
@@ -354,7 +470,26 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     all_wps = get_boq_work_packages(boq_name=boq_name)
     work_packages = all_wps.get(sheet_name, [])
 
-    return {"rows": rows, "work_packages": work_packages}
+    # Column descriptors: compiled from the sheet's saved sheet_config blob.
+    # Absent sheet_config or empty column_role_map -> [].
+    raw_config = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "sheet_config",
+    )
+    if isinstance(raw_config, str) and raw_config:
+        try:
+            sheet_config = json.loads(raw_config)
+        except (ValueError, TypeError):
+            sheet_config = None
+    elif isinstance(raw_config, dict):
+        sheet_config = raw_config
+    else:
+        sheet_config = None
+
+    column_descriptors = _build_column_descriptors(sheet_config)
+
+    return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors}
 
 
 @frappe.whitelist(methods=["POST"])
