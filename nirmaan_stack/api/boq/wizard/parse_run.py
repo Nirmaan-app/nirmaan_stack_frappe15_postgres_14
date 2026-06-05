@@ -189,7 +189,10 @@ def flatten_resolved_row(
         "source_row_number": cr.raw_row.row_number,
         "row_index": row_index,
         "classification": cr.classification.value,
-        "parent_index": resolved_row.parent_index,
+        # -1 = "no parent" sentinel; Frappe coerces Int None->0, and 0 is a valid row
+        # index, so None must be stored as -1 to stay unambiguous.
+        # resolve_effective (review_screen.py) translates -1 back to None on read.
+        "parent_index": resolved_row.parent_index if resolved_row.parent_index is not None else -1,
         "level": resolved_row.level,
         "path": resolved_row.path or "",
         "attached_to_index": resolved_row.attached_to_index,

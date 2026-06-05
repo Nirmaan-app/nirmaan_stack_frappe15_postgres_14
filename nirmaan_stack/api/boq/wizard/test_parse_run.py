@@ -503,11 +503,12 @@ class TestFlattenFaithfulness(unittest.TestCase):
             self.assertEqual(d["boq"], "FAKE-BOQ-001")
 
     def test_single_area_parent_index_and_path_coherent(self):
-        """For rows with a parent, path contains a slash and parent_index is int."""
+        """For rows with a real parent (parent_index >= 0), path contains a slash."""
         parsed = parse_boq(_p("synthetic_simple.xlsx"), _simple_config())
         flat = flatten_parsed_boq(parsed, "FAKE-BOQ-001")
         for d in flat:
-            if d["parent_index"] is not None:
+            # -1 is the "no parent" sentinel (root rows); skip them.
+            if d["parent_index"] not in (None, -1):
                 self.assertIsInstance(d["parent_index"], int)
                 self.assertIn("/", d["path"])
 
