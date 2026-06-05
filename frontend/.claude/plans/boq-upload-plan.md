@@ -227,7 +227,7 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 **Owner:** Internal team.
 **Last updated:** 2026-06-05 (Bucket-2 follow-up feat 295e3881: bold-amber ~10-min note + Step-2 placement; ParseRunDialog.tsx only)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 21e56963 (parse completion modal + per-case messages + on-mount recovery)
+**Latest commit:** feat b2ca0895 (docs(boq-wizard): record Bucket-2 follow-up (feat 295e3881) in all three docs)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
