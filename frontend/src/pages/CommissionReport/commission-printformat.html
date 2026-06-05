@@ -845,6 +845,110 @@ thead { display: table-header-group; }
                 </td></tr>
             </table>
 
+        {% elif tpl.templateId in ["dx-commission-report", "vrf-commission-report"] %}
+
+            {# DX / VRF Commission Report — same structure, different template
+               id and Physical Test item identifiers. Header has PACKAGE + a
+               count field. The `units` section is a `repeating_groups` whose
+               per-group payload is { equipment, area, physical: {...}, timer:
+               null }. Each group prints as a bordered card: Equipment + Area
+               headline, Physical Test checklist, Timer note. The print is
+               template-agnostic — it reads `groupTitlePrefix`, header title,
+               and the nested section ids ("physical" / "timer") from the
+               template, so both DX and VRF render through the same branch. #}
+            {%- set rg_section = (tpl.sections | selectattr("id", "equalto", "units") | list | first) -%}
+            {%- set groups = (rd.responses or {}).get(rg_section.id, []) or [] if rg_section else [] -%}
+            {# Jinja gotcha: `{% set %}` inside a `{% for %}` loop does NOT escape
+               the loop scope. Use a `namespace` so the nested-section defs survive
+               past the loop, otherwise the Physical Test + Timer blocks below
+               always see `none` and never render. #}
+            {%- set ns_defs = namespace(physical=none, timer=none) -%}
+            {%- if rg_section and rg_section.nestedSections -%}
+                {%- for nsec in rg_section.nestedSections -%}
+                    {%- if nsec.id == 'physical' -%}{%- set ns_defs.physical = nsec -%}{%- endif -%}
+                    {%- if nsec.id == 'timer' -%}{%- set ns_defs.timer = nsec -%}{%- endif -%}
+                {%- endfor -%}
+            {%- endif -%}
+            {%- set physical_def = ns_defs.physical -%}
+            {%- set timer_def = ns_defs.timer -%}
+
+            <table class="cv-page-layout">
+                <tr><td class="cv-content-cell">
+                    <table class="cv-table">
+                        <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title)}}</td></tr>
+                        {% if hdr_section %}
+                            {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
+                            {% for f in (hdr_section.fields or []) %}
+                                <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                            {% endfor %}
+                        {% endif %}
+                    </table>
+                    <div class="cv-spacer-md"></div>
+
+                    {% if rg_section and (groups | length > 0) %}
+                        {% for group in groups %}
+                            <div style="page-break-inside: avoid; margin-bottom: 14px;">
+                                <div class="cv-sub-head" style="margin-bottom: 0;">
+                                    {{ rg_section.groupTitlePrefix  }} {{ loop.index }}
+                                </div>
+                                {# Equipment + Area pair #}
+                                <table class="cv-table">
+                                    <tr>
+                                        <td class="cv-label" style="width: 18%;">EQUIPMENT</td>
+                                        <td style="width: 32%;">{%- set eq = group.get('equipment') if group is mapping else none -%}{%- if eq is none or eq == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ eq }}{%- endif -%}</td>
+                                        <td class="cv-label" style="width: 18%;">AREA</td>
+                                        <td>{%- set ar = group.get('area') if group is mapping else none -%}{%- if ar is none or ar == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ ar }}{%- endif -%}</td>
+                                    </tr>
+                                </table>
+
+                                {# Per-group Physical Test checklist #}
+                                {% if physical_def %}
+                                    {%- set pvals = (group.get(physical_def.id) if group is mapping else {}) or {} -%}
+                                    <div class="cv-sub-head" style="margin-top: 4px;">{{ physical_def.title or "Physical Test" }}</div>
+                                    <table class="cv-chk">
+                                        <thead><tr>
+                                            {% for c in (physical_def.columns or []) %}
+                                                {% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>
+                                                {% elif c.key == "result" %}<th class="cv-result">{{ c.label }}</th>
+                                                {% elif c.key == "remarks" %}<th class="cv-remarks">{{ c.label }}</th>
+                                                {% else %}<th>{{ c.label }}</th>{% endif %}
+                                            {% endfor %}
+                                        </tr></thead>
+                                        <tbody>
+                                            {% for item in (physical_def["items"] or []) %}
+                                                {%- set ival = pvals.get(item.id, {}) -%}
+                                                <tr>
+                                                    <td class="cv-num">{{ loop.index }}</td>
+                                                    <td>{{ item.particular }}</td>
+                                                    <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}—{%- else -%}{{ rv }}{%- endif -%}</td>
+                                                    <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% endif %}
+
+                                {# Per-group Timer process note #}
+                                {% if timer_def %}
+                                    <div class="cv-sub-head" style="margin-top: 6px;">{{ timer_def.title or "Functionality Test of Timer" }}</div>
+                                    {% for block in (timer_def.blocks or []) %}
+                                        {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                        {% for line in (block["items"] or []) %}
+                                            <div class="cv-proc-item">{{ line }}</div>
+                                        {% endfor %}
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="cv-error">No DX Units entered.</div>
+                    {% endif %}
+                </td></tr>
+                <tr><td class="cv-bottom-cell">
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                </td></tr>
+            </table>
+
         {% elif tpl.templateId == "duct-pressure-testing-report" %}
 
             {%- set general_desc_section = (tpl.sections | selectattr("id", "equalto", "general_desc") | list | first) -%}
@@ -1158,135 +1262,6 @@ thead { display: table-header-group; }
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
-
-        {% elif tpl.templateId == "vrf-dx-commissioning-report" %}
-
-            {# ===== VRF/DX Commissioning Report — VRF and/or DX, each as its own self-contained page ===== #}
-            {%- set unit_type = (rd.responses or {}).get('unit_choice', {}).get('unit_type', 'DX') -%}
-            {%- set vrf_phys  = (tpl.sections | selectattr("id", "equalto", "vrf_physical") | list | first) -%}
-            {%- set vrf_timer = (tpl.sections | selectattr("id", "equalto", "vrf_timer")    | list | first) -%}
-            {%- set dx_phys   = (tpl.sections | selectattr("id", "equalto", "dx_physical")  | list | first) -%}
-            {%- set dx_timer  = (tpl.sections | selectattr("id", "equalto", "dx_timer")     | list | first) -%}
-            {%- set show_vrf = (unit_type == 'VRF' or unit_type == 'Both') -%}
-            {%- set show_dx  = (unit_type == 'DX'  or unit_type == 'Both') -%}
-
-            {# ===== Page 1: VRF (own header + body + signatures) ===== #}
-            {% if show_vrf %}
-                <table class="cv-page-layout">
-                    <tr><td class="cv-content-cell">
-
-                        <table class="cv-table">
-                            <tr><td class="cv-title" colspan="2">COMMISSIONING REPORT - VRF UNIT</td></tr>
-                            {% if hdr_section %}
-                                {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
-                                {% for f in (hdr_section.fields or []) %}
-                                    <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
-                                {% endfor %}
-                            {% endif %}
-                        </table>
-
-                        {% if vrf_phys %}
-                            {%- set cvals = (rd.responses or {}).get(vrf_phys.id, {}) -%}
-                            <div class="cv-sub-head">{{ vrf_phys.title or "Physical Test" }} :</div>
-                            <table class="cv-chk">
-                                <thead><tr>
-                                    <th class="cv-num">Sl No</th>
-                                    <th>Particulars</th>
-                                    <th class="cv-result">Results</th>
-                                    <th class="cv-remarks">Remarks</th>
-                                </tr></thead>
-                                <tbody>
-                                    {% for item in (vrf_phys["items"] or []) %}
-                                        {%- set ival = cvals.get(item.id, {}) -%}
-                                        <tr>
-                                            <td class="cv-num">{{ loop.index }}</td>
-                                            <td>{{ item.particular }}</td>
-                                            <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}—{%- else -%}{{ rv }}{%- endif -%}</td>
-                                            <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        {% endif %}
-
-                        {% if vrf_timer %}
-                            <div class="cv-spacer-md"></div>
-                            <div class="cv-sub-head">{{ vrf_timer.title or "Functionality Test of Timer" }} :</div>
-                            <table class="cv-cl-table">
-                                {% for block in (vrf_timer.blocks or []) %}
-                                    {% if block.subtitle %}<tr><td class="cv-cl-head">{{ block.subtitle }}</td></tr>{% endif %}
-                                    {% for item in (block["items"] or []) %}
-                                        <tr><td class="cv-cl-item">{{ item }}</td></tr>
-                                    {% endfor %}
-                                {% endfor %}
-                            </table>
-                        {% endif %}
-
-                    </td></tr>
-                    <tr><td class="cv-bottom-cell">
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
-                    </td></tr>
-                </table>
-            {% endif %}
-
-            {# ===== Page 2 (or single page if DX only): DX — own header + body + signatures ===== #}
-            {% if show_dx %}
-                <table class="cv-page-layout"{% if show_vrf %} style="page-break-before: always;"{% endif %}>
-                    <tr><td class="cv-content-cell">
-
-                        <table class="cv-table">
-                            <tr><td class="cv-title" colspan="2">COMMISSIONING REPORT - DX UNIT</td></tr>
-                            {% if hdr_section %}
-                                {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
-                                {% for f in (hdr_section.fields or []) %}
-                                    <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
-                                {% endfor %}
-                            {% endif %}
-                        </table>
-
-                        {% if dx_phys %}
-                            {%- set cvals = (rd.responses or {}).get(dx_phys.id, {}) -%}
-                            <div class="cv-sub-head">{{ dx_phys.title or "Physical Test" }} :</div>
-                            <table class="cv-chk">
-                                <thead><tr>
-                                    <th class="cv-num">Sl No</th>
-                                    <th>Particulars</th>
-                                    <th class="cv-result">Results</th>
-                                    <th class="cv-remarks">Remarks</th>
-                                </tr></thead>
-                                <tbody>
-                                    {% for item in (dx_phys["items"] or []) %}
-                                        {%- set ival = cvals.get(item.id, {}) -%}
-                                        <tr>
-                                            <td class="cv-num">{{ loop.index }}</td>
-                                            <td>{{ item.particular }}</td>
-                                            <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}—{%- else -%}{{ rv }}{%- endif -%}</td>
-                                            <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        {% endif %}
-
-                        {% if dx_timer %}
-                            <div class="cv-spacer-md"></div>
-                            <div class="cv-sub-head">{{ dx_timer.title or "Functionality Test of Timer" }} :</div>
-                            <table class="cv-cl-table">
-                                {% for block in (dx_timer.blocks or []) %}
-                                    {% if block.subtitle %}<tr><td class="cv-cl-head">{{ block.subtitle }}</td></tr>{% endif %}
-                                    {% for item in (block["items"] or []) %}
-                                        <tr><td class="cv-cl-item">{{ item }}</td></tr>
-                                    {% endfor %}
-                                {% endfor %}
-                            </table>
-                        {% endif %}
-
-                    </td></tr>
-                    <tr><td class="cv-bottom-cell">
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
-                    </td></tr>
-                </table>
-            {% endif %}
 
         {% elif tpl.templateId == "fa-commission-report" %}
 

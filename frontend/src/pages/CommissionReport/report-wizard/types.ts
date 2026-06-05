@@ -189,9 +189,10 @@ export interface MeasurementMatrixSection {
 }
 
 /** Repeating-groups section. N independent cards, each with a flat set of
- *  `groupFields` (e.g. Equipment + Area) and a nested repeating data-table
- *  of `rowsTable` rows. Used by the CFM / Air Balance Report where the
- *  header declares how many groups to render. */
+ *  `groupFields` (e.g. Equipment + Area), an optional nested repeating
+ *  data-table of `rowsTable` rows, and optional `nestedSections` (e.g. a
+ *  per-group checklist or process). Used by the CFM / Air Balance Report
+ *  (rowsTable) and the DX Commission Report (nestedSections). */
 export interface RepeatingGroupsSection {
     id: string;
     type: 'repeating_groups';
@@ -202,14 +203,18 @@ export interface RepeatingGroupsSection {
     countBoundTo?: string;
     /** Flat fields shown at the top of each group (e.g. equipment, area). */
     groupFields: Field[];
-    /** Nested repeating data-table inside each group. */
-    rowsTable: {
+    /** Optional nested repeating data-table inside each group (CFM uses this). */
+    rowsTable?: {
         title?: string;
         columns: TraineesDataTableColumn[];
         minRows?: number;
         maxRows?: number;
         addRowLabel?: string;
     };
+    /** Optional sub-sections rendered per group after the group fields (e.g.
+     *  a Physical Test checklist or a Timer process line). Each nested section's
+     *  data lives under `responses[<this.id>][<groupIdx>][<nested.id>]`. */
+    nestedSections?: Section[];
     /** Used to label each group card, e.g. "CFM Reading 1". */
     groupTitlePrefix?: string;
     /** Max number of groups the wizard will allow. Default 50. */

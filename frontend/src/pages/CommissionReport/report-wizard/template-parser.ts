@@ -291,30 +291,56 @@ const validateSection = (
                 }
                 gfKeys.add(k);
             }
-            // Nested rowsTable mimics a trainees_data_table: required columns array.
+            // rowsTable is optional now (CFM uses it; DX uses nestedSections only).
             const rowsTable = obj.rowsTable as Record<string, unknown> | undefined;
-            if (!rowsTable || typeof rowsTable !== 'object') {
-                errors.push(err('missing_field', `${path}.rowsTable required`, path));
-                return false;
-            }
-            if (!Array.isArray(rowsTable.columns) || rowsTable.columns.length === 0) {
-                errors.push(err('missing_field', `${path}.rowsTable.columns required (non-empty)`, path));
-                return false;
-            }
-            const rcKeys = new Set<string>();
-            for (let i = 0; i < rowsTable.columns.length; i++) {
-                const col = rowsTable.columns[i] as Record<string, unknown>;
-                if (!validateField(
-                    { ...col, bind: undefined } as object,
-                    `${path}.rowsTable.columns[${i}]`,
-                    errors,
-                )) return false;
-                const k = col.key as string;
-                if (rcKeys.has(k)) {
-                    errors.push(err('duplicate_id', `${path}.rowsTable.columns[${i}].key "${k}" duplicated`, path));
+            if (rowsTable !== undefined) {
+                if (typeof rowsTable !== 'object' || rowsTable === null) {
+                    errors.push(err('invalid_type', `${path}.rowsTable must be an object`, path));
                     return false;
                 }
-                rcKeys.add(k);
+                if (!Array.isArray(rowsTable.columns) || rowsTable.columns.length === 0) {
+                    errors.push(err('missing_field', `${path}.rowsTable.columns required (non-empty)`, path));
+                    return false;
+                }
+                const rcKeys = new Set<string>();
+                for (let i = 0; i < rowsTable.columns.length; i++) {
+                    const col = rowsTable.columns[i] as Record<string, unknown>;
+                    if (!validateField(
+                        { ...col, bind: undefined } as object,
+                        `${path}.rowsTable.columns[${i}]`,
+                        errors,
+                    )) return false;
+                    const k = col.key as string;
+                    if (rcKeys.has(k)) {
+                        errors.push(err('duplicate_id', `${path}.rowsTable.columns[${i}].key "${k}" duplicated`, path));
+                        return false;
+                    }
+                    rcKeys.add(k);
+                }
+            }
+            // nestedSections — array of sub-sections rendered per group (e.g.
+            // a per-unit Physical Test checklist + Timer process). Validated
+            // recursively via the same validateSection function.
+            const nestedSections = obj.nestedSections as unknown[] | undefined;
+            if (nestedSections !== undefined) {
+                if (!Array.isArray(nestedSections)) {
+                    errors.push(err('invalid_type', `${path}.nestedSections must be an array`, path));
+                    return false;
+                }
+                const nestedIds = new Set<string>();
+                for (let i = 0; i < nestedSections.length; i++) {
+                    if (!validateSection(nestedSections[i], i, errors)) return false;
+                    const nid = (nestedSections[i] as Section).id;
+                    if (nestedIds.has(nid)) {
+                        errors.push(err('duplicate_id', `${path}.nestedSections[${i}].id "${nid}" duplicated`, path));
+                        return false;
+                    }
+                    nestedIds.add(nid);
+                }
+            }
+            if (!rowsTable && !nestedSections) {
+                errors.push(err('missing_field', `${path}: at least one of rowsTable or nestedSections required`, path));
+                return false;
             }
             if (obj.countBoundTo !== undefined && typeof obj.countBoundTo !== 'string') {
                 errors.push(err('invalid_type', `${path}.countBoundTo must be a string path`, path));

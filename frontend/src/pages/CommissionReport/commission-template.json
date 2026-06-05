@@ -5338,732 +5338,7 @@
       }
     ]
   },
-  "────── NEXT: VRF/DX Commissioning Report ──────",
-  {
-    "templateId": "vrf-dx-commissioning-report",
-    "templateVersion": 1,
-    "title": "VRF / DX Commissioning Report",
-    "wizardSteps": [
-      {
-        "key": "header",
-        "title": "Header",
-        "sections": [
-          "hdr",
-          "unit_choice"
-        ]
-      },
-      {
-        "key": "vrf_tests",
-        "title": "VRF Tests",
-        "sections": [
-          "vrf_physical",
-          "vrf_timer"
-        ],
-        "visibleIf": {
-          "field": "responses.unit_choice.unit_type",
-          "in": [
-            "VRF",
-            "Both"
-          ]
-        }
-      },
-      {
-        "key": "dx_tests",
-        "title": "DX Tests",
-        "sections": [
-          "dx_physical",
-          "dx_timer"
-        ],
-        "visibleIf": {
-          "field": "responses.unit_choice.unit_type",
-          "in": [
-            "DX",
-            "Both"
-          ]
-        }
-      },
-      {
-        "key": "signatures",
-        "title": "Signatures",
-        "sections": [
-          "sigs"
-        ]
-      },
-      {
-        "key": "review",
-        "title": "Review",
-        "sections": []
-      }
-    ],
-    "sections": [
-      {
-        "id": "hdr",
-        "type": "header",
-        "title": "COMMISSIONING REPORT - VRF / DX UNIT",
-        "fields": [
-          {
-            "key": "vendor",
-            "label": "VENDOR",
-            "type": "text",
-            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
-            "readonly": true
-          },
-          {
-            "key": "project",
-            "label": "PROJECT",
-            "type": "text",
-            "bind": "project.project_name",
-            "readonly": true
-          },
-          {
-            "key": "location",
-            "label": "LOCATION",
-            "type": "text",
-            "bind": "project.location.full",
-            "readonly": true
-          },
-          {
-            "key": "package",
-            "label": "PACKAGE",
-            "type": "text",
-            "required": true,
-            "placeholder": "e.g. HVAC"
-          },
-          {
-            "key": "equipment",
-            "label": "EQUIPMENT",
-            "type": "text",
-            "required": true
-          },
-          {
-            "key": "area",
-            "label": "AREA",
-            "type": "text",
-            "required": true
-          }
-        ]
-      },
-      {
-        "id": "unit_choice",
-        "type": "fields",
-        "title": "Unit Selection",
-        "layout": "stack",
-        "fields": [
-          {
-            "key": "unit_type",
-            "label": "Do you go with VRF, DX, or Both?",
-            "type": "select",
-            "options": [
-              "VRF",
-              "DX",
-              "Both"
-            ],
-            "required": true,
-            "default": "DX",
-            "helpText": "Determines which unit's checklists print on the PDF. Wizard shows all four checklists — fill only the ones relevant to your selection."
-          }
-        ]
-      },
-      {
-        "id": "vrf_physical",
-        "type": "checklist",
-        "title": "Physical Test",
-        "columns": [
-          {
-            "key": "slno",
-            "label": "Sl No"
-          },
-          {
-            "key": "particular",
-            "label": "Particulars"
-          },
-          {
-            "key": "result",
-            "label": "Results"
-          },
-          {
-            "key": "remarks",
-            "label": "Remarks"
-          }
-        ],
-        "items": [
-          {
-            "id": "v1",
-            "particular": "Visual inspection General state",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v2",
-            "particular": "Any refrigerant leakage?",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v3",
-            "particular": "Both stop valves open before the operation",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v4",
-            "particular": "Position of sensors (Ok or Not Ok)",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "OK"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v5",
-            "particular": "Corrosion/oxidation (Ok or Not Ok)",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "OK"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v6",
-            "particular": "Vibrations/frictions in the machine",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v7",
-            "particular": "Any unusual Noise in the machine?",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v8",
-            "particular": "Piping length within acceptable limits",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v9",
-            "particular": "Thermostat operation and settings.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "NA"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v10",
-            "particular": "Drainage bottom plate (Ok or Not Ok)",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "OK"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v11",
-            "particular": "Refrigerant Piping is properly insulated.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v12",
-            "particular": "The voltage and Current record within acceptable limits",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v13",
-            "particular": "All the safety devices are functional.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "v14",
-            "particular": "Cable Section as per standards.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          }
-        ]
-      },
-      {
-        "id": "vrf_timer",
-        "type": "process",
-        "title": "Functionality Test of Timer",
-        "blocks": [
-          {
-            "subtitle": "",
-            "items": [
-              "VRF unit is getting switched ON or OFF automatically When Placed in Auto Test Mode."
-            ]
-          }
-        ]
-      },
-      {
-        "id": "dx_physical",
-        "type": "checklist",
-        "title": "Physical Test",
-        "columns": [
-          {
-            "key": "slno",
-            "label": "Sl No"
-          },
-          {
-            "key": "particular",
-            "label": "Particulars"
-          },
-          {
-            "key": "result",
-            "label": "Results"
-          },
-          {
-            "key": "remarks",
-            "label": "Remarks"
-          }
-        ],
-        "items": [
-          {
-            "id": "d1",
-            "particular": "Visual inspection General state",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d2",
-            "particular": "Any refrigerant leakage?",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d3",
-            "particular": "Both stop valves open before the operation",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d4",
-            "particular": "Position of sensors (Ok or Not Ok)",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "OK"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d5",
-            "particular": "Corrosion/oxidation (Ok or Not Ok)",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "OK"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d6",
-            "particular": "Vibrations/frictions in the machine",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d7",
-            "particular": "Any unusual Noise in the machine?",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d8",
-            "particular": "Piping length within acceptable limits",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d9",
-            "particular": "Thermostat operation and settings.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "NA"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d10",
-            "particular": "Drainage bottom plate (Ok or Not Ok)",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "OK"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d11",
-            "particular": "Refrigerant Piping is properly insulated.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d12",
-            "particular": "The voltage and Current record within acceptable limits",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d13",
-            "particular": "All the safety devices are functional.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "d14",
-            "particular": "Cable Section as per standards.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "OK",
-                "Not OK",
-                "NA"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          }
-        ]
-      },
-      {
-        "id": "dx_timer",
-        "type": "process",
-        "title": "Functionality Test of Timer",
-        "blocks": [
-          {
-            "subtitle": "",
-            "items": [
-              "IDU is getting switched ON or OFF automatically When Placed in Auto Test Mode."
-            ]
-          }
-        ]
-      },
-      {
-        "id": "sigs",
-        "type": "signatures",
-        "blocks": [
-          {
-            "key": "tested_by",
-            "label": "TESTED BY"
-          },
-          {
-            "key": "hvac_consultant",
-            "label": "HVAC CONSULTANT"
-          },
-          {
-            "key": "client",
-            "label": "CLIENT"
-          }
-        ]
-      }
-    ]
-  },
+   "────── NEXT:Nitrogen Pressure Testing Report ──────",
   {
     "templateId": "nitrogen-pressure-testing-report",
     "templateVersion": 1,
@@ -7491,6 +6766,556 @@
             "key": "client",
             "label": "CLIENT"
           }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: DX Commission Report ──────",
+  {
+    "templateId": "dx-commission-report",
+    "templateVersion": 1,
+    "title": "DX Commission Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": ["hdr"]
+      },
+      {
+        "key": "units",
+        "title": "DX Units",
+        "sections": ["units"]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": ["sigs"]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - DX UNIT",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "package",
+            "label": "PACKAGE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. HVAC"
+          },
+          {
+            "key": "num_dx_units",
+            "label": "Number of DX Units",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "max": 10,
+            "helpText": "Drives the number of DX Unit groups in the next step."
+          }
+        ]
+      },
+      {
+        "id": "units",
+        "type": "repeating_groups",
+        "title": "DX Units",
+        "countBoundTo": "responses.hdr.num_dx_units",
+        "groupTitlePrefix": "DX Unit",
+        "maxGroups": 10,
+        "groupFields": [
+          {
+            "key": "equipment",
+            "label": "EQUIPMENT",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. IDU-1"
+          },
+          {
+            "key": "area",
+            "label": "AREA",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. 1st Floor"
+          }
+        ],
+        "nestedSections": [
+          {
+            "id": "physical",
+            "type": "checklist",
+            "title": "Physical Test",
+            "columns": [
+              { "key": "slno", "label": "Sl No" },
+              { "key": "particular", "label": "Particulars" },
+              { "key": "result", "label": "Results" },
+              { "key": "remarks", "label": "Remarks" }
+            ],
+            "items": [
+              {
+                "id": "d1",
+                "particular": "Visual inspection General state",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d2",
+                "particular": "Any refrigerant leakage?",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d3",
+                "particular": "Both stop valves open before the operation",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d4",
+                "particular": "Position of sensors (Ok or Not Ok)",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d5",
+                "particular": "Corrosion/oxidation (Ok or Not Ok)",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d6",
+                "particular": "Vibrations/frictions in the machine",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d7",
+                "particular": "Any unusual Noise in the machine?",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d8",
+                "particular": "Piping length within acceptable limits",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d9",
+                "particular": "Thermostat operation and settings.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d10",
+                "particular": "Drainage bottom plate (Ok or Not Ok)",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d11",
+                "particular": "Refrigerant Piping is properly insulated.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d12",
+                "particular": "The voltage and Current record within acceptable limits",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d13",
+                "particular": "All the safety devices are functional.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "d14",
+                "particular": "Cable Section as per standards.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              }
+            ]
+          },
+          {
+            "id": "timer",
+            "type": "process",
+            "title": "Functionality Test of Timer",
+            "blocks": [
+              {
+                "subtitle": "",
+                "items": [
+                  "IDU is getting switched ON or OFF automatically When Placed in Auto Test Mode."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          { "key": "tested_by", "label": "TESTED BY" },
+          { "key": "hvac_consultant", "label": "HVAC CONSULTANT" },
+          { "key": "client", "label": "CLIENT" }
+        ]
+      }
+    ]
+  },
+  "────── NEXT: VRF Commissioning Report ──────",
+  {
+    "templateId": "vrf-commission-report",
+    "templateVersion": 1,
+    "title": "VRF Commissioning Report",
+    "wizardSteps": [
+      {
+        "key": "header",
+        "title": "Header",
+        "sections": ["hdr"]
+      },
+      {
+        "key": "units",
+        "title": "VRF Units",
+        "sections": ["units"]
+      },
+      {
+        "key": "signatures",
+        "title": "Signatures",
+        "sections": ["sigs"]
+      },
+      {
+        "key": "review",
+        "title": "Review",
+        "sections": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - VRF UNIT",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "package",
+            "label": "PACKAGE",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. HVAC"
+          },
+          {
+            "key": "num_vrf_units",
+            "label": "Number of VRF Units",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "max": 10,
+            "helpText": "Drives the number of VRF Unit groups in the next step."
+          }
+        ]
+      },
+      {
+        "id": "units",
+        "type": "repeating_groups",
+        "title": "VRF Units",
+        "countBoundTo": "responses.hdr.num_vrf_units",
+        "groupTitlePrefix": "VRF Unit",
+        "maxGroups": 10,
+        "groupFields": [
+          {
+            "key": "equipment",
+            "label": "EQUIPMENT",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. ODU-1"
+          },
+          {
+            "key": "area",
+            "label": "AREA",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. 1st Floor"
+          }
+        ],
+        "nestedSections": [
+          {
+            "id": "physical",
+            "type": "checklist",
+            "title": "Physical Test",
+            "columns": [
+              { "key": "slno", "label": "Sl No" },
+              { "key": "particular", "label": "Particulars" },
+              { "key": "result", "label": "Results" },
+              { "key": "remarks", "label": "Remarks" }
+            ],
+            "items": [
+              {
+                "id": "v1",
+                "particular": "Visual inspection General state",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v2",
+                "particular": "Any refrigerant leakage?",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v3",
+                "particular": "Both stop valves open before the operation",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v4",
+                "particular": "Position of sensors (Ok or Not Ok)",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v5",
+                "particular": "Corrosion/oxidation (Ok or Not Ok)",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v6",
+                "particular": "Vibrations/frictions in the machine",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v7",
+                "particular": "Any unusual Noise in the machine?",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v8",
+                "particular": "Piping length within acceptable limits",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v9",
+                "particular": "Thermostat operation and settings.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v10",
+                "particular": "Drainage bottom plate (Ok or Not Ok)",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v11",
+                "particular": "Refrigerant Piping is properly insulated.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v12",
+                "particular": "The voltage and Current record within acceptable limits",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v13",
+                "particular": "All the safety devices are functional.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              },
+              {
+                "id": "v14",
+                "particular": "Cable Section as per standards.",
+                "result": {
+                  "type": "select",
+                  "options": ["Yes", "No", "OK", "Not OK", "NA"],
+                  "required": true
+                },
+                "remarks": { "type": "text" }
+              }
+            ]
+          },
+          {
+            "id": "timer",
+            "type": "process",
+            "title": "Functionality Test of Timer",
+            "blocks": [
+              {
+                "subtitle": "",
+                "items": [
+                  "VRF unit is getting switched ON or OFF automatically When Placed in Auto Test Mode."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sigs",
+        "type": "signatures",
+        "blocks": [
+          { "key": "tested_by", "label": "TESTED BY" },
+          { "key": "hvac_consultant", "label": "HVAC CONSULTANT" },
+          { "key": "client", "label": "CLIENT" }
         ]
       }
     ]

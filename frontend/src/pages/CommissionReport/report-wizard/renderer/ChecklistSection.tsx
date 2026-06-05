@@ -8,9 +8,14 @@ import { FieldControl } from './FieldControl';
 interface Props {
     section: ChecklistSectionT;
     forceReadonly?: boolean;
+    /** Override the RHF path root. Defaults to "responses". Used when this
+     *  checklist is rendered as a nested section inside a `repeating_groups`
+     *  group, e.g. `responses.readings.0`. */
+    pathRoot?: string;
 }
 
-export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly }) => {
+export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly, pathRoot }) => {
+    const root = pathRoot || 'responses';
     return (
         <section className="space-y-3">
             {/* Desktop table */}
@@ -45,7 +50,7 @@ export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly }) =>
                                     <td className="px-3 py-2">{item.particular}</td>
                                     <td className="w-40 px-3 py-2">
                                         <FieldControl
-                                            name={`responses.${section.id}.${item.id}.result`}
+                                            name={`${root}.${section.id}.${item.id}.result`}
                                             field={resultField}
                                             hideLabel
                                             forceReadonly={forceReadonly}
@@ -54,7 +59,7 @@ export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly }) =>
                                     <td className="px-3 py-2">
                                         {remarksField ? (
                                             <FieldControl
-                                                name={`responses.${section.id}.${item.id}.remarks`}
+                                                name={`${root}.${section.id}.${item.id}.remarks`}
                                                 field={remarksField}
                                                 hideLabel
                                                 forceReadonly={forceReadonly}
@@ -93,13 +98,13 @@ export const ChecklistSection: React.FC<Props> = ({ section, forceReadonly }) =>
                             </p>
                             <div className="space-y-2">
                                 <FieldControl
-                                    name={`responses.${section.id}.${item.id}.result`}
+                                    name={`${root}.${section.id}.${item.id}.result`}
                                     field={resultField}
                                     forceReadonly={forceReadonly}
                                 />
                                 {remarksField && (
                                     <FieldControl
-                                        name={`responses.${section.id}.${item.id}.remarks`}
+                                        name={`${root}.${section.id}.${item.id}.remarks`}
                                         field={remarksField}
                                         forceReadonly={forceReadonly}
                                     />

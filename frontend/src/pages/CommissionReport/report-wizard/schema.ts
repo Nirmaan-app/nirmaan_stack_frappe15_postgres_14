@@ -134,22 +134,32 @@ const buildTraineesDataTableSchema = (section: TraineesDataTableSection): ZodTyp
 };
 
 const buildRepeatingGroupsSchema = (section: RepeatingGroupsSection): ZodTypeAny => {
-    // Per-group object schema: groupFields (flat) + rows (array of rowsTable rows).
+    // Per-group object schema: groupFields (flat) + optional rowsTable rows
+    // + optional nestedSections per group.
     const groupShape: Record<string, ZodTypeAny> = {};
     for (const f of section.groupFields) {
         groupShape[f.key] = buildFieldSchema(f);
     }
-    const rowShape: Record<string, ZodTypeAny> = {};
-    for (const col of section.rowsTable.columns) {
-        rowShape[col.key] = buildFieldSchema({ ...col, bind: undefined } as Field);
+    if (section.rowsTable) {
+        const rowShape: Record<string, ZodTypeAny> = {};
+        for (const col of section.rowsTable.columns) {
+            rowShape[col.key] = buildFieldSchema({ ...col, bind: undefined } as Field);
+        }
+        groupShape.rows = z
+            .array(z.object(rowShape))
+            .min(
+                Math.max(1, section.rowsTable.minRows ?? 1),
+                `At least ${Math.max(1, section.rowsTable.minRows ?? 1)} row(s) required per group`,
+            )
+            .max(section.rowsTable.maxRows ?? 100, `Too many rows in a group`);
     }
-    groupShape.rows = z
-        .array(z.object(rowShape))
-        .min(
-            Math.max(1, section.rowsTable.minRows ?? 1),
-            `At least ${Math.max(1, section.rowsTable.minRows ?? 1)} row(s) required per group`,
-        )
-        .max(section.rowsTable.maxRows ?? 100, `Too many rows in a group`);
+    if (section.nestedSections) {
+        // Each nested section's schema is attached under the section's own id.
+        const nestedShape = buildSchemaForSections(section.nestedSections);
+        for (const [k, v] of Object.entries(nestedShape.shape)) {
+            groupShape[k] = v as ZodTypeAny;
+        }
+    }
     return z.array(z.object(groupShape)).min(1, 'At least one group required');
 };
 
@@ -441,37 +451,87 @@ export const validateStep = (
                 indices.forEach((gIdx) => {
                     const g = groups[gIdx];
                     const group = (g as Record<string, unknown> | undefined) || {};
+                    // Flat groupFields
                     for (const f of section.groupFields) {
                         if (f.readonly) continue;
                         runField(f, group[f.key], `responses.${sid}.${gIdx}.${f.key}`);
                     }
-                    const rows = Array.isArray(group.rows) ? (group.rows as unknown[]) : [];
-                    const minR = Math.max(1, section.rowsTable.minRows ?? 1);
-                    const maxR = section.rowsTable.maxRows ?? 100;
-                    if (rows.length < minR) {
-                        errors.push({
-                            path: `responses.${sid}.${gIdx}.rows`,
-                            message: `Group ${gIdx + 1}: at least ${minR} row(s) required`,
-                        });
-                        return;
-                    }
-                    if (rows.length > maxR) {
-                        errors.push({
-                            path: `responses.${sid}.${gIdx}.rows`,
-                            message: `Group ${gIdx + 1}: no more than ${maxR} rows allowed`,
-                        });
-                    }
-                    rows.forEach((row, rIdx) => {
-                        for (const col of section.rowsTable.columns) {
-                            const fieldDef = { ...col, bind: undefined } as Field;
-                            const value = (row as Record<string, unknown> | undefined)?.[col.key];
-                            runField(
-                                fieldDef,
-                                value,
-                                `responses.${sid}.${gIdx}.rows.${rIdx}.${col.key}`,
-                            );
+                    // Optional rowsTable
+                    if (section.rowsTable) {
+                        const rows = Array.isArray(group.rows) ? (group.rows as unknown[]) : [];
+                        const minR = Math.max(1, section.rowsTable.minRows ?? 1);
+                        const maxR = section.rowsTable.maxRows ?? 100;
+                        if (rows.length < minR) {
+                            errors.push({
+                                path: `responses.${sid}.${gIdx}.rows`,
+                                message: `Group ${gIdx + 1}: at least ${minR} row(s) required`,
+                            });
+                            return;
                         }
-                    });
+                        if (rows.length > maxR) {
+                            errors.push({
+                                path: `responses.${sid}.${gIdx}.rows`,
+                                message: `Group ${gIdx + 1}: no more than ${maxR} rows allowed`,
+                            });
+                        }
+                        rows.forEach((row, rIdx) => {
+                            for (const col of section.rowsTable!.columns) {
+                                const fieldDef = { ...col, bind: undefined } as Field;
+                                const value = (row as Record<string, unknown> | undefined)?.[col.key];
+                                runField(
+                                    fieldDef,
+                                    value,
+                                    `responses.${sid}.${gIdx}.rows.${rIdx}.${col.key}`,
+                                );
+                            }
+                        });
+                    }
+                    // Optional nestedSections — each section's data is stored
+                    // under `group[<nested.id>]`. We validate per nested section
+                    // by emitting paths under `responses.${sid}.${gIdx}.${nested.id}`.
+                    if (section.nestedSections) {
+                        for (const nested of section.nestedSections) {
+                            const nestedVals =
+                                (group[nested.id] as Record<string, unknown> | undefined) || {};
+                            if (nested.type === 'header' || nested.type === 'fields') {
+                                for (const f of nested.fields) {
+                                    if (f.readonly) continue;
+                                    runField(
+                                        f,
+                                        nestedVals[f.key],
+                                        `responses.${sid}.${gIdx}.${nested.id}.${f.key}`,
+                                    );
+                                }
+                            } else if (nested.type === 'checklist') {
+                                for (const item of nested.items) {
+                                    const itemVals =
+                                        (nestedVals[item.id] as Record<string, unknown> | undefined) || {};
+                                    runField(
+                                        {
+                                            ...item.result,
+                                            key: 'result',
+                                            label: item.result.label || item.particular,
+                                        } as Field,
+                                        itemVals.result,
+                                        `responses.${sid}.${gIdx}.${nested.id}.${item.id}.result`,
+                                    );
+                                    if (item.remarks) {
+                                        runField(
+                                            {
+                                                ...item.remarks,
+                                                key: 'remarks',
+                                                label: item.remarks.label || 'Remarks',
+                                            } as Field,
+                                            itemVals.remarks,
+                                            `responses.${sid}.${gIdx}.${nested.id}.${item.id}.remarks`,
+                                        );
+                                    }
+                                }
+                            }
+                            // process / signatures / image_attachments etc. nested
+                            // sections have no per-group inputs to validate.
+                        }
+                    }
                 });
                 // Header-driven count guard: if countBoundTo points at a numeric
                 // header field, group count must match. Mismatch blocks Next/Submit

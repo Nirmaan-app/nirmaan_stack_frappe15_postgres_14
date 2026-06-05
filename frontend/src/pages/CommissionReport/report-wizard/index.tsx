@@ -1362,7 +1362,7 @@ const ReviewSummary: React.FC<{
                                                             );
                                                         })}
                                                     </dl>
-                                                    {rows.length > 0 && (
+                                                    {section.rowsTable && rows.length > 0 && (
                                                         <div className="overflow-x-auto">
                                                             <table className="w-full border-collapse text-sm">
                                                                 <thead>
@@ -1370,7 +1370,7 @@ const ReviewSummary: React.FC<{
                                                                         <th className="w-12 py-1.5 pr-2 text-left font-medium">
                                                                             #
                                                                         </th>
-                                                                        {section.rowsTable.columns.map(
+                                                                        {section.rowsTable!.columns.map(
                                                                             (c) => (
                                                                                 <th
                                                                                     key={c.key}
@@ -1391,7 +1391,7 @@ const ReviewSummary: React.FC<{
                                                                             <td className="py-2 pr-2 text-muted-foreground">
                                                                                 {rIdx + 1}
                                                                             </td>
-                                                                            {section.rowsTable.columns.map(
+                                                                            {section.rowsTable!.columns.map(
                                                                                 (c) => {
                                                                                     const display = formatReviewValue(
                                                                                         { ...c, bind: undefined } as Field,
@@ -1420,6 +1420,161 @@ const ReviewSummary: React.FC<{
                                                             </table>
                                                         </div>
                                                     )}
+                                                    {/* Per-group nested sections (e.g. Physical
+                                                        Test checklist + Timer note for DX/VRF). */}
+                                                    {section.nestedSections &&
+                                                        section.nestedSections.length > 0 && (
+                                                            <div className="space-y-3 pt-2">
+                                                                {section.nestedSections.map((nested) => {
+                                                                    const nestedVals =
+                                                                        (group?.[nested.id] as
+                                                                            | Record<string, unknown>
+                                                                            | undefined) || {};
+                                                                    if (nested.type === 'checklist') {
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="overflow-x-auto">
+                                                                                    <table className="w-full border-collapse text-sm">
+                                                                                        <thead>
+                                                                                            <tr className="border-b text-xs text-muted-foreground">
+                                                                                                <th className="w-12 py-1.5 pl-3 pr-2 text-left font-medium">
+                                                                                                    #
+                                                                                                </th>
+                                                                                                <th className="py-1.5 pr-2 text-left font-medium">
+                                                                                                    Particulars
+                                                                                                </th>
+                                                                                                <th className="w-24 py-1.5 pr-2 text-left font-medium">
+                                                                                                    Result
+                                                                                                </th>
+                                                                                                <th className="py-1.5 pr-3 text-left font-medium">
+                                                                                                    Remarks
+                                                                                                </th>
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody>
+                                                                                            {nested.items.map(
+                                                                                                (item, iIdx) => {
+                                                                                                    const iv =
+                                                                                                        (nestedVals[item.id] as
+                                                                                                            | {
+                                                                                                                  result?: string;
+                                                                                                                  remarks?: string;
+                                                                                                              }
+                                                                                                            | undefined) || {};
+                                                                                                    return (
+                                                                                                        <tr key={item.id} className="border-b last:border-0 align-top">
+                                                                                                            <td className="py-2 pl-3 pr-2 text-muted-foreground">
+                                                                                                                {iIdx + 1}
+                                                                                                            </td>
+                                                                                                            <td className="py-2 pr-2">
+                                                                                                                {item.particular}
+                                                                                                            </td>
+                                                                                                            <td className="py-2 pr-2">
+                                                                                                                <ResultBadge value={iv.result} />
+                                                                                                            </td>
+                                                                                                            <td className="py-2 pr-3 text-muted-foreground">
+                                                                                                                {iv.remarks?.trim() ? (
+                                                                                                                    iv.remarks
+                                                                                                                ) : (
+                                                                                                                    <span className="italic">—</span>
+                                                                                                                )}
+                                                                                                            </td>
+                                                                                                        </tr>
+                                                                                                    );
+                                                                                                },
+                                                                                            )}
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (nested.type === 'process') {
+                                                                        // Process sections have no input — show the
+                                                                        // declared note text so the operator can
+                                                                        // confirm what was tested.
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="space-y-2 p-3 text-sm">
+                                                                                    {nested.blocks.map(
+                                                                                        (block, bIdx) => (
+                                                                                            <div key={bIdx} className="space-y-1">
+                                                                                                {block.subtitle && (
+                                                                                                    <div className="text-xs font-medium">
+                                                                                                        {block.subtitle}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                                {block.items.map(
+                                                                                                    (line, lIdx) => (
+                                                                                                        <div key={lIdx} className="text-muted-foreground">
+                                                                                                            {line}
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ),
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (
+                                                                        nested.type === 'header' ||
+                                                                        nested.type === 'fields'
+                                                                    ) {
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <dl className="grid grid-cols-1 gap-x-6 gap-y-2 p-3 sm:grid-cols-2">
+                                                                                    {nested.fields.map(
+                                                                                        (f) => {
+                                                                                            const display = formatReviewValue(
+                                                                                                f,
+                                                                                                (nestedVals as Record<string, unknown>)[f.key],
+                                                                                            );
+                                                                                            const isEmpty =
+                                                                                                display === '—';
+                                                                                            return (
+                                                                                                <div key={f.key} className="flex flex-col gap-0.5">
+                                                                                                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                                                                        {f.label}
+                                                                                                    </dt>
+                                                                                                    <dd
+                                                                                                        className={
+                                                                                                            'text-sm ' +
+                                                                                                            (isEmpty
+                                                                                                                ? 'italic text-muted-foreground'
+                                                                                                                : 'text-foreground')
+                                                                                                        }
+                                                                                                    >
+                                                                                                        {display}
+                                                                                                    </dd>
+                                                                                                </div>
+                                                                                            );
+                                                                                        },
+                                                                                    )}
+                                                                                </dl>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    return null;
+                                                                })}
+                                                            </div>
+                                                        )}
                                                 </div>
                                             </div>
                                         );
