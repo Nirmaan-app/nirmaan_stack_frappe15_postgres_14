@@ -236,9 +236,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-05 (#147 option-4 feat 193327b1: hub reconnect self-heal + parse dialog dismissable mid-parse; BoqHubPage.tsx + ParseRunDialog.tsx)
+**Last updated:** 2026-06-06 (Slice B1.1b-fix-A: flatten_resolved_row now writes human_parent=-1 -- agreement #54 unify completed)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 3e846ba1 (feat(boq-review): Slice B1.1b-i -- descriptor-driven column layer + classification pill)
+**Latest commit:** feat pending (Slice B1.1b-fix-A)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -5453,3 +5453,21 @@ Level = preamble cross-check: `level` from the parser is retained as a stored fi
 **Note:** The canonical §6.5 fold (BoQ_Review_Screen_Locked_Design_v1_0.md -> BoQ_Wizard_Design_v1_13.md §6.5) is owed on the project-knowledge (chat-Claude) side. Those docs are not in the repo and cannot be edited here.
 
 **tsc:** 0 errors on boq-wizard files. Vite build exit 0. No backend changes, no bench tests.
+
+### Slice B1.1b-fix-A -- flatten_resolved_row writes human_parent=-1 (backend fix)
+
+**Status:** COMPLETE (feat pending; BACKEND ONLY; no frontend changes; tsc/build not required).
+
+**Root cause confirmed (live DB probe, 2026-06-06):** BOQ-26-00145 Electrical sheet -- `parent_index` correct (roots=-1, children=real indices), but `human_parent=0` on all 253 rows. `resolve_effective` treats `human_parent >= 0` as a real override → `effective_parent_index=0` for every row → flat tree.
+
+**The bug:** `flatten_resolved_row` applied the -1 sentinel only to `parent_index` (the structural field), but never set `human_parent`. Frappe coerces unset `Int` fields to `0` on insert. `0` is a valid row index, so `resolve_effective` misread it as "row 0 is this row's parent". The agreement #54 unify was half-applied: write boundary for `human_parent` was the missing half.
+
+**The fix:** Added `"human_parent": -1` to the dict returned by `flatten_resolved_row` in `parse_run.py`. At parse time there is never a human edit, so `-1` (no-override sentinel) is always correct. The explicit write prevents Frappe's Int coercion fallback.
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/parse_run.py` -- `flatten_resolved_row`: added `"human_parent": -1` with explanatory comment (agreement #54 rationale).
+- `nirmaan_stack/api/boq/wizard/test_parse_run.py` -- 3 new tests: `test_human_parent_is_minus1_sentinel_for_root_row`, `test_human_parent_is_minus1_sentinel_for_child_row` (in `TestFlattenFaithfulness`), `test_human_parent_sentinel_root_resolves_effective_parent_none` (in `TestBoQReviewRowRoundTrip`). 60 → 63 tests; all pass.
+
+**No data repair needed:** Nitesh will re-parse BOQ-26-00145 after this lands; the parse worker deletes and re-inserts all rows, so `human_parent=-1` is written fresh on every re-parse.
+
+**resolve_effective unchanged:** The fix is at the write boundary only. `resolve_effective` correctly treats `-1`/`None` as no-override; the human-layer logic is not touched.
