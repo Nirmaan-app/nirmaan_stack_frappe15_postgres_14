@@ -637,6 +637,52 @@ class TestFlattenFaithfulness(unittest.TestCase):
         d = flatten_resolved_row(rr, "S", 0)
         self.assertFalse(d["is_synthetic"])
 
+    def test_human_parent_is_minus1_sentinel_for_root_row(self):
+        """
+        flatten_resolved_row must write human_parent=-1 for a root row (parent_index=None).
+
+        Regression for agreement #54 (the missing half): Frappe coerces unset Int fields
+        to 0 on insert, and 0 is a valid row index. resolve_effective treats
+        human_parent >= 0 as a real override, so human_parent=0 falsely reports every
+        row as parented to row 0, collapsing the review tree.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+
+        raw = RawRow(row_number=1, cells={})
+        cr = ClassifiedRow(raw_row=raw, classification=RowClassification.PREAMBLE)
+        rr = ResolvedRow(classified_row=cr, parent_index=None, level=0, path="")
+
+        d = flatten_resolved_row(rr, "Sheet1", 0)
+        self.assertEqual(
+            d["human_parent"], -1,
+            "flatten_resolved_row must write human_parent=-1 for a root row (agreement #54)",
+        )
+
+    def test_human_parent_is_minus1_sentinel_for_child_row(self):
+        """
+        flatten_resolved_row must write human_parent=-1 regardless of structural parent.
+
+        A freshly-parsed child row (parent_index=3) has no human override; human_parent
+        must be the -1 sentinel, not 0. Confirms the fix applies to all rows, not just roots.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+
+        raw = RawRow(row_number=5, cells={})
+        cr = ClassifiedRow(raw_row=raw, classification=RowClassification.LINE_ITEM)
+        rr = ResolvedRow(classified_row=cr, parent_index=3, level=2, path="2/3")
+
+        d = flatten_resolved_row(rr, "Sheet1", 4)
+        self.assertEqual(
+            d["human_parent"], -1,
+            "flatten_resolved_row must write human_parent=-1 for child rows (no human override at parse time)",
+        )
+        # structural parent_index must still be correctly 3
+        self.assertEqual(d["parent_index"], 3)
+
     def test_json_fields_are_python_objects_not_strings(self):
         """
         JSON fields in the flattened dict must be Python objects (list/dict),
@@ -778,6 +824,40 @@ class TestBoQReviewRowRoundTrip(FrappeTestCase):
         doc = frappe.get_doc("BoQ Review Row", names[0])
         self.assertEqual(doc.needs_classification_review, 1)
         self.assertEqual(doc.review_reason, "priced_preamble_with_children")
+
+    def test_human_parent_sentinel_root_resolves_effective_parent_none(self):
+        """
+        Regression for agreement #54 (DB round-trip): after insert, a root row's
+        human_parent must be stored as -1 (not 0). resolve_effective must translate
+        -1 -> None for both parent_index and human_parent, giving
+        effective_parent_index = None (root), not 0 (false override).
+
+        This was the live-cert failure on BOQ-26-00145: human_parent defaulted to 0
+        (Frappe Int coercion on unset field), resolve_effective treated 0 as
+        'parent is row 0', flattening the entire review tree.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+        from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
+
+        raw = RawRow(row_number=2, cells={})
+        cr = ClassifiedRow(raw_row=raw, classification=RowClassification.PREAMBLE)
+        rr = ResolvedRow(classified_row=cr, parent_index=None, level=0, path="")
+        d = flatten_resolved_row(rr, "TestSheet", 0)
+        d["boq"] = self.boq_name
+        names = self._insert_rows([d])
+
+        doc = frappe.get_doc("BoQ Review Row", names[0])
+        self.assertEqual(
+            doc.human_parent, -1,
+            "human_parent stored as 0 after insert (Frappe Int coercion); should be -1",
+        )
+        eff = resolve_effective(doc)
+        self.assertIsNone(
+            eff["effective_parent_index"],
+            f"Root row effective_parent_index should be None, got {eff['effective_parent_index']!r}",
+        )
 
 
 # ---------------------------------------------------------------------------

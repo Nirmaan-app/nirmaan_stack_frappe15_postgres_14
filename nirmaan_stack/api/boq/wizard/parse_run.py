@@ -193,6 +193,12 @@ def flatten_resolved_row(
         # index, so None must be stored as -1 to stay unambiguous.
         # resolve_effective (review_screen.py) translates -1 back to None on read.
         "parent_index": resolved_row.parent_index if resolved_row.parent_index is not None else -1,
+        # -1 = "no human override" sentinel (agreement #54). A freshly-parsed row has no
+        # human edit, so human_parent must be written explicitly as -1. Without this,
+        # Frappe coerces the unset Int field to 0 on insert. 0 is a valid row index and
+        # resolve_effective treats human_parent >= 0 as a real override, falsely parenting
+        # every row to row 0 and collapsing the entire tree.
+        "human_parent": -1,
         "level": resolved_row.level,
         "path": resolved_row.path or "",
         "attached_to_index": resolved_row.attached_to_index,
