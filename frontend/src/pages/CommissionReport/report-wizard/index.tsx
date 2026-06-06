@@ -10,6 +10,7 @@
 //   6. Optimistic-concurrency conflict UI
 
 import { useFrappeAuth, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useUserData } from '@/hooks/useUserData';
 import { ArrowLeft, ArrowRight, Loader2, Printer, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
@@ -94,6 +95,8 @@ export const CommissionReportWizard: React.FC = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { currentUser } = useFrappeAuth();
+    const { role } = useUserData();
+    const isProjectManager = role === 'Nirmaan Project Manager Profile';
     const { mutate } = useSWRConfig();
 
     // ─── Data ─────────────────────────────────────────────────────────────
@@ -221,6 +224,16 @@ export const CommissionReportWizard: React.FC = () => {
             setCurrentStep(visibleStepDefs.length - 1);
         }
     }, [visibleStepDefs.length, currentStep]);
+
+    // In view mode, open straight on the single-page Review summary (the auto step
+    // with no sections), instead of making the user page through every step.
+    const viewJumpedRef = useRef(false);
+    useEffect(() => {
+        if (mode !== 'view' || viewJumpedRef.current || visibleStepDefs.length === 0) return;
+        const reviewIdx = visibleStepDefs.findIndex((s) => s.sections.length === 0);
+        setCurrentStep(reviewIdx >= 0 ? reviewIdx : visibleStepDefs.length - 1);
+        viewJumpedRef.current = true;
+    }, [mode, visibleStepDefs]);
 
     // Initialize form values once template + prefill + (optional) existing response are ready.
     // The response_data is the single source of truth for attachments — each slot value
@@ -574,6 +587,8 @@ export const CommissionReportWizard: React.FC = () => {
     const step = visibleStepDefs[currentStep];
     const isReviewStep = step && step.sections.length === 0;
     const isFinalStep = step && currentStep === visibleStepDefs.length - 1;
+    // Project Managers get a locked single-page Review preview (no back/step nav).
+    const lockNav = isProjectManager && mode === 'view';
     const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
 
     return (
@@ -591,7 +606,7 @@ export const CommissionReportWizard: React.FC = () => {
                             Back to tracker
                         </Button>
                         <div className="flex items-center gap-2">
-                            {isFilled && (
+                            {isFilled && !isProjectManager && (
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -641,6 +656,8 @@ export const CommissionReportWizard: React.FC = () => {
                         steps={wizardSteps}
                         currentStep={currentStep}
                         onStepClick={(idx) => {
+                            // Project Managers preview is locked to the single Review page.
+                            if (lockNav) return;
                             // Allow back-nav freely; forward only if validating each gate would pass — keep simple here.
                             if (idx <= currentStep) setCurrentStep(idx);
                         }}
@@ -689,6 +706,7 @@ export const CommissionReportWizard: React.FC = () => {
                     )}
                 </main>
 
+                {!lockNav && (
                 <footer className="flex items-center justify-between gap-3 border-t pt-3">
                     <Button variant="outline" onClick={handleBack} disabled={currentStep === 0}>
                         <ArrowLeft className="mr-1 h-4 w-4" />
@@ -712,6 +730,7 @@ export const CommissionReportWizard: React.FC = () => {
                         )
                     )}
                 </footer>
+                )}
 
                 {isConflict && (
                     <ConflictBanner

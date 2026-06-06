@@ -23,7 +23,8 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
     const statusCounts = useMemo(() => {
         let notApplicable = 0;
         let pending = 0;
-        let inProgress = 0;
+        let pendingApproval = 0;
+        let approved = 0;
         let completed = 0;
 
         tasks.forEach((task: any) => {
@@ -32,8 +33,10 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                 notApplicable++;
             } else if (status === 'Pending') {
                 pending++;
-            } else if (status === 'In Progress') {
-                inProgress++;
+            } else if (status === 'Pending Approval') {
+                pendingApproval++;
+            } else if (status === 'Approved') {
+                approved++;
             } else if (status === 'Completed') {
                 completed++;
             } else {
@@ -42,7 +45,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
             }
         });
 
-        return { notApplicable, pending, inProgress, completed };
+        return { notApplicable, pending, pendingApproval, approved, completed };
     }, [tasks]);
 
     const activeTasks = tasks.length - statusCounts.notApplicable;
@@ -143,10 +146,15 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                     <span className="text-amber-700">Pending</span>
                                     <span className="font-semibold text-amber-900">{statusCounts.pending}</span>
                                 </div>
-                                {/* In Progress */}
-                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-blue-50/80 rounded-md border border-blue-100">
-                                    <span className="text-blue-700">In Progress</span>
-                                    <span className="font-semibold text-blue-900">{statusCounts.inProgress}</span>
+                                {/* Pending Approval */}
+                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-indigo-50/80 rounded-md border border-indigo-100">
+                                    <span className="text-indigo-700">Pending Approval</span>
+                                    <span className="font-semibold text-indigo-900">{statusCounts.pendingApproval}</span>
+                                </div>
+                                {/* Approved */}
+                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-teal-50/80 rounded-md border border-teal-100">
+                                    <span className="text-teal-700">Approved</span>
+                                    <span className="font-semibold text-teal-900">{statusCounts.approved}</span>
                                 </div>
                                 {/* Completed */}
                                 <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-green-50/80 rounded-md border border-green-100">

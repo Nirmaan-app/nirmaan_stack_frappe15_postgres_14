@@ -3,10 +3,11 @@ import { Badge } from "@/components/ui/badge";
 
 
 // Status color mapping for Commission Report
-// - Completed -> Green
-// - In Progress -> Blue
-// - Pending -> Amber
-// - Not Applicable -> Gray
+// - Completed        -> Green
+// - Approved         -> Teal
+// - Pending Approval -> Indigo
+// - Pending          -> Amber
+// - Not Applicable   -> Gray
 export const getUnifiedStatusStyle = (status: string) => {
     if (!status) return 'bg-gray-50 text-gray-700 border border-gray-200';
 
@@ -14,8 +15,12 @@ export const getUnifiedStatusStyle = (status: string) => {
         return 'bg-green-50 text-green-700 border border-green-200';
     }
 
-    if (status === 'In Progress') {
-        return 'bg-blue-50 text-blue-700 border border-blue-200';
+    if (status === 'Approved') {
+        return 'bg-teal-50 text-teal-700 border border-teal-200';
+    }
+
+    if (status === 'Pending Approval') {
+        return 'bg-indigo-50 text-indigo-700 border border-indigo-200';
     }
 
     if (status === 'Pending') {
@@ -28,6 +33,9 @@ export const getUnifiedStatusStyle = (status: string) => {
 
     return 'bg-gray-50 text-gray-700 border border-gray-200';
 };
+
+// Frappe-friendly current date (yyyy-mm-dd) for stamping last_submitted etc.
+export const todayDate = (): string => new Date().toISOString().slice(0, 10);
 
 // --- DATE HELPER ---
 // Standard date format for the project: dd-MMM-yyyy (e.g., "15-Jan-2026")

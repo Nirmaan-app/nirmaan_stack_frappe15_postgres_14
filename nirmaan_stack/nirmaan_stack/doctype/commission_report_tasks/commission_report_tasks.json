@@ -7,6 +7,7 @@
     "field_order": [
         "task_name",
         "category_link",
+        "report_type",
         "deadline_offset",
         "is_active",
         "source_format"
@@ -16,6 +17,13 @@
             "fieldname": "task_name",
             "fieldtype": "Data",
             "label": "Task name"
+        },
+        {
+            "default": "Field",
+            "fieldname": "report_type",
+            "fieldtype": "Select",
+            "label": "Report Type",
+            "options": "Field\nVendor"
         },
         {
             "fieldname": "category_link",

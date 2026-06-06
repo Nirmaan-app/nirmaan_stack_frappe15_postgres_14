@@ -18,12 +18,14 @@ import { ProjectStatusFilter } from "@/components/common/ProjectStatusFilter";
 
 import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import { TaskWiseTable } from "./components/TaskWiseTable";
+import { GlobalApprovalsTable } from "./components/GlobalApprovalsTable";
 import { useCommissionTrackerList } from "./data/useCommissionQueries";
 import { useToggleCommissionReportVisibility } from "./data/useCommissionMutations";
 
 const COMMISSION_TABS = {
     PROJECT_WISE: "project",
     TASK_WISE: "task",
+    PENDING_APPROVAL: "approval",
 };
 
 export default function CommissionReportList() {
@@ -43,6 +45,7 @@ export default function CommissionReportList() {
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
     const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const isApprover = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     const hasHideAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Project Manager Profile" || user_id === "Administrator" || role === "Administrator";
 
     // Non-admins are locked to the default WIP + Handover view
@@ -156,10 +159,22 @@ export default function CommissionReportList() {
                             activeTab === COMMISSION_TABS.TASK_WISE
                                 ? "bg-primary text-white"
                                 : "bg-white text-gray-700 hover:bg-gray-50"
-                        }`}
+                        } ${isApprover ? "border-r border-gray-300" : ""}`}
                     >
                         Task Wise
                     </button>
+                    {isApprover && (
+                        <button
+                            onClick={() => onClick(COMMISSION_TABS.PENDING_APPROVAL)}
+                            className={`px-4 py-2 text-sm font-medium transition-colors ${
+                                activeTab === COMMISSION_TABS.PENDING_APPROVAL
+                                    ? "bg-primary text-white"
+                                    : "bg-white text-gray-700 hover:bg-gray-50"
+                            }`}
+                        >
+                            Pending Approval
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -269,7 +284,8 @@ export default function CommissionReportList() {
                         {([
                             { value: "All", label: "All Tasks", active: "bg-gray-800 text-white", inactive: "text-gray-700 border-gray-300 hover:bg-gray-100" },
                             { value: "Pending", label: "Pending", active: "bg-orange-500 text-white", inactive: "text-orange-700 border-orange-300 hover:bg-orange-50" },
-                            { value: "In Progress", label: "In Progress", active: "bg-blue-600 text-white", inactive: "text-blue-700 border-blue-300 hover:bg-blue-50" },
+                            { value: "Pending Approval", label: "Pending Approval", active: "bg-indigo-600 text-white", inactive: "text-indigo-700 border-indigo-300 hover:bg-indigo-50" },
+                            { value: "Approved", label: "Approved", active: "bg-teal-600 text-white", inactive: "text-teal-700 border-teal-300 hover:bg-teal-50" },
                             { value: "Completed", label: "Completed", active: "bg-green-600 text-white", inactive: "text-green-700 border-green-300 hover:bg-green-50" },
                         ] as const).map((tab) => (
                             <button
@@ -293,6 +309,12 @@ export default function CommissionReportList() {
                         statusFilter={activeStatusTab}
                     />
                     </div>
+                    )}
+
+                    {isApprover && activeTab === COMMISSION_TABS.PENDING_APPROVAL && (
+                        <div className="px-2 mt-4">
+                            <GlobalApprovalsTable />
+                        </div>
                     )}
                 </>
             )}
