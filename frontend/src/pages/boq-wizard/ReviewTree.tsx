@@ -11,7 +11,19 @@
  *   FIX 3: isVisible ancestor-only -- collapsed row stays visible; only descendants hide.
  *   FIX 4: Description cell -- pill on its own line (top), description text below.
  *
+ * B2b: five additions --
+ *   BUILD 1: Left-gutter expander column (frozen-left, w-8) + inline read-only detail
+ *            panel (a new <tr> beneath the data row). Option-B: detail panel and flag
+ *            accordion are mutually exclusive (opening one closes the other).
+ *   BUILD 2: totalCols 5->6 (new leftmost column).
+ *   BUILD 3: Sticky-header fix -- moved from <tr> to individual <th> cells (solid bg,
+ *            no bleed-through). Corner cell (expander) gets top+left sticky at z-30.
+ *   BUILD 4: ClassificationPill restyle -- soft per-type opaque fill (rounded-full),
+ *            left-border accent dropped. CLS_PILL_CLASSES map replaces inline style.
+ *   BUILD 5: aria-label "advisory notes" -> "flags".
+ *
  * Fixed anchor columns (always shown):
+ *   Expander      -- caret to open/close inline detail panel (B2b). Frozen-left.
  *   Excel Row      -- source_row_number. Positional; no mapped letter.
  *   Sl.No (X)      -- sl_no_value. X = col letter from the sl_no descriptor, if mapped.
  *   Parent         -- parent row's source_row_number (Excel row). Derived; no mapped letter.
@@ -32,12 +44,9 @@
  *
  * Absent-vs-zero: undefined/null -> blank cell; 0 -> "0".
  *
- * Classification pill: locked 5-colour left-bordered pill (locked design §2 hex map).
- *   header_repeat not in locked map; uses neutral #94A3B8.
- *
  * B1.1b-ii: view-filter controls bar above the table --
  *   FEAT A: Column-subset selector -- Popover + Checkbox per displayDescriptor col.
- *     Fixed anchors (Excel Row, Sl.No, Parent, Classification, Description) always render.
+ *     Fixed anchors (Expander, Excel Row, Sl.No, Parent, Classification, Description) always render.
  *     visibleCols: Set<string> of col letters initialized to all descriptor cols;
  *     synced via useEffect when displayDescriptors changes (new sheet/descriptors).
  *   FEAT B: Three independent annotation-row visibility toggles -- spacer, note,
@@ -123,18 +132,10 @@ function computeDepths(rows: ReviewRow[]): Map<number, number> {
   return depths;
 }
 
-// ── Classification pill (replaces B1 badge) ───────────────────────────────────
-// Locked design §2 colour map. header_repeat is not in the locked map;
-// uses neutral #94A3B8 (slate-400 equivalent) so it stays visually subordinate.
-
-const CLS_COLORS: Record<string, string> = {
-  preamble:        "#888780",
-  line_item:       "#378ADD",
-  note:            "#EF9F27",
-  subtotal_marker: "#1D9E75",
-  spacer:          "#D3D1C7",
-  header_repeat:   "#94A3B8", // neutral; not in locked map
-};
+// ── Classification pill (B2b restyle) ────────────────────────────────────────
+// Soft per-type opaque fill -- rounded-full lozenge; left-border accent dropped.
+// Each entry: paired bg (light/dark) + text (light/dark) Tailwind classes.
+// Fully opaque (no /opacity suffix) so sticky-header and row backgrounds don't bleed.
 
 const CLS_LABELS: Record<string, string> = {
   preamble:        "Preamble",
@@ -145,15 +146,21 @@ const CLS_LABELS: Record<string, string> = {
   header_repeat:   "Header",
 };
 
+const CLS_PILL_CLASSES: Record<string, { bg: string; text: string }> = {
+  preamble:        { bg: "bg-gray-200 dark:bg-gray-700",       text: "text-gray-700 dark:text-gray-200" },
+  line_item:       { bg: "bg-blue-100 dark:bg-blue-900",       text: "text-blue-800 dark:text-blue-200" },
+  note:            { bg: "bg-amber-100 dark:bg-amber-900",     text: "text-amber-800 dark:text-amber-200" },
+  subtotal_marker: { bg: "bg-emerald-100 dark:bg-emerald-900", text: "text-emerald-800 dark:text-emerald-200" },
+  spacer:          { bg: "bg-gray-100 dark:bg-gray-800",       text: "text-gray-500 dark:text-gray-400" },
+  header_repeat:   { bg: "bg-slate-100 dark:bg-slate-800",     text: "text-slate-700 dark:text-slate-300" },
+};
+
 function ClassificationPill({ cls }: { cls: string | null }) {
   if (!cls) return null;
-  const color = CLS_COLORS[cls] ?? "#94A3B8";
   const label = CLS_LABELS[cls] ?? cls;
+  const { bg, text } = CLS_PILL_CLASSES[cls] ?? { bg: "bg-slate-100 dark:bg-slate-800", text: "text-slate-700 dark:text-slate-300" };
   return (
-    <span
-      style={{ borderLeft: `3px solid ${color}` }}
-      className="rounded-sm py-0.5 px-1.5 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-muted/60 text-foreground"
-    >
+    <span className={cn("rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap", bg, text)}>
       {label}
     </span>
   );
@@ -233,6 +240,8 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
   // B2a-fix OBS-1: master show-all toggle. When true, all flagged rows reveal reasons,
   // overriding the single-open model. Toggling off clears expandedFlagRow to null.
   const [showAllFlags, setShowAllFlags] = useState(false);
+  // B2b BUILD 1: per-row inline detail panel state (single-open, Option-B with flag accordion).
+  const [expandedDetailRow, setExpandedDetailRow] = useState<number | null>(null);
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
@@ -290,8 +299,16 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
 
   // B2a-fix OBS-1: toggle single-open accordion for advisory flag reasons.
   // If the clicked row is already open, close it (set null); otherwise open it.
+  // B2b Option-B: also clears the detail panel (mutually exclusive with detail).
   const toggleFlagRow = (rowIdx: number) => {
     setExpandedFlagRow(prev => prev === rowIdx ? null : rowIdx);
+    setExpandedDetailRow(null);
+  };
+
+  // B2b BUILD 1: toggle inline detail panel. Option-B: closes any open flag-reason row.
+  const toggleDetailRow = (idx: number) => {
+    setExpandedDetailRow(prev => prev === idx ? null : idx);
+    setExpandedFlagRow(null);
   };
 
   // B2a-fix OBS-1: master show-all / hide-all toggle.
@@ -445,7 +462,7 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
             </PopoverContent>
           </Popover>
         )}
-        {/* B2a-fix OBS-1: master show-all / hide-all advisory notes toggle */}
+        {/* B2a-fix OBS-1: master show-all / hide-all flags toggle */}
         {hasFlagsAny && (
           <button
             type="button"
@@ -505,45 +522,50 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
         {/* B2a-fix OBS-1: clicking anywhere in the table body dismisses the single-open
             accordion (sets expandedFlagRow null). The Info button's stopPropagation
             prevents the opening click from immediately triggering this handler.
+            B2b: also clears expandedDetailRow (Option-B mutual exclusivity).
             Scoped to the <table> so the controls bar above is not affected. */}
         <table
           className="w-full text-xs border-collapse"
-          onClick={() => setExpandedFlagRow(null)}
+          onClick={() => { setExpandedFlagRow(null); setExpandedDetailRow(null); }}
         >
           <thead>
-            <tr className="bg-muted/50 sticky top-0 z-10 border-b border-border">
+            {/* B2b BUILD 3: sticky moved from <tr> to individual <th> cells (solid bg, no bleed-through).
+                Corner cell (expander) gets both-axis sticky at z-30. Other <th> get top-only at z-20. */}
+            <tr className="border-b border-border">
+              {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header. */}
+              <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
               {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap">
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Excel Row
               </th>
               {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
               </th>
               {/* Parent (FIX 1): parent row's Excel row number -- derived, no mapped letter */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Parent
               </th>
               {/* Classification (B1.1b-iii): fixed anchor -- chevron + pill; no mapped letter */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap">
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Classification
               </th>
               {/* Description: letter from the description descriptor col, if mapped */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap">
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
                 {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
               </th>
               {/* Descriptor-driven columns: only rendered when col is in visibleCols */}
               {displayDescriptors.map(d => {
                 if (!visibleCols.has(d.col)) return null;
                 const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                const areaCls = d.area ? (areaColorMap[d.area] ?? "") : "";
                 return (
                   <th
                     key={d.col}
                     className={cn(
                       "px-2 py-2 text-right font-medium text-muted-foreground",
                       "w-28 min-w-[112px] border-l border-border whitespace-nowrap",
-                      areaCls,
+                      "sticky top-0 z-20",
+                      d.area ? (areaColorMap[d.area] ?? "bg-muted") : "bg-muted",
                     )}
                   >
                     {label}
@@ -574,12 +596,28 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
               const hasFlags = rowFlags.length > 0;
               // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
               const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
-              // colSpan for the flag-reasons reveal row: 5 fixed anchors + visible descriptor cols
+              // B2b BUILD 2: colSpan for flag-reasons + detail panel rows: 6 fixed anchors (incl. expander)
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 5 + visibleDescriptorCount;
+              const totalCols = 6 + visibleDescriptorCount;
+
+              // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
+              const origParentLabel = (() => {
+                const pi = row.parent_index;
+                if (pi === null || pi < 0) return "root";
+                const n = byIdx.get(pi)?.source_row_number;
+                return n !== undefined ? `row ${n}` : `#${pi}`;
+              })();
+              const effParentLabel = (() => {
+                const ep = row.effective_parent_index;
+                if (ep === null || ep < 0) return "root";
+                const n = byIdx.get(ep)?.source_row_number;
+                return n !== undefined ? `row ${n}` : `#${ep}`;
+              })();
+              const parentOverridden = row.human_parent !== null && row.human_parent >= 0;
+              const clsOverridden = row.human_classification !== null;
 
               return (
-                // Fragment lets us emit an optional second <tr> (flag-reasons) alongside the data row.
+                // Fragment lets us emit optional sibling <tr>s (flag-reasons, detail panel).
                 <Fragment key={row.row_index}>
                   <tr
                     ref={(el) => {
@@ -593,6 +631,21 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
                     )}
                   >
+                    {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
+                        stopPropagation is mandatory (prevents table-dismiss from firing on the same click). */}
+                    <td className="px-1 py-1.5 align-top w-8 border-r border-border sticky left-0 z-10 bg-background">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleDetailRow(row.row_index); }}
+                        aria-label={expandedDetailRow === row.row_index ? "Hide row detail" : "Show row detail"}
+                        className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {expandedDetailRow === row.row_index
+                          ? <ChevronDown className="h-3 w-3" />
+                          : <ChevronRight className="h-3 w-3" />}
+                      </button>
+                    </td>
+
                     {/* Excel Row */}
                     <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
                       {row.source_row_number}
@@ -641,7 +694,8 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                         <ClassificationPill cls={row.effective_classification} />
                         {/* B2a: advisory flag marker -- one unified indicator per flagged row.
                             stopPropagation prevents the table's dismiss-onClick from firing
-                            on the same click that opens/closes this row's reason reveal. */}
+                            on the same click that opens/closes this row's reason reveal.
+                            B2b BUILD 5: aria-label "advisory notes" -> "flags". */}
                         {hasFlags && (
                           <button
                             type="button"
@@ -653,8 +707,8 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                                 ? "text-amber-600 dark:text-amber-400"
                                 : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
                             )}
-                            aria-label={flagsExpanded ? "Hide advisory notes" : "Show advisory notes"}
-                            title={flagsExpanded ? "Hide advisory notes" : "Show advisory notes"}
+                            aria-label={flagsExpanded ? "Hide flags" : "Show flags"}
+                            title={flagsExpanded ? "Hide flags" : "Show flags"}
                           >
                             <Info className="h-3 w-3" />
                           </button>
@@ -711,6 +765,118 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                             </li>
                           ))}
                         </ul>
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* B2b BUILD 1: inline read-only detail panel -- single-open (Option-B with flag accordion).
+                      Interior clicks stopped from bubbling so reading inside the panel does NOT dismiss it. */}
+                  {expandedDetailRow === row.row_index && (
+                    <tr className="bg-muted/30">
+                      <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
+                        <div onClick={(e) => e.stopPropagation()}>
+                          {/* Header: Excel row number + provenance badge */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-medium text-foreground">
+                              Row detail — Excel row {row.source_row_number}
+                            </span>
+                            {(row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0))
+                              ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-medium">edited</span>
+                              : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">original</span>
+                            }
+                          </div>
+                          {/* Original-vs-effective: classification + parent + value fields (read-only) */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs mb-2">
+                            <div>
+                              <span className="text-muted-foreground">Classification: </span>
+                              {clsOverridden ? (
+                                <>
+                                  <span className="line-through text-muted-foreground">{row.classification ?? "—"}</span>
+                                  {" → "}
+                                  <span className="text-foreground font-medium">{row.effective_classification ?? "—"}</span>
+                                </>
+                              ) : (
+                                <span className="text-foreground">{row.classification ?? "—"}</span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Parent: </span>
+                              {parentOverridden ? (
+                                <>
+                                  <span className="line-through text-muted-foreground">{origParentLabel}</span>
+                                  {" → "}
+                                  <span className="text-foreground font-medium">{effParentLabel}</span>
+                                </>
+                              ) : (
+                                <span className="text-foreground">{origParentLabel}</span>
+                              )}
+                            </div>
+                            {row.qty_total !== null && (
+                              <div>
+                                <span className="text-muted-foreground">Qty: </span>
+                                <span className="text-foreground tabular-nums">{fmtNum(row.qty_total)}</span>
+                              </div>
+                            )}
+                            {row.rate_supply !== null && (
+                              <div>
+                                <span className="text-muted-foreground">Rate (supply): </span>
+                                <span className="text-foreground tabular-nums">{fmtNum(row.rate_supply)}</span>
+                              </div>
+                            )}
+                            {row.rate_install !== null && (
+                              <div>
+                                <span className="text-muted-foreground">Rate (install): </span>
+                                <span className="text-foreground tabular-nums">{fmtNum(row.rate_install)}</span>
+                              </div>
+                            )}
+                            {row.rate_combined !== null && (
+                              <div>
+                                <span className="text-muted-foreground">Rate (combined): </span>
+                                <span className="text-foreground tabular-nums">{fmtNum(row.rate_combined)}</span>
+                              </div>
+                            )}
+                            {row.amount_total !== null && (
+                              <div>
+                                <span className="text-muted-foreground">Amount: </span>
+                                <span className="text-foreground tabular-nums">{fmtNum(row.amount_total)}</span>
+                              </div>
+                            )}
+                          </div>
+                          {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
+                          {rowFlags.length > 0 && (
+                            <div className="mb-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Flags</p>
+                              <ul className="mt-0.5 space-y-0.5">
+                                {rowFlags.map((f, i) => (
+                                  <li key={i} className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{f.reason}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {/* Edit history from edit_log */}
+                          <div className="mb-1">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Edit history</p>
+                            {Array.isArray(row.edit_log) && row.edit_log.length > 0 ? (
+                              <ul className="mt-0.5 space-y-0.5">
+                                {row.edit_log.map((entry, i) => (
+                                  <li key={i} className="text-xs text-foreground">
+                                    <span className="font-medium">{entry.field}</span>
+                                    {": "}
+                                    {String(entry.from ?? "—")}
+                                    {" → "}
+                                    {String(entry.to ?? "—")}
+                                    {" — "}
+                                    <span className="text-muted-foreground">{entry.by} · {entry.at}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-0.5 text-xs text-muted-foreground italic">No edits yet.</p>
+                            )}
+                          </div>
+                          {/* Reason slot -- laid out but empty; pending Slice C's 6th edit_log key */}
+                          <p className="text-[11px] text-muted-foreground italic">Reason — (added in a later step)</p>
+                        </div>
                       </td>
                     </tr>
                   )}
