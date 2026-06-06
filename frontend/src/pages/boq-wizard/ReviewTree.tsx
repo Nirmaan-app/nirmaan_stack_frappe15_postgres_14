@@ -33,13 +33,25 @@
  * Classification pill: locked 5-colour left-bordered pill (locked design §2 hex map).
  *   header_repeat not in locked map; uses neutral #94A3B8.
  *
- * B1.1b-ii (next slice): column-subset selector + spacer-hide toggle.
+ * B1.1b-ii: view-filter controls bar above the table --
+ *   FEAT A: Column-subset selector -- Popover + Checkbox per displayDescriptor col.
+ *     Fixed anchors (Excel Row, Sl.No, Parent, Description) always render.
+ *     visibleCols: Set<string> of col letters initialized to all descriptor cols;
+ *     synced via useEffect when displayDescriptors changes (new sheet/descriptors).
+ *   FEAT B: Three independent annotation-row visibility toggles -- spacer, note,
+ *     subtotal_marker -- each boolean, default true (all shown).
+ *     classificationVisible(row) composes with isVisible(row): a row renders only
+ *     when BOTH pass. Children of hidden annotation rows render at original depth
+ *     because computeDepths pre-runs over all rows and classificationVisible never
+ *     touches the collapsed Set. View-filter only -- no data edit.
  */
 import { useMemo, useRef, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ── Depth computation (verbatim from B1) ──────────────────────────────────────
 //
@@ -232,6 +244,25 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
     };
   }, [columnDescriptors]);
 
+  // B1.1b-ii FEAT A: visible descriptor columns.
+  // Lazy-initialized to all descriptor cols on mount; re-synced via useEffect when
+  // displayDescriptors changes (e.g., navigating to a different sheet).
+  const [visibleCols, setVisibleCols] = useState<Set<string>>(
+    () => new Set(columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role)).map(d => d.col))
+  );
+  // B1.1b-ii FEAT B: annotation-row visibility toggles (independent).
+  const [showSpacers, setShowSpacers] = useState(true);
+  const [showNotes, setShowNotes] = useState(true);
+  const [showSubtotals, setShowSubtotals] = useState(true);
+
+  const toggleCol = (col: string) => {
+    setVisibleCols(prev => {
+      const next = new Set(prev);
+      if (next.has(col)) next.delete(col); else next.add(col);
+      return next;
+    });
+  };
+
   const toggleCollapse = (rowIdx: number) => {
     setCollapsed(prev => {
       const next = new Set(prev);
@@ -246,6 +277,12 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
     const timer = setTimeout(() => setHighlightedIdx(null), 1500);
     return () => clearTimeout(timer);
   }, [highlightedIdx]);
+
+  // B1.1b-ii: sync visibleCols to all descriptor cols when descriptors change.
+  // Fires on mount (harmless redundancy with lazy init) and on prop changes.
+  useEffect(() => {
+    setVisibleCols(new Set(displayDescriptors.map(d => d.col)));
+  }, [displayDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -294,164 +331,273 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
     return true;
   };
 
+  // B1.1b-ii FEAT B: classification-visibility gate.
+  // Composes WITH isVisible (collapse): render only when BOTH pass.
+  // Never adds rows to `collapsed` -- children of a hidden annotation row render
+  // independently at their original computeDepths depth.
+  const classificationVisible = (row: ReviewRow): boolean => {
+    const cls = row.effective_classification;
+    if (cls === "spacer" && !showSpacers) return false;
+    if (cls === "note" && !showNotes) return false;
+    if (cls === "subtotal_marker" && !showSubtotals) return false;
+    return true;
+  };
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4">No rows found for this sheet.</p>
     );
   }
 
+  const hiddenColCount = displayDescriptors.filter(d => !visibleCols.has(d.col)).length;
+
   return (
-    <div className="overflow-auto max-h-[calc(100vh-14rem)] rounded-md border border-border">
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="bg-muted/50 sticky top-0 z-10 border-b border-border">
-            {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap">
-              Excel Row
-            </th>
-            {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
-              {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
-            </th>
-            {/* Parent (FIX 1): parent row's Excel row number -- derived, no mapped letter */}
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
-              Parent
-            </th>
-            {/* Description: letter from the description descriptor col, if mapped */}
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap">
-              {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
-            </th>
-            {/* Descriptor-driven columns (no subset filter in this slice) */}
-            {displayDescriptors.map(d => {
-              const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-              const areaCls = d.area ? (areaColorMap[d.area] ?? "") : "";
-              return (
-                <th
-                  key={d.col}
-                  className={cn(
-                    "px-2 py-2 text-right font-medium text-muted-foreground",
-                    "w-28 min-w-[112px] border-l border-border whitespace-nowrap",
-                    areaCls,
-                  )}
-                >
-                  {label}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(row => {
-            if (!isVisible(row)) return null;
-
-            const depth = depths.get(row.row_index) ?? 0;
-            const hasChildren = hasChildrenSet.has(row.row_index);
-            const isCollapsed = collapsed.has(row.row_index);
-            const isPreamble = row.effective_classification === "preamble";
-            const isLineItem = row.effective_classification === "line_item";
-
-            // FIX 1: resolve parent's Excel row number (null for roots / invalid parent)
-            const pIdx = row.effective_parent_index ?? -1;
-            const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
-
-            return (
-              <tr
-                key={row.row_index}
-                ref={(el) => {
-                  if (el) rowRefs.current.set(row.row_index, el);
-                  else rowRefs.current.delete(row.row_index);
-                }}
+    <div className="rounded-md border border-border overflow-hidden">
+      {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
+      <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
+        {/* Feature 1: column-subset selector (only when descriptor columns exist) */}
+        {displayDescriptors.length > 0 && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
                 className={cn(
-                  "border-b border-border hover:bg-muted/30 transition-colors",
-                  isPreamble && "bg-muted/20",
-                  // FIX 1: transient amber flash when this row is the scroll target
-                  highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
+                  "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
+                  "bg-background hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors",
+                  hiddenColCount > 0 && "border-primary text-foreground",
                 )}
               >
-                {/* Excel Row */}
-                <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
-                  {row.source_row_number}
-                </td>
-
-                {/* Sl.No */}
-                <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
-                  {row.sl_no_value ?? ""}
-                </td>
-
-                {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
-                <td className="px-2 py-1.5 align-top w-16 border-r border-border">
-                  {parentExcelRow !== null ? (
-                    <button
-                      type="button"
-                      onClick={() => revealAndScrollToRow(pIdx)}
-                      className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
-                    >
-                      ↑ {parentExcelRow}
-                    </button>
-                  ) : null}
-                </td>
-
-                {/* Description: FIX 4 -- pill on its own line (top), text below.
-                    Indent + chevron aligned with the pill+text block.
-                    FIX 2 -- pill has full horizontal room; whitespace-nowrap prevents clip. */}
-                <td className="px-2 py-1.5 align-top">
-                  <div
-                    className="flex items-start gap-1.5"
-                    style={{ paddingLeft: `${depth * INDENT_PX}px` }}
-                  >
-                    {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
-                        so the layout stays stable and descriptions align. */}
-                    <button
-                      type="button"
-                      className={cn(
-                        "mt-0.5 shrink-0 h-4 w-4 flex items-center justify-center rounded",
-                        "text-muted-foreground hover:text-foreground transition-colors",
-                        !hasChildren && "invisible pointer-events-none",
-                      )}
-                      onClick={() => { if (hasChildren) toggleCollapse(row.row_index); }}
-                      aria-label={isCollapsed ? "Expand" : "Collapse"}
-                      tabIndex={hasChildren ? 0 : -1}
-                    >
-                      {isCollapsed
-                        ? <ChevronRight className="h-3 w-3" />
-                        : <ChevronDown className="h-3 w-3" />}
-                    </button>
-
-                    {/* FIX 4: pill stacked above description text in a flex-col block.
-                        The block sits after the chevron; indent applies to the outer div. */}
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <ClassificationPill cls={row.effective_classification} />
-                      <span className={cn(
-                        "leading-snug break-words min-w-0",
-                        isPreamble && "font-medium text-foreground",
-                        isLineItem && "text-foreground",
-                        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                      )}>
-                        {row.description || (
-                          <span className="not-italic text-muted-foreground">(no description)</span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </td>
-
-                {/* Descriptor-driven data columns */}
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Columns
+                {hiddenColCount > 0 && (
+                  <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                    ({hiddenColCount} hidden)
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto min-w-[200px] p-2">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                Data columns
+              </p>
+              <div className="space-y-1">
                 {displayDescriptors.map(d => {
-                  const val = resolveDescriptorValue(row, d);
+                  const colLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
                   return (
-                    <td
+                    <label
                       key={d.col}
-                      className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                      htmlFor={`vis-col-${d.col}`}
+                      className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
                     >
-                      {renderDescriptorCell(val)}
-                    </td>
+                      <Checkbox
+                        id={`vis-col-${d.col}`}
+                        checked={visibleCols.has(d.col)}
+                        onCheckedChange={() => toggleCol(d.col)}
+                      />
+                      {colLabel}
+                    </label>
                   );
                 })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
+        {/* Feature 2: three independent annotation-row visibility toggles */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">Show:</span>
+          <label
+            htmlFor="cls-spacers"
+            className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Checkbox
+              id="cls-spacers"
+              checked={showSpacers}
+              onCheckedChange={(c) => setShowSpacers(c === true)}
+            />
+            Spacers
+          </label>
+          <label
+            htmlFor="cls-notes"
+            className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Checkbox
+              id="cls-notes"
+              checked={showNotes}
+              onCheckedChange={(c) => setShowNotes(c === true)}
+            />
+            Notes
+          </label>
+          <label
+            htmlFor="cls-subtotals"
+            className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Checkbox
+              id="cls-subtotals"
+              checked={showSubtotals}
+              onCheckedChange={(c) => setShowSubtotals(c === true)}
+            />
+            Subtotals
+          </label>
+        </div>
+      </div>
+      {/* Table scroll area -- max-h adjusted to account for controls bar height */}
+      <div className="overflow-auto max-h-[calc(100vh-16rem)]">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-muted/50 sticky top-0 z-10 border-b border-border">
+              {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap">
+                Excel Row
+              </th>
+              {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
+                {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
+              </th>
+              {/* Parent (FIX 1): parent row's Excel row number -- derived, no mapped letter */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
+                Parent
+              </th>
+              {/* Description: letter from the description descriptor col, if mapped */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap">
+                {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+              </th>
+              {/* Descriptor-driven columns: only rendered when col is in visibleCols */}
+              {displayDescriptors.map(d => {
+                if (!visibleCols.has(d.col)) return null;
+                const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+                const areaCls = d.area ? (areaColorMap[d.area] ?? "") : "";
+                return (
+                  <th
+                    key={d.col}
+                    className={cn(
+                      "px-2 py-2 text-right font-medium text-muted-foreground",
+                      "w-28 min-w-[112px] border-l border-border whitespace-nowrap",
+                      areaCls,
+                    )}
+                  >
+                    {label}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => {
+              if (!isVisible(row)) return null;
+              // B1.1b-ii FEAT B: classification-visibility gate (annotation rows only).
+              // Children of a filtered row render independently at their original depth.
+              if (!classificationVisible(row)) return null;
+
+              const depth = depths.get(row.row_index) ?? 0;
+              const hasChildren = hasChildrenSet.has(row.row_index);
+              const isCollapsed = collapsed.has(row.row_index);
+              const isPreamble = row.effective_classification === "preamble";
+              const isLineItem = row.effective_classification === "line_item";
+
+              // FIX 1: resolve parent's Excel row number (null for roots / invalid parent)
+              const pIdx = row.effective_parent_index ?? -1;
+              const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
+
+              return (
+                <tr
+                  key={row.row_index}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(row.row_index, el);
+                    else rowRefs.current.delete(row.row_index);
+                  }}
+                  className={cn(
+                    "border-b border-border hover:bg-muted/30 transition-colors",
+                    isPreamble && "bg-muted/20",
+                    // FIX 1: transient amber flash when this row is the scroll target
+                    highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
+                  )}
+                >
+                  {/* Excel Row */}
+                  <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
+                    {row.source_row_number}
+                  </td>
+
+                  {/* Sl.No */}
+                  <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
+                    {row.sl_no_value ?? ""}
+                  </td>
+
+                  {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
+                  <td className="px-2 py-1.5 align-top w-16 border-r border-border">
+                    {parentExcelRow !== null ? (
+                      <button
+                        type="button"
+                        onClick={() => revealAndScrollToRow(pIdx)}
+                        className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                      >
+                        ↑ {parentExcelRow}
+                      </button>
+                    ) : null}
+                  </td>
+
+                  {/* Description: FIX 4 -- pill on its own line (top), text below.
+                      Indent + chevron aligned with the pill+text block.
+                      FIX 2 -- pill has full horizontal room; whitespace-nowrap prevents clip. */}
+                  <td className="px-2 py-1.5 align-top">
+                    <div
+                      className="flex items-start gap-1.5"
+                      style={{ paddingLeft: `${depth * INDENT_PX}px` }}
+                    >
+                      {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
+                          so the layout stays stable and descriptions align. */}
+                      <button
+                        type="button"
+                        className={cn(
+                          "mt-0.5 shrink-0 h-4 w-4 flex items-center justify-center rounded",
+                          "text-muted-foreground hover:text-foreground transition-colors",
+                          !hasChildren && "invisible pointer-events-none",
+                        )}
+                        onClick={() => { if (hasChildren) toggleCollapse(row.row_index); }}
+                        aria-label={isCollapsed ? "Expand" : "Collapse"}
+                        tabIndex={hasChildren ? 0 : -1}
+                      >
+                        {isCollapsed
+                          ? <ChevronRight className="h-3 w-3" />
+                          : <ChevronDown className="h-3 w-3" />}
+                      </button>
+
+                      {/* FIX 4: pill stacked above description text in a flex-col block.
+                          The block sits after the chevron; indent applies to the outer div. */}
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <ClassificationPill cls={row.effective_classification} />
+                        <span className={cn(
+                          "leading-snug break-words min-w-0",
+                          isPreamble && "font-medium text-foreground",
+                          isLineItem && "text-foreground",
+                          !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                        )}>
+                          {row.description || (
+                            <span className="not-italic text-muted-foreground">(no description)</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Descriptor-driven data columns: only rendered when col is in visibleCols */}
+                  {displayDescriptors.map(d => {
+                    if (!visibleCols.has(d.col)) return null;
+                    const val = resolveDescriptorValue(row, d);
+                    return (
+                      <td
+                        key={d.col}
+                        className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                      >
+                        {renderDescriptorCell(val)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
