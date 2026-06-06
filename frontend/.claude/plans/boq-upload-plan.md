@@ -5655,4 +5655,43 @@ After B1.1b-iii, the cell is split into two separate columns:
 - `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- `Fragment` + `Info` imports; `AdvisoryFlag` type; `computeAdvisoryFlags` function; state + useMemo; Fragment-wrapped rows; Info marker button; flag-reasons `<tr>`.
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record + overview line updated.
 - `frontend/CLAUDE.md` -- status line bumped.
+
+---
+
+### Slice B2a single-source fix (refactor d9fa6b69, 2026-06-06)
+
+**Problem:** B2a shipped flag logic twice -- tested backend `_compute_advisory_flags` (served via `get_structural_breaks`) AND an untested client-side `computeAdvisoryFlags` in `ReviewTree.tsx` that was what the UI actually rendered.
+
+**Decision (final):** Backend is the single source of truth. Flags folded into the EXISTING `get_review_rows` response (no second fetch). `get_structural_breaks` left exactly as-is for Slice D.
+
+**What changed:**
+
+*Backend (`review_screen.py`):*
+- `get_review_rows` now runs `check_structural_integrity(rows)` + `_compute_advisory_flags(rows, breaks)` on the already-resolve_effective-applied rows and returns `{"flags": [...]}` alongside `rows`/`work_packages`/`column_descriptors`. Additive only -- no reorder/rename of existing keys.
+- `get_structural_breaks`: NO CHANGE (left exactly as-is; Slice D will consume it).
+
+*Frontend:*
+- `boqTypes.ts`: `AdvisoryFlag` interface added (exported, full backend shape: `{type, row_index, source_row_number, reason}`). `GetReviewRowsResponse` gains `flags: AdvisoryFlag[]`. `GetStructuralBreaksResponse` untouched.
+- `ReviewTree.tsx`: deleted local `interface AdvisoryFlag` (2-field, no row_index/source_row_number), deleted `function computeAdvisoryFlags(~87 lines)`, deleted explanatory comment block, deleted `const flagsByRowIdx = useMemo(() => computeAdvisoryFlags(rows), [rows])`. Added `flags: AdvisoryFlag[]` to `ReviewTreeProps`; import updated to import `AdvisoryFlag` from `boqTypes`. New pure grouping useMemo: `const flagsByRowIdx = useMemo(() => { const m = ...; for (const f of flags) ...; return m; }, [flags])`. Rendering (rowFlags, Info marker, flag-reasons row reading `f.reason`) UNCHANGED.
+- `SheetReviewPage.tsx`: `const flags = reviewData?.message?.flags ?? [];` added; `<ReviewTree ... flags={flags} />` updated.
+
+*Test:*
+- `test_flags_key_present_and_contains_known_flag` added to `TestGetReviewRows` (wiring test; row 0 in existing fixture has `human_classification=line_item` + no parent → orphan flag). Existing 76 B2a tests unchanged.
+
+**Test counts (this run):**
+- `test_review_screen`: 77 tests (was 76, +1 wiring test). All green.
+- `test_parse_run`: 63 tests. All green.
+- Total wizard: 248 (63 + 77 + 66 + 7 + 23 + 12).
+
+**tsc:** 0 wizard-file errors. Vite build exit 0.
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/review_screen.py` -- fold flags into get_review_rows.
+- `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- +1 wiring test.
+- `frontend/src/pages/boq-wizard/boqTypes.ts` -- AdvisoryFlag exported + GetReviewRowsResponse.flags.
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- delete ~87 lines client-side; flags prop + pure useMemo.
+- `frontend/src/pages/boq-wizard/SheetReviewPage.tsx` -- unpack + forward flags prop.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record.
+- `CLAUDE.md` (root) -- status line bumped.
+- `frontend/CLAUDE.md` -- status line bumped.
 - Root `CLAUDE.md` -- status line bumped.
