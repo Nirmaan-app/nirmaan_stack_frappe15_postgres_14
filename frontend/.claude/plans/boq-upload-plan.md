@@ -5758,3 +5758,28 @@ Old logic fired on EITHER `amount_total == 0` OR `qty_total == 0` (independently
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record.
 - `CLAUDE.md` (root) -- status line bumped.
 - `frontend/CLAUDE.md` -- status line bumped.
+
+### Slice B2a-fix wording -- toggle "notes"→"flags", strip label "Advisory:"→"Flags:" (2026-06-06)
+
+**Motivation:** B2a-fix shipped "Show all notes"/"Hide all notes" and "Advisory:" as UI strings. Post-live-cert diagnostic confirmed these should be "flags" / "Flags:" to match the feature vocabulary and reduce user confusion.
+
+**Changes (text-only, zero logic/state/behavior change):**
+- `ReviewTree.tsx`: master toggle button label: "Show all notes" → "Show all flags" / "Hide all notes" → "Hide all flags". onClick, showAllFlags state, Info icon, and styling are exactly unchanged.
+- `SheetReviewPage.tsx`: flag summary strip bold label: "Advisory:" → "Flags:". FLAG_LABELS short labels (zero-amount / orphan / needs-review / priced-preamble), FLAG_ORDER, flagCounts, flagSummaryParts logic, render condition, and styling are exactly unchanged.
+
+**Tests:** None (text-only label change has no test surface). Wizard test count 249 unchanged.
+
+**tsc:** 0 wizard-file errors. Vite build exit 0.
+
+**Files changed:**
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- toggle string change.
+- `frontend/src/pages/boq-wizard/SheetReviewPage.tsx` -- strip label change.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record + deferred items below.
+- `CLAUDE.md` (root) -- status line bumped (minimal touch).
+- `frontend/CLAUDE.md` -- status line bumped (minimal touch).
+
+**Deferred / Known issues recorded from B2a-fix live-cert diagnostic:**
+
+**(a) §6.5.3 design-doc wording drift:** The UI now says "Flags" / "Flags:" where Wizard Design §6.5.3 uses the word "advisory". The design doc itself is NOT edited here (out of scope). Whoever next does a §6.5 pass (B2b, Slice C, or any docs-only sweep) should fold in the wording reconciliation: align §6.5.3 to say "flags" throughout, or add a note that the implementation uses "flags" as the display term.
+
+**(b) KNOWN ISSUE / LANDMINE -- trailing spaces in stored sheet names (verified on BOQ-26-00145):** At least 6 sheet names on BOQ-26-00145 are stored WITH a trailing space: `'Electrical '`, `'HVAC '`, `'PA '`, `'IT Active '`, `'WLD &RR '`, `'Modular Furniture '`. The root cause is how the workbook's sheet names were recorded at upload time. Frappe stores them verbatim -- no stripping. **Any UI control that trims or normalises a sheet name before passing it to `get_review_rows`, `sheet_preview`, or any future endpoint that matches on `sheet_name` will silently return 0 rows** -- the sheet appears "clean" or "not found" when it actually has data. This is a latent silent-mismatch risk. Whoever next handles sheet names in a UI control (B2b, Slice C, multi-general-specs, SheetCard nav) MUST preserve names verbatim -- never trim. The `EXACT sheet_name constraint` note in `frontend/CLAUDE.md` already captures the verbatim rule; this item adds the explicit trailing-space evidence so future implementers know the data is real, not hypothetical.
