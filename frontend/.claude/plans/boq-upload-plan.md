@@ -5846,3 +5846,47 @@ Flag marker button: `"Show advisory notes"` → `"Show flags"`, `"Hide advisory 
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record.
 - `CLAUDE.md` (root) -- status line bumped.
 - `frontend/CLAUDE.md` -- status line bumped.
+
+### Slice B2c -- edit-provenance surfacing: Status column + green row tint + panel reshape (2026-06-07)
+
+**Motivation:** B2b shipped the inline detail panel with an amber "edited" provenance badge. B2c makes edit-provenance a first-class column: a "Status" anchor column shows a green "Edited" badge on any row where `edited_at` is set or `edit_log` is non-empty. Edited rows also get a soft green row tint. The detail panel is reshaped to be edit-focused (value-field block removed; qty/rate/amount live in the grid columns; panel now shows provenance badge + original-vs-effective classification+parent + flags + edit_log history + empty reason slot). Panel "edited" badge colour changes from amber to green.
+
+**Provenance rule (single source for badge + tint + panel):**
+`isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0)`
+
+**BUILD 1 -- New "Status" fixed anchor column:**
+- Position: immediately after Excel Row (order: Expander | Excel Row | **Status** | Sl.No | Parent | Classification | Description | data cols).
+- Header `<th>`: label "Status", `w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted` (matches other anchor headers). NOT frozen-left (only the Expander column is frozen-left).
+- Body `<td>`: when `isEdited` → green "Edited" badge styled like ClassificationPill (`rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200`). When not edited → empty `<td>` (no badge, no "Original" text).
+- Always shown; NOT in the column-subset selector (selector iterates `displayDescriptors` only; Status is a fixed anchor outside that loop).
+
+**BUILD 2 -- Green row tint on edited rows:**
+- Added `isEdited && "bg-green-50 dark:bg-green-950/30"` to the data-row `<tr>` cn() call.
+- Ordering in cn(): base → preamble bg → **green tint** → highlight flash. `tailwind-merge` keeps the last matching class, so the amber highlight (placed after) still wins on flash. Preamble bg-muted/20 and the green tint coexist (different bg classes, both applied).
+- Color chosen: `bg-green-50 dark:bg-green-950/30` — lighter end of the green palette so it reads as a soft tint, not a fill. Distinct from emerald (subtotal_marker pill uses emerald).
+
+**BUILD 3 -- totalCols 6 → 7:**
+Applied to both the flag-reason reveal row (`colSpan={totalCols}`) and the detail-panel reveal row. No other hardcoded column count exists.
+
+**BUILD 4 -- Detail panel reshape (edit-focused):**
+- **Removed:** entire value-field block (five conditional `<div>`s for `qty_total`, `rate_supply`, `rate_install`, `rate_combined`, `amount_total`). Current values live in the grid columns; the panel is about what changed.
+- **Kept (in order):** (a) header + provenance badge, (b) original-vs-effective classification + parent, (c) flag reasons if any, (d) edit_log history ("No edits yet." when empty), (e) empty reason slot.
+- Grid simplified from `grid grid-cols-2 sm:grid-cols-3` to `grid grid-cols-2` (only two items remain: Classification and Parent).
+- Comment updated from "classification + parent + value fields" to "classification + parent (read-only, edit-focused panel)".
+- Panel "edited" badge: `bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300` → `bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300`. "original" badge unchanged (bg-muted text-muted-foreground).
+
+**fmtNum still in use:** after removing the value-field block, `fmtNum` is still called in `renderDescriptorCell` (descriptor-driven data columns). No import/helper removal needed.
+
+**Design note (M4.12):** The M4.12 design intent described a "pencil + green tint" edited-row treatment. B2c partially realizes this as green tint + green "Edited" badge (no pencil icon — a worded badge is clearer than a pencil which would imply an edit action).
+
+**Reality:** Until Slice C nothing is editable, so EVERY row renders as ORIGINAL (blank Status cell, no tint, panel shows "No edits yet."). This is correct, not a bug. The infra activates when Slice C lands.
+
+**Tests:** None -- FRONTEND ONLY, display-layer, no Python touched. Wizard backend test count 249 unchanged.
+
+**tsc:** 0 wizard-file errors. Vite build exit 0.
+
+**Files changed:**
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- all four builds.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record.
+- `CLAUDE.md` (root) -- status line bumped.
+- `frontend/CLAUDE.md` -- status line bumped.
