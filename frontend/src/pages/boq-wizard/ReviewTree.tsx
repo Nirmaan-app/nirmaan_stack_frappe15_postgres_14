@@ -22,9 +22,21 @@
  *            left-border accent dropped. CLS_PILL_CLASSES map replaces inline style.
  *   BUILD 5: aria-label "advisory notes" -> "flags".
  *
+ * B2c: edit-provenance surfacing (read-only infra) --
+ *   BUILD 1: "Status" fixed anchor column after Excel Row -- green "Edited" badge when
+ *            edited_at is set or edit_log is non-empty; blank cell otherwise.
+ *   BUILD 2: Green row tint (bg-green-50 dark:bg-green-950/30) on edited rows.
+ *            Highlight flash (amber) placed after tint in cn() so it wins.
+ *   BUILD 3: totalCols 6->7 (new Status column).
+ *   BUILD 4: Detail panel edit-focused reshape -- value-field block (qty/rate/amount)
+ *            removed; provenance badge colour amber->green; grid simplified to 2-col.
+ *   NOTE: all rows render ORIGINAL/blank until Slice C creates edits.
+ *
  * Fixed anchor columns (always shown):
  *   Expander      -- caret to open/close inline detail panel (B2b). Frozen-left.
  *   Excel Row      -- source_row_number. Positional; no mapped letter.
+ *   Status (B2c)  -- edit-provenance: green "Edited" when edited_at set or edit_log
+ *                    non-empty; blank for unedited rows. Not frozen-left.
  *   Sl.No (X)      -- sl_no_value. X = col letter from the sl_no descriptor, if mapped.
  *   Parent         -- parent row's source_row_number (Excel row). Derived; no mapped letter.
  *                     Clickable: expands collapsed ancestors + scrolls to parent row.
@@ -538,6 +550,10 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Excel Row
               </th>
+              {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left. */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                Status
+              </th>
               {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
@@ -596,9 +612,11 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
               const hasFlags = rowFlags.length > 0;
               // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
               const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
-              // B2b BUILD 2: colSpan for flag-reasons + detail panel rows: 6 fixed anchors (incl. expander)
+              // B2c: colSpan for flag-reasons + detail panel rows -- 7 fixed anchors (incl. expander, Status).
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 6 + visibleDescriptorCount;
+              const totalCols = 7 + visibleDescriptorCount;
+              // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
+              const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
 
               // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
               const origParentLabel = (() => {
@@ -627,7 +645,8 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                     className={cn(
                       "border-b border-border hover:bg-muted/30 transition-colors",
                       isPreamble && "bg-muted/20",
-                      // FIX 1: transient amber flash when this row is the scroll target
+                      isEdited && "bg-green-50 dark:bg-green-950/30",
+                      // FIX 1: transient amber flash wins over green tint (placed after in cn())
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
                     )}
                   >
@@ -649,6 +668,15 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                     {/* Excel Row */}
                     <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
                       {row.source_row_number}
+                    </td>
+
+                    {/* Status (B2c): edit-provenance badge -- not frozen-left */}
+                    <td className="px-2 py-1.5 align-top w-20 border-r border-border">
+                      {isEdited ? (
+                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                          Edited
+                        </span>
+                      ) : null}
                     </td>
 
                     {/* Sl.No */}
@@ -781,12 +809,12 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                               Row detail — Excel row {row.source_row_number}
                             </span>
                             {(row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0))
-                              ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-medium">edited</span>
+                              ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-medium">edited</span>
                               : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">original</span>
                             }
                           </div>
-                          {/* Original-vs-effective: classification + parent + value fields (read-only) */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs mb-2">
+                          {/* Original-vs-effective: classification + parent (read-only, edit-focused panel) */}
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-2">
                             <div>
                               <span className="text-muted-foreground">Classification: </span>
                               {clsOverridden ? (
@@ -811,36 +839,6 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                                 <span className="text-foreground">{origParentLabel}</span>
                               )}
                             </div>
-                            {row.qty_total !== null && (
-                              <div>
-                                <span className="text-muted-foreground">Qty: </span>
-                                <span className="text-foreground tabular-nums">{fmtNum(row.qty_total)}</span>
-                              </div>
-                            )}
-                            {row.rate_supply !== null && (
-                              <div>
-                                <span className="text-muted-foreground">Rate (supply): </span>
-                                <span className="text-foreground tabular-nums">{fmtNum(row.rate_supply)}</span>
-                              </div>
-                            )}
-                            {row.rate_install !== null && (
-                              <div>
-                                <span className="text-muted-foreground">Rate (install): </span>
-                                <span className="text-foreground tabular-nums">{fmtNum(row.rate_install)}</span>
-                              </div>
-                            )}
-                            {row.rate_combined !== null && (
-                              <div>
-                                <span className="text-muted-foreground">Rate (combined): </span>
-                                <span className="text-foreground tabular-nums">{fmtNum(row.rate_combined)}</span>
-                              </div>
-                            )}
-                            {row.amount_total !== null && (
-                              <div>
-                                <span className="text-muted-foreground">Amount: </span>
-                                <span className="text-foreground tabular-nums">{fmtNum(row.amount_total)}</span>
-                              </div>
-                            )}
                           </div>
                           {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
                           {rowFlags.length > 0 && (
