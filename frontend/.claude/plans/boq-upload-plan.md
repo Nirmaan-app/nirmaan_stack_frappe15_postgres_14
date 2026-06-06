@@ -5890,3 +5890,27 @@ Applied to both the flag-reason reveal row (`colSpan={totalCols}`) and the detai
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record.
 - `CLAUDE.md` (root) -- status line bumped.
 - `frontend/CLAUDE.md` -- status line bumped.
+
+### Slice B2c-fix -- Status column unedited branch: blank → muted "Original" pill (2026-06-07)
+
+**Motivation:** After live review of B2c the blank unedited Status cell reads as "broken" — users don't know whether the column has loaded or the row has no status. A muted gray "Original" pill signals "this row has not been edited" without drawing attention away from the green "Edited" rows.
+
+**Change (one spot only):** In `ReviewTree.tsx`, the Status cell's `isEdited` ternary false-branch was changed from `null` to a muted gray "Original" pill:
+```tsx
+<span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+  Original
+</span>
+```
+Pill structure is identical to the green "Edited" pill; only colorway differs. Green "Edited" pill and green row tint are unchanged.
+
+**Reality:** Until Slice C all rows are ORIGINAL so every Status cell now shows "Original". Slice C edited rows will flip to "Edited" + green tint as before.
+
+**Tests:** None -- FRONTEND ONLY, display-layer, one-spot else-branch change. Wizard backend test count 249 unchanged.
+
+**tsc:** 0 wizard-file errors. Vite build exit 0.
+
+**Files changed:**
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- Status cell else-branch only.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record.
+- `CLAUDE.md` (root) -- status line bumped.
+- `frontend/CLAUDE.md` -- status line bumped.
