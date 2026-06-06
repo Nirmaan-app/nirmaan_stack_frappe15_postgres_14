@@ -83,6 +83,7 @@ const SheetReviewPage = () => {
   // Row data derived from the review-rows fetch.
   const rows = reviewData?.message?.rows ?? [];
   const columnDescriptors = reviewData?.message?.column_descriptors ?? [];
+  const flags = reviewData?.message?.flags ?? [];
   const reviewLoading = reviewData === undefined;
   const reviewError = reviewData === null;
 
@@ -125,7 +126,7 @@ const SheetReviewPage = () => {
       )}
 
       {!reviewLoading && !reviewError && (
-        <ReviewTree rows={rows} columnDescriptors={columnDescriptors} />
+        <ReviewTree rows={rows} columnDescriptors={columnDescriptors} flags={flags} />
       )}
     </div>
   );

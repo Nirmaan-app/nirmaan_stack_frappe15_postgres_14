@@ -270,11 +270,24 @@ export interface ColumnDescriptor {
   rate_subkey: string | null;  // inner key within rate_by_area[area], else null
 }
 
+/**
+ * One advisory flag as returned by get_review_rows (Slice B2a single-source).
+ * Computed by the backend _compute_advisory_flags helper.
+ * type: "priced_preamble_no_children" | "zero_amount_line_item" | "orphan" | "parser"
+ */
+export interface AdvisoryFlag {
+  type: string;
+  row_index: number;
+  source_row_number: number;
+  reason: string;
+}
+
 /** Response shape of get_review_rows. */
 export interface GetReviewRowsResponse {
   rows: ReviewRow[];
   work_packages: string[];
   column_descriptors: ColumnDescriptor[];
+  flags: AdvisoryFlag[];
 }
 
 // ── Structural break types (from check_structural_integrity / get_structural_breaks) ──

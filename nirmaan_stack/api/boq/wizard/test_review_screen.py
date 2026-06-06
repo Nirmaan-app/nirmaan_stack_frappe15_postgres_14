@@ -412,6 +412,16 @@ class TestGetReviewRows(FrappeTestCase):
         self.assertIsInstance(result["work_packages"], list,
                               "work_packages must be a list")
 
+    def test_flags_key_present_and_contains_known_flag(self):
+        """get_review_rows response includes 'flags' (Slice B2a single-source fix).
+        Row 0 has human_classification='line_item' + no parent -> orphan advisory flag."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        self.assertIn("flags", result, "response must contain a 'flags' key")
+        self.assertIsInstance(result["flags"], list, "flags must be a list")
+        orphan_flags = [f for f in result["flags"] if f["type"] == "orphan" and f["row_index"] == 0]
+        self.assertEqual(len(orphan_flags), 1,
+                         "row 0 (human_classification=line_item, no parent) must produce an orphan flag")
+
 
 # ===========================================================================
 # Group 5: save_review_edit -- DB

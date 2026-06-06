@@ -639,7 +639,9 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
 
     column_descriptors = _build_column_descriptors(sheet_config)
 
-    return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors}
+    breaks = check_structural_integrity(rows)
+    flags = _compute_advisory_flags(rows, breaks)
+    return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors, "flags": flags}
 
 
 @frappe.whitelist(methods=["POST"])

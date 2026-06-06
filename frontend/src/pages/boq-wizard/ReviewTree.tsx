@@ -58,100 +58,10 @@
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
 import { ChevronDown, ChevronRight, SlidersHorizontal, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
+import type { ReviewRow, ColumnDescriptor, AdvisoryFlag } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-
-// ── Advisory flag types + client-side computation (Slice B2a) ────────────────
-//
-// All four flag sources are computed from the `rows` prop (already fetched by
-// SheetReviewPage via get_review_rows).  Every required field is present on
-// ReviewRow, so no additional API call is needed.  The backend also exposes
-// these flags via get_structural_breaks for future slice use.
-//
-// Canonical reason text is pinned verbatim (identical to backend _FLAG_REASONS):
-//   priced_preamble_no_children -- flag (i)
-//   zero_amount_line_item       -- flag (ii)
-//   orphan                      -- flag (iii)
-//   parser                      -- flag (iv) verbatim from review_reason
-//
-// Flag (i) dormant note: the parser's post-pass demotes all childless priced
-// preambles to line_items, so this flag only fires after a human reclassification
-// (Slice C).  The computation is correct now; it is expected-dormant on real
-// parse output during B2a.
-
-interface AdvisoryFlag {
-  type: string;
-  reason: string;
-}
-
-function computeAdvisoryFlags(rows: ReviewRow[]): Map<number, AdvisoryFlag[]> {
-  // Build set of row_indexes that have at least one child (via effective_parent_index).
-  const childrenOf = new Set<number>();
-  for (const r of rows) {
-    const p = r.effective_parent_index;
-    if (p !== null && p !== undefined && p >= 0) childrenOf.add(p);
-  }
-
-  const flagMap = new Map<number, AdvisoryFlag[]>();
-
-  for (const row of rows) {
-    const flags: AdvisoryFlag[] = [];
-    const cls = row.effective_classification;
-
-    // Flag (i): childless preamble with a price signal (scalar fields only).
-    if (cls === "preamble" && !childrenOf.has(row.row_index)) {
-      const hasPriceSignal =
-        (row.amount_total ?? 0) > 0 ||
-        (row.amount_supply ?? 0) > 0 ||
-        (row.amount_install ?? 0) > 0 ||
-        (row.rate_supply ?? 0) > 0 ||
-        (row.rate_install ?? 0) > 0 ||
-        (row.rate_combined ?? 0) > 0;
-      if (hasPriceSignal) {
-        flags.push({
-          type: "priced_preamble_no_children",
-          reason: "Preamble carrying a price with no sub-items — check if it's a line item.",
-        });
-      }
-    }
-
-    // Flag (ii): line item with zero/absent amount OR qty.
-    if (cls === "line_item") {
-      const amountZero = !row.amount_total || row.amount_total === 0;
-      const qtyZero = !row.qty_total || row.qty_total === 0;
-      if (amountZero || qtyZero) {
-        flags.push({
-          type: "zero_amount_line_item",
-          reason: "Amount is zero — check the value or whether it's intentional.",
-        });
-      }
-    }
-
-    // Flag (iii): orphan line item (no parent; -1 sentinel treated as no parent).
-    if (
-      cls === "line_item" &&
-      (row.effective_parent_index === null ||
-        row.effective_parent_index === undefined ||
-        row.effective_parent_index < 0)
-    ) {
-      flags.push({
-        type: "orphan",
-        reason: "Line item with no parent group — check its parenting.",
-      });
-    }
-
-    // Flag (iv): parser review signal -- verbatim reason text.
-    if (row.needs_classification_review && row.review_reason) {
-      flags.push({ type: "parser", reason: row.review_reason });
-    }
-
-    if (flags.length > 0) flagMap.set(row.row_index, flags);
-  }
-
-  return flagMap;
-}
 
 // ── Depth computation (verbatim from B1) ──────────────────────────────────────
 //
@@ -308,9 +218,10 @@ const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
 interface ReviewTreeProps {
   rows: ReviewRow[];
   columnDescriptors: ColumnDescriptor[];
+  flags: AdvisoryFlag[];
 }
 
-export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -382,8 +293,11 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
     });
   };
 
-  // B2a: advisory flags computed from rows (all needed fields are already in the prop).
-  const flagsByRowIdx = useMemo(() => computeAdvisoryFlags(rows), [rows]);
+  const flagsByRowIdx = useMemo(() => {
+    const m = new Map<number, AdvisoryFlag[]>();
+    for (const f of flags) { const a = m.get(f.row_index) ?? []; a.push(f); m.set(f.row_index, a); }
+    return m;
+  }, [flags]);
 
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
