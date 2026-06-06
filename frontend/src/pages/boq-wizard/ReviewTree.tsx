@@ -676,7 +676,11 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                           Edited
                         </span>
-                      ) : null}
+                      ) : (
+                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                          Original
+                        </span>
+                      )}
                     </td>
 
                     {/* Sl.No */}
