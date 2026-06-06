@@ -459,7 +459,7 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
             )}
           >
             <Info className="h-3.5 w-3.5" />
-            {showAllFlags ? "Hide all notes" : "Show all notes"}
+            {showAllFlags ? "Hide all flags" : "Show all flags"}
           </button>
         )}
         {/* Feature 2: three independent annotation-row visibility toggles */}

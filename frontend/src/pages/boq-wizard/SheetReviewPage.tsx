@@ -129,7 +129,7 @@ const SheetReviewPage = () => {
       {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
       {!reviewLoading && !reviewError && flagSummaryParts.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
-          <span className="font-medium text-foreground">Advisory:</span>
+          <span className="font-medium text-foreground">Flags:</span>
           <span>{flagSummaryParts.join(" · ")}</span>
         </div>
       )}
