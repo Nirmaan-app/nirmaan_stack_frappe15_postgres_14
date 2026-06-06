@@ -55,13 +55,103 @@
  *     indent (paddingLeft = depth * INDENT_PX) applied here. Chevron + pill removed.
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
-import { useMemo, useRef, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { useMemo, useRef, useEffect, useState, Fragment } from "react";
+import { ChevronDown, ChevronRight, SlidersHorizontal, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+
+// ── Advisory flag types + client-side computation (Slice B2a) ────────────────
+//
+// All four flag sources are computed from the `rows` prop (already fetched by
+// SheetReviewPage via get_review_rows).  Every required field is present on
+// ReviewRow, so no additional API call is needed.  The backend also exposes
+// these flags via get_structural_breaks for future slice use.
+//
+// Canonical reason text is pinned verbatim (identical to backend _FLAG_REASONS):
+//   priced_preamble_no_children -- flag (i)
+//   zero_amount_line_item       -- flag (ii)
+//   orphan                      -- flag (iii)
+//   parser                      -- flag (iv) verbatim from review_reason
+//
+// Flag (i) dormant note: the parser's post-pass demotes all childless priced
+// preambles to line_items, so this flag only fires after a human reclassification
+// (Slice C).  The computation is correct now; it is expected-dormant on real
+// parse output during B2a.
+
+interface AdvisoryFlag {
+  type: string;
+  reason: string;
+}
+
+function computeAdvisoryFlags(rows: ReviewRow[]): Map<number, AdvisoryFlag[]> {
+  // Build set of row_indexes that have at least one child (via effective_parent_index).
+  const childrenOf = new Set<number>();
+  for (const r of rows) {
+    const p = r.effective_parent_index;
+    if (p !== null && p !== undefined && p >= 0) childrenOf.add(p);
+  }
+
+  const flagMap = new Map<number, AdvisoryFlag[]>();
+
+  for (const row of rows) {
+    const flags: AdvisoryFlag[] = [];
+    const cls = row.effective_classification;
+
+    // Flag (i): childless preamble with a price signal (scalar fields only).
+    if (cls === "preamble" && !childrenOf.has(row.row_index)) {
+      const hasPriceSignal =
+        (row.amount_total ?? 0) > 0 ||
+        (row.amount_supply ?? 0) > 0 ||
+        (row.amount_install ?? 0) > 0 ||
+        (row.rate_supply ?? 0) > 0 ||
+        (row.rate_install ?? 0) > 0 ||
+        (row.rate_combined ?? 0) > 0;
+      if (hasPriceSignal) {
+        flags.push({
+          type: "priced_preamble_no_children",
+          reason: "Preamble carrying a price with no sub-items — check if it's a line item.",
+        });
+      }
+    }
+
+    // Flag (ii): line item with zero/absent amount OR qty.
+    if (cls === "line_item") {
+      const amountZero = !row.amount_total || row.amount_total === 0;
+      const qtyZero = !row.qty_total || row.qty_total === 0;
+      if (amountZero || qtyZero) {
+        flags.push({
+          type: "zero_amount_line_item",
+          reason: "Amount is zero — check the value or whether it's intentional.",
+        });
+      }
+    }
+
+    // Flag (iii): orphan line item (no parent; -1 sentinel treated as no parent).
+    if (
+      cls === "line_item" &&
+      (row.effective_parent_index === null ||
+        row.effective_parent_index === undefined ||
+        row.effective_parent_index < 0)
+    ) {
+      flags.push({
+        type: "orphan",
+        reason: "Line item with no parent group — check its parenting.",
+      });
+    }
+
+    // Flag (iv): parser review signal -- verbatim reason text.
+    if (row.needs_classification_review && row.review_reason) {
+      flags.push({ type: "parser", reason: row.review_reason });
+    }
+
+    if (flags.length > 0) flagMap.set(row.row_index, flags);
+  }
+
+  return flagMap;
+}
 
 // ── Depth computation (verbatim from B1) ──────────────────────────────────────
 //
@@ -226,6 +316,8 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
   // FIX 1: row DOM element refs for scrollIntoView
   const rowRefs = useRef<Map<number, HTMLElement>>(new Map());
+  // B2a: set of row_indexes whose advisory flag reasons are currently expanded
+  const [expandedFlagRows, setExpandedFlagRows] = useState<Set<number>>(new Set());
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
@@ -280,6 +372,18 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
       return next;
     });
   };
+
+  // B2a: toggle click-to-reveal for advisory flag reasons on a row.
+  const toggleFlagRow = (rowIdx: number) => {
+    setExpandedFlagRows(prev => {
+      const next = new Set(prev);
+      if (next.has(rowIdx)) next.delete(rowIdx); else next.add(rowIdx);
+      return next;
+    });
+  };
+
+  // B2a: advisory flags computed from rows (all needed fields are already in the prop).
+  const flagsByRowIdx = useMemo(() => computeAdvisoryFlags(rows), [rows]);
 
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
@@ -512,98 +616,149 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
               const pIdx = row.effective_parent_index ?? -1;
               const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
 
+              // B2a: advisory flags for this row
+              const rowFlags = flagsByRowIdx.get(row.row_index) ?? [];
+              const hasFlags = rowFlags.length > 0;
+              const flagsExpanded = expandedFlagRows.has(row.row_index);
+              // colSpan for the flag-reasons reveal row: 5 fixed anchors + visible descriptor cols
+              const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
+              const totalCols = 5 + visibleDescriptorCount;
+
               return (
-                <tr
-                  key={row.row_index}
-                  ref={(el) => {
-                    if (el) rowRefs.current.set(row.row_index, el);
-                    else rowRefs.current.delete(row.row_index);
-                  }}
-                  className={cn(
-                    "border-b border-border hover:bg-muted/30 transition-colors",
-                    isPreamble && "bg-muted/20",
-                    // FIX 1: transient amber flash when this row is the scroll target
-                    highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
-                  )}
-                >
-                  {/* Excel Row */}
-                  <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
-                    {row.source_row_number}
-                  </td>
+                // Fragment lets us emit an optional second <tr> (flag-reasons) alongside the data row.
+                <Fragment key={row.row_index}>
+                  <tr
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(row.row_index, el);
+                      else rowRefs.current.delete(row.row_index);
+                    }}
+                    className={cn(
+                      "border-b border-border hover:bg-muted/30 transition-colors",
+                      isPreamble && "bg-muted/20",
+                      // FIX 1: transient amber flash when this row is the scroll target
+                      highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
+                    )}
+                  >
+                    {/* Excel Row */}
+                    <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
+                      {row.source_row_number}
+                    </td>
 
-                  {/* Sl.No */}
-                  <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
-                    {row.sl_no_value ?? ""}
-                  </td>
+                    {/* Sl.No */}
+                    <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
+                      {row.sl_no_value ?? ""}
+                    </td>
 
-                  {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
-                  <td className="px-2 py-1.5 align-top w-16 border-r border-border">
-                    {parentExcelRow !== null ? (
-                      <button
-                        type="button"
-                        onClick={() => revealAndScrollToRow(pIdx)}
-                        className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
-                      >
-                        ↑ {parentExcelRow}
-                      </button>
-                    ) : null}
-                  </td>
+                    {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
+                    <td className="px-2 py-1.5 align-top w-16 border-r border-border">
+                      {parentExcelRow !== null ? (
+                        <button
+                          type="button"
+                          onClick={() => revealAndScrollToRow(pIdx)}
+                          className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                        >
+                          ↑ {parentExcelRow}
+                        </button>
+                      ) : null}
+                    </td>
 
-                  {/* Classification (B1.1b-iii): chevron + pill, flat-left, no depth indent */}
-                  <td className="px-2 py-1.5 align-top w-36 border-r border-border">
-                    <div className="flex items-start gap-1.5">
-                      {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
-                          so the layout stays stable and descriptions align. */}
-                      <button
-                        type="button"
-                        className={cn(
-                          "mt-0.5 shrink-0 h-4 w-4 flex items-center justify-center rounded",
-                          "text-muted-foreground hover:text-foreground transition-colors",
-                          !hasChildren && "invisible pointer-events-none",
+                    {/* Classification (B1.1b-iii): chevron + pill + optional flag marker.
+                        Flag marker (B2a): neutral amber Info icon; click-to-reveal reasons.
+                        stopPropagation prevents bubbling to chevron/parent-link handlers. */}
+                    <td className="px-2 py-1.5 align-top w-36 border-r border-border">
+                      <div className="flex items-start gap-1.5">
+                        {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
+                            so the layout stays stable and descriptions align. */}
+                        <button
+                          type="button"
+                          className={cn(
+                            "mt-0.5 shrink-0 h-4 w-4 flex items-center justify-center rounded",
+                            "text-muted-foreground hover:text-foreground transition-colors",
+                            !hasChildren && "invisible pointer-events-none",
+                          )}
+                          onClick={() => { if (hasChildren) toggleCollapse(row.row_index); }}
+                          aria-label={isCollapsed ? "Expand" : "Collapse"}
+                          tabIndex={hasChildren ? 0 : -1}
+                        >
+                          {isCollapsed
+                            ? <ChevronRight className="h-3 w-3" />
+                            : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                        <ClassificationPill cls={row.effective_classification} />
+                        {/* B2a: advisory flag marker -- one unified indicator per flagged row */}
+                        {hasFlags && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleFlagRow(row.row_index); }}
+                            className={cn(
+                              "mt-0.5 ml-auto shrink-0 h-4 w-4 flex items-center justify-center rounded",
+                              "transition-colors",
+                              flagsExpanded
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
+                            )}
+                            aria-label={flagsExpanded ? "Hide advisory notes" : "Show advisory notes"}
+                            title={flagsExpanded ? "Hide advisory notes" : "Show advisory notes"}
+                          >
+                            <Info className="h-3 w-3" />
+                          </button>
                         )}
-                        onClick={() => { if (hasChildren) toggleCollapse(row.row_index); }}
-                        aria-label={isCollapsed ? "Expand" : "Collapse"}
-                        tabIndex={hasChildren ? 0 : -1}
-                      >
-                        {isCollapsed
-                          ? <ChevronRight className="h-3 w-3" />
-                          : <ChevronDown className="h-3 w-3" />}
-                      </button>
-                      <ClassificationPill cls={row.effective_classification} />
-                    </div>
-                  </td>
+                      </div>
+                    </td>
 
-                  {/* Description (B1.1b-iii): text only; depth indent moved here.
-                      paddingLeft = depth * INDENT_PX applied to the content wrapper. */}
-                  <td className="px-2 py-1.5 align-top">
-                    <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
-                      <span className={cn(
-                        "leading-snug break-words min-w-0",
-                        isPreamble && "font-medium text-foreground",
-                        isLineItem && "text-foreground",
-                        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                      )}>
-                        {row.description || (
-                          <span className="not-italic text-muted-foreground">(no description)</span>
-                        )}
-                      </span>
-                    </div>
-                  </td>
+                    {/* Description (B1.1b-iii): text only; depth indent moved here.
+                        paddingLeft = depth * INDENT_PX applied to the content wrapper. */}
+                    <td className="px-2 py-1.5 align-top">
+                      <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
+                        <span className={cn(
+                          "leading-snug break-words min-w-0",
+                          isPreamble && "font-medium text-foreground",
+                          isLineItem && "text-foreground",
+                          !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                        )}>
+                          {row.description || (
+                            <span className="not-italic text-muted-foreground">(no description)</span>
+                          )}
+                        </span>
+                      </div>
+                    </td>
 
-                  {/* Descriptor-driven data columns: only rendered when col is in visibleCols */}
-                  {displayDescriptors.map(d => {
-                    if (!visibleCols.has(d.col)) return null;
-                    const val = resolveDescriptorValue(row, d);
-                    return (
+                    {/* Descriptor-driven data columns: only rendered when col is in visibleCols */}
+                    {displayDescriptors.map(d => {
+                      if (!visibleCols.has(d.col)) return null;
+                      const val = resolveDescriptorValue(row, d);
+                      return (
+                        <td
+                          key={d.col}
+                          className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                        >
+                          {renderDescriptorCell(val)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* B2a: flag-reasons reveal row -- shown only when marker is clicked */}
+                  {hasFlags && flagsExpanded && (
+                    <tr className="bg-amber-50/60 dark:bg-amber-950/20">
                       <td
-                        key={d.col}
-                        className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                        colSpan={totalCols}
+                        className="px-3 py-2 border-b border-amber-100 dark:border-amber-900/30"
                       >
-                        {renderDescriptorCell(val)}
+                        <ul className="space-y-0.5">
+                          {rowFlags.map((f, i) => (
+                            <li
+                              key={i}
+                              className="text-xs text-amber-700 dark:text-amber-300 leading-snug"
+                            >
+                              {f.reason}
+                            </li>
+                          ))}
+                        </ul>
                       </td>
-                    );
-                  })}
-                </tr>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>

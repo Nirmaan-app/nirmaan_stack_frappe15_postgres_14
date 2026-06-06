@@ -1,15 +1,18 @@
 """
-BoQ review screen -- helpers + whitelisted endpoints (Slice A).
+BoQ review screen -- helpers + whitelisted endpoints (Slice A / B2a).
 
 Public API (unit-testable helpers):
   resolve_effective(row) -> dict
   check_structural_integrity(rows) -> list[dict]
   append_edit_log_entry(existing_log, field, from_val, to_val, user) -> list
+  _has_price_signal(row) -> bool                           [Slice B2a]
+  _compute_advisory_flags(rows, structural_breaks) -> list [Slice B2a]
 
 Public API (endpoints):
   get_review_rows(boq_name, sheet_name) -> dict          [GET-capable]
   save_review_edit(boq_name, sheet_name, row_index, field, value) -> dict  [POST]
   mark_sheet_parsed_check_done(boq_name, sheet_name, confirm=False) -> dict [POST]
+  get_structural_breaks(boq_name, sheet_name) -> dict    [GET-capable; extended B2a]
 
 Layer-separation principle:
   human_classification / human_parent are the HUMAN layer.
@@ -93,6 +96,41 @@ _SINGLETON_ROLE_TO_FIELD: dict[str, str] = {
     "amount_total": "amount_total",
 }
 
+
+# ---------------------------------------------------------------------------
+# Advisory flag constants (Slice B2a)
+# ---------------------------------------------------------------------------
+
+# Canonical reason text per flag type.  These are FIXED phrases -- do not
+# paraphrase.  The parser flag (type="parser") carries review_reason verbatim
+# instead of a canonical override.
+_FLAG_REASONS: dict[str, str] = {
+    "priced_preamble_no_children": (
+        "Preamble carrying a price with no sub-items — check if it's a line item."
+    ),
+    "zero_amount_line_item": (
+        "Amount is zero — check the value or whether it's intentional."
+    ),
+    "orphan": "Line item with no parent group — check its parenting.",
+}
+
+# Scalar price-signal fields checked for flag (i).  rate_by_area is a JSON
+# dict (not a scalar Float) and is intentionally excluded here -- a preamble
+# with only by-area rates but zero scalar amounts is an edge case that a future
+# slice can address; the three scalar rate fields are what the review screen
+# currently surfaces.
+_PRICE_SIGNAL_FIELDS: tuple[str, ...] = (
+    "amount_total", "amount_supply", "amount_install",
+    "rate_supply", "rate_install", "rate_combined",
+)
+
+# Fields required by get_structural_breaks beyond the minimal integrity set.
+# These are fetched in the extended endpoint for advisory flag computation.
+_ADVISORY_EXTRA_FIELDS: tuple[str, ...] = (
+    "amount_total", "amount_supply", "amount_install",
+    "rate_supply", "rate_install", "rate_combined",
+    "qty_total", "needs_classification_review", "review_reason",
+)
 
 # ---------------------------------------------------------------------------
 # Internal utilities
@@ -306,6 +344,118 @@ def append_edit_log_entry(
         "at": frappe.utils.now(),
     })
     return log
+
+
+# ---------------------------------------------------------------------------
+# Advisory flag helpers (Slice B2a)
+# ---------------------------------------------------------------------------
+
+def _has_price_signal(row: Any) -> bool:
+    """
+    True if row carries any non-zero value in one of the scalar price-signal
+    fields (amounts + scalar rates).  Operates on raw field values; the caller
+    is responsible for applying resolve_effective before checking classification.
+
+    rate_by_area is intentionally excluded -- it is a JSON dict, not a scalar,
+    and the B2a review screen does not surface by-area rate columns directly.
+    """
+    for field in _PRICE_SIGNAL_FIELDS:
+        v = _get(row, field)
+        if v is not None and v > 0:
+            return True
+    return False
+
+
+def _compute_advisory_flags(
+    rows: list[dict],
+    structural_breaks: list[dict],
+) -> list[dict]:
+    """
+    Compute advisory flags for all rows using EFFECTIVE values.
+
+    Four sources:
+      priced_preamble_no_children -- (i) preamble with no children AND a price.
+          NOTE: the parse-time hierarchy post-pass (_apply_zero_children_preamble
+          _demotion_post_pass) demotes all childless priced preambles to line_items
+          at parse time, so this flag is DORMANT on freshly-parsed rows.  It only
+          fires when a human reclassifies a line_item back to preamble via
+          human_classification (Slice C) and the row ends up childless.
+      zero_amount_line_item -- (ii) line_item with amount_total==0/None
+          OR qty_total==0/None (either zero/absent triggers the flag).
+      orphan -- (iii) reused from structural_breaks input; NOT recomputed.
+      parser -- (iv) needs_classification_review is truthy; reason = review_reason
+          verbatim (no canonical override).
+
+    Canonical reasons are pinned in _FLAG_REASONS; parser reason is verbatim.
+    Returns a flat list of flag dicts (multiple flags per row are separate entries).
+    """
+    # Derive children set from EFFECTIVE parent values (same source as check_structural_integrity).
+    children_of: set[int] = set()
+    for row in rows:
+        eff = resolve_effective(row)
+        p = eff["effective_parent_index"]
+        if p is not None:
+            children_of.add(p)
+
+    # Reuse orphan row_indexes from the already-computed structural_breaks -- do not recompute.
+    orphan_row_indexes: set[int] = {
+        b["row_index"] for b in structural_breaks if b["type"] == "orphan"
+    }
+
+    flags: list[dict] = []
+
+    for row in rows:
+        row_index = _get(row, "row_index")
+        if row_index is None:
+            continue
+        source_row_number = _get(row, "source_row_number")
+        eff = resolve_effective(row)
+        eff_cls = eff["effective_classification"]
+
+        # Flag (i): priced preamble with no children.
+        if eff_cls == "preamble" and row_index not in children_of and _has_price_signal(row):
+            flags.append({
+                "type": "priced_preamble_no_children",
+                "row_index": row_index,
+                "source_row_number": source_row_number,
+                "reason": _FLAG_REASONS["priced_preamble_no_children"],
+            })
+
+        # Flag (ii): zero amount or qty on a line item.
+        if eff_cls == "line_item":
+            amount_total = _get(row, "amount_total")
+            qty_total = _get(row, "qty_total")
+            amount_zero = amount_total is None or amount_total == 0
+            qty_zero = qty_total is None or qty_total == 0
+            if amount_zero or qty_zero:
+                flags.append({
+                    "type": "zero_amount_line_item",
+                    "row_index": row_index,
+                    "source_row_number": source_row_number,
+                    "reason": _FLAG_REASONS["zero_amount_line_item"],
+                })
+
+        # Flag (iii): orphan -- compose from structural_breaks, do not recompute.
+        if row_index in orphan_row_indexes:
+            flags.append({
+                "type": "orphan",
+                "row_index": row_index,
+                "source_row_number": source_row_number,
+                "reason": _FLAG_REASONS["orphan"],
+            })
+
+        # Flag (iv): parser needs_classification_review -- verbatim reason.
+        needs_review = _get(row, "needs_classification_review")
+        review_reason = _get(row, "review_reason")
+        if needs_review and review_reason:
+            flags.append({
+                "type": "parser",
+                "row_index": row_index,
+                "source_row_number": source_row_number,
+                "reason": review_reason,
+            })
+
+    return flags
 
 
 # ---------------------------------------------------------------------------
@@ -698,15 +848,25 @@ def save_review_edit(
 @frappe.whitelist()
 def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
     """
-    Return structural integrity breaks for (boq_name, sheet_name).
+    Return structural integrity breaks and advisory flags for (boq_name, sheet_name).
 
     Read-only: does NOT write, does NOT change wizard_status, does NOT call
     mark_sheet_parsed_check_done. Intended for display in the review screen
-    (Slice B2) and any caller that needs the raw break list.
+    (Slice B2) and any caller that needs the raw break/flag lists.
+
+    Extended in Slice B2a to also return advisory flags alongside breaks.
+    The "breaks" key contract is unchanged (backward-compatible addition).
 
     @frappe.whitelist() bare -- GET-capable (mirrors get_review_rows style).
 
-    Returns: {"breaks": [...]}  (empty list = structurally clean)
+    Returns:
+      {
+        "breaks": [...],   (empty list = structurally clean; contract unchanged)
+        "flags":  [...],   (advisory observations; Slice B2a addition)
+      }
+
+    Each flag dict: {type, row_index, source_row_number, reason}.
+    Flag types: priced_preamble_no_children, zero_amount_line_item, orphan, parser.
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -715,16 +875,23 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
+    # Fetch both the minimal integrity fields and the advisory-flag extra fields in
+    # one query.  The integrity check only reads the first six; the advisory helpers
+    # read the rest.
     rows = frappe.db.get_all(
         "BoQ Review Row",
         filters={"boq": boq_name, "sheet_name": sheet_name},
-        fields=["row_index", "source_row_number", "classification",
-                "human_classification", "parent_index", "human_parent"],
+        fields=[
+            "row_index", "source_row_number", "classification",
+            "human_classification", "parent_index", "human_parent",
+            *_ADVISORY_EXTRA_FIELDS,
+        ],
         order_by="row_index asc",
     )
     rows_as_dicts = [dict(r) for r in rows]
     breaks = check_structural_integrity(rows_as_dicts)
-    return {"breaks": breaks}
+    flags = _compute_advisory_flags(rows_as_dicts, breaks)
+    return {"breaks": breaks, "flags": flags}
 
 
 @frappe.whitelist(methods=["POST"])
