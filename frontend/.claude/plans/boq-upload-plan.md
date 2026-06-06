@@ -5783,3 +5783,66 @@ Old logic fired on EITHER `amount_total == 0` OR `qty_total == 0` (independently
 **(a) §6.5.3 design-doc wording drift:** The UI now says "Flags" / "Flags:" where Wizard Design §6.5.3 uses the word "advisory". The design doc itself is NOT edited here (out of scope). Whoever next does a §6.5 pass (B2b, Slice C, or any docs-only sweep) should fold in the wording reconciliation: align §6.5.3 to say "flags" throughout, or add a note that the implementation uses "flags" as the display term.
 
 **(b) KNOWN ISSUE / LANDMINE -- trailing spaces in stored sheet names (verified on BOQ-26-00145):** At least 6 sheet names on BOQ-26-00145 are stored WITH a trailing space: `'Electrical '`, `'HVAC '`, `'PA '`, `'IT Active '`, `'WLD &RR '`, `'Modular Furniture '`. The root cause is how the workbook's sheet names were recorded at upload time. Frappe stores them verbatim -- no stripping. **Any UI control that trims or normalises a sheet name before passing it to `get_review_rows`, `sheet_preview`, or any future endpoint that matches on `sheet_name` will silently return 0 rows** -- the sheet appears "clean" or "not found" when it actually has data. This is a latent silent-mismatch risk. Whoever next handles sheet names in a UI control (B2b, Slice C, multi-general-specs, SheetCard nav) MUST preserve names verbatim -- never trim. The `EXACT sheet_name constraint` note in `frontend/CLAUDE.md` already captures the verbatim rule; this item adds the explicit trailing-space evidence so future implementers know the data is real, not hypothetical.
+
+---
+
+### Slice B2b -- left-gutter expander column + inline detail panel + sticky-header fix + pill restyle + aria-label (2026-06-07)
+
+**Motivation:** B2a shipped the flag-reason accordion. B2b adds a per-row inline detail panel (row provenance, original-vs-effective values, edit history) as a frozen-left expander column, fixes the semi-transparent sticky header that bled through on scroll, restyles ClassificationPill to soft per-type fill, and normalises "advisory notes" to "flags" in aria-labels.
+
+**BUILD 1 -- Left-gutter expander column + inline read-only detail panel:**
+- New FIRST (leftmost) column in every `<thead>` and data row `<tr>`. Width w-8.
+- Header corner `<th>`: `sticky top-0 left-0 z-30 bg-muted` (both axes, solid bg).
+- Body `<td>`: `sticky left-0 z-10 bg-background` (frozen-left, always visible on horizontal scroll).
+- Caret button: `ChevronRight` (closed) / `ChevronDown` (open), `e.stopPropagation()` mandatory, `aria-label` "Show/Hide row detail".
+- New state: `expandedDetailRow: number | null`. `toggleDetailRow(idx)` opens the panel and closes the flag accordion (Option-B).
+- Detail panel `<tr>` (`bg-muted/30`) renders when `expandedDetailRow === row.row_index`. Contains:
+  - (a) Header: "Row detail — Excel row N" + provenance badge ("edited" amber/rounded-full if `edited_at` non-null or `edit_log` non-empty, else "original" muted).
+  - (b) Original-vs-effective grid: `classification` (strikethrough original → bold effective if `human_classification` overrides); `parent` (Excel row numbers, "root" for null/-1, strikethrough if `human_parent >= 0`); `qty_total`, `rate_supply`, `rate_install`, `rate_combined`, `amount_total` (each shown only when non-null, read-only).
+  - (c) Flag reasons: reuses `rowFlags` from `flagsByRowIdx` -- same canonical reason text, shown only when flags exist.
+  - (d) Edit history: iterates `edit_log` entries `{field, from, to, by, at}`; formatted "field: from → to — by · at". "No edits yet." when empty/null.
+  - (e) Reason slot: `<p className="text-[11px] text-muted-foreground italic">Reason — (added in a later step)</p>` -- laid out empty, pending Slice C's 6th edit_log key.
+- Panel interior wrapped in `<div onClick={(e) => e.stopPropagation()}>` so reading/clicking inside does NOT dismiss via table handler.
+- **Option-B (mutually exclusive) coupling -- all three arms:**
+  1. `toggleDetailRow` calls `setExpandedFlagRow(null)`.
+  2. `toggleFlagRow` calls `setExpandedDetailRow(null)`.
+  3. Table-level `onClick`: `setExpandedFlagRow(null); setExpandedDetailRow(null)`.
+  - Master `showAllFlags` toggle is flag-only; coexisting with an open detail panel is intentional and fine (only the single-open `expandedFlagRow` is mutually exclusive with `expandedDetailRow`).
+
+**BUILD 2 -- totalCols 5 → 6:**
+Applied to both the flag-reason reveal row and the detail panel reveal row. No other hardcoded column count exists.
+
+**BUILD 3 -- Sticky-header fix (matches SheetDataGrid convention):**
+- `bg-muted/50 sticky top-0 z-10` removed from `<tr>` (kept as static row).
+- Each fixed-anchor `<th>` (Excel Row, Sl.No, Parent, Classification, Description): `sticky top-0 z-20 bg-muted`.
+- Expander corner `<th>`: `sticky top-0 left-0 z-30 bg-muted` (both axes, highest z -- see z-index stack).
+- Descriptor-driven `<th>` cells: `sticky top-0 z-20` + `d.area ? areaColorMap[d.area] : "bg-muted"` (area color if mapped, bg-muted fallback). All fully opaque -- no bleed-through.
+- No new stacking overlap introduced: controls bar is outside the table (not sticky); flag-reason and detail rows are static; only header cells and the frozen-left column are sticky.
+- **Z-index stack (ReviewTree):** expander corner z-30 (top+left); column header cells z-20 (top); frozen-left expander body cells z-10 (left); data rows not sticky.
+
+**BUILD 4 -- ClassificationPill restyle:**
+- Shape: `rounded-full` (full lozenge). Left-border accent (`borderLeft: 3px solid {hex}`) dropped entirely.
+- Fill: soft per-type opaque Tailwind pairs. `CLS_PILL_CLASSES` map (replaces `CLS_COLORS` + inline style):
+  - `preamble`: `bg-gray-200 dark:bg-gray-700` / `text-gray-700 dark:text-gray-200`
+  - `line_item`: `bg-blue-100 dark:bg-blue-900` / `text-blue-800 dark:text-blue-200`
+  - `note`: `bg-amber-100 dark:bg-amber-900` / `text-amber-800 dark:text-amber-200`
+  - `subtotal_marker`: `bg-emerald-100 dark:bg-emerald-900` / `text-emerald-800 dark:text-emerald-200`
+  - `spacer`: `bg-gray-100 dark:bg-gray-800` / `text-gray-500 dark:text-gray-400`
+  - `header_repeat`: `bg-slate-100 dark:bg-slate-800` / `text-slate-700 dark:text-slate-300`
+  - Fallback (unknown cls): slate-100 / slate-700.
+- All fills fully opaque (no /opacity suffix). Per-type distinction kept.
+
+**BUILD 5 -- aria-label / title cleanup:**
+Flag marker button: `"Show advisory notes"` → `"Show flags"`, `"Hide advisory notes"` → `"Hide flags"`.
+
+**Design-doc drift note (§6.5.3):** The row-detail panel layout (original-vs-effective strip, edit_log history, empty reason slot) is not described in §6.5/§6.5.3 mockups, which pre-date the Slice A human-edit layer. The as-built detail panel design is the authoritative source. §6.5 fold should incorporate this when it next occurs.
+
+**Tests:** None -- display-layer only, no Python touched. Wizard backend test count 249 unchanged.
+
+**tsc:** 0 wizard-file errors. Vite build exit 0.
+
+**Files changed:**
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- all five builds.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record.
+- `CLAUDE.md` (root) -- status line bumped.
+- `frontend/CLAUDE.md` -- status line bumped.
