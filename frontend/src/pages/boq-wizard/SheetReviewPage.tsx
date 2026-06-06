@@ -87,6 +87,20 @@ const SheetReviewPage = () => {
   const reviewLoading = reviewData === undefined;
   const reviewError = reviewData === null;
 
+  // OBS-2: per-category flag counts for the summary strip.
+  const FLAG_LABELS: Record<string, string> = {
+    zero_amount_line_item: "zero-amount",
+    orphan: "orphan",
+    parser: "needs-review",
+    priced_preamble_no_children: "priced-preamble",
+  };
+  const FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
+  const flagCounts: Record<string, number> = {};
+  for (const f of flags) flagCounts[f.type] = (flagCounts[f.type] ?? 0) + 1;
+  const flagSummaryParts = FLAG_ORDER
+    .filter(t => (flagCounts[t] ?? 0) > 0)
+    .map(t => `${flagCounts[t]} ${FLAG_LABELS[t]}`);
+
   return (
     <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
 
@@ -111,6 +125,14 @@ const SheetReviewPage = () => {
           </h1>
         </div>
       </div>
+
+      {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
+      {!reviewLoading && !reviewError && flagSummaryParts.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
+          <span className="font-medium text-foreground">Advisory:</span>
+          <span>{flagSummaryParts.join(" · ")}</span>
+        </div>
+      )}
 
       {/* ── Review rows tree ──────────────────────────────────────────────── */}
       {reviewLoading && (

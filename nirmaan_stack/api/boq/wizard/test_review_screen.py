@@ -1062,23 +1062,34 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
 
     # -- flag (ii): zero_amount_line_item --
 
-    def test_flag_ii_fires_on_zero_amount_line_item(self):
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0, qty_total=0)]
+    def test_flag_ii_fires_on_zero_amount_with_rate(self):
+        # New rule (B2a-fix): fires when amount_zero AND has_rate (scalar rate fields).
+        rows = [self._row(0, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]
         flags = _compute_advisory_flags(rows, [])
         types = [f["type"] for f in flags]
         self.assertIn("zero_amount_line_item", types)
 
-    def test_flag_ii_fires_when_only_amount_is_zero(self):
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0, qty_total=5.0)]
+    def test_flag_ii_fires_when_amount_zero_and_rate_combined_present(self):
+        # Amount zero + non-zero combined rate -> fires regardless of qty.
+        rows = [self._row(0, "line_item", parent_index=0, amount_total=0,
+                          qty_total=5.0, rate_combined=200.0)]
         flags = _compute_advisory_flags(rows, [])
         types = [f["type"] for f in flags]
         self.assertIn("zero_amount_line_item", types)
 
-    def test_flag_ii_fires_when_only_qty_is_zero(self):
+    def test_flag_ii_qty_zero_alone_does_not_fire(self):
+        # qty-zero trigger dropped (B2a-fix): amount non-zero -> no flag regardless of qty.
         rows = [self._row(0, "line_item", parent_index=0, amount_total=100.0, qty_total=0)]
         flags = _compute_advisory_flags(rows, [])
         types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
+        self.assertNotIn("zero_amount_line_item", types)
+
+    def test_flag_ii_zero_amount_without_rate_does_not_fire(self):
+        # No rate present -> flag does not fire even with zero/None amount.
+        rows = [self._row(0, "line_item", parent_index=0, amount_total=0)]
+        flags = _compute_advisory_flags(rows, [])
+        types = [f["type"] for f in flags]
+        self.assertNotIn("zero_amount_line_item", types)
 
     def test_flag_ii_does_not_fire_on_non_zero_line_item(self):
         rows = [self._row(0, "line_item", parent_index=0, amount_total=100.0, qty_total=2.0)]
@@ -1089,12 +1100,12 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
     def test_flag_ii_respects_effective_classification(self):
         """
         A preamble reclassified to line_item via human_classification=line_item with
-        zero amounts must receive flag (ii) -- effective_classification is used.
+        zero amount AND a non-zero rate must receive flag (ii) -- effective_classification used.
         """
         rows = [
             self._row(0, "preamble", parent_index=0,
                       human_classification="line_item",
-                      amount_total=0, qty_total=0)
+                      amount_total=0, rate_install=100.0)
         ]
         flags = _compute_advisory_flags(rows, [])
         types = [f["type"] for f in flags]
@@ -1181,13 +1192,13 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
             "Preamble carrying a price with no sub-items — check if it's a line item.",
         )
 
-        rows_ii = [self._row(1, "line_item", parent_index=0, amount_total=0)]
+        rows_ii = [self._row(1, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]
         flags_ii = _compute_advisory_flags(rows_ii, [])
         ii_flag = next((f for f in flags_ii if f["type"] == "zero_amount_line_item"), None)
         self.assertIsNotNone(ii_flag)
         self.assertEqual(
             ii_flag["reason"],
-            "Amount is zero — check the value or whether it's intentional.",
+            "Has a rate but the amount is zero — check the quantity or amount.",
         )
 
         rows_iii = [self._row(2, "line_item", parent_index=None)]

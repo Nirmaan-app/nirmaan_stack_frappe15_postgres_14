@@ -227,8 +227,12 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
   // FIX 1: row DOM element refs for scrollIntoView
   const rowRefs = useRef<Map<number, HTMLElement>>(new Map());
-  // B2a: set of row_indexes whose advisory flag reasons are currently expanded
-  const [expandedFlagRows, setExpandedFlagRows] = useState<Set<number>>(new Set());
+  // B2a-fix OBS-1: single-open accordion -- only one row's flag reasons shown at a time.
+  // expandedFlagRow holds the row_index of the currently open row, or null if none.
+  const [expandedFlagRow, setExpandedFlagRow] = useState<number | null>(null);
+  // B2a-fix OBS-1: master show-all toggle. When true, all flagged rows reveal reasons,
+  // overriding the single-open model. Toggling off clears expandedFlagRow to null.
+  const [showAllFlags, setShowAllFlags] = useState(false);
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
@@ -284,13 +288,21 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
     });
   };
 
-  // B2a: toggle click-to-reveal for advisory flag reasons on a row.
+  // B2a-fix OBS-1: toggle single-open accordion for advisory flag reasons.
+  // If the clicked row is already open, close it (set null); otherwise open it.
   const toggleFlagRow = (rowIdx: number) => {
-    setExpandedFlagRows(prev => {
-      const next = new Set(prev);
-      if (next.has(rowIdx)) next.delete(rowIdx); else next.add(rowIdx);
-      return next;
-    });
+    setExpandedFlagRow(prev => prev === rowIdx ? null : rowIdx);
+  };
+
+  // B2a-fix OBS-1: master show-all / hide-all toggle.
+  // Toggling hide-all (showAllFlags -> false) also clears expandedFlagRow to null.
+  const toggleShowAllFlags = () => {
+    if (showAllFlags) {
+      setShowAllFlags(false);
+      setExpandedFlagRow(null);
+    } else {
+      setShowAllFlags(true);
+    }
   };
 
   const flagsByRowIdx = useMemo(() => {
@@ -298,6 +310,9 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
     for (const f of flags) { const a = m.get(f.row_index) ?? []; a.push(f); m.set(f.row_index, a); }
     return m;
   }, [flags]);
+
+  // Whether any flags exist at all -- used to conditionally render the master toggle.
+  const hasFlagsAny = flags.length > 0;
 
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
@@ -430,6 +445,23 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
             </PopoverContent>
           </Popover>
         )}
+        {/* B2a-fix OBS-1: master show-all / hide-all advisory notes toggle */}
+        {hasFlagsAny && (
+          <button
+            type="button"
+            onClick={toggleShowAllFlags}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
+              "bg-background hover:bg-muted/50 transition-colors",
+              showAllFlags
+                ? "text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Info className="h-3.5 w-3.5" />
+            {showAllFlags ? "Hide all notes" : "Show all notes"}
+          </button>
+        )}
         {/* Feature 2: three independent annotation-row visibility toggles */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">Show:</span>
@@ -470,7 +502,14 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
       </div>
       {/* Table scroll area -- max-h adjusted to account for controls bar height */}
       <div className="overflow-auto max-h-[calc(100vh-16rem)]">
-        <table className="w-full text-xs border-collapse">
+        {/* B2a-fix OBS-1: clicking anywhere in the table body dismisses the single-open
+            accordion (sets expandedFlagRow null). The Info button's stopPropagation
+            prevents the opening click from immediately triggering this handler.
+            Scoped to the <table> so the controls bar above is not affected. */}
+        <table
+          className="w-full text-xs border-collapse"
+          onClick={() => setExpandedFlagRow(null)}
+        >
           <thead>
             <tr className="bg-muted/50 sticky top-0 z-10 border-b border-border">
               {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
@@ -533,7 +572,8 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
               // B2a: advisory flags for this row
               const rowFlags = flagsByRowIdx.get(row.row_index) ?? [];
               const hasFlags = rowFlags.length > 0;
-              const flagsExpanded = expandedFlagRows.has(row.row_index);
+              // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
+              const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
               // colSpan for the flag-reasons reveal row: 5 fixed anchors + visible descriptor cols
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
               const totalCols = 5 + visibleDescriptorCount;
@@ -599,7 +639,9 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                             : <ChevronDown className="h-3 w-3" />}
                         </button>
                         <ClassificationPill cls={row.effective_classification} />
-                        {/* B2a: advisory flag marker -- one unified indicator per flagged row */}
+                        {/* B2a: advisory flag marker -- one unified indicator per flagged row.
+                            stopPropagation prevents the table's dismiss-onClick from firing
+                            on the same click that opens/closes this row's reason reveal. */}
                         {hasFlags && (
                           <button
                             type="button"
@@ -652,8 +694,8 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                     })}
                   </tr>
 
-                  {/* B2a: flag-reasons reveal row -- shown only when marker is clicked */}
-                  {hasFlags && flagsExpanded && (
+                  {/* B2a-fix OBS-1: flag-reasons reveal row -- single-open or show-all */}
+                  {flagsExpanded && (
                     <tr className="bg-amber-50/60 dark:bg-amber-950/20">
                       <td
                         colSpan={totalCols}

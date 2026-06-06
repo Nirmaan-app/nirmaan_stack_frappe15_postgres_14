@@ -109,7 +109,7 @@ _FLAG_REASONS: dict[str, str] = {
         "Preamble carrying a price with no sub-items — check if it's a line item."
     ),
     "zero_amount_line_item": (
-        "Amount is zero — check the value or whether it's intentional."
+        "Has a rate but the amount is zero — check the quantity or amount."
     ),
     "orphan": "Line item with no parent group — check its parenting.",
 }
@@ -421,19 +421,33 @@ def _compute_advisory_flags(
                 "reason": _FLAG_REASONS["priced_preamble_no_children"],
             })
 
-        # Flag (ii): zero amount or qty on a line item.
+        # Flag (ii): line item with a non-zero scalar rate but zero/missing amount.
+        # Fires only when amount_total is zero/None AND at least one scalar rate
+        # field is non-zero.  Rationale: a rate present with no amount is the
+        # meaningful signal (likely missing qty); a zero amount with no rate is
+        # a rate-only or unconfigured row and is not reliably advisory.
+        # The qty-zero trigger is intentionally removed (B2a-fix live-cert).
+        # Scalar rate fields only -- rate_by_area (JSON dict) is excluded.
+        # Multi-area zero-amount handling is deferred (see Slice B2a-fix docs).
         if eff_cls == "line_item":
             amount_total = _get(row, "amount_total")
-            qty_total = _get(row, "qty_total")
             amount_zero = amount_total is None or amount_total == 0
-            qty_zero = qty_total is None or qty_total == 0
-            if amount_zero or qty_zero:
-                flags.append({
-                    "type": "zero_amount_line_item",
-                    "row_index": row_index,
-                    "source_row_number": source_row_number,
-                    "reason": _FLAG_REASONS["zero_amount_line_item"],
-                })
+            if amount_zero:
+                rate_supply = _get(row, "rate_supply")
+                rate_install = _get(row, "rate_install")
+                rate_combined = _get(row, "rate_combined")
+                has_rate = (
+                    (rate_supply is not None and rate_supply != 0)
+                    or (rate_install is not None and rate_install != 0)
+                    or (rate_combined is not None and rate_combined != 0)
+                )
+                if has_rate:
+                    flags.append({
+                        "type": "zero_amount_line_item",
+                        "row_index": row_index,
+                        "source_row_number": source_row_number,
+                        "reason": _FLAG_REASONS["zero_amount_line_item"],
+                    })
 
         # Flag (iii): orphan -- compose from structural_breaks, do not recompute.
         if row_index in orphan_row_indexes:
