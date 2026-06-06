@@ -5695,3 +5695,66 @@ After B1.1b-iii, the cell is split into two separate columns:
 - `CLAUDE.md` (root) -- status line bumped.
 - `frontend/CLAUDE.md` -- status line bumped.
 - Root `CLAUDE.md` -- status line bumped.
+
+### Slice B2a-fix -- live-cert advisory-flag refinements (2026-06-06)
+
+**Motivation:** Three issues observed after live-cert of B2a single-source:
+- OBS-3: Flag (ii) fired on qty-zero rows even with non-zero amount -- wrong heuristic.
+- OBS-1: Flag reveal used a multi-open Set model; single-open accordion + master toggle were missing.
+- OBS-2: No flag count summary strip; users had to scroll the tree to discover flag density.
+
+**OBS-3 -- Backend: flag-(ii) rule tightened (review_screen.py)**
+
+Old logic fired on EITHER `amount_total == 0` OR `qty_total == 0` (independently). New rule:
+- Fires ONLY when `amount_total` is zero/None AND at least one scalar rate field (`rate_supply`, `rate_install`, `rate_combined`) is non-zero.
+- Qty-zero trigger DROPPED entirely: a zero quantity with a non-zero amount is not an advisory concern for the review screen.
+- Reason text updated: "Has a rate but the amount is zero -- check the quantity or amount."
+- Multi-area refinement (amount_by_area dicts) remains DEFERRED: the parser's empty-total fallback means multi-area rows with real data will have a non-zero `amount_total`; the edge case (amount_total=0 while amount_by_area is populated) is rare and produces a validation_warning already.
+
+**OBS-1 -- Frontend: ReviewTree.tsx accordion model**
+
+- State: `expandedFlagRows: Set<number>` REPLACED by `expandedFlagRow: number | null` (single-open accordion) + `showAllFlags: boolean` (master override).
+- `toggleFlagRow(rowIdx)`: sets `expandedFlagRow` to rowIdx or null (toggle).
+- `toggleShowAllFlags()`: toggles `showAllFlags`; hide-all also clears `expandedFlagRow` to null.
+- `hasFlagsAny = flags.length > 0`.
+- Master toggle button added to controls bar (gated on `hasFlagsAny`): "Show all notes" / "Hide all notes" with Info icon; amber tint when active.
+- `<table>` gets `onClick={() => setExpandedFlagRow(null)}` (dismiss-on-click-elsewhere scoped to table, NOT controls bar -- Popover/Checkbox/button clicks are unaffected).
+- Per-row: `flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index)`.
+- Redundant `hasFlags &&` guard on the reveal row removed (flagsExpanded already encodes it).
+
+**OBS-2 -- Frontend: SheetReviewPage.tsx flag summary strip**
+
+- `FLAG_LABELS` map: `zero_amount_line_item` -> "zero-amount", `orphan` -> "orphan", `parser` -> "needs-review", `priced_preamble_no_children` -> "priced-preamble".
+- `FLAG_ORDER`: stable display order matching the map above.
+- `flagCounts`: reduce over `flags` array to per-type counts.
+- `flagSummaryParts`: filtered + mapped to "{count} {label}" strings joined by " · ".
+- Strip renders between header strip and ReviewTree, gated on `!reviewLoading && !reviewError && flagSummaryParts.length > 0`. Neutral muted styling (`bg-muted/30 border border-border`). Bold "Advisory:" label prefix.
+
+**Tests (review_screen):** 77 → 78 (net +1). Changes in `TestAdvisoryFlagHelpers`:
+- `test_flag_ii_fires_on_zero_amount_line_item` → renamed `test_flag_ii_fires_on_zero_amount_with_rate` (added `rate_supply=150.0`).
+- `test_flag_ii_fires_when_only_amount_is_zero` → renamed `test_flag_ii_fires_when_amount_zero_and_rate_combined_present` (added `rate_combined=200.0`, removed `qty_total=5.0` dependency).
+- `test_flag_ii_fires_when_only_qty_is_zero` → renamed `test_flag_ii_qty_zero_alone_does_not_fire`, assertion FLIPPED to `assertNotIn` (`amount_total=100.0` non-zero -- no flag expected).
+- NEW: `test_flag_ii_zero_amount_without_rate_does_not_fire` (amount=0, no rate fields -- must NOT fire).
+- `test_flag_ii_respects_effective_classification`: added `rate_install=100.0`, removed `qty_total=0`.
+- `test_canonical_reasons_verbatim` (flag-(ii) subtest): added `rate_supply=150.0`, updated expected string to new reason text.
+
+**Deferred:**
+- Multi-area zero-amount edge case for flag (ii) (amount_total=0 while amount_by_area has non-zeros).
+- `rate_by_area` TS type bug (`Record<string, number>` should be `Record<string, {supply_rate,install_rate,combined_rate}>`).
+- Wizard Design §6.5.3 doc wording for flag (ii) (stale after this fix -- update at next §6.5 fold).
+
+**Test counts (this run):**
+- `test_review_screen`: 78 tests. All green.
+- `test_parse_run`: 63 tests. All green.
+- Total wizard: 249 (63 + 78 + 66 + 7 + 23 + 12).
+
+**tsc:** 0 wizard-file errors. Vite build exit 0 (4m 19s).
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/review_screen.py` -- flag-(ii) rule + reason text.
+- `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- 4 renamed/updated + 1 new flag-(ii) test.
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- single-open accordion + master toggle.
+- `frontend/src/pages/boq-wizard/SheetReviewPage.tsx` -- flag count summary strip.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record.
+- `CLAUDE.md` (root) -- status line bumped.
+- `frontend/CLAUDE.md` -- status line bumped.
