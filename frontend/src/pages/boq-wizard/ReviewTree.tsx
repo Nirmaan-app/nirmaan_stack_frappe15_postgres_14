@@ -12,12 +12,14 @@
  *   FIX 4: Description cell -- pill on its own line (top), description text below.
  *
  * Fixed anchor columns (always shown):
- *   Excel Row  -- source_row_number. Positional; no mapped letter.
- *   Sl.No (X)  -- sl_no_value. X = col letter from the sl_no descriptor, if mapped.
- *   Parent     -- parent row's source_row_number (Excel row). Derived; no mapped letter.
- *                 Clickable: expands collapsed ancestors + scrolls to parent row.
- *   Description (Y) -- description text + tree indent/chevron/pill. Y = col letter
- *                       from the description descriptor, if mapped.
+ *   Excel Row      -- source_row_number. Positional; no mapped letter.
+ *   Sl.No (X)      -- sl_no_value. X = col letter from the sl_no descriptor, if mapped.
+ *   Parent         -- parent row's source_row_number (Excel row). Derived; no mapped letter.
+ *                     Clickable: expands collapsed ancestors + scrolls to parent row.
+ *   Classification -- collapse chevron + ClassificationPill. Flat-left (no depth indent).
+ *                     Fixed anchor; not in the column-subset selector. (B1.1b-iii)
+ *   Description (Y) -- text only; depth-based indent (paddingLeft = depth * INDENT_PX).
+ *                      Y = col letter from the description descriptor, if mapped.
  *
  * Descriptor columns: one per ColumnDescriptor (after FIXED_ROLE_DEDUPE), headed by
  *   "{col} -- {ROLE_LABELS[role]}{ * area}". Descriptors with role "sl_no" or
@@ -35,7 +37,7 @@
  *
  * B1.1b-ii: view-filter controls bar above the table --
  *   FEAT A: Column-subset selector -- Popover + Checkbox per displayDescriptor col.
- *     Fixed anchors (Excel Row, Sl.No, Parent, Description) always render.
+ *     Fixed anchors (Excel Row, Sl.No, Parent, Classification, Description) always render.
  *     visibleCols: Set<string> of col letters initialized to all descriptor cols;
  *     synced via useEffect when displayDescriptors changes (new sheet/descriptors).
  *   FEAT B: Three independent annotation-row visibility toggles -- spacer, note,
@@ -44,6 +46,14 @@
  *     when BOTH pass. Children of hidden annotation rows render at original depth
  *     because computeDepths pre-runs over all rows and classificationVisible never
  *     touches the collapsed Set. View-filter only -- no data edit.
+ *
+ * B1.1b-iii: Description cell split into Classification + Description columns --
+ *   Classification (new fixed anchor, between Parent and Description): holds the
+ *     collapse chevron + ClassificationPill side by side, flat-left (no depth indent).
+ *     Not in the column-subset selector.
+ *   Description (text-only): holds only the description text + fallback; depth-based
+ *     indent (paddingLeft = depth * INDENT_PX) applied here. Chevron + pill removed.
+ *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, SlidersHorizontal } from "lucide-react";
@@ -457,6 +467,10 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap">
                 Parent
               </th>
+              {/* Classification (B1.1b-iii): fixed anchor -- chevron + pill; no mapped letter */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap">
+                Classification
+              </th>
               {/* Description: letter from the description descriptor col, if mapped */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap">
                 {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
@@ -535,14 +549,9 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
                     ) : null}
                   </td>
 
-                  {/* Description: FIX 4 -- pill on its own line (top), text below.
-                      Indent + chevron aligned with the pill+text block.
-                      FIX 2 -- pill has full horizontal room; whitespace-nowrap prevents clip. */}
-                  <td className="px-2 py-1.5 align-top">
-                    <div
-                      className="flex items-start gap-1.5"
-                      style={{ paddingLeft: `${depth * INDENT_PX}px` }}
-                    >
+                  {/* Classification (B1.1b-iii): chevron + pill, flat-left, no depth indent */}
+                  <td className="px-2 py-1.5 align-top w-36 border-r border-border">
+                    <div className="flex items-start gap-1.5">
                       {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
                           so the layout stays stable and descriptions align. */}
                       <button
@@ -560,22 +569,24 @@ export function ReviewTree({ rows, columnDescriptors }: ReviewTreeProps) {
                           ? <ChevronRight className="h-3 w-3" />
                           : <ChevronDown className="h-3 w-3" />}
                       </button>
+                      <ClassificationPill cls={row.effective_classification} />
+                    </div>
+                  </td>
 
-                      {/* FIX 4: pill stacked above description text in a flex-col block.
-                          The block sits after the chevron; indent applies to the outer div. */}
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <ClassificationPill cls={row.effective_classification} />
-                        <span className={cn(
-                          "leading-snug break-words min-w-0",
-                          isPreamble && "font-medium text-foreground",
-                          isLineItem && "text-foreground",
-                          !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                        )}>
-                          {row.description || (
-                            <span className="not-italic text-muted-foreground">(no description)</span>
-                          )}
-                        </span>
-                      </div>
+                  {/* Description (B1.1b-iii): text only; depth indent moved here.
+                      paddingLeft = depth * INDENT_PX applied to the content wrapper. */}
+                  <td className="px-2 py-1.5 align-top">
+                    <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
+                      <span className={cn(
+                        "leading-snug break-words min-w-0",
+                        isPreamble && "font-medium text-foreground",
+                        isLineItem && "text-foreground",
+                        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                      )}>
+                        {row.description || (
+                          <span className="not-italic text-muted-foreground">(no description)</span>
+                        )}
+                      </span>
                     </div>
                   </td>
 
