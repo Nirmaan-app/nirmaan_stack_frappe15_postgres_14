@@ -236,9 +236,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-06 (Slice B1.1b-iii: Description cell split -- Classification fixed anchor [chevron+pill, flat-left] + text-only Description with indent)
+**Last updated:** 2026-06-07 (Slice C-v1: optional reason 6th edit_log key + edited_at on save return; backend delta + read-side render)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat pending (Slice B1.1b-iii)
+**Latest commit:** feat 2bf77d62 (Slice C-v1)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -5914,3 +5914,30 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record.
 - `CLAUDE.md` (root) -- status line bumped.
 - `frontend/CLAUDE.md` -- status line bumped.
+
+### Slice C-v1 -- optional reason 6th edit_log key + edited_at on save return (feat 2bf77d62, 2026-06-07)
+
+**Scope:** First of three C-values sub-slices and the ONLY backend-touching one. Deliberately tiny so the agreement-#49-sensitive edit_log serialization change lands and is unit-certified in isolation before the larger value-editing UI (C-v2) rests on it. C-v1 does exactly: (1) add an OPTIONAL per-edit `reason` string stored as a 6th key on each edit_log entry; (2) add `edited_at` to the `save_review_edit` return dict (so C-v2's save-status anchor reads a SERVER timestamp without a refetch); (3) frontend READ-SIDE ONLY -- `reason?: string` on `EditLogEntry` + render in the detail-panel edit-history when present. NO input, NO write path for reason -- that is C-v2. Schema-and-render-ahead-of-writer, same clean pattern B2c used.
+
+**Backend (`api/boq/wizard/review_screen.py`):**
+- `append_edit_log_entry(existing_log, field, from_val, to_val, user, reason=None)` -- new trailing `reason` param; entry dict now `{field, from, to, by, at, reason}`. UNIFORM SHAPE choice: the `reason` key is ALWAYS present; its value is `None` when no reason supplied (cleaner than conditionally omitting the key -- frontend renders only when truthy). `"at"` stays inline `frappe.utils.now()`.
+- `save_review_edit(..., reason: str = None)` -- new trailing param after `value`. Normalized: `if isinstance(reason, str): reason = reason.strip() or None` (blank/whitespace -> None). Threaded into the `append_edit_log_entry` call. `edited_at` added to the return dict, sourced from `doc.edited_at` (the value just stamped this save). edit_log is serialized ONCE via `json.dumps` (key-count-agnostic -- the 6th key flows through unchanged; edit_log is NOT in `_RESAVE_LIST_JSON_FIELDS`).
+- Return shape now: `{ok, row_index, field, from, to, edited_at, effective}`.
+- `resolve_effective`, `_RESAVE_LIST_JSON_FIELDS` -- UNCHANGED. The D1 raw-vs-effective `to` behavior -- left as is (intentional, moot for value fields).
+
+**Frontend (read-side only):**
+- `boqTypes.ts` -- `EditLogEntry` gains `reason?: string` (optional). No `SaveReviewEditResponse` type exists today (save return is untyped at call sites); none invented -- minimal consistent surface.
+- `ReviewTree.tsx` -- detail-panel edit-history loop (per-entry render) appends ` · reason: {entry.reason}` in muted styling when `entry.reason` is truthy; tolerates absence. The per-ROW "Reason — (added in a later step)" placeholder slot (a DIFFERENT thing: the row-level current-reason slot for C-v2) is LEFT UNTOUCHED.
+
+**Tests (`test_review_screen.py`):** review_screen tests 78 -> 84 (+6). `TestAppendEditLogEntry`: reason stored as 6th key when supplied; reason key present and None when absent. `TestSaveReviewEdit`: reason persisted into latest edit_log entry; reason None when omitted; blank reason normalized to None; return includes non-empty `edited_at`. No existing test changed.
+
+**tsc:** 0 wizard-file errors. No Vite build required for v1 -- no behavioral UI change to live-cert (reason render has no data to show until C-v2 wires the input). Parser tests unchanged, not run (out of scope). No fixture churn (no parse-run tests in this suite).
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/review_screen.py` -- append_edit_log_entry + save_review_edit.
+- `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- +6 tests.
+- `frontend/src/pages/boq-wizard/boqTypes.ts` -- EditLogEntry.reason.
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- edit-history reason render.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record + Latest-commit bump.
+- `CLAUDE.md` (root) -- status line + endpoint reference note.
+- `frontend/CLAUDE.md` -- status line + EditLogEntry reason / save edited_at note.
