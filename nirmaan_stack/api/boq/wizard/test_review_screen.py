@@ -845,6 +845,215 @@ class TestSaveReviewRemark(FrappeTestCase):
 
 
 # ===========================================================================
+# Group 5c: save_review_edit per-area editing -- DB (Slice C-v2d)
+# ===========================================================================
+
+class TestSaveReviewEditPerArea(FrappeTestCase):
+    """
+    Verifies the per-area JSON write path on save_review_edit (Slice C-v2d):
+      - FLAT one-hop fields (qty_by_area / amount_by_area): set one area cell, key stays;
+      - NESTED two-hop field (rate_by_area + rate_subkey): set one inner kind, others intact;
+      - blank value -> 0.0 with the key kept (NEVER deleted);
+      - structured edit_log entry carries area (+ rate_subkey for rate);
+      - provenance (edited_at) is stamped exactly like a flat edit;
+      - validation: nonexistent area / missing rate_subkey / illegal rate_subkey rejected;
+      - the flat-field path (area=None) is unchanged (regression) and its edit_log entry
+        carries NO area / rate_subkey keys (old entries stay valid).
+
+    Fixture rows per test (reset by setUp):
+      Row 0 -- line_item, parent=None, with qty_by_area / amount_by_area / rate_by_area.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Per-Area Edit Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "AreaSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "AreaSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        row = _minimal_row(self.sheet_name, 0, "line_item", parent_index=None)
+        # Per-area JSON dict fields (passed as Python dicts -- NOT pre-serialized;
+        # they are dict-JSON, not list-JSON, so _insert_rows leaves them alone).
+        row["qty_by_area"] = {"Zone A": 10.0, "Zone B": 20.0}
+        row["amount_by_area"] = {"Zone A": 100.0, "Zone B": 200.0}
+        row["rate_by_area"] = {
+            "Zone A": {"supply_rate": 5.0, "install_rate": 3.0, "combined_rate": 8.0},
+            "Zone B": {"combined_rate": 12.0},
+        }
+        _insert_rows(self.boq_name, [row])
+
+    def _get_doc(self, row_index: int):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        return frappe.get_doc("BoQ Review Row", name)
+
+    @staticmethod
+    def _as_dict(v):
+        return json.loads(v) if isinstance(v, str) else v
+
+    # -- flat per-area (qty / amount) --
+
+    def test_qty_by_area_sets_one_cell_key_stays(self):
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="qty_by_area", value=15, area="Zone A",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["field"], "qty_by_area")
+        self.assertEqual(result["area"], "Zone A")
+        self.assertIsNone(result["rate_subkey"])
+        self.assertEqual(result["to"], 15.0)
+        self.assertEqual(result["from"], 10.0, "from must be the per-area value before the edit")
+        doc = self._get_doc(0)
+        qba = self._as_dict(doc.qty_by_area)
+        self.assertEqual(qba["Zone A"], 15.0, "edited cell updated")
+        self.assertEqual(qba["Zone B"], 20.0, "other area must be untouched")
+        self.assertIsNotNone(doc.edited_at, "a per-area edit must stamp edited_at")
+        log = self._as_dict(doc.edit_log)
+        self.assertEqual(log[-1]["field"], "qty_by_area")
+        self.assertEqual(log[-1]["area"], "Zone A")
+        self.assertNotIn("rate_subkey", log[-1],
+                         "a flat per-area entry must not carry rate_subkey")
+        self.assertEqual(log[-1]["to"], 15.0)
+
+    def test_amount_by_area_sets_one_cell(self):
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="amount_by_area", value=250, area="Zone B",
+        )
+        self.assertTrue(result["ok"])
+        doc = self._get_doc(0)
+        aba = self._as_dict(doc.amount_by_area)
+        self.assertEqual(aba["Zone B"], 250.0)
+        self.assertEqual(aba["Zone A"], 100.0, "other area untouched")
+        log = self._as_dict(doc.edit_log)
+        self.assertEqual(log[-1]["area"], "Zone B")
+
+    # -- nested per-area (rate) --
+
+    def test_rate_by_area_sets_one_subkey_others_intact(self):
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="rate_by_area", value=9.5,
+            area="Zone A", rate_subkey="combined_rate",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["area"], "Zone A")
+        self.assertEqual(result["rate_subkey"], "combined_rate")
+        self.assertEqual(result["from"], 8.0, "from must be the inner value before the edit")
+        doc = self._get_doc(0)
+        rba = self._as_dict(doc.rate_by_area)
+        self.assertEqual(rba["Zone A"]["combined_rate"], 9.5, "edited subkey updated")
+        self.assertEqual(rba["Zone A"]["supply_rate"], 5.0, "other subkey intact")
+        self.assertEqual(rba["Zone A"]["install_rate"], 3.0, "other subkey intact")
+        self.assertEqual(rba["Zone B"]["combined_rate"], 12.0, "other area intact")
+        log = self._as_dict(doc.edit_log)
+        self.assertEqual(log[-1]["field"], "rate_by_area")
+        self.assertEqual(log[-1]["area"], "Zone A")
+        self.assertEqual(log[-1]["rate_subkey"], "combined_rate")
+
+    # -- blank -> 0.0 key stays --
+
+    def test_blank_sets_zero_key_not_deleted(self):
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="qty_by_area", value="", area="Zone A",
+        )
+        doc = self._get_doc(0)
+        qba = self._as_dict(doc.qty_by_area)
+        self.assertIn("Zone A", qba, "blank must NOT delete the area key")
+        self.assertEqual(qba["Zone A"], 0.0, "blank must set the value to 0.0")
+
+    def test_blank_rate_subkey_sets_zero_key_stays(self):
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="rate_by_area", value="",
+            area="Zone A", rate_subkey="supply_rate",
+        )
+        doc = self._get_doc(0)
+        rba = self._as_dict(doc.rate_by_area)
+        self.assertEqual(rba["Zone A"]["supply_rate"], 0.0)
+        self.assertEqual(rba["Zone A"]["combined_rate"], 8.0, "other subkey untouched")
+
+    # -- validation --
+
+    def test_nonexistent_area_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="qty_by_area", value=5, area="Zone Z",
+            )
+        doc = self._get_doc(0)
+        qba = self._as_dict(doc.qty_by_area)
+        self.assertNotIn("Zone Z", qba, "a rejected edit must not create the area")
+        self.assertIsNone(doc.edited_at, "a rejected edit must not stamp edited_at")
+
+    def test_rate_without_rate_subkey_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="rate_by_area", value=9.5, area="Zone A",
+            )
+
+    def test_illegal_rate_subkey_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="rate_by_area", value=9.5,
+                area="Zone A", rate_subkey="bogus_rate",
+            )
+
+    def test_non_area_field_with_area_rejected(self):
+        """A non-per-area field passed WITH an area is rejected (qty_total is flat-only)."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="qty_total", value=5, area="Zone A",
+            )
+
+    # -- flat-field regression (area=None) --
+
+    def test_flat_field_path_unchanged_when_area_none(self):
+        """With area=None the flat numeric path is unchanged; its edit_log entry
+        carries NO area / rate_subkey keys (old flat entries stay valid)."""
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="qty_total", value=42,
+        )
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["area"])
+        self.assertIsNone(result["rate_subkey"])
+        doc = self._get_doc(0)
+        self.assertEqual(doc.qty_total, 42.0)
+        log = self._as_dict(doc.edit_log)
+        self.assertEqual(log[-1]["field"], "qty_total")
+        self.assertNotIn("area", log[-1], "a flat-field entry must omit the area key")
+        self.assertNotIn("rate_subkey", log[-1], "a flat-field entry must omit rate_subkey")
+
+
+# ===========================================================================
 # Group 6: mark_sheet_parsed_check_done -- DB
 # ===========================================================================
 

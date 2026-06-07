@@ -54,6 +54,22 @@ _VALUE_FIELDS: frozenset[str] = frozenset({
 _TEXT_FIELDS: frozenset[str] = frozenset({"unit", "make_model"})
 _ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIELDS
 
+# Per-area JSON fields editable inline (Slice C-v2d). These are NOT scalar fields --
+# each is a dict keyed by area name. A per-area edit is addressed by the `area`
+# (+ `rate_subkey` for rate_by_area) params on save_review_edit, NOT through
+# _ALLOWED_EDIT_FIELDS (which gates the flat-field path). Shapes:
+#   qty_by_area / amount_by_area -- FLAT one-hop  {area: float}
+#   rate_by_area                 -- NESTED two-hop {area: {supply_rate, install_rate,
+#                                                          combined_rate}} (rate_subkey required)
+# Both shapes round-trip through doc.save() with a BARE dict assign (no json.dumps);
+# the area key must ALREADY exist (an edit never creates an area). Blank value -> 0.0
+# with the key kept (never deleted -- deleting a key is a structure change, not a value edit).
+_FLAT_AREA_FIELDS: frozenset[str] = frozenset({"qty_by_area", "amount_by_area"})
+_RATE_AREA_FIELD = "rate_by_area"
+_AREA_JSON_FIELDS: frozenset[str] = _FLAT_AREA_FIELDS | {_RATE_AREA_FIELD}
+# Legal inner rate-kind keys -- reuse the parser's authoritative map, do NOT re-copy.
+_LEGAL_RATE_SUBKEYS: frozenset[str] = frozenset(_RATE_ROLE_TO_KIND.values())
+
 # Per-row human-only remark cap (Slice C-v2c). Enforced in save_review_remark on
 # both sides (frontend live-counter + this hard guard). The remarks field is a
 # Small Text column; the cap is code-enforced (Small Text has no DB length).
@@ -328,6 +344,8 @@ def append_edit_log_entry(
     to_val: Any,
     user: str,
     reason: str = None,
+    area: str = None,
+    rate_subkey: str = None,
 ) -> list:
     """
     Append one edit entry to the log and return the new log list.
@@ -335,11 +353,16 @@ def append_edit_log_entry(
     existing_log may be a Python list, a JSON-encoded string, or None (empty log).
     The caller is responsible for json.dumps() before save (list-JSON field rule).
 
-    Entry shape: {field, from, to, by, at, reason}
+    Entry shape: {field, from, to, by, at, reason[, area][, rate_subkey]}
 
     reason (Slice C-v1) is an OPTIONAL free-text note captured per edit. The key
     is always present in the entry for a uniform shape; its value is None when no
-    reason was supplied. There is no write path for reason yet -- C-v2 adds the UI.
+    reason was supplied.
+
+    area / rate_subkey (Slice C-v2d) are OPTIONAL structured sub-keys for per-area
+    edits (qty_by_area / amount_by_area / rate_by_area). They are added to the entry
+    ONLY when supplied -- flat-field entries omit them entirely, so old entries stay
+    valid. rate_subkey appears only for rate_by_area edits.
     """
     if existing_log is None:
         log: list = []
@@ -351,14 +374,20 @@ def append_edit_log_entry(
     else:
         log = list(existing_log)  # shallow copy -- do not mutate caller's list
 
-    log.append({
+    entry = {
         "field": field,
         "from": from_val,
         "to": to_val,
         "by": user,
         "at": frappe.utils.now(),
         "reason": reason,
-    })
+    }
+    # Slice C-v2d: structured sub-keys -- added only when present (flat entries omit them).
+    if area is not None:
+        entry["area"] = area
+    if rate_subkey is not None:
+        entry["rate_subkey"] = rate_subkey
+    log.append(entry)
     return log
 
 
@@ -684,11 +713,13 @@ def save_review_edit(
     field: str = None,
     value=None,
     reason: str = None,
+    area: str = None,
+    rate_subkey: str = None,
 ) -> dict:
     """
     Apply a human edit to a single BoQ Review Row field.
 
-    Allowed fields:
+    Allowed fields (flat path -- area is None):
       human_classification  -- validated against RowClassification vocabulary;
                                None/"" clears the override.
       human_parent          -- int row_index; hard-rejected if self-parent or cycle.
@@ -697,13 +728,22 @@ def save_review_edit(
       unit / make_model     -- direct update of text fields (string verbatim, no
                                float coercion); blank clears to None (Slice C-v2b).
 
-    reason (Slice C-v1) is an OPTIONAL free-text note stored as the 6th key on the
-    edit_log entry. Blank/whitespace-only is normalized to None. There is no UI
-    writer yet -- C-v2 adds the confirm-dialog input.
+    Per-area path (Slice C-v2d -- when `area` is supplied):
+      field is one of qty_by_area / amount_by_area / rate_by_area; `area` names the
+      cell. rate_by_area additionally requires `rate_subkey` in (supply_rate,
+      install_rate, combined_rate). The area key MUST already exist on the row (an
+      edit never creates an area). Blank value -> 0.0 with the key kept. The whole
+      dict is bare-assigned back (no json.dumps); the edit stamps provenance exactly
+      like a flat edit and appends a STRUCTURED edit_log entry carrying area
+      (+ rate_subkey). When `area` is None, behaviour is exactly the flat path above.
+
+    reason (Slice C-v1) is an OPTIONAL free-text note stored as a key on the edit_log
+    entry. Blank/whitespace-only is normalized to None.
 
     The edit is logged to edit_log (appended). edited_by + edited_at are stamped.
 
-    Returns: {ok: True, row_index, field, from, to, edited_at, effective: {...}}
+    Returns: {ok, row_index, field, from, to, edited_at, effective, area, rate_subkey}
+      (area / rate_subkey are None on the flat path.)
 
     URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.save_review_edit
     """
@@ -723,12 +763,39 @@ def save_review_edit(
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
-    if field not in _ALLOWED_EDIT_FIELDS:
-        allowed = ", ".join(sorted(_ALLOWED_EDIT_FIELDS))
-        frappe.throw(
-            f"Field '{field}' is not editable via this endpoint. Allowed: {allowed}.",
-            title="Invalid field",
-        )
+    # Slice C-v2d: a non-empty `area` routes to the per-area JSON write path; otherwise
+    # this is exactly the flat-field path. An empty-string area is treated as no area.
+    area_provided = area is not None and area != ""
+
+    if area_provided:
+        if field not in _AREA_JSON_FIELDS:
+            allowed = ", ".join(sorted(_AREA_JSON_FIELDS))
+            frappe.throw(
+                f"Field '{field}' is not a per-area editable field. Allowed: {allowed}.",
+                title="Invalid field",
+            )
+        if field == _RATE_AREA_FIELD:
+            if not rate_subkey:
+                frappe.throw(
+                    "rate_subkey is required when editing rate_by_area.",
+                    title="Missing field: rate_subkey",
+                )
+            if rate_subkey not in _LEGAL_RATE_SUBKEYS:
+                allowed = ", ".join(sorted(_LEGAL_RATE_SUBKEYS))
+                frappe.throw(
+                    f"'{rate_subkey}' is not a valid rate kind. Allowed: {allowed}.",
+                    title="Invalid rate_subkey",
+                )
+        else:
+            # qty_by_area / amount_by_area are flat one-hop -- rate_subkey is meaningless.
+            rate_subkey = None
+    else:
+        if field not in _ALLOWED_EDIT_FIELDS:
+            allowed = ", ".join(sorted(_ALLOWED_EDIT_FIELDS))
+            frappe.throw(
+                f"Field '{field}' is not editable via this endpoint. Allowed: {allowed}.",
+                title="Invalid field",
+            )
 
     try:
         row_index = int(row_index)
@@ -819,43 +886,85 @@ def save_review_edit(
 
     doc = frappe.get_doc("BoQ Review Row", row_name)
 
-    # --- Capture from-value (EFFECTIVE value before edit) ---
+    # --- Capture from-value (EFFECTIVE value before edit) + apply the edit ---
 
-    if field == "human_classification":
-        from_val = resolve_effective(doc)["effective_classification"]
-    elif field == "human_parent":
-        from_val = resolve_effective(doc)["effective_parent_index"]
-    else:
-        from_val = getattr(doc, field, None)
-
-    # --- Apply the edit ---
-
-    if field in _HUMAN_FIELDS:
-        if field == "human_parent":
-            # -1 = no override; >= 0 = real override (incl. 0 = parent is row 0).
-            # value was already validated as int or None in the block above.
-            doc.human_parent = -1 if value is None else value
-        else:
-            setattr(doc, field, value)
-    elif field in _TEXT_FIELDS:
-        # Text field (unit / make_model): store the string verbatim -- NO float()
-        # coercion (the numeric path below would reject text). Blank string clears
-        # to None, matching the numeric blank-clear behaviour.
+    if area_provided:
+        # Per-area JSON write (Slice C-v2d): read-modify-write the dict, set ONE cell.
+        current = getattr(doc, field, None)
+        if isinstance(current, str) and current:
+            try:
+                current = json.loads(current)
+            except (ValueError, TypeError):
+                current = {}
+        if not isinstance(current, dict):
+            current = {}
+        # Reject -- never create an area via an edit (changing keys is a structure change).
+        if area not in current:
+            frappe.throw(
+                f"Area '{area}' is not present on field '{field}' for this row.",
+                title="Unknown area",
+            )
+        # Blank value -> 0.0 (key kept); non-blank coerced to float.
         if value is None or value == "":
-            setattr(doc, field, None)
-        else:
-            setattr(doc, field, value)
-    else:
-        # Value field: convert to float or clear to None
-        if value is None or value == "":
-            setattr(doc, field, None)
+            new_val = 0.0
         else:
             try:
-                setattr(doc, field, float(value))
+                new_val = float(value)
             except (ValueError, TypeError):
                 frappe.throw(
                     f"Value for '{field}' must be a number.", title="Invalid value"
                 )
+        if field == _RATE_AREA_FIELD:
+            # Two-hop: rate_by_area[area][rate_subkey].
+            inner = current.get(area)
+            if not isinstance(inner, dict):
+                inner = {}
+            from_val = inner.get(rate_subkey)
+            inner[rate_subkey] = new_val
+            current[area] = inner
+        else:
+            # One-hop: qty_by_area / amount_by_area [area].
+            from_val = current.get(area)
+            current[area] = new_val
+        # Bare dict assign -- Frappe auto-serializes the JSON column on save (proven).
+        setattr(doc, field, current)
+        to_val = new_val
+    else:
+        # --- Flat-field path (capture from-value, then apply) ---
+        if field == "human_classification":
+            from_val = resolve_effective(doc)["effective_classification"]
+        elif field == "human_parent":
+            from_val = resolve_effective(doc)["effective_parent_index"]
+        else:
+            from_val = getattr(doc, field, None)
+
+        if field in _HUMAN_FIELDS:
+            if field == "human_parent":
+                # -1 = no override; >= 0 = real override (incl. 0 = parent is row 0).
+                # value was already validated as int or None in the block above.
+                doc.human_parent = -1 if value is None else value
+            else:
+                setattr(doc, field, value)
+        elif field in _TEXT_FIELDS:
+            # Text field (unit / make_model): store the string verbatim -- NO float()
+            # coercion (the numeric path below would reject text). Blank string clears
+            # to None, matching the numeric blank-clear behaviour.
+            if value is None or value == "":
+                setattr(doc, field, None)
+            else:
+                setattr(doc, field, value)
+        else:
+            # Value field: convert to float or clear to None
+            if value is None or value == "":
+                setattr(doc, field, None)
+            else:
+                try:
+                    setattr(doc, field, float(value))
+                except (ValueError, TypeError):
+                    frappe.throw(
+                        f"Value for '{field}' must be a number.", title="Invalid value"
+                    )
+        to_val = value
 
     # --- Append edit log entry ---
 
@@ -869,7 +978,9 @@ def save_review_edit(
         existing_log = []
 
     new_log = append_edit_log_entry(
-        existing_log, field, from_val, value, frappe.session.user, reason
+        existing_log, field, from_val, to_val, frappe.session.user, reason,
+        area=area if area_provided else None,
+        rate_subkey=rate_subkey if area_provided else None,
     )
     # edit_log is a list-JSON field -- must be pre-serialized before save
     setattr(doc, _EDIT_LOG_FIELD, json.dumps(new_log))
@@ -893,9 +1004,12 @@ def save_review_edit(
         "row_index": row_index,
         "field": field,
         "from": from_val,
-        "to": value,
+        "to": to_val,
         "edited_at": doc.edited_at,
         "effective": resolve_effective(doc),
+        # Slice C-v2d: echo the per-area target (None on the flat path).
+        "area": area if area_provided else None,
+        "rate_subkey": rate_subkey if area_provided else None,
     }
 
 

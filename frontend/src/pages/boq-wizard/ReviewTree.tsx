@@ -263,6 +263,14 @@ const EDITABLE_VALUE_FIELDS = new Set<string>([
 // row_notes stay read-only -- they are NOT here.
 const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
 
+// C-v2d: the 3 per-area JSON value fields editable inline (mirrors backend
+// _AREA_JSON_FIELDS). A descriptor is per-area-editable iff value_key !== null (it
+// targets one area cell) AND its value_field is one of these. qty_by_area /
+// amount_by_area are flat one-hop; rate_by_area is nested (descriptor carries the
+// rate_subkey). These commit through the SAME confirm dialog as flat numeric edits;
+// blank -> 0.0 (the area key stays). save_review_edit takes area (+ rate_subkey).
+const EDITABLE_AREA_FIELDS = new Set<string>(["qty_by_area", "amount_by_area", "rate_by_area"]);
+
 // C-v2c: per-row human-only remark cap (mirrors backend _REMARK_MAX_LEN). Enforced
 // here as a live counter + Save-disable; the backend hard-guards the same value.
 const REMARK_MAX_LEN = 250;
@@ -320,7 +328,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const [editInputs, setEditInputs] = useState<Record<string, string>>({});
   // C-v2b: editable text inputs (unit / make_model) for the expanded detail row.
   const [textInputs, setTextInputs] = useState<Record<string, string>>({});
+  // C-v2d: per-area numeric inputs for the expanded detail row, keyed by descriptor
+  // col letter (value_field repeats across areas, so col is the unique key).
+  const [areaInputs, setAreaInputs] = useState<Record<string, string>>({});
   // Pending value edit awaiting confirmation (single-open, mirrors expandedDetailRow).
+  // C-v2d: area / rateSubkey are present only for per-area edits (undefined for flat).
   const [pendingEdit, setPendingEdit] = useState<{
     rowIndex: number;
     field: string;
@@ -329,6 +341,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     excelRow: number;
     from: string;
     to: string;
+    area?: string;
+    rateSubkey?: string;
   } | null>(null);
   // Optional free-text reason captured in the confirm dialog (blank -> backend None).
   const [pendingReason, setPendingReason] = useState("");
@@ -347,7 +361,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   }, [rows]);
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors } = useMemo(() => {
+  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
     const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
     const slNoLetter = columnDescriptors.find(d => d.role === "sl_no")?.col ?? null;
     const descriptionLetter = columnDescriptors.find(d => d.role === "description")?.col ?? null;
@@ -365,6 +379,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     const editableTextDescriptors = displayDescriptors.filter(
       d => d.value_key === null && EDITABLE_TEXT_FIELDS.has(d.value_field),
     );
+    // C-v2d: per-area editable descriptors (one per area cell the sheet maps).
+    // value_key !== null distinguishes a per-area surface from a flat column.
+    const editableAreaDescriptors = displayDescriptors.filter(
+      d => d.value_key !== null && EDITABLE_AREA_FIELDS.has(d.value_field),
+    );
     return {
       displayDescriptors,
       slNoLetter,
@@ -372,6 +391,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       areaColorMap: buildAreaColorMap(areas),
       editableDescriptors,
       editableTextDescriptors,
+      editableAreaDescriptors,
     };
   }, [columnDescriptors]);
 
@@ -431,12 +451,30 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     setSaveError(null);
   };
 
+  // C-v2d: open the same confirm dialog for a per-area cell. Carries area
+  // (+ rate_subkey for rate_by_area) so confirmValueSave can target the cell.
+  const openAreaConfirm = (row: ReviewRow, d: ColumnDescriptor, fromStr: string, toStr: string) => {
+    setPendingEdit({
+      rowIndex: row.row_index,
+      field: d.value_field,
+      col: d.col,
+      role: ROLE_LABELS[d.role] ?? d.role,
+      excelRow: row.source_row_number,
+      from: fromStr,
+      to: toStr,
+      area: d.area ?? undefined,
+      rateSubkey: d.rate_subkey ?? undefined,
+    });
+    setPendingReason("");
+    setSaveError(null);
+  };
+
   // C-v2: fire the save_review_edit POST. The dialog auto-closes on confirm
   // (AlertDialogAction). Success advances the anchor + refreshes via onSaved;
   // failure (the endpoint REJECTS) surfaces inline in the still-open detail panel.
   const confirmValueSave = async () => {
     if (!pendingEdit) return;
-    const { rowIndex, field, to } = pendingEdit;
+    const { rowIndex, field, to, area, rateSubkey } = pendingEdit;
     setSaveError(null);
     try {
       const res = await saveCall({
@@ -446,6 +484,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
         field,
         value: to,
         reason: pendingReason, // blank/whitespace normalized to None by the backend
+        // C-v2d: present only for per-area edits; undefined keys are omitted by the SDK
+        // so the flat path is unchanged.
+        area,
+        rate_subkey: rateSubkey,
       });
       setPendingEdit(null);
       onSaved?.(res.message.edited_at);
@@ -552,6 +594,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     if (expandedDetailRow === null) {
       setEditInputs({});
       setTextInputs({});
+      setAreaInputs({});
       setRemarkInput("");
       setSaveError(null);
       setRemarkError(null);
@@ -561,6 +604,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     if (!r) {
       setEditInputs({});
       setTextInputs({});
+      setAreaInputs({});
       setRemarkInput("");
       return;
     }
@@ -577,11 +621,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       textSeed[d.value_field] = v === null || v === undefined ? "" : String(v);
     }
     setTextInputs(textSeed);
+    // C-v2d: seed per-area inputs (keyed by col -- value_field repeats per area).
+    const areaSeed: Record<string, string> = {};
+    for (const d of editableAreaDescriptors) {
+      const v = resolveDescriptorValue(r, d);
+      areaSeed[d.col] = v === null || v === undefined ? "" : String(v);
+    }
+    setAreaInputs(areaSeed);
     // C-v2c: seed the remark Textarea from the row's stored remark (read+edit in panel).
     setRemarkInput(r.remarks ?? "");
     setSaveError(null);
     setRemarkError(null);
-  }, [expandedDetailRow, byIdx, editableDescriptors, editableTextDescriptors]);
+  }, [expandedDetailRow, byIdx, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -1195,7 +1246,58 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               </div>
                             </div>
                           )}
-                          {/* Shared inline save error (numeric + text edits) */}
+                          {/* C-v2d: editable PER-AREA values -- one input per area cell
+                              the sheet maps (qty/amount/rate by area). Each commits via
+                              the SAME confirm dialog as flat numeric edits (openAreaConfirm).
+                              Blank -> 0.0 (the area key stays). Shown only when the sheet
+                              maps per-area columns (editableAreaDescriptors gating). */}
+                          {editableAreaDescriptors.length > 0 && (
+                            <div className="mb-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
+                              <div className="flex flex-wrap gap-2">
+                                {editableAreaDescriptors.map(d => {
+                                  const storedVal = resolveDescriptorValue(row, d);
+                                  const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
+                                  const current = areaInputs[d.col] ?? storedStr;
+                                  const dirty = current !== storedStr;
+                                  // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
+                                  const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+                                  return (
+                                    <div key={d.col} className="flex flex-col gap-1 w-52">
+                                      <label
+                                        htmlFor={`edit-area-${row.row_index}-${d.col}`}
+                                        className="text-[10px] text-muted-foreground"
+                                      >
+                                        {fieldLabel}
+                                      </label>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          id={`edit-area-${row.row_index}-${d.col}`}
+                                          type="number"
+                                          value={current}
+                                          onChange={(e) =>
+                                            setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
+                                          }
+                                          className="h-7 text-xs"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs shrink-0"
+                                          disabled={!dirty || isSaving}
+                                          onClick={() => openAreaConfirm(row, d, storedStr, current)}
+                                        >
+                                          Apply
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {/* Shared inline save error (numeric + text + per-area edits) */}
                           {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
                           {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
                               path (save_review_remark): saving a remark does NOT mark the row
@@ -1257,9 +1359,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Edit history</p>
                             {Array.isArray(row.edit_log) && row.edit_log.length > 0 ? (
                               <ul className="mt-0.5 space-y-0.5">
-                                {row.edit_log.map((entry, i) => (
+                                {/* Obs A: latest-first -- newest edit at the top (reverse a copy). */}
+                                {[...row.edit_log].reverse().map((entry, i) => (
                                   <li key={i} className="text-xs text-foreground">
                                     <span className="font-medium">{entry.field}</span>
+                                    {/* C-v2d: per-area target -- "(Zone A)" or "(Zone A / combined_rate)". */}
+                                    {entry.area ? (
+                                      <span className="text-muted-foreground">
+                                        {" "}({entry.area}{entry.rate_subkey ? ` / ${entry.rate_subkey}` : ""})
+                                      </span>
+                                    ) : null}
                                     {": "}
                                     {String(entry.from ?? "—")}
                                     {" → "}
@@ -1300,7 +1409,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
             <AlertDialogTitle>Confirm value change</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingEdit
-                ? `Row ${pendingEdit.excelRow} ${pendingEdit.col} — ${pendingEdit.role}: ${pendingEdit.from === "" ? "(blank)" : pendingEdit.from} → ${pendingEdit.to === "" ? "(blank)" : pendingEdit.to}. Confirm?`
+                ? `Row ${pendingEdit.excelRow} ${pendingEdit.col} — ${pendingEdit.role}${pendingEdit.area ? ` · ${pendingEdit.area}${pendingEdit.rateSubkey ? ` / ${pendingEdit.rateSubkey}` : ""}` : ""}: ${pendingEdit.from === "" ? "(blank)" : pendingEdit.from} → ${pendingEdit.to === "" ? "(blank)" : pendingEdit.to}. Confirm?`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

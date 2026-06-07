@@ -182,6 +182,17 @@ export interface BOQsDoc {
 
 // ── Review screen types (Slice B1) ─────────────────────────────────────────────
 
+/**
+ * One per-area rate cell: rate_by_area[area] is this nested object (Slice C-v2d).
+ * Inner keys mirror the parser's _RATE_ROLE_TO_KIND values. All optional -- a sheet
+ * may surface only one rate kind.
+ */
+export interface RateByAreaCell {
+  supply_rate?: number | null;
+  install_rate?: number | null;
+  combined_rate?: number | null;
+}
+
 /** One entry in a BoQ Review Row's edit_log JSON list. */
 export interface EditLogEntry {
   field: string;
@@ -191,6 +202,10 @@ export interface EditLogEntry {
   at: string;
   /** Optional free-text reason captured per edit (Slice C-v1). Absent on legacy entries. */
   reason?: string;
+  /** Per-area edit target (Slice C-v2d). Absent on flat-field entries. */
+  area?: string;
+  /** Inner rate kind for rate_by_area edits (Slice C-v2d). Absent otherwise. */
+  rate_subkey?: string;
 }
 
 /**
@@ -232,7 +247,10 @@ export interface ReviewRow {
   rate_supply: number | null;
   rate_install: number | null;
   rate_combined: number | null;
-  rate_by_area: Record<string, number> | null;
+  // rate_by_area is NESTED (Slice C-v2d type fix): {area: {supply_rate, install_rate,
+  // combined_rate}} -- NOT a flat {area: number}. resolveDescriptorValue walks the
+  // extra rate_subkey hop. No static read site indexes it directly.
+  rate_by_area: Record<string, RateByAreaCell> | null;
   amount_total: number | null;
   amount_supply: number | null;
   amount_install: number | null;
@@ -310,6 +328,9 @@ export interface SaveReviewEditResponse {
   to: unknown;
   edited_at: string;
   effective: Record<string, unknown>;
+  /** Per-area target echo (Slice C-v2d). null on the flat-field path. */
+  area?: string | null;
+  rate_subkey?: string | null;
 }
 
 // ── Structural break types (from check_structural_integrity / get_structural_breaks) ──
