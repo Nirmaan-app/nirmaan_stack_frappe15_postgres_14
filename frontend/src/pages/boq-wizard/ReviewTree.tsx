@@ -869,6 +869,9 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                                     {String(entry.to ?? "—")}
                                     {" — "}
                                     <span className="text-muted-foreground">{entry.by} · {entry.at}</span>
+                                    {entry.reason ? (
+                                      <span className="text-muted-foreground"> · reason: {entry.reason}</span>
+                                    ) : null}
                                   </li>
                                 ))}
                               </ul>

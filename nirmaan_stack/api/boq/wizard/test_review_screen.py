@@ -332,6 +332,26 @@ class TestAppendEditLogEntry(unittest.TestCase):
         self.assertEqual(len(original), 1,
                          "append_edit_log_entry must return a new list, not mutate the input")
 
+    def test_reason_stored_as_sixth_key_when_supplied(self):
+        """Slice C-v1: a supplied reason is carried as the 6th entry key."""
+        log = append_edit_log_entry(None, "qty_total", 10.0, 12.0, "u",
+                                    "corrected from drawing")
+        entry = log[0]
+        self.assertEqual(entry["reason"], "corrected from drawing")
+        # The other five keys are unchanged.
+        self.assertEqual(entry["field"], "qty_total")
+        self.assertEqual(entry["from"], 10.0)
+        self.assertEqual(entry["to"], 12.0)
+        self.assertEqual(entry["by"], "u")
+        self.assertIn("at", entry)
+
+    def test_reason_key_present_and_none_when_absent(self):
+        """Uniform entry shape: the reason key is always present, None when not supplied."""
+        log = append_edit_log_entry(None, "qty_total", 10.0, 12.0, "u")
+        entry = log[0]
+        self.assertIn("reason", entry, "reason key must always be present (uniform shape)")
+        self.assertIsNone(entry["reason"], "reason must be None when not supplied")
+
 
 # ===========================================================================
 # Group 4: get_review_rows -- DB
@@ -514,6 +534,54 @@ class TestSaveReviewEdit(FrappeTestCase):
         doc = self._get_doc(0)
         self.assertIsNotNone(doc.edited_by, "edited_by must be stamped after an edit")
         self.assertIsNotNone(doc.edited_at, "edited_at must be stamped after an edit")
+
+    def test_reason_persisted_into_latest_edit_log_entry(self):
+        """Slice C-v1: a reason passed to save_review_edit lands on the new edit_log entry."""
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="human_classification", value="line_item",
+            reason="reclassified per spec review",
+        )
+        doc = self._get_doc(0)
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log)
+        self.assertEqual(log[-1]["reason"], "reclassified per spec review")
+
+    def test_reason_none_when_omitted(self):
+        """Slice C-v1: omitting reason stores None (uniform shape, no writer yet)."""
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="human_classification", value="line_item",
+        )
+        doc = self._get_doc(0)
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log)
+        self.assertIn("reason", log[-1])
+        self.assertIsNone(log[-1]["reason"])
+
+    def test_blank_reason_normalized_to_none(self):
+        """Slice C-v1: a whitespace-only reason is normalized to None."""
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="human_classification", value="line_item",
+            reason="   ",
+        )
+        doc = self._get_doc(0)
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log)
+        self.assertIsNone(log[-1]["reason"])
+
+    def test_return_includes_non_empty_edited_at(self):
+        """Slice C-v1: the save return dict now carries a server edited_at timestamp."""
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="human_classification", value="line_item",
+        )
+        self.assertIn("edited_at", result, "save return must include edited_at")
+        self.assertTrue(result["edited_at"], "edited_at must be non-empty after a save")
 
     def test_invalid_classification_rejected(self):
         with self.assertRaises(frappe.ValidationError):

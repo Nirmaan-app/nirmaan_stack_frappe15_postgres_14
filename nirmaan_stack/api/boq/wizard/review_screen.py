@@ -317,6 +317,7 @@ def append_edit_log_entry(
     from_val: Any,
     to_val: Any,
     user: str,
+    reason: str = None,
 ) -> list:
     """
     Append one edit entry to the log and return the new log list.
@@ -324,7 +325,11 @@ def append_edit_log_entry(
     existing_log may be a Python list, a JSON-encoded string, or None (empty log).
     The caller is responsible for json.dumps() before save (list-JSON field rule).
 
-    Entry shape: {field, from, to, by, at}
+    Entry shape: {field, from, to, by, at, reason}
+
+    reason (Slice C-v1) is an OPTIONAL free-text note captured per edit. The key
+    is always present in the entry for a uniform shape; its value is None when no
+    reason was supplied. There is no write path for reason yet -- C-v2 adds the UI.
     """
     if existing_log is None:
         log: list = []
@@ -342,6 +347,7 @@ def append_edit_log_entry(
         "to": to_val,
         "by": user,
         "at": frappe.utils.now(),
+        "reason": reason,
     })
     return log
 
@@ -665,6 +671,7 @@ def save_review_edit(
     row_index=None,
     field: str = None,
     value=None,
+    reason: str = None,
 ) -> dict:
     """
     Apply a human edit to a single BoQ Review Row field.
@@ -676,9 +683,13 @@ def save_review_edit(
                                None/"" clears the override.
       qty_total / rate_* / amount_* -- direct update of value fields.
 
+    reason (Slice C-v1) is an OPTIONAL free-text note stored as the 6th key on the
+    edit_log entry. Blank/whitespace-only is normalized to None. There is no UI
+    writer yet -- C-v2 adds the confirm-dialog input.
+
     The edit is logged to edit_log (appended). edited_by + edited_at are stamped.
 
-    Returns: {ok: True, row_index, field, from, to, effective: {...}}
+    Returns: {ok: True, row_index, field, from, to, edited_at, effective: {...}}
 
     URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.save_review_edit
     """
@@ -690,6 +701,10 @@ def save_review_edit(
         frappe.throw("row_index is required.", title="Missing field: row_index")
     if not field:
         frappe.throw("field is required.", title="Missing field: field")
+
+    # Normalize reason: blank/whitespace-only -> None (Slice C-v1).
+    if isinstance(reason, str):
+        reason = reason.strip() or None
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
@@ -832,7 +847,7 @@ def save_review_edit(
         existing_log = []
 
     new_log = append_edit_log_entry(
-        existing_log, field, from_val, value, frappe.session.user
+        existing_log, field, from_val, value, frappe.session.user, reason
     )
     # edit_log is a list-JSON field -- must be pre-serialized before save
     setattr(doc, _EDIT_LOG_FIELD, json.dumps(new_log))
@@ -857,6 +872,7 @@ def save_review_edit(
         "field": field,
         "from": from_val,
         "to": value,
+        "edited_at": doc.edited_at,
         "effective": resolve_effective(doc),
     }
 

@@ -189,6 +189,8 @@ export interface EditLogEntry {
   to: unknown;
   by: string;
   at: string;
+  /** Optional free-text reason captured per edit (Slice C-v1). Absent on legacy entries. */
+  reason?: string;
 }
 
 /**
