@@ -236,9 +236,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-07 (Slice C-v2b: inline text-editing for unit + make_model -- backend text write-branch [no float coercion] + allowed-set _TEXT_FIELDS; frontend separate "Edit text" block saving DIRECTLY with no confirm dialog; description/row_notes stay read-only; review_screen tests 84->90)
+**Last updated:** 2026-06-07 (Slice C-v2c: per-row Remarks -- new `remarks` Small Text field [migrated] + NEW save_review_remark endpoint [set_value ONLY, never edited_at/edit_log -- row stays "Original"] + 500-char hard guard + get_review_rows field add; frontend MessageSquare marker in Classification cell [no new column], master Show/Hide-all-remarks toggle [default off, mirrors flags], detail-panel Textarea+counter+Save with DEDICATED remarkError, sheet-level "Remarks: N" strip; review_screen tests 90->95)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat ae65555c (Slice C-v2b)
+**Latest commit:** feat da6bb6d1 (Slice C-v2c)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -6009,3 +6009,38 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record + Last-updated/Latest-commit bump.
 - `CLAUDE.md` (root) -- Active Features row + save_review_edit reference + last-updated stamp.
 - `frontend/CLAUDE.md` -- status line + C-v2b behaviour note.
+
+### Slice C-v2c -- per-row Remarks (feat da6bb6d1, 2026-06-07)
+
+**Scope:** Adds a per-row human-only "Remarks" free-text note to the review screen. A remark is annotation, NOT a data edit -- it is born empty (the parser write path leaves the field unset) and only a human ever writes it. FOUR settled design decisions shape the slice: (1) SEPARATE write path -- a remark must NOT make the row show "Edited" (which means "a human changed PARSED DATA"); the existing `save_review_edit` always stamps `edited_at` + appends `edit_log`, so a remark cannot ride it -- a NEW endpoint writes ONLY `remarks`. (2) NO remark history -- latest wins; no audit trail, no edit_log entry for remarks. (3) SEPARATE indicator -- a distinct blue marker (NOT the green "Edited" pill/tint), living INSIDE the Classification cell next to the flag marker (no new column, no `totalCols` change). (4) Panel for both READ and EDIT -- clicking the marker (or the row expander) opens the detail panel; the remark is read+edited there (Textarea + Save), NO inline reveal row. 500-char cap enforced on BOTH sides. Does NOT survive re-parse (covered by the re-parse warning; no persist work this slice). Per-area editing (C-v2d) and classification/parent editing remain later slices.
+
+**Marker/toggle behaviour (decided in-build, panel-only):** The master "Show/Hide all remarks" toggle defaults OFF (`showAllRemarks=false`), mirroring the flags toggle's opt-in reveal. The per-row marker is shown when `hasRemark && (showAllRemarks || expandedDetailRow === row.row_index)` -- same shape as the flags marker's `hasFlags && (showAllFlags || expandedFlagRow===idx)`, but the "reveal" surface is the detail PANEL (clicking the marker calls `toggleDetailRow`), NOT a separate inline reveal row. This keeps one interaction model for the panel group and adds no reveal-row state.
+
+**Backend:**
+- `BoQ Review Row` doctype: new `remarks` field (Small Text) in the `review_edits_section` human layer; added to `field_order`. Migrated -- column landed as PostgreSQL `text` (verified via `information_schema.columns`, NOT `SHOW COLUMNS`).
+- `review_screen.py`: `remarks` added to the `get_review_rows` `all_fields` list (explicit named list -- a new field does NOT ride along automatically). New `_REMARK_MAX_LEN = 500` const. New endpoint `save_review_remark(boq_name, sheet_name, row_index, remark)` -- `@frappe.whitelist(methods=["POST"])`; writes ONLY `remarks` via `frappe.db.set_value` (NOT `doc.save`) so `edited_at`/`edit_log`/version side-effects never fire; blank/whitespace -> None (clears); 500-char hard guard (`frappe.throw`); `sheet_name` matched VERBATIM (#152). Returns `{ok, row_index, remarks}`. `save_review_edit` is UNTOUCHED.
+
+**Frontend:**
+- `boqTypes.ts`: `ReviewRow.remarks: string | null`.
+- `ReviewTree.tsx`: separate `save_review_remark` `useFrappePostCall` (own `isSavingRemark` flag); new `onRemarkSaved?: () => void` prop (DECOUPLED from `onSaved` -- refreshes via `mutate` WITHOUT advancing the sheet edit anchor); `showAllRemarks` state (default false) + `toggleShowAllRemarks` + `hasRemarksAny`; `remarkInput` seeded in the existing detail-open `useEffect`; DEDICATED `remarkError` (kept separate from the shared `saveError` so the two surfaces never cross-display). `MessageSquare` remark marker (blue) added to a right-aligned marker-group wrapper inside the Classification cell next to the flag `Info` marker (the flag marker's `ml-auto` moved to the shared wrapper). Master "Show/Hide all remarks" toggle in the controls bar (blue, mirrors flags toggle). Detail-panel "Remarks" block: `Textarea` + live `{n}/500` counter + "max 500 characters" message when over + Save button disabled when over-cap/unchanged/saving + inline `remarkError`. `REMARK_MAX_LEN=500` const.
+- `SheetReviewPage.tsx`: wires `onRemarkSaved={() => void mutate()}`; adds a sheet-level "Remarks: N" count strip (N = rows with a non-empty remark), mirroring the flags summary strip, omitted when zero.
+
+**Tests (`test_review_screen.py`, +5, 90 -> 95) -- new `TestSaveReviewRemark`:**
+- POSITIVE: a remark persists AND `edited_at` stays None AND `edit_log` stays empty (the test proving the row stays "Original"); a blank remark clears to None; exactly 500 chars accepted.
+- NEGATIVE: 501 chars rejected (throw) and field not written.
+- SANITY: `save_review_edit` still stamps `edited_at` (proves the two write paths are independent).
+
+**Verification:** review-screen wizard tests 95/95 GREEN in-session (was 90; +5). tsc 0 errors (wizard files + total project). Vite production build exit 0 IN THE CONTAINER. `bench migrate` clean + `remarks` column confirmed via `information_schema`.
+
+**Backwards-compat:** Existing rows have no remark (new field default empty) -> read as null -> no marker, row still "Original", no green tint. New endpoint is purely additive; `save_review_edit`/flags/edit behaviour unchanged.
+
+**Files changed:**
+- `nirmaan_stack/nirmaan_stack/doctype/boq_review_row/boq_review_row.json` -- `remarks` field + field_order.
+- `nirmaan_stack/api/boq/wizard/review_screen.py` -- all_fields add + `_REMARK_MAX_LEN` + `save_review_remark`.
+- `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- +5 tests (`TestSaveReviewRemark`).
+- `frontend/src/pages/boq-wizard/boqTypes.ts` -- `ReviewRow.remarks`.
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- marker + master toggle + panel Remarks block + remark save path.
+- `frontend/src/pages/boq-wizard/SheetReviewPage.tsx` -- onRemarkSaved wiring + Remarks count strip.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record + Last-updated/Latest-commit bump.
+- `CLAUDE.md` (root) -- Active Features row + Wizard Endpoints Reference (save_review_remark) + last-updated stamp.
+- `frontend/CLAUDE.md` -- status line + C-v2c convention note.
