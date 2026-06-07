@@ -26,6 +26,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     mark_sheet_parsed_check_done,
     resolve_effective,
     save_review_edit,
+    save_review_remark,
 )
 
 
@@ -710,6 +711,137 @@ class TestSaveReviewEdit(FrappeTestCase):
                 boq_name=self.boq_name, sheet_name=self.sheet_name,
                 row_index=0, field="qty_total", value="not_a_number",
             )
+
+
+# ===========================================================================
+# Group 5b: save_review_remark -- DB (Slice C-v2c)
+# ===========================================================================
+
+class TestSaveReviewRemark(FrappeTestCase):
+    """
+    Verifies the SEPARATE remark write path (Slice C-v2c):
+      - a remark persists to the remarks field;
+      - it does NOT set edited_at and does NOT append to edit_log (row stays "Original");
+      - blank/whitespace clears to None;
+      - the 500-char cap is enforced (501 rejected, exactly-500 accepted);
+      - save_review_edit still stamps edited_at (the two paths are independent).
+
+    Fixture rows per test (reset by setUp):
+      Row 0 -- preamble, parent=None  (root)
+      Row 1 -- preamble, parent=0     (child of 0)
+      Row 2 -- line_item, parent=1    (child of 1)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Remark Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "RemarkSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "RemarkSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "preamble", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=1),
+        ])
+
+    def _get_doc(self, row_index: int):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        return frappe.get_doc("BoQ Review Row", name)
+
+    def test_remark_persists_and_does_not_touch_provenance(self):
+        """THE key test: a remark persists but leaves the row 'Original' --
+        edited_at stays None and edit_log stays empty (no edit_log entry)."""
+        result = save_review_remark(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, remark="Check this quantity against the drawing.",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["row_index"], 0)
+        self.assertEqual(result["remarks"], "Check this quantity against the drawing.")
+
+        doc = self._get_doc(0)
+        self.assertEqual(doc.remarks, "Check this quantity against the drawing.",
+                         "the remark must persist verbatim to the remarks field")
+        self.assertIsNone(doc.edited_at,
+                          "a remark must NOT stamp edited_at (row stays Original)")
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log) if log else []
+        self.assertIn(log, ([], None),
+                      "a remark must NOT append an edit_log entry")
+
+    def test_blank_remark_clears_to_none(self):
+        """A blank/whitespace-only remark clears the field to None."""
+        save_review_remark(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, remark="temporary note",
+        )
+        self.assertEqual(self._get_doc(0).remarks, "temporary note")
+        save_review_remark(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, remark="   ",
+        )
+        self.assertIsNone(self._get_doc(0).remarks,
+                          "a whitespace-only remark must clear the field to None")
+
+    def test_remark_exactly_500_accepted(self):
+        """A remark of exactly 500 chars is accepted and persisted."""
+        text = "x" * 500
+        result = save_review_remark(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, remark=text,
+        )
+        self.assertTrue(result["ok"])
+        doc = self._get_doc(1)
+        self.assertEqual(len(doc.remarks), 500)
+        self.assertEqual(doc.remarks, text)
+
+    def test_remark_501_rejected_and_not_written(self):
+        """A remark of 501 chars is rejected (throw) and the field is not written."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_remark(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, remark="y" * 501,
+            )
+        self.assertIsNone(self._get_doc(1).remarks,
+                          "an over-cap remark must leave the field unwritten")
+
+    def test_value_edit_still_stamps_edited_at(self):
+        """Sanity / separation: save_review_edit still stamps edited_at, proving the
+        remark path and the edit path are independent."""
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, field="qty_total", value=7,
+        )
+        self.assertTrue(result["ok"])
+        doc = self._get_doc(2)
+        self.assertIsNotNone(doc.edited_at,
+                             "a value edit must still stamp edited_at (path is separate from remarks)")
+        self.assertEqual(doc.qty_total, 7.0)
 
 
 # ===========================================================================

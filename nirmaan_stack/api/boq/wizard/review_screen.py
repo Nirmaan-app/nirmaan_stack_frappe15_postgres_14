@@ -54,6 +54,11 @@ _VALUE_FIELDS: frozenset[str] = frozenset({
 _TEXT_FIELDS: frozenset[str] = frozenset({"unit", "make_model"})
 _ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIELDS
 
+# Per-row human-only remark cap (Slice C-v2c). Enforced in save_review_remark on
+# both sides (frontend live-counter + this hard guard). The remarks field is a
+# Small Text column; the cap is code-enforced (Small Text has no DB length).
+_REMARK_MAX_LEN = 500
+
 # edit_log is a list-JSON field on BoQ Review Row (Slice A addition).
 # Like the 4 list-JSON fields in parse_run._LIST_JSON_FIELDS, it must be
 # pre-serialized via json.dumps() before doc.insert() / doc.save().
@@ -623,6 +628,8 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # human-edit layer (Slice A)
         "human_classification", "human_parent",
         "edit_log", "edited_by", "edited_at",
+        # human-only annotation (Slice C-v2c) -- NOT an edit; never sets edited_at
+        "remarks",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -890,6 +897,82 @@ def save_review_edit(
         "edited_at": doc.edited_at,
         "effective": resolve_effective(doc),
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def save_review_remark(
+    boq_name: str = None,
+    sheet_name: str = None,
+    row_index=None,
+    remark: str = None,
+) -> dict:
+    """
+    Save a per-row human-only remark on a single BoQ Review Row.
+
+    A remark is annotation, NOT a data edit. This endpoint is a deliberately
+    SEPARATE write path from save_review_edit (Slice C-v2c):
+      - it writes ONLY the `remarks` field;
+      - it does NOT append to edit_log;
+      - it does NOT set edited_by or edited_at.
+    A row that carries only a remark therefore stays "Original" (the frontend's
+    edited provenance keys off edited_at / edit_log, neither of which this touches).
+    The write uses frappe.db.set_value (not doc.save) precisely so no version /
+    provenance side-effects fire.
+
+    The remark is capped at 500 chars (_REMARK_MAX_LEN), enforced here as a hard
+    guard (frappe.throw) so the cap holds even if the frontend is bypassed.
+    Blank/whitespace-only normalizes to None (clears the remark).
+
+    sheet_name is matched VERBATIM (no trimming) -- the #152 trailing-space landmine.
+
+    Returns: {ok: True, row_index, remarks}
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.save_review_remark
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    # Normalize: blank/whitespace-only -> None (clears the remark).
+    if isinstance(remark, str):
+        remark = remark.strip() or None
+
+    # Hard 500-char guard (runs on the normalized value).
+    if remark is not None and len(remark) > _REMARK_MAX_LEN:
+        frappe.throw(
+            f"Remark is too long ({len(remark)} chars). Maximum is {_REMARK_MAX_LEN}.",
+            title="Remark too long",
+        )
+
+    # Locate the row (verbatim sheet_name match -- #152).
+    row_name = frappe.db.get_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    if not row_name:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    # Write ONLY the remarks field. set_value (not doc.save) so edited_at / edit_log
+    # / version side-effects never fire -- the remark must not flip the row to "Edited".
+    frappe.db.set_value("BoQ Review Row", row_name, "remarks", remark)
+    frappe.db.commit()
+
+    return {"ok": True, "row_index": row_index, "remarks": remark}
 
 
 @frappe.whitelist()

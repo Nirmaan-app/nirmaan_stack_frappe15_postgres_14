@@ -58,7 +58,8 @@
   "human_parent",
   "edit_log",
   "edited_by",
-  "edited_at"
+  "edited_at",
+  "remarks"
  ],
  "fields": [
   {
@@ -335,6 +336,11 @@
    "fieldname": "edited_at",
    "fieldtype": "Datetime",
    "label": "Edited At"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
   }
  ],
  "grid_page_length": 50,

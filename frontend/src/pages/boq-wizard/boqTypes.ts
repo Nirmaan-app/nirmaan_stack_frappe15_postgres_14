@@ -248,6 +248,10 @@ export interface ReviewRow {
   edit_log: EditLogEntry[] | null;
   edited_by: string | null;
   edited_at: string | null;
+  // human-only annotation (Slice C-v2c). A remark is NOT an edit -- it never sets
+  // edited_at / edit_log and never flips the row to "Edited". Born empty (the parser
+  // write path leaves it unset); written only via save_review_remark.
+  remarks: string | null;
   // effective values (computed by resolve_effective on backend)
   effective_classification: string | null;
   effective_parent_index: number | null;

@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, SlidersHorizontal, Info } from "lucide-react";
+import { ChevronDown, ChevronRight, SlidersHorizontal, Info, MessageSquare } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse } from "./boqTypes";
@@ -85,6 +85,7 @@ import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -262,6 +263,10 @@ const EDITABLE_VALUE_FIELDS = new Set<string>([
 // row_notes stay read-only -- they are NOT here.
 const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
 
+// C-v2c: per-row human-only remark cap (mirrors backend _REMARK_MAX_LEN). Enforced
+// here as a live counter + Save-disable; the backend hard-guards the same value.
+const REMARK_MAX_LEN = 500;
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface ReviewTreeProps {
@@ -276,9 +281,13 @@ interface ReviewTreeProps {
   // C-v2: invoked after a resolved save with the returned edited_at; the parent
   // (SheetReviewPage) refreshes get_review_rows + advances the save-status anchor.
   onSaved?: (editedAt: string) => void;
+  // C-v2c: invoked after a remark save. DELIBERATELY separate from onSaved -- a
+  // remark is not an edit, so it refreshes the grid (mutate) WITHOUT advancing the
+  // sheet-level "All changes saved" edit anchor. Keeps remarks off the edit surface.
+  onRemarkSaved?: () => void;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -297,6 +306,19 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const { call: saveCall, loading: isSaving } = useFrappePostCall<{ message: SaveReviewEditResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.save_review_edit",
   );
+  // C-v2c: per-row remark write -- a SEPARATE endpoint + separate loading flag from
+  // the edit path (a remark never touches edited_at / edit_log / the "Edited" surface).
+  const { call: saveRemarkCall, loading: isSavingRemark } = useFrappePostCall<{
+    message: { ok: boolean; row_index: number; remarks: string | null };
+  }>("nirmaan_stack.api.boq.wizard.review_screen.save_review_remark");
+  // C-v2c: master show/hide-all-remarks toggle. Mirrors showAllFlags (default false --
+  // opt-in reveal). Gates the per-row remark MARKER together with individual-open.
+  const [showAllRemarks, setShowAllRemarks] = useState(false);
+  // C-v2c: the remark Textarea input for the currently-expanded detail row.
+  const [remarkInput, setRemarkInput] = useState("");
+  // C-v2c: dedicated inline error for the remark Save block ONLY -- kept separate
+  // from saveError (numeric/text edits) so the two surfaces never cross-display.
+  const [remarkError, setRemarkError] = useState<string | null>(null);
   // Editable-value inputs for the currently-expanded detail row (value_field -> string).
   const [editInputs, setEditInputs] = useState<Record<string, string>>({});
   // C-v2b: editable text inputs (unit / make_model) for the expanded detail row.
@@ -468,6 +490,36 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
   };
 
+  // C-v2c: save a per-row remark via the SEPARATE endpoint. Does NOT flip the row
+  // to "Edited" (the backend writes only `remarks`, never edited_at / edit_log).
+  // Refresh runs through onRemarkSaved (mutate only -- the sheet edit anchor is NOT
+  // advanced). The 500-cap is also guarded backend-side; the button disables past it.
+  const saveRemark = async (rowIndex: number, value: string) => {
+    setRemarkError(null);
+    try {
+      await saveRemarkCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: rowIndex,
+        remark: value,
+      });
+      onRemarkSaved?.();
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : "Save failed. Please try again.";
+      setRemarkError(msg);
+    }
+  };
+
+  // C-v2c: master show/hide-all-remarks toggle (mirrors toggleShowAllFlags).
+  const toggleShowAllRemarks = () => {
+    setShowAllRemarks(prev => !prev);
+  };
+
   // B2a-fix OBS-1: master show-all / hide-all toggle.
   // Toggling hide-all (showAllFlags -> false) also clears expandedFlagRow to null.
   const toggleShowAllFlags = () => {
@@ -487,6 +539,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
 
   // Whether any flags exist at all -- used to conditionally render the master toggle.
   const hasFlagsAny = flags.length > 0;
+
+  // C-v2c: whether any row carries a non-empty remark -- gates the master toggle.
+  const hasRemarksAny = useMemo(
+    () => rows.some(r => typeof r.remarks === "string" && r.remarks.trim() !== ""),
+    [rows],
+  );
 
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
@@ -508,13 +566,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     if (expandedDetailRow === null) {
       setEditInputs({});
       setTextInputs({});
+      setRemarkInput("");
       setSaveError(null);
+      setRemarkError(null);
       return;
     }
     const r = byIdx.get(expandedDetailRow);
     if (!r) {
       setEditInputs({});
       setTextInputs({});
+      setRemarkInput("");
       return;
     }
     const seed: Record<string, string> = {};
@@ -530,7 +591,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       textSeed[d.value_field] = v === null || v === undefined ? "" : String(v);
     }
     setTextInputs(textSeed);
+    // C-v2c: seed the remark Textarea from the row's stored remark (read+edit in panel).
+    setRemarkInput(r.remarks ?? "");
     setSaveError(null);
+    setRemarkError(null);
   }, [expandedDetailRow, byIdx, editableDescriptors, editableTextDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
@@ -668,6 +732,24 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
             {showAllFlags ? "Hide all flags" : "Show all flags"}
           </button>
         )}
+        {/* C-v2c: master show-all / hide-all remarks toggle (mirrors the flags toggle;
+            blue to stay distinct from amber flags). Gates the per-row remark marker. */}
+        {hasRemarksAny && (
+          <button
+            type="button"
+            onClick={toggleShowAllRemarks}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
+              "bg-background hover:bg-muted/50 transition-colors",
+              showAllRemarks
+                ? "text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            {showAllRemarks ? "Hide all remarks" : "Show all remarks"}
+          </button>
+        )}
         {/* Feature 2: three independent annotation-row visibility toggles */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">Show:</span>
@@ -789,6 +871,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               const hasFlags = rowFlags.length > 0;
               // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
               const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
+              // C-v2c: this row carries a non-empty remark. The marker mirrors the flags
+              // gating: shown when hasRemark AND (showAllRemarks OR this row's panel is
+              // individually open). Clicking the marker opens the detail panel (no reveal row).
+              const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
+              const remarkMarkerShown = hasRemark && (showAllRemarks || expandedDetailRow === row.row_index);
               // B2c: colSpan for flag-reasons + detail panel rows -- 7 fixed anchors (incl. expander, Status).
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
               const totalCols = 7 + visibleDescriptorCount;
@@ -901,26 +988,48 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             : <ChevronDown className="h-3 w-3" />}
                         </button>
                         <ClassificationPill cls={row.effective_classification} />
-                        {/* B2a: advisory flag marker -- one unified indicator per flagged row.
-                            stopPropagation prevents the table's dismiss-onClick from firing
-                            on the same click that opens/closes this row's reason reveal.
-                            B2b BUILD 5: aria-label "advisory notes" -> "flags". */}
-                        {hasFlags && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); toggleFlagRow(row.row_index); }}
-                            className={cn(
-                              "mt-0.5 ml-auto shrink-0 h-4 w-4 flex items-center justify-center rounded",
-                              "transition-colors",
-                              flagsExpanded
-                                ? "text-amber-600 dark:text-amber-400"
-                                : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
+                        {/* Right-aligned marker group (remark + flag). Both sit inside one
+                            ml-auto wrapper so each stays right-aligned independently
+                            (either, both, or neither present). Markers live INSIDE the
+                            Classification cell -- no extra column, no totalCols change. */}
+                        {(remarkMarkerShown || hasFlags) && (
+                          <div className="mt-0.5 ml-auto flex items-center gap-0.5 shrink-0">
+                            {/* C-v2c: remark marker (blue, distinct from amber flags).
+                                Click opens the detail panel (read+edit the remark there).
+                                stopPropagation prevents the table dismiss-onClick firing. */}
+                            {remarkMarkerShown && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleDetailRow(row.row_index); }}
+                                className="shrink-0 h-4 w-4 flex items-center justify-center rounded text-blue-500/80 hover:text-blue-600 dark:text-blue-400/80 dark:hover:text-blue-300 transition-colors"
+                                aria-label="Show remark"
+                                title="Remark"
+                              >
+                                <MessageSquare className="h-3 w-3" />
+                              </button>
                             )}
-                            aria-label={flagsExpanded ? "Hide flags" : "Show flags"}
-                            title={flagsExpanded ? "Hide flags" : "Show flags"}
-                          >
-                            <Info className="h-3 w-3" />
-                          </button>
+                            {/* B2a: advisory flag marker -- one unified indicator per flagged row.
+                                stopPropagation prevents the table's dismiss-onClick from firing
+                                on the same click that opens/closes this row's reason reveal.
+                                B2b BUILD 5: aria-label "advisory notes" -> "flags". */}
+                            {hasFlags && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleFlagRow(row.row_index); }}
+                                className={cn(
+                                  "shrink-0 h-4 w-4 flex items-center justify-center rounded",
+                                  "transition-colors",
+                                  flagsExpanded
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
+                                )}
+                                aria-label={flagsExpanded ? "Hide flags" : "Show flags"}
+                                title={flagsExpanded ? "Hide flags" : "Show flags"}
+                              >
+                                <Info className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -1120,6 +1229,50 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           )}
                           {/* Shared inline save error (numeric + text edits) */}
                           {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
+                          {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
+                              path (save_review_remark): saving a remark does NOT mark the row
+                              "Edited". Read + edit here in the panel (no inline reveal row).
+                              Dedicated remarkError (not the shared saveError) keeps the two
+                              surfaces from cross-displaying. */}
+                          {(() => {
+                            const storedRemark = row.remarks ?? "";
+                            const remarkOverCap = remarkInput.length > REMARK_MAX_LEN;
+                            const remarkDirty = remarkInput !== storedRemark;
+                            return (
+                              <div className="mb-2">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Remarks</p>
+                                <Textarea
+                                  value={remarkInput}
+                                  onChange={(e) => setRemarkInput(e.target.value)}
+                                  placeholder="Add a note for this row (optional)"
+                                  rows={2}
+                                  className="text-xs"
+                                />
+                                <div className="flex items-center justify-between gap-2 mt-1">
+                                  <span
+                                    className={cn(
+                                      "text-[10px]",
+                                      remarkOverCap ? "text-destructive" : "text-muted-foreground",
+                                    )}
+                                  >
+                                    {remarkInput.length}/{REMARK_MAX_LEN}
+                                    {remarkOverCap && <span className="ml-1">max {REMARK_MAX_LEN} characters</span>}
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs shrink-0"
+                                    disabled={!remarkDirty || remarkOverCap || isSavingRemark}
+                                    onClick={() => { void saveRemark(row.row_index, remarkInput); }}
+                                  >
+                                    Save remark
+                                  </Button>
+                                </div>
+                                {remarkError && <p className="text-xs text-destructive mt-1">{remarkError}</p>}
+                              </div>
+                            );
+                          })()}
                           {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
                           {rowFlags.length > 0 && (
                             <div className="mb-2">

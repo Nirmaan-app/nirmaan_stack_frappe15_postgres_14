@@ -125,6 +125,12 @@ const SheetReviewPage = () => {
     .filter(t => (flagCounts[t] ?? 0) > 0)
     .map(t => `${flagCounts[t]} ${FLAG_LABELS[t]}`);
 
+  // C-v2c: sheet-level remarks count -- number of rows carrying a non-empty remark.
+  // Single count (remarks have no sub-types); strip omitted when zero (mirrors flags).
+  const remarkCount = rows.filter(
+    r => typeof r.remarks === "string" && r.remarks.trim() !== "",
+  ).length;
+
   return (
     <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
 
@@ -171,6 +177,15 @@ const SheetReviewPage = () => {
         </div>
       )}
 
+      {/* ── C-v2c: Remarks count strip -- mirrors the flags strip; shown only when
+          at least one row carries a remark (single count, no sub-types). ── */}
+      {!reviewLoading && !reviewError && remarkCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
+          <span className="font-medium text-foreground">Remarks:</span>
+          <span>{remarkCount}</span>
+        </div>
+      )}
+
       {/* ── Review rows tree ──────────────────────────────────────────────── */}
       {reviewLoading && (
         <div className="flex items-center justify-center py-16">
@@ -192,6 +207,7 @@ const SheetReviewPage = () => {
           boqName={boqId ?? ""}
           sheetName={sheetName}
           onSaved={handleSaved}
+          onRemarkSaved={() => void mutate()}
         />
       )}
     </div>
