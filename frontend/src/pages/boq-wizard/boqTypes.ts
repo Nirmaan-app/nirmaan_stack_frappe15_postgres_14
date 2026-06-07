@@ -292,6 +292,22 @@ export interface GetReviewRowsResponse {
   flags: AdvisoryFlag[];
 }
 
+/**
+ * Response shape of save_review_edit (Slice C-v1 added `edited_at` for the
+ * save-status anchor; Slice C-v2 reads it on a resolved save).
+ * NOTE: the endpoint REJECTS (frappe.throw -> HTTP 417) on validation failure
+ * rather than returning ok:false, so callers catch the thrown error.
+ */
+export interface SaveReviewEditResponse {
+  ok: boolean;
+  row_index: number;
+  field: string;
+  from: unknown;
+  to: unknown;
+  edited_at: string;
+  effective: Record<string, unknown>;
+}
+
 // ── Structural break types (from check_structural_integrity / get_structural_breaks) ──
 
 export interface StructuralBreakOrphan {

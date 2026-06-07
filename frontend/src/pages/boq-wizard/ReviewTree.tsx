@@ -78,11 +78,24 @@
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
 import { ChevronDown, ChevronRight, SlidersHorizontal, Info } from "lucide-react";
+import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
-import type { ReviewRow, ColumnDescriptor, AdvisoryFlag } from "./boqTypes";
+import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // ── Depth computation (verbatim from B1) ──────────────────────────────────────
 //
@@ -232,15 +245,32 @@ const VISIBILITY_HOP_CAP = 60; // max ancestor chain length for isVisible check
 // Roles shown as fixed anchor columns; excluded from the descriptor-driven layer.
 const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
 
+// C-v2: the 7 flat numeric value fields editable inline (mirrors backend
+// review_screen._VALUE_FIELDS). A descriptor is editable iff value_key === null
+// (a flat singleton column, NOT a per-area cell) AND its value_field is one of
+// these. Per-area cells (value_key !== null) and text fields are read-only here.
+const EDITABLE_VALUE_FIELDS = new Set<string>([
+  "qty_total", "rate_supply", "rate_install", "rate_combined",
+  "amount_total", "amount_supply", "amount_install",
+]);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface ReviewTreeProps {
   rows: ReviewRow[];
   columnDescriptors: ColumnDescriptor[];
   flags: AdvisoryFlag[];
+  // C-v2: identifiers for the save_review_edit POST. sheetName MUST be the
+  // verbatim, untrimmed DB string (the #152 trailing-space guard) -- never the
+  // display-trimmed name.
+  boqName: string;
+  sheetName: string;
+  // C-v2: invoked after a resolved save with the returned edited_at; the parent
+  // (SheetReviewPage) refreshes get_review_rows + advances the save-status anchor.
+  onSaved?: (editedAt: string) => void;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -255,6 +285,27 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
   // B2b BUILD 1: per-row inline detail panel state (single-open, Option-B with flag accordion).
   const [expandedDetailRow, setExpandedDetailRow] = useState<number | null>(null);
 
+  // C-v2: inline value-editing for the 7 flat numeric fields (save_review_edit).
+  const { call: saveCall, loading: isSaving } = useFrappePostCall<{ message: SaveReviewEditResponse }>(
+    "nirmaan_stack.api.boq.wizard.review_screen.save_review_edit",
+  );
+  // Editable-value inputs for the currently-expanded detail row (value_field -> string).
+  const [editInputs, setEditInputs] = useState<Record<string, string>>({});
+  // Pending value edit awaiting confirmation (single-open, mirrors expandedDetailRow).
+  const [pendingEdit, setPendingEdit] = useState<{
+    rowIndex: number;
+    field: string;
+    col: string;
+    role: string;
+    excelRow: number;
+    from: string;
+    to: string;
+  } | null>(null);
+  // Optional free-text reason captured in the confirm dialog (blank -> backend None).
+  const [pendingReason, setPendingReason] = useState("");
+  // Inline save error surfaced in the still-open detail panel (no toasts -- wizard convention).
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
     const hasChildrenSet = new Set<number>();
@@ -267,18 +318,24 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
   }, [rows]);
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap } = useMemo(() => {
+  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors } = useMemo(() => {
     const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
     const slNoLetter = columnDescriptors.find(d => d.role === "sl_no")?.col ?? null;
     const descriptionLetter = columnDescriptors.find(d => d.role === "description")?.col ?? null;
     const areas = [
       ...new Set(displayDescriptors.filter(d => d.area !== null).map(d => d.area as string)),
     ];
+    // C-v2: descriptors whose value is a flat editable numeric field. A sheet
+    // whose value columns are ALL per-area surfaces zero editable inputs -- expected.
+    const editableDescriptors = displayDescriptors.filter(
+      d => d.value_key === null && EDITABLE_VALUE_FIELDS.has(d.value_field),
+    );
     return {
       displayDescriptors,
       slNoLetter,
       descriptionLetter,
       areaColorMap: buildAreaColorMap(areas),
+      editableDescriptors,
     };
   }, [columnDescriptors]);
 
@@ -323,6 +380,51 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
     setExpandedFlagRow(null);
   };
 
+  // C-v2: open the per-edit confirm dialog for one editable value field.
+  const openValueConfirm = (row: ReviewRow, d: ColumnDescriptor, fromStr: string, toStr: string) => {
+    setPendingEdit({
+      rowIndex: row.row_index,
+      field: d.value_field,
+      col: d.col,
+      role: ROLE_LABELS[d.role] ?? d.role,
+      excelRow: row.source_row_number,
+      from: fromStr,
+      to: toStr,
+    });
+    setPendingReason("");
+    setSaveError(null);
+  };
+
+  // C-v2: fire the save_review_edit POST. The dialog auto-closes on confirm
+  // (AlertDialogAction). Success advances the anchor + refreshes via onSaved;
+  // failure (the endpoint REJECTS) surfaces inline in the still-open detail panel.
+  const confirmValueSave = async () => {
+    if (!pendingEdit) return;
+    const { rowIndex, field, to } = pendingEdit;
+    setSaveError(null);
+    try {
+      const res = await saveCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: rowIndex,
+        field,
+        value: to,
+        reason: pendingReason, // blank/whitespace normalized to None by the backend
+      });
+      setPendingEdit(null);
+      onSaved?.(res.message.edited_at);
+    } catch (e: unknown) {
+      setPendingEdit(null);
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : "Save failed. Please try again.";
+      setSaveError(msg);
+    }
+  };
+
   // B2a-fix OBS-1: master show-all / hide-all toggle.
   // Toggling hide-all (showAllFlags -> false) also clears expandedFlagRow to null.
   const toggleShowAllFlags = () => {
@@ -355,6 +457,29 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
   useEffect(() => {
     setVisibleCols(new Set(displayDescriptors.map(d => d.col)));
   }, [displayDescriptors]);
+
+  // C-v2: seed editable-value inputs when the detail panel opens or row data
+  // changes (e.g. after a save -> mutate() refreshes rows; the inputs re-seed to
+  // the freshly stored values so the just-edited field reads non-dirty).
+  useEffect(() => {
+    if (expandedDetailRow === null) {
+      setEditInputs({});
+      setSaveError(null);
+      return;
+    }
+    const r = byIdx.get(expandedDetailRow);
+    if (!r) {
+      setEditInputs({});
+      return;
+    }
+    const seed: Record<string, string> = {};
+    for (const d of editableDescriptors) {
+      const v = (r as unknown as Record<string, unknown>)[d.value_field];
+      seed[d.value_field] = v === null || v === undefined ? "" : String(v);
+    }
+    setEditInputs(seed);
+    setSaveError(null);
+  }, [expandedDetailRow, byIdx, editableDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -844,6 +969,55 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
                               )}
                             </div>
                           </div>
+                          {/* C-v2: editable value inputs -- the flat numeric fields this sheet
+                              surfaces (per-area cells + text fields stay read-only here). Each
+                              commits via an explicit Apply button that opens the confirm dialog. */}
+                          {editableDescriptors.length > 0 && (
+                            <div className="mb-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {editableDescriptors.map(d => {
+                                  const stored = (row as unknown as Record<string, unknown>)[d.value_field];
+                                  const storedStr = stored === null || stored === undefined ? "" : String(stored);
+                                  const current = editInputs[d.value_field] ?? storedStr;
+                                  const dirty = current !== storedStr;
+                                  const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
+                                  return (
+                                    <div key={d.value_field} className="flex flex-col gap-1">
+                                      <label
+                                        htmlFor={`edit-${row.row_index}-${d.value_field}`}
+                                        className="text-[10px] text-muted-foreground"
+                                      >
+                                        {fieldLabel}
+                                      </label>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          id={`edit-${row.row_index}-${d.value_field}`}
+                                          type="number"
+                                          value={current}
+                                          onChange={(e) =>
+                                            setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
+                                          }
+                                          className="h-7 text-xs"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs shrink-0"
+                                          disabled={!dirty || isSaving}
+                                          onClick={() => openValueConfirm(row, d, storedStr, current)}
+                                        >
+                                          Apply
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {saveError && <p className="text-xs text-destructive mt-1">{saveError}</p>}
+                            </div>
+                          )}
                           {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
                           {rowFlags.length > 0 && (
                             <div className="mb-2">
@@ -891,6 +1065,39 @@ export function ReviewTree({ rows, columnDescriptors, flags }: ReviewTreeProps) 
           </tbody>
         </table>
       </div>
+
+      {/* C-v2: per-edit confirm dialog -- lightweight one-line summary + optional
+          reason. Value edits have no structural fallout, so this is a single-line
+          confirm (not the heavy children-fate confirm). Mounted once outside the
+          table; open state derived from pendingEdit. AlertDialogAction auto-closes
+          on confirm; success/failure feedback surfaces via the anchor / inline panel. */}
+      <AlertDialog open={pendingEdit !== null} onOpenChange={(o) => { if (!o) setPendingEdit(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm value change</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingEdit
+                ? `Row ${pendingEdit.excelRow} ${pendingEdit.col} — ${pendingEdit.role}: ${pendingEdit.from === "" ? "(blank)" : pendingEdit.from} → ${pendingEdit.to === "" ? "(blank)" : pendingEdit.to}. Confirm?`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-1">
+            <Input
+              type="text"
+              value={pendingReason}
+              onChange={(e) => setPendingReason(e.target.value)}
+              placeholder="Reason (optional)"
+              className="h-8 text-xs"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={isSaving} onClick={() => { void confirmValueSave(); }}>
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

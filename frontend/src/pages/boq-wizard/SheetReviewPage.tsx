@@ -13,12 +13,25 @@
  *   - No flag overlays, no row-detail panel (B2).
  *   - No editing affordances, no mark-as-done wiring (C/D).
  */
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BOQsDoc, GetReviewRowsResponse } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
+
+// C-v2: format the save-anchor timestamp. edited_at is the server-local naive
+// string from frappe.utils.now() ("YYYY-MM-DD HH:MM:SS.ffffff"); parse as local.
+function fmtSavedTime(iso: string): string {
+  try {
+    const d = new Date(iso.replace(" ", "T"));
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
 
 const SheetReviewPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
@@ -35,12 +48,23 @@ const SheetReviewPage = () => {
   // Review rows: all parsed BoQ Review Rows for (boqId, sheetName).
   // useFrappeGetCall -- GET-capable endpoint, SWR-managed, no accumulation needed.
   // Loading: data === undefined (key enabled). Error: data === null.
-  const { data: reviewData } = useFrappeGetCall<{ message: GetReviewRowsResponse }>(
+  const { data: reviewData, mutate } = useFrappeGetCall<{ message: GetReviewRowsResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.get_review_rows",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     // Disable until both params are present (routing guarantees them, but be defensive).
     boqId && sheetName ? undefined : null,
   );
+
+  // C-v2: sheet-level save-status anchor. Set from each resolved save's returned
+  // edited_at for an instant update (does not wait for the get_review_rows refetch).
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  // C-v2: after a value edit saves, advance the anchor + refresh the grid so the
+  // row flips to "Edited" (green tint) and its edit history gains an entry.
+  const handleSaved = (editedAt: string) => {
+    setLastSavedAt(editedAt);
+    void mutate();
+  };
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -118,12 +142,25 @@ const SheetReviewPage = () => {
 
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground truncate">
-            {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Read-only review
+            {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Review &amp; edit
           </p>
           <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
             {displaySheetName}
           </h1>
         </div>
+
+        {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
+            Every confirmed edit already saved (one call = one commit); this is a
+            status indicator, not a batch-save trigger. Shown once a save has landed. */}
+        {lastSavedAt && (
+          <div className="ml-auto shrink-0 flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
+            <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+            <span>
+              All changes saved
+              <span className="text-muted-foreground/70"> &middot; {fmtSavedTime(lastSavedAt)}</span>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
@@ -148,7 +185,14 @@ const SheetReviewPage = () => {
       )}
 
       {!reviewLoading && !reviewError && (
-        <ReviewTree rows={rows} columnDescriptors={columnDescriptors} flags={flags} />
+        <ReviewTree
+          rows={rows}
+          columnDescriptors={columnDescriptors}
+          flags={flags}
+          boqName={boqId ?? ""}
+          sheetName={sheetName}
+          onSaved={handleSaved}
+        />
       )}
     </div>
   );
