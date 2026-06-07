@@ -236,9 +236,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-07 (Slice C-v2: inline value-editing for the 7 flat numeric fields -- frontend-only; first human edit written through the UI on C-v1's backend)
+**Last updated:** 2026-06-07 (Slice C-v2b: inline text-editing for unit + make_model -- backend text write-branch [no float coercion] + allowed-set _TEXT_FIELDS; frontend separate "Edit text" block saving DIRECTLY with no confirm dialog; description/row_notes stay read-only; review_screen tests 84->90)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat aa74a023 (Slice C-v2)
+**Latest commit:** feat ae65555c (Slice C-v2b)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -5975,3 +5975,37 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record + Last-updated/Latest-commit bump.
 - `frontend/CLAUDE.md` -- status line + value-editing behaviour note.
 - `CLAUDE.md` (root) -- Active Features row + last-updated stamp (minimal touch).
+
+### Slice C-v2b -- inline text-editing for unit + make_model (feat ae65555c, 2026-06-07)
+
+**Scope:** Third of the C-values sub-slices. Makes the TWO flat TEXT fields -- `unit` and `make_model` -- inline-editable from the review-screen detail panel, ADDITIVE alongside the C-v2 numeric editing. Two deliberate differences from the numeric flow: (1) Apply saves DIRECTLY -- NO confirm dialog (silent save); (2) the value is a STRING (the backend must NOT coerce it through `float()`). A text edit is a genuine content edit, so it flips the row to "Edited" exactly like a numeric edit (same `edited_at` + `edit_log` path -- provenance logic untouched). `description` and `row_notes` stay READ-ONLY and are explicitly OUT OF SCOPE (NOT added to any editable set). The "Remarks" field, per-area editing, and classification/parent editing remain later slices.
+
+**Backend (`review_screen.py`):**
+- New `_TEXT_FIELDS: frozenset = {"unit", "make_model"}`; `_ALLOWED_EDIT_FIELDS = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIELDS`.
+- `save_review_edit` apply step is now THREE branches: `_HUMAN_FIELDS` (setattr / -1 clear, unchanged) -> `elif field in _TEXT_FIELDS` (NEW: `setattr(doc, field, value)` verbatim, NO float; `value is None or value == ""` clears to None) -> `else` (numeric `float()` path, unchanged). The text path is additive and only catches unit/make_model; it does NOT reorder or weaken the numeric/human branches. `from_val` for text fields flows through the existing `getattr(doc, field, None)` else-capture (text fields are not `_HUMAN_FIELDS`). edit_log append + `edited_by`/`edited_at` stamping are shared with every other field -- no new path.
+
+**Frontend (`ReviewTree.tsx`):**
+- Module const `EDITABLE_TEXT_FIELDS = new Set(["unit","make_model"])` (mirrors backend `_TEXT_FIELDS`), next to `EDITABLE_VALUE_FIELDS`.
+- `editableTextDescriptors` computed in the existing descriptor `useMemo` with the SAME gating as `editableDescriptors` (`d.value_key === null && EDITABLE_TEXT_FIELDS.has(d.value_field)`), so a text input shows only when the sheet maps that column. unit/make_model ARE singleton descriptors (in `_SINGLETON_ROLE_TO_FIELD`) and they also still render as ordinary read-only data columns in the table; the editing affordance lives only in the detail panel.
+- New `textInputs: Record<string,string>` state, seeded alongside `editInputs` in the SAME detail-open `useEffect` (deps extended with `editableTextDescriptors`); re-seeds on `mutate()` refresh so a just-saved field reads non-dirty.
+- `saveTextField(rowIndex, field, value)` -- fires the POST `{boq_name, sheet_name (VERBATIM #152), row_index, field, value}` (NO reason -- text edits have no reason input), then `onSaved?.(res.message.edited_at)`; on reject surfaces inline via `saveError` using the same wizard error-extraction idiom. NO `openValueConfirm`, NO AlertDialog -- the numeric confirm flow is left exactly as-is.
+- A SEPARATE "Edit text" block in the detail panel (after the numeric "Edit values" block): per text descriptor a shadcn `Input type="text"` labelled `"{col} -- {ROLE_LABELS[role]}"` pre-filled from `textInputs` + an `Apply` button enabled only when dirty (and not saving) that calls `saveTextField` directly.
+- The inline `saveError` render was moved OUT of the numeric block to a single SHARED render below both edit blocks, so a text-only sheet (no editable numeric columns) still surfaces save failures.
+
+**Frontend (`SheetReviewPage.tsx`):** UNCHANGED. The existing generic `onSaved={handleSaved}` (`setLastSavedAt(editedAt); void mutate();`) already carries text edits with no modification -- a text save advances the same "All changes saved" anchor + grid refresh.
+
+**Tests (`test_review_screen.py`, +6 in `TestSaveReviewEdit`, 84 -> 90):**
+- POSITIVE: editing `unit` to "sqm" persists the string verbatim + stamps `edited_at` + appends an edit_log entry with `field="unit"`; editing `make_model` to "Havells / X200" persists + stamps + logs; a blank `""` clears `unit` to None (set "kg" first, then "" -> None).
+- NEGATIVE: editing `description` throws (not in allowed set); editing `row_notes` throws; editing numeric `qty_total` with "not_a_number" still throws (the `float()` path is unchanged for numeric fields -- the text path must not catch them).
+
+**Verification:** review-screen wizard tests 90/90 GREEN in-session (was 84; +6). tsc 0 wizard-file errors. Vite production build exit 0 IN THE CONTAINER. No parser tests (no parser-layer code touched). No doctype JSON change (unit/make_model already exist as Data fields) -- no `bench migrate`.
+
+**Backwards-compat:** The string write-branch does NOT change behaviour for the 7 numeric fields (they keep `float()`) or the 2 human fields (they keep setattr/-1). Additive only.
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/review_screen.py` -- `_TEXT_FIELDS` + allowed-set + text write-branch + docstring.
+- `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- +6 tests.
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- text-edit block + direct-save + state/seeding + shared saveError.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record + Last-updated/Latest-commit bump.
+- `CLAUDE.md` (root) -- Active Features row + save_review_edit reference + last-updated stamp.
+- `frontend/CLAUDE.md` -- status line + C-v2b behaviour note.
