@@ -874,11 +874,19 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.append("sheet_drafts", {
             "sheet_name": "AreaSheet", "sheet_order": 1, "wizard_status": "Parsed",
+            # C-v2d-fix: per-area edits now validate the sent area against this sheet's
+            # defined area_dimensions (sheet_config), so the fixture must declare them.
+            "sheet_config": json.dumps({"area_dimensions": ["Zone A", "Zone B"]}),
+        })
+        boq.append("sheet_drafts", {
+            # No sheet_config -> no defined areas -> per-area edits must be rejected.
+            "sheet_name": "NoDimSheet", "sheet_order": 2, "wizard_status": "Parsed",
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
         cls.sheet_name = "AreaSheet"
+        cls.no_dim_sheet = "NoDimSheet"
 
     @classmethod
     def tearDownClass(cls):
@@ -1051,6 +1059,114 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
         self.assertEqual(log[-1]["field"], "qty_total")
         self.assertNotIn("area", log[-1], "a flat-field entry must omit the area key")
         self.assertNotIn("rate_subkey", log[-1], "a flat-field entry must omit rate_subkey")
+
+    # -- C-v2d-fix: key creation on a DEFINED-but-empty area (validate against
+    #    sheet_config.area_dimensions, not the row's existing dict keys) --
+
+    def _reset_row_with_empty_areas(self):
+        """Reset row 0 on AreaSheet with EMPTY per-area dicts (no keys present)."""
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        row = _minimal_row(self.sheet_name, 0, "line_item", parent_index=None)
+        row["qty_by_area"] = {}
+        row["amount_by_area"] = {}
+        row["rate_by_area"] = {}
+        _insert_rows(self.boq_name, [row])
+
+    def test_qty_create_key_on_defined_empty_area(self):
+        """qty_by_area={}, area IS in area_dimensions -> write SUCCEEDS, key created,
+        edited_at stamped, structured entry has area + from=None."""
+        self._reset_row_with_empty_areas()
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="qty_by_area", value=15, area="Zone A",
+        )
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["from"], "from must be None for a newly-created key")
+        self.assertEqual(result["to"], 15.0)
+        doc = self._get_doc(0)
+        qba = self._as_dict(doc.qty_by_area)
+        self.assertEqual(qba["Zone A"], 15.0, "key created + value set")
+        self.assertIsNotNone(doc.edited_at, "a per-area edit must stamp edited_at")
+        log = self._as_dict(doc.edit_log)
+        self.assertEqual(log[-1]["area"], "Zone A")
+        self.assertIsNone(log[-1]["from"], "newly-created key records from=None")
+
+    def test_amount_create_key_on_defined_area(self):
+        """amount_by_area={}, area IS in area_dimensions -> key created."""
+        self._reset_row_with_empty_areas()
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="amount_by_area", value=250, area="Zone B",
+        )
+        self.assertTrue(result["ok"])
+        doc = self._get_doc(0)
+        aba = self._as_dict(doc.amount_by_area)
+        self.assertEqual(aba["Zone B"], 250.0, "key created + value set")
+
+    def test_rate_create_path_on_defined_area(self):
+        """rate_by_area has Zone A only; creating Zone B's combined_rate builds the
+        nested path and leaves the existing area/subkey intact."""
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        row = _minimal_row(self.sheet_name, 0, "line_item", parent_index=None)
+        row["qty_by_area"] = {}
+        row["amount_by_area"] = {}
+        row["rate_by_area"] = {"Zone A": {"supply_rate": 5.0}}
+        _insert_rows(self.boq_name, [row])
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="rate_by_area", value=9.5,
+            area="Zone B", rate_subkey="combined_rate",
+        )
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["from"], "newly-created subkey -> from=None")
+        doc = self._get_doc(0)
+        rba = self._as_dict(doc.rate_by_area)
+        self.assertEqual(rba["Zone B"]["combined_rate"], 9.5, "nested path created")
+        self.assertEqual(rba["Zone A"]["supply_rate"], 5.0, "other area preserved")
+        log = self._as_dict(doc.edit_log)
+        self.assertEqual(log[-1]["area"], "Zone B")
+        self.assertEqual(log[-1]["rate_subkey"], "combined_rate")
+
+    def test_reject_area_not_in_area_dimensions(self):
+        """An area NOT in the sheet's area_dimensions is rejected even with an EMPTY
+        dict -- proving the guard validates against area_dimensions, not row keys."""
+        self._reset_row_with_empty_areas()
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="qty_by_area", value=5, area="Zone Z",
+            )
+        doc = self._get_doc(0)
+        qba = self._as_dict(doc.qty_by_area)
+        self.assertNotIn("Zone Z", qba, "a rejected edit must not create the area")
+        self.assertIsNone(doc.edited_at, "a rejected edit must not stamp edited_at")
+
+    def test_reject_when_no_area_dimensions(self):
+        """A sheet whose draft has no sheet_config (no area_dimensions) rejects any
+        per-area edit with a clear error; nothing is written."""
+        frappe.db.delete(
+            "BoQ Review Row", {"boq": self.boq_name, "sheet_name": self.no_dim_sheet})
+        frappe.db.commit()
+        row = _minimal_row(self.no_dim_sheet, 0, "line_item", parent_index=None)
+        row["qty_by_area"] = {"Zone A": 10.0}
+        _insert_rows(self.boq_name, [row])
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.no_dim_sheet,
+                row_index=0, field="qty_by_area", value=5, area="Zone A",
+            )
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.no_dim_sheet, "row_index": 0},
+            "name",
+        )
+        doc = frappe.get_doc("BoQ Review Row", name)
+        self.assertIsNone(doc.edited_at, "a rejected edit must not stamp edited_at")
+        frappe.db.delete(
+            "BoQ Review Row", {"boq": self.boq_name, "sheet_name": self.no_dim_sheet})
+        frappe.db.commit()
 
 
 # ===========================================================================

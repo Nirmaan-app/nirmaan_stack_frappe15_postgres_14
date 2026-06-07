@@ -61,9 +61,12 @@ _ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIE
 #   qty_by_area / amount_by_area -- FLAT one-hop  {area: float}
 #   rate_by_area                 -- NESTED two-hop {area: {supply_rate, install_rate,
 #                                                          combined_rate}} (rate_subkey required)
-# Both shapes round-trip through doc.save() with a BARE dict assign (no json.dumps);
-# the area key must ALREADY exist (an edit never creates an area). Blank value -> 0.0
-# with the key kept (never deleted -- deleting a key is a structure change, not a value edit).
+# Both shapes round-trip through doc.save() with a BARE dict assign (no json.dumps).
+# C-v2d-fix: the sent `area` is validated against the SHEET'S defined areas
+# (sheet_config.area_dimensions), NOT this row's existing dict keys. A defined-but-empty
+# area is a valid value-edit target -- the key is CREATED if absent. Only an UNDEFINED
+# area (or a sheet with no area_dimensions) is rejected. Blank value -> 0.0 with the key
+# kept (never deleted -- deleting a key is a structure change, not a value edit).
 _FLAT_AREA_FIELDS: frozenset[str] = frozenset({"qty_by_area", "amount_by_area"})
 _RATE_AREA_FIELD = "rate_by_area"
 _AREA_JSON_FIELDS: frozenset[str] = _FLAT_AREA_FIELDS | {_RATE_AREA_FIELD}
@@ -598,6 +601,36 @@ def _build_column_descriptors(sheet_config: dict | None) -> list:
     return descriptors
 
 
+def _get_sheet_area_dimensions(boq_name: str, sheet_name: str) -> list[str]:
+    """
+    Read a sheet's DEFINED area names from its saved sheet_config blob.
+
+    Returns sheet_config["area_dimensions"] as a list[str], or [] when the sheet
+    draft / sheet_config is absent, unparseable, or carries no area_dimensions.
+
+    This is the authoritative source the per-area edit guard validates against
+    (C-v2d-fix) -- NOT a row's existing dict keys. sheet_name is matched VERBATIM
+    (the #152 trailing-space landmine -- never strip). Mirrors the get_value pattern
+    in get_review_rows (parent / parenttype / sheet_name).
+    """
+    raw_config = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "sheet_config",
+    )
+    if isinstance(raw_config, str) and raw_config:
+        try:
+            cfg = json.loads(raw_config)
+        except (ValueError, TypeError):
+            return []
+    elif isinstance(raw_config, dict):
+        cfg = raw_config
+    else:
+        return []
+    dims = cfg.get("area_dimensions")
+    return dims if isinstance(dims, list) else []
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -731,9 +764,11 @@ def save_review_edit(
     Per-area path (Slice C-v2d -- when `area` is supplied):
       field is one of qty_by_area / amount_by_area / rate_by_area; `area` names the
       cell. rate_by_area additionally requires `rate_subkey` in (supply_rate,
-      install_rate, combined_rate). The area key MUST already exist on the row (an
-      edit never creates an area). Blank value -> 0.0 with the key kept. The whole
-      dict is bare-assigned back (no json.dumps); the edit stamps provenance exactly
+      install_rate, combined_rate). C-v2d-fix: `area` is validated against the SHEET'S
+      defined areas (sheet_config.area_dimensions); the dict key is CREATED if absent
+      (a defined-but-empty area is a valid edit target). An UNDEFINED area, or a sheet
+      with no area_dimensions, is rejected. Blank value -> 0.0 with the key kept. The
+      whole dict is bare-assigned back (no json.dumps); the edit stamps provenance exactly
       like a flat edit and appends a STRUCTURED edit_log entry carrying area
       (+ rate_subkey). When `area` is None, behaviour is exactly the flat path above.
 
@@ -898,10 +933,20 @@ def save_review_edit(
                 current = {}
         if not isinstance(current, dict):
             current = {}
-        # Reject -- never create an area via an edit (changing keys is a structure change).
-        if area not in current:
+        # C-v2d-fix: validate the sent area against the SHEET'S defined areas
+        # (sheet_config.area_dimensions), NOT this row's existing dict keys. Setting a
+        # value on a defined-but-empty area is a legitimate value edit (the key is
+        # created below if absent); only an UNDEFINED area is a structure error.
+        # sheet_name passed verbatim (#152).
+        area_dimensions = _get_sheet_area_dimensions(boq_name, sheet_name)
+        if not area_dimensions:
             frappe.throw(
-                f"Area '{area}' is not present on field '{field}' for this row.",
+                "This sheet has no defined areas; per-area values cannot be edited.",
+                title="No defined areas",
+            )
+        if area not in area_dimensions:
+            frappe.throw(
+                f"Area '{area}' is not a defined area for this sheet.",
                 title="Unknown area",
             )
         # Blank value -> 0.0 (key kept); non-blank coerced to float.
