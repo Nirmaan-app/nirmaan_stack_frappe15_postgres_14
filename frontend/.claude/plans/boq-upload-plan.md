@@ -236,9 +236,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-07 (Slice C-v2c: per-row Remarks -- new `remarks` Small Text field [migrated] + NEW save_review_remark endpoint [set_value ONLY, never edited_at/edit_log -- row stays "Original"] + 500-char hard guard + get_review_rows field add; frontend MessageSquare marker in Classification cell [no new column], master Show/Hide-all-remarks toggle [default off, mirrors flags], detail-panel Textarea+counter+Save with DEDICATED remarkError, sheet-level "Remarks: N" strip; review_screen tests 90->95)
+**Last updated:** 2026-06-08 (Slice C-v2c-polish: remark marker ALWAYS-VISIBLE [gate simplified to just `hasRemark`]; master Show/Hide-all-remarks toggle REMOVED [supersedes the C-v2c toggle line]; fixed-width panel inputs across all three edit blocks [numeric + text grid->flex-wrap w-52, Remarks max-w-md] so the Apply/Save button never needs horizontal scroll on a wide sheet; remark cap 500 -> 250 both sides + two cap tests updated; review_screen tests stay 95; tsc 0 wizard errors; Vite build exit 0)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat da6bb6d1 (Slice C-v2c)
+**Latest commit:** fix ae9dcff2 (Slice C-v2c-polish)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -6044,3 +6044,29 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record + Last-updated/Latest-commit bump.
 - `CLAUDE.md` (root) -- Active Features row + Wizard Endpoints Reference (save_review_remark) + last-updated stamp.
 - `frontend/CLAUDE.md` -- status line + C-v2c convention note.
+
+### Slice C-v2c-polish -- remark marker always-visible, drop toggle, fixed-width panel inputs, cap 500->250 (fix ae9dcff2, 2026-06-08)
+
+**Scope:** Live-cert UX follow-up on C-v2c. Three fixes + one removal; NO change to the core remark behaviour (remarks still save via the separate `save_review_remark` path and still never flip a row to "Edited").
+
+**SUPERSEDES the C-v2c "Marker/toggle behaviour" note above:** the panel-only gate `hasRemark && (showAllRemarks || expandedDetailRow === idx)` is replaced by just `hasRemark` (always-visible), and the master Show/Hide-all-remarks toggle is GONE.
+
+1. **Remark marker ALWAYS visible.** The blue `MessageSquare` marker now shows whenever the row carries a non-empty remark (`remarkMarkerShown = hasRemark`) -- no toggle or open-panel gating. A marker's job is to advertise the remark. Click still opens the detail panel (`toggleDetailRow`).
+2. **Master "Show/Hide all remarks" toggle REMOVED.** In a panel-only model with the marker always-visible, the toggle had nothing to do. Removed: `showAllRemarks` state, `toggleShowAllRemarks`, `hasRemarksAny`, and the controls-bar button. (Confirmed no other references before deletion.)
+3. **"Remarks: N" strip KEPT.** `SheetReviewPage` derives its own `remarkCount` (independent of the removed `hasRemarksAny`), so the strip is untouched. `SheetReviewPage.tsx` needed NO change.
+4. **Fixed-width panel inputs (the real width fix).** All three detail-panel edit blocks were stretching to the full table width (`colSpan={totalCols}`), pushing the Apply/Save button far right on many-column sheets. Fix: numeric "Edit values" + text "Edit text" blocks switched `grid grid-cols-2 sm:grid-cols-3` -> `flex flex-wrap` with `w-52` items; the Remarks block capped at `max-w-md`. Inputs are now a compact unit with the button beside/below -- no horizontal scroll to reach it. Layout-only: no save logic, confirm dialog, endpoint, or dirty/disabled rule changed.
+5. **Cap 500 -> 250 both sides.** `REMARK_MAX_LEN` (frontend) and `_REMARK_MAX_LEN` (backend) -> 250; counter, over-cap message, Save-disable, and backend hard-guard all follow. Backwards-compat: a stored remark > 250 still DISPLAYS (read path untouched); only a re-save past 250 is blocked -- no migration, no truncation of existing data.
+
+**Tests:** the two cap tests renamed/retuned to the 250/251 boundary (`test_remark_exactly_250_accepted`, `test_remark_251_rejected_and_not_written`). Count stays 95 (two modified, none added/removed).
+
+**Verification:** review-screen wizard tests 95/95 GREEN in-session. tsc 0 boq-wizard errors. Vite production build exit 0 IN THE CONTAINER. No doctype/schema change (no migrate).
+
+**Files changed:**
+- `nirmaan_stack/api/boq/wizard/review_screen.py` -- `_REMARK_MAX_LEN` 500->250 + docstring number.
+- `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- two cap tests retuned to 250/251.
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- marker gate, toggle removal, width fixes, `REMARK_MAX_LEN` 250.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record + header bump.
+- `CLAUDE.md` (root) -- last-updated stamp + Active Features note.
+- `frontend/CLAUDE.md` -- status line + C-v2c-polish note.
+
+**NOT fixed (deliberate):** clicking the remark marker while its panel is already open toggles the panel closed -- Nitesh judged this acceptable.
