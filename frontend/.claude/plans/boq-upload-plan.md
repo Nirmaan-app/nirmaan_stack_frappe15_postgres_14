@@ -236,9 +236,9 @@ Prefill -- auto_guess wired into upload worker ✅ COMPLETE (feat 5356b471; uplo
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-07 (Slice C-v1: optional reason 6th edit_log key + edited_at on save return; backend delta + read-side render)
+**Last updated:** 2026-06-07 (Slice C-v2: inline value-editing for the 7 flat numeric fields -- frontend-only; first human edit written through the UI on C-v1's backend)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 2bf77d62 (Slice C-v1)
+**Latest commit:** feat aa74a023 (Slice C-v2)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -5941,3 +5941,37 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 - `frontend/.claude/plans/boq-upload-plan.md` -- this record + Latest-commit bump.
 - `CLAUDE.md` (root) -- status line + endpoint reference note.
 - `frontend/CLAUDE.md` -- status line + EditLogEntry reason / save edited_at note.
+
+### Slice C-v2 -- inline value-editing for the 7 flat numeric fields (feat aa74a023, 2026-06-07)
+
+**Scope:** Second of the three C-values sub-slices and the core value-editing UI. FRONTEND-ONLY -- C-v1 already shipped the backend (`reason` 6th edit_log key + `edited_at` in the save return), and the 7 flat fields were already writeable via `save_review_edit`. C-v2 binds the UI to that existing endpoint: it makes the SEVEN FLAT NUMERIC fields editable inline in the detail panel, confirm-gated, with an optional reason, auto-saving per confirm, and a sheet-level save-status anchor. This is the first slice where a human edit is written THROUGH THE UI. No backend (`.py`) change of any kind. Per-area cells (`value_key !== null`) and text fields (description/unit/sl_no/make_model/row_notes) are deliberately NOT editable here -- that is C-v2b; classification/parent editing are later dedicated slices.
+
+**Editable set + rule:** Exactly the 7 flat numeric fields -- `qty_total`, `rate_supply`, `rate_install`, `rate_combined`, `amount_total`, `amount_supply`, `amount_install` (mirrors backend `review_screen._VALUE_FIELDS`). The build rule for which descriptor columns get an editable input: `editable = (d.value_key === null) && EDITABLE_VALUE_FIELDS.has(d.value_field)`. For an editable descriptor the write-target field name IS `d.value_field` (proven by `resolveDescriptorValue`: for `value_key === null` singletons, `value_field` is the flat ReviewRow field directly). A sheet whose value columns are ALL per-area correctly surfaces NO editable inputs in C-v2 -- expected, not a bug (per-area editing is C-v2b).
+
+**Frontend (`ReviewTree.tsx`):**
+- Module const `EDITABLE_VALUE_FIELDS` (the 7 names) near the other constants. Props extended: `boqName: string`, `sheetName: string` (VERBATIM/untrimmed -- the #152 trailing-space guard; never the display-trimmed name), `onSaved?: (editedAt: string) => void`.
+- `editableDescriptors` computed inside the existing descriptor `useMemo` (filter on the editable rule), returned + destructured.
+- New state (all `useState`, matching the ReviewTree idiom -- no Zustand): `editInputs: Record<string,string>` (the expanded row's input values, value_field -> string), `pendingEdit` (single-open draft: rowIndex/field/col/role/excelRow/from/to | null), `pendingReason: string`, `saveError: string | null`. POST hook: `useFrappePostCall<{message: SaveReviewEditResponse}>("...save_review_edit")` -> `{call: saveCall, loading: isSaving}`.
+- Seed effect `[expandedDetailRow, byIdx, editableDescriptors]`: re-seeds `editInputs` to the row's stored values when the panel opens / after a save refreshes `byIdx` (so the just-edited field reads non-dirty post-mutate).
+- Editable-inputs block in the detail panel, placed between the original-vs-effective grid and the flags block: per editable descriptor a shadcn `Input type="number"` labelled `"{col} -- {ROLE_LABELS[role]}"` pre-filled with the current value + an `Apply` button enabled only when dirty (and not saving). Inline `saveError` below the grid (`text-destructive`).
+- `openValueConfirm(row, d, fromStr, toStr)` sets `pendingEdit` + clears reason/error. `confirmValueSave()` fires the POST `{boq_name, sheet_name (verbatim), row_index, field, value, reason}` (reason passed raw -- backend normalizes blank/whitespace -> None), then `onSaved?.(res.message.edited_at)`; on reject (the endpoint THROWS, not `{ok:false}`) the message is surfaced inline via `saveError` using the canonical wizard error-extraction idiom (no toasts).
+- Per-edit confirm: a single shadcn `AlertDialog` mounted once after the table, open-state derived from `pendingEdit !== null`. One-line summary (`Row {excelRow} {col} -- {role}: {from} -> {to}. Confirm?`) + an OPTIONAL reason `Input type="text"` (placeholder "Reason (optional)"). `AlertDialogAction` confirms (auto-closes); Cancel discards with no write. Lightweight one-line confirm (value edits have no structural fallout -- NOT the heavy children-fate confirm).
+- The C-v1 per-ENTRY edit-history reason render and the per-ROW "Reason -- (added in a later step)" placeholder slot are LEFT UNTOUCHED (the placeholder is a future per-row current-reason surface, distinct from the confirm-dialog reason input built here).
+
+**Frontend (`SheetReviewPage.tsx`):**
+- `mutate` added to the `get_review_rows` `useFrappeGetCall` destructure. `lastSavedAt: string | null` local state. `handleSaved(editedAt)` sets `lastSavedAt` (instant anchor update from the server timestamp, no wait for refetch) AND calls `void mutate()` (grid + provenance refresh: the row flips to "Edited", green tint, history gains an entry). `<ReviewTree>` now receives `boqName={boqId ?? ""}`, `sheetName={sheetName}` (verbatim), `onSaved={handleSaved}`.
+- Save-status anchor in the header strip (`ml-auto`, `Check` icon + "All changes saved &middot; {time}"), shown once `lastSavedAt` is set. It REPORTS saved state -- it is NOT a batch-save button (every confirmed edit already auto-saved; one call = one commit; no dirty-buffer model). Header sub-line honesty: "Read-only review" -> "Review & edit" (the screen is no longer read-only). Local `fmtSavedTime` parses the server-local naive `edited_at` and renders HH:MM:SS.
+
+**Frontend (`boqTypes.ts`):** added `SaveReviewEditResponse` interface (`ok, row_index, field, from, to, edited_at, effective`) so the POST return is typed where `edited_at` is read. (`EditLogEntry.reason?: string` already existed from C-v1.) Minimal surface -- nothing else added.
+
+**Verification:** tsc 0 wizard-file errors (confirmed). Vite production build exit 0, built successfully IN THE CONTAINER (confirmed out of band). Wizard tests: unchanged (frontend-only slice, no test files touched) -- no bench/unittest run. Parser tests: not run (out of scope). LIVE-CERTIFICATION on BOQ-26-00145 is a SEPARATE step Nitesh runs AFTER this lands -- NOT part of this slice.
+
+**Backwards-compat:** Additive only. `onSaved` is optional; the new `boqName`/`sheetName` props are required and supplied by the sole caller (`SheetReviewPage`). `SaveReviewEditResponse` is a new type, no existing type changed. Rows with no editable value columns render the panel exactly as before (no inputs). No backend/schema/route change.
+
+**Files changed:**
+- `frontend/src/pages/boq-wizard/ReviewTree.tsx` -- editable inputs + confirm AlertDialog + optional reason + POST wiring + edit state.
+- `frontend/src/pages/boq-wizard/SheetReviewPage.tsx` -- mutate + lastSavedAt + onSaved + save-status anchor + sub-line honesty.
+- `frontend/src/pages/boq-wizard/boqTypes.ts` -- SaveReviewEditResponse.
+- `frontend/.claude/plans/boq-upload-plan.md` -- this record + Last-updated/Latest-commit bump.
+- `frontend/CLAUDE.md` -- status line + value-editing behaviour note.
+- `CLAUDE.md` (root) -- Active Features row + last-updated stamp (minimal touch).
