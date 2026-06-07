@@ -265,7 +265,7 @@ const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
 
 // C-v2c: per-row human-only remark cap (mirrors backend _REMARK_MAX_LEN). Enforced
 // here as a live counter + Save-disable; the backend hard-guards the same value.
-const REMARK_MAX_LEN = 500;
+const REMARK_MAX_LEN = 250;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -311,9 +311,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const { call: saveRemarkCall, loading: isSavingRemark } = useFrappePostCall<{
     message: { ok: boolean; row_index: number; remarks: string | null };
   }>("nirmaan_stack.api.boq.wizard.review_screen.save_review_remark");
-  // C-v2c: master show/hide-all-remarks toggle. Mirrors showAllFlags (default false --
-  // opt-in reveal). Gates the per-row remark MARKER together with individual-open.
-  const [showAllRemarks, setShowAllRemarks] = useState(false);
   // C-v2c: the remark Textarea input for the currently-expanded detail row.
   const [remarkInput, setRemarkInput] = useState("");
   // C-v2c: dedicated inline error for the remark Save block ONLY -- kept separate
@@ -493,7 +490,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // C-v2c: save a per-row remark via the SEPARATE endpoint. Does NOT flip the row
   // to "Edited" (the backend writes only `remarks`, never edited_at / edit_log).
   // Refresh runs through onRemarkSaved (mutate only -- the sheet edit anchor is NOT
-  // advanced). The 500-cap is also guarded backend-side; the button disables past it.
+  // advanced). The 250-cap is also guarded backend-side; the button disables past it.
   const saveRemark = async (rowIndex: number, value: string) => {
     setRemarkError(null);
     try {
@@ -515,11 +512,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
   };
 
-  // C-v2c: master show/hide-all-remarks toggle (mirrors toggleShowAllFlags).
-  const toggleShowAllRemarks = () => {
-    setShowAllRemarks(prev => !prev);
-  };
-
   // B2a-fix OBS-1: master show-all / hide-all toggle.
   // Toggling hide-all (showAllFlags -> false) also clears expandedFlagRow to null.
   const toggleShowAllFlags = () => {
@@ -539,12 +531,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
 
   // Whether any flags exist at all -- used to conditionally render the master toggle.
   const hasFlagsAny = flags.length > 0;
-
-  // C-v2c: whether any row carries a non-empty remark -- gates the master toggle.
-  const hasRemarksAny = useMemo(
-    () => rows.some(r => typeof r.remarks === "string" && r.remarks.trim() !== ""),
-    [rows],
-  );
 
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
@@ -732,24 +718,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
             {showAllFlags ? "Hide all flags" : "Show all flags"}
           </button>
         )}
-        {/* C-v2c: master show-all / hide-all remarks toggle (mirrors the flags toggle;
-            blue to stay distinct from amber flags). Gates the per-row remark marker. */}
-        {hasRemarksAny && (
-          <button
-            type="button"
-            onClick={toggleShowAllRemarks}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
-              "bg-background hover:bg-muted/50 transition-colors",
-              showAllRemarks
-                ? "text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            {showAllRemarks ? "Hide all remarks" : "Show all remarks"}
-          </button>
-        )}
         {/* Feature 2: three independent annotation-row visibility toggles */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">Show:</span>
@@ -871,11 +839,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               const hasFlags = rowFlags.length > 0;
               // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
               const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
-              // C-v2c: this row carries a non-empty remark. The marker mirrors the flags
-              // gating: shown when hasRemark AND (showAllRemarks OR this row's panel is
-              // individually open). Clicking the marker opens the detail panel (no reveal row).
+              // C-v2c (polish): the remark marker is ALWAYS shown when the row carries a
+              // non-empty remark -- a marker's job is to advertise the remark, so no toggle
+              // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
               const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
-              const remarkMarkerShown = hasRemark && (showAllRemarks || expandedDetailRow === row.row_index);
+              const remarkMarkerShown = hasRemark;
               // B2c: colSpan for flag-reasons + detail panel rows -- 7 fixed anchors (incl. expander, Status).
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
               const totalCols = 7 + visibleDescriptorCount;
@@ -1136,7 +1104,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {editableDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 {editableDescriptors.map(d => {
                                   const stored = (row as unknown as Record<string, unknown>)[d.value_field];
                                   const storedStr = stored === null || stored === undefined ? "" : String(stored);
@@ -1144,7 +1112,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   const dirty = current !== storedStr;
                                   const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
                                   return (
-                                    <div key={d.value_field} className="flex flex-col gap-1">
+                                    <div key={d.value_field} className="flex flex-col gap-1 w-52">
                                       <label
                                         htmlFor={`edit-${row.row_index}-${d.value_field}`}
                                         className="text-[10px] text-muted-foreground"
@@ -1185,7 +1153,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {editableTextDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 {editableTextDescriptors.map(d => {
                                   const stored = (row as unknown as Record<string, unknown>)[d.value_field];
                                   const storedStr = stored === null || stored === undefined ? "" : String(stored);
@@ -1193,7 +1161,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   const dirty = current !== storedStr;
                                   const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
                                   return (
-                                    <div key={d.value_field} className="flex flex-col gap-1">
+                                    <div key={d.value_field} className="flex flex-col gap-1 w-52">
                                       <label
                                         htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
                                         className="text-[10px] text-muted-foreground"
@@ -1239,7 +1207,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             const remarkOverCap = remarkInput.length > REMARK_MAX_LEN;
                             const remarkDirty = remarkInput !== storedRemark;
                             return (
-                              <div className="mb-2">
+                              <div className="mb-2 max-w-md">
                                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Remarks</p>
                                 <Textarea
                                   value={remarkInput}

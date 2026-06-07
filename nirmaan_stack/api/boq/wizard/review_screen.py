@@ -57,7 +57,7 @@ _ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIE
 # Per-row human-only remark cap (Slice C-v2c). Enforced in save_review_remark on
 # both sides (frontend live-counter + this hard guard). The remarks field is a
 # Small Text column; the cap is code-enforced (Small Text has no DB length).
-_REMARK_MAX_LEN = 500
+_REMARK_MAX_LEN = 250
 
 # edit_log is a list-JSON field on BoQ Review Row (Slice A addition).
 # Like the 4 list-JSON fields in parse_run._LIST_JSON_FIELDS, it must be
@@ -919,7 +919,7 @@ def save_review_remark(
     The write uses frappe.db.set_value (not doc.save) precisely so no version /
     provenance side-effects fire.
 
-    The remark is capped at 500 chars (_REMARK_MAX_LEN), enforced here as a hard
+    The remark is capped at 250 chars (_REMARK_MAX_LEN), enforced here as a hard
     guard (frappe.throw) so the cap holds even if the frontend is bypassed.
     Blank/whitespace-only normalizes to None (clears the remark).
 

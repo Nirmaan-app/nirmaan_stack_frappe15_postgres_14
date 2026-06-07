@@ -723,7 +723,7 @@ class TestSaveReviewRemark(FrappeTestCase):
       - a remark persists to the remarks field;
       - it does NOT set edited_at and does NOT append to edit_log (row stays "Original");
       - blank/whitespace clears to None;
-      - the 500-char cap is enforced (501 rejected, exactly-500 accepted);
+      - the 250-char cap is enforced (251 rejected, exactly-250 accepted);
       - save_review_edit still stamps edited_at (the two paths are independent).
 
     Fixture rows per test (reset by setUp):
@@ -808,24 +808,24 @@ class TestSaveReviewRemark(FrappeTestCase):
         self.assertIsNone(self._get_doc(0).remarks,
                           "a whitespace-only remark must clear the field to None")
 
-    def test_remark_exactly_500_accepted(self):
-        """A remark of exactly 500 chars is accepted and persisted."""
-        text = "x" * 500
+    def test_remark_exactly_250_accepted(self):
+        """A remark of exactly 250 chars is accepted and persisted."""
+        text = "x" * 250
         result = save_review_remark(
             boq_name=self.boq_name, sheet_name=self.sheet_name,
             row_index=1, remark=text,
         )
         self.assertTrue(result["ok"])
         doc = self._get_doc(1)
-        self.assertEqual(len(doc.remarks), 500)
+        self.assertEqual(len(doc.remarks), 250)
         self.assertEqual(doc.remarks, text)
 
-    def test_remark_501_rejected_and_not_written(self):
-        """A remark of 501 chars is rejected (throw) and the field is not written."""
+    def test_remark_251_rejected_and_not_written(self):
+        """A remark of 251 chars is rejected (throw) and the field is not written."""
         with self.assertRaises(frappe.ValidationError):
             save_review_remark(
                 boq_name=self.boq_name, sheet_name=self.sheet_name,
-                row_index=1, remark="y" * 501,
+                row_index=1, remark="y" * 251,
             )
         self.assertIsNone(self._get_doc(1).remarks,
                           "an over-cap remark must leave the field unwritten")
