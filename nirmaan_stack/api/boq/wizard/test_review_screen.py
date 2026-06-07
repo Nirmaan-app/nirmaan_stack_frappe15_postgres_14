@@ -632,6 +632,85 @@ class TestSaveReviewEdit(FrappeTestCase):
         self.assertEqual(doc.human_parent, 0)
         self.assertEqual(result["effective"]["effective_parent_index"], 0)
 
+    # -- Slice C-v2b: inline text-editing for unit + make_model --
+
+    def test_edit_unit_persists_string_verbatim(self):
+        """Editing `unit` stores the string verbatim (NO float coercion),
+        stamps edited_at, and appends an edit_log entry with field='unit'."""
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="unit", value="sqm",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["field"], "unit")
+        self.assertEqual(result["to"], "sqm",
+                         "the string must be returned verbatim, not coerced")
+        doc = self._get_doc(0)
+        self.assertEqual(doc.unit, "sqm",
+                         "unit must persist the string verbatim")
+        self.assertIsNotNone(doc.edited_at, "edited_at must be stamped on a text edit")
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log)
+        self.assertEqual(log[-1]["field"], "unit")
+        self.assertEqual(log[-1]["to"], "sqm")
+
+    def test_edit_make_model_persists_string(self):
+        """Editing `make_model` persists the string, stamps edited_at, and logs."""
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, field="make_model", value="Havells / X200",
+        )
+        self.assertTrue(result["ok"])
+        doc = self._get_doc(1)
+        self.assertEqual(doc.make_model, "Havells / X200")
+        self.assertIsNotNone(doc.edited_at)
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log)
+        self.assertEqual(log[-1]["field"], "make_model")
+        self.assertEqual(log[-1]["to"], "Havells / X200")
+
+    def test_text_blank_clears_to_none(self):
+        """A blank string clears a text field to None (mirrors numeric blank-clear)."""
+        # First set a value, then clear it with "".
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="unit", value="kg",
+        )
+        self.assertEqual(self._get_doc(0).unit, "kg")
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, field="unit", value="",
+        )
+        self.assertIsNone(self._get_doc(0).unit,
+                          "blank string must clear the text field to None")
+
+    def test_description_edit_still_rejected(self):
+        """description is NOT in the allowed-edit set -- editing it must throw."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="description", value="should not work",
+            )
+
+    def test_row_notes_edit_still_rejected(self):
+        """row_notes is NOT in the allowed-edit set -- editing it must throw."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="row_notes", value="should not work",
+            )
+
+    def test_numeric_field_still_rejects_non_numeric_string(self):
+        """The float() path for numeric fields is unchanged: a non-numeric string
+        must still throw 'must be a number' (text path must not catch these)."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="qty_total", value="not_a_number",
+            )
+
 
 # ===========================================================================
 # Group 6: mark_sheet_parsed_check_done -- DB

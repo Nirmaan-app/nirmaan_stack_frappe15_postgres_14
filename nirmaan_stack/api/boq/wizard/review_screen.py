@@ -47,7 +47,12 @@ _VALUE_FIELDS: frozenset[str] = frozenset({
     "amount_supply",
     "amount_install",
 })
-_ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS
+# Plain Data (text) scalar fields editable inline (Slice C-v2b). These are stored
+# verbatim as strings -- NOT coerced through float() like _VALUE_FIELDS. Blank
+# string clears to None (mirrors the numeric blank-clear). description and
+# row_notes are deliberately NOT here -- they stay read-only.
+_TEXT_FIELDS: frozenset[str] = frozenset({"unit", "make_model"})
+_ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIELDS
 
 # edit_log is a list-JSON field on BoQ Review Row (Slice A addition).
 # Like the 4 list-JSON fields in parse_run._LIST_JSON_FIELDS, it must be
@@ -681,7 +686,9 @@ def save_review_edit(
                                None/"" clears the override.
       human_parent          -- int row_index; hard-rejected if self-parent or cycle.
                                None/"" clears the override.
-      qty_total / rate_* / amount_* -- direct update of value fields.
+      qty_total / rate_* / amount_* -- direct update of numeric value fields (float).
+      unit / make_model     -- direct update of text fields (string verbatim, no
+                               float coercion); blank clears to None (Slice C-v2b).
 
     reason (Slice C-v1) is an OPTIONAL free-text note stored as the 6th key on the
     edit_log entry. Blank/whitespace-only is normalized to None. There is no UI
@@ -821,6 +828,14 @@ def save_review_edit(
             # -1 = no override; >= 0 = real override (incl. 0 = parent is row 0).
             # value was already validated as int or None in the block above.
             doc.human_parent = -1 if value is None else value
+        else:
+            setattr(doc, field, value)
+    elif field in _TEXT_FIELDS:
+        # Text field (unit / make_model): store the string verbatim -- NO float()
+        # coercion (the numeric path below would reject text). Blank string clears
+        # to None, matching the numeric blank-clear behaviour.
+        if value is None or value == "":
+            setattr(doc, field, None)
         else:
             setattr(doc, field, value)
     else:

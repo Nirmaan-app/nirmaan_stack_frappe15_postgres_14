@@ -254,6 +254,14 @@ const EDITABLE_VALUE_FIELDS = new Set<string>([
   "amount_total", "amount_supply", "amount_install",
 ]);
 
+// C-v2b: the 2 flat text value fields editable inline (mirrors backend
+// review_screen._TEXT_FIELDS). Same descriptor-gating as EDITABLE_VALUE_FIELDS
+// (value_key === null && this Set has value_field). Unlike numeric edits, the
+// text Apply saves DIRECTLY with no confirm dialog (silent save) and the value
+// is a string (backend stores it verbatim, no float coercion). description and
+// row_notes stay read-only -- they are NOT here.
+const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface ReviewTreeProps {
@@ -291,6 +299,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   );
   // Editable-value inputs for the currently-expanded detail row (value_field -> string).
   const [editInputs, setEditInputs] = useState<Record<string, string>>({});
+  // C-v2b: editable text inputs (unit / make_model) for the expanded detail row.
+  const [textInputs, setTextInputs] = useState<Record<string, string>>({});
   // Pending value edit awaiting confirmation (single-open, mirrors expandedDetailRow).
   const [pendingEdit, setPendingEdit] = useState<{
     rowIndex: number;
@@ -318,7 +328,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   }, [rows]);
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors } = useMemo(() => {
+  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors } = useMemo(() => {
     const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
     const slNoLetter = columnDescriptors.find(d => d.role === "sl_no")?.col ?? null;
     const descriptionLetter = columnDescriptors.find(d => d.role === "description")?.col ?? null;
@@ -330,12 +340,19 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     const editableDescriptors = displayDescriptors.filter(
       d => d.value_key === null && EDITABLE_VALUE_FIELDS.has(d.value_field),
     );
+    // C-v2b: descriptors whose value is a flat editable text field (unit / make_model).
+    // Gated identically to editableDescriptors so a text input shows only when the
+    // sheet actually maps that column. Empty list -> no text inputs rendered.
+    const editableTextDescriptors = displayDescriptors.filter(
+      d => d.value_key === null && EDITABLE_TEXT_FIELDS.has(d.value_field),
+    );
     return {
       displayDescriptors,
       slNoLetter,
       descriptionLetter,
       areaColorMap: buildAreaColorMap(areas),
       editableDescriptors,
+      editableTextDescriptors,
     };
   }, [columnDescriptors]);
 
@@ -425,6 +442,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
   };
 
+  // C-v2b: save a text field (unit / make_model) DIRECTLY -- no confirm dialog
+  // (silent save), value is a string (backend stores verbatim, no float coercion).
+  // On success advances the anchor + refreshes via onSaved (row flips to "Edited"
+  // exactly like a numeric edit); failure surfaces inline in the still-open panel.
+  const saveTextField = async (rowIndex: number, field: string, value: string) => {
+    setSaveError(null);
+    try {
+      const res = await saveCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: rowIndex,
+        field,
+        value,
+      });
+      onSaved?.(res.message.edited_at);
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : "Save failed. Please try again.";
+      setSaveError(msg);
+    }
+  };
+
   // B2a-fix OBS-1: master show-all / hide-all toggle.
   // Toggling hide-all (showAllFlags -> false) also clears expandedFlagRow to null.
   const toggleShowAllFlags = () => {
@@ -464,12 +507,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   useEffect(() => {
     if (expandedDetailRow === null) {
       setEditInputs({});
+      setTextInputs({});
       setSaveError(null);
       return;
     }
     const r = byIdx.get(expandedDetailRow);
     if (!r) {
       setEditInputs({});
+      setTextInputs({});
       return;
     }
     const seed: Record<string, string> = {};
@@ -478,8 +523,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       seed[d.value_field] = v === null || v === undefined ? "" : String(v);
     }
     setEditInputs(seed);
+    // C-v2b: seed text inputs from the row's stored unit / make_model.
+    const textSeed: Record<string, string> = {};
+    for (const d of editableTextDescriptors) {
+      const v = (r as unknown as Record<string, unknown>)[d.value_field];
+      textSeed[d.value_field] = v === null || v === undefined ? "" : String(v);
+    }
+    setTextInputs(textSeed);
     setSaveError(null);
-  }, [expandedDetailRow, byIdx, editableDescriptors]);
+  }, [expandedDetailRow, byIdx, editableDescriptors, editableTextDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -1015,9 +1067,59 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   );
                                 })}
                               </div>
-                              {saveError && <p className="text-xs text-destructive mt-1">{saveError}</p>}
                             </div>
                           )}
+                          {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
+                              block from the numeric one. Apply saves DIRECTLY (no confirm
+                              dialog); the value is a string. Shown only when the sheet maps
+                              the column (editableTextDescriptors gating). */}
+                          {editableTextDescriptors.length > 0 && (
+                            <div className="mb-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {editableTextDescriptors.map(d => {
+                                  const stored = (row as unknown as Record<string, unknown>)[d.value_field];
+                                  const storedStr = stored === null || stored === undefined ? "" : String(stored);
+                                  const current = textInputs[d.value_field] ?? storedStr;
+                                  const dirty = current !== storedStr;
+                                  const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
+                                  return (
+                                    <div key={d.value_field} className="flex flex-col gap-1">
+                                      <label
+                                        htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
+                                        className="text-[10px] text-muted-foreground"
+                                      >
+                                        {fieldLabel}
+                                      </label>
+                                      <div className="flex items-center gap-1">
+                                        <Input
+                                          id={`edit-text-${row.row_index}-${d.value_field}`}
+                                          type="text"
+                                          value={current}
+                                          onChange={(e) =>
+                                            setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
+                                          }
+                                          className="h-7 text-xs"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs shrink-0"
+                                          disabled={!dirty || isSaving}
+                                          onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
+                                        >
+                                          Apply
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {/* Shared inline save error (numeric + text edits) */}
+                          {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
                           {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
                           {rowFlags.length > 0 && (
                             <div className="mb-2">
