@@ -6134,3 +6134,88 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 - `nirmaan_stack/api/boq/wizard/test_review_screen.py` -- `TestSaveReviewEditPerArea` setUpClass sheet_config + NoDimSheet + 5 new tests.
 
 **NO frontend change, NO doctype/schema change.**
+
+---
+
+## Restructure surface (Slice 1)
+
+The restructure surface lets a reviewer re-parent a row by FINDING the target row in the
+source sheet and (Slice 1b) selecting + saving a new placement. It is built in two slices:
+**1a** = the searchable sheet-view component (FIND + SHOW only, certified via a throwaway
+dev route); **1b** = the restructure modal that mounts 1a, adds selection + a transactional
+save endpoint, and REMOVES the dev route. Slice 1b is NOT started.
+
+### Slice 1a -- searchable sheet-view component (feat pending, 2026-06-08)
+
+**Scope:** FRONTEND ONLY. No backend file, no doctype JSON, no `patches/`, no
+`review_screen.py` / `sheet_preview.py` change. SheetDataGrid kept byte-for-byte
+untouched. No selection / no save / no modal / no restructure endpoint (all 1b).
+
+**What was built:**
+- **`frontend/src/pages/boq-wizard/SheetSearchView.tsx`** (new) -- a self-contained,
+  searchable, column-trimmed, scroll-to-hit view of ONE sheet's raw cell data. Props
+  `{ boqName, sheetName, initialCentreRow?, onCurrentHitChange? }`. `onCurrentHitChange`
+  is the non-destructive callback exposed for 1b to consume; wired to nothing that saves.
+- **Self-contained fetch (owns its data):**
+  1. *Rows* -- `get_sheet_preview` via `useFrappePostCall`. The endpoint hard-caps each
+     window at 200 rows (`_PREVIEW_MAX_ROWS`), so on mount the component LOOPS windows of
+     200, advancing by `end_row_requested + 1`, until `has_more === false` -- loading the
+     ENTIRE sheet up front (decision: search must cover every row, not a 40-row page).
+     Progressive "Loading sheet... (N rows loaded)" state; a 500-window safety backstop
+     (100k rows) fails loudly rather than looping forever. **Cost note:** the endpoint
+     re-fetches the file from S3 + re-opens the workbook PER call, so a ~1,186-row sheet =
+     ~6 sequential calls (~tens of seconds). Acceptable for 1a behind the loading state; a
+     true batch/full-sheet read endpoint is a possible 1b backend follow-up if it feels slow.
+  2. *Role->letter map* -- `useFrappeGetDoc("BOQs", boqName)` -> `draft.sheet_config.column_role_map`
+     (same source SheetSpokePage seeds from; handles object|string config + `{role,area}`
+     and legacy role-only shapes). Preview cells are keyed by Excel COLUMN LETTER and are
+     role-blind; this map supplies which letter is Sl.No / Description / Unit / Qty.
+- **Column-trim:** renders ONLY `#` (Excel row) + Sl.No + Description + Unit + EVERY Qty
+  column (per-area qty included -- each Qty column shown with its Excel letter and area
+  label, e.g. "Qty (Phase 1) (D)"). Rate and Amount columns hidden. **Degraded mode**
+  (no `column_role_map`): all columns shown (Excel order), search disabled with an inline
+  amber note "Description column not mapped... search is unavailable."
+- **Description search + hit stepper:** case-insensitive substring over the Description
+  cell across the FULL loaded sheet. Counter "N of M"; prev/next step BOTH directions and
+  CYCLE (wrap at both ends); all matches soft-highlighted (yellow), current hit emphasised
+  (amber); empty/zero-match -> counter 0, toggles inert.
+- **Scroll/centre/highlight:** the ReviewTree pattern PORTED fresh (not imported) --
+  `rowRefs = useRef<Map<number, HTMLElement>>` keyed by `row_number` + `<tr>` ref callback;
+  on current-hit change (and `initialCentreRow` once on first full-loaded render)
+  `scrollIntoView({ behavior:"smooth", block:"center" })` (center clears the sticky header)
+  + a transient brighter flash cleared after ~1.2s. The sticky `#` gutter stays
+  `bg-background` for horizontal-scroll correctness, so the row tint reads across the data
+  cells but not the gutter (known, accepted).
+- **Reuse decision:** self-contained trimmed table (shadcn `Table`, sticky header, sticky
+  gutter) instead of reusing/extending SheetDataGrid -- the scroll/highlight needs per-row
+  DOM access SheetDataGrid does not expose, so reusing would mean adding 3-4 review-specific
+  props to a shared component; a focused table keeps SheetDataGrid untouched. `sheet_name`
+  used VERBATIM everywhere (no trim) -- trailing-space names exist on BOQ-26-00145 (#152).
+
+**Temporary dev route (live-cert vehicle -- REMOVED in 1b):**
+- **`frontend/src/pages/boq-wizard/_DevSheetSearchHarness.tsx`** (new) + one route entry in
+  `routesConfig.tsx`: `upload-boq/_dev-sheetview/:boqId/:sheetName`. Both carry the comment
+  "TEMPORARY dev harness for Slice 1a live-cert -- REMOVE in Slice 1b". Not linked from any
+  real UI. Removal is a named 1b task.
+- **Live-cert URLs (BOQ-26-00145, all Parsed, desc column B mapped):**
+  clean name -> `/upload-boq/_dev-sheetview/BOQ-26-00145/Fire%20Fitting`;
+  trailing-space -> `/upload-boq/_dev-sheetview/BOQ-26-00145/Electrical%20` (and `HVAC%20`).
+
+**Gates (in-container, canonical):** tsc `--noEmit` IN THE CONTAINER -- 0 boq-wizard errors,
+0 in `SheetSearchView` / `_DevSheetSearchHarness` / `routesConfig` (the ~3.1k total errors are
+the repo's known pre-existing baseline outside wizard scope). Vite production build IN THE
+CONTAINER exit 0. No automated tests this slice (UI component, no backend change); parser /
+wizard suites deliberately NOT run (agreement #55 -- avoids churning fixture bytes).
+
+**CERT STATUS (honest):** gates green; **LIVE-CERT OWED** (Nitesh's separate step -- the dev
+route exists precisely for it). Verify: (1) trimmed columns only (#, Sl.No, Description, Unit,
+every Qty; NO Rate/Amount), (2) search finds matches + correct counter, (3) prev/next step +
+cycle, (4) current hit scrolls into view + highlights, (5) works on the trailing-space sheet
+`Electrical ` / `HVAC `.
+
+**Files changed (feat pending):**
+- `frontend/src/pages/boq-wizard/SheetSearchView.tsx` (new).
+- `frontend/src/pages/boq-wizard/_DevSheetSearchHarness.tsx` (new, TEMPORARY -- removed in 1b).
+- `frontend/src/components/helpers/routesConfig.tsx` (one throwaway route entry -- removed in 1b).
+
+**NO backend change, NO doctype/schema change.**
