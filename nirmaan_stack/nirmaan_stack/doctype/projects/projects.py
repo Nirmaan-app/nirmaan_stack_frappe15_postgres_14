@@ -7,8 +7,11 @@ from frappe.model.naming import getseries
 from datetime import datetime, timedelta
 
 from frappe.utils import flt
-
-CEO_HOLD_AUTHORIZED_USER = "nitesh@nirmaan.app"
+from nirmaan_stack.api.milestone.project_schedule import sync_project_schedule
+from nirmaan_stack.constants.authorized_users import (
+	CEO_AUTHORIZED_USER as CEO_HOLD_AUTHORIZED_USER,
+	CEO_HOLD_SYSTEM_USER,
+)
 
 class Projects(Document):
 	def validate(self):
@@ -48,7 +51,14 @@ class Projects(Document):
 
 		# Changing FROM CEO Hold
 		elif old_status == "CEO Hold":
-			if frappe.session.user != old_doc.ceo_hold_by:
+			# Cron-set holds (ceo_hold_by = CEO_HOLD_SYSTEM_USER) are clearable
+			# by the authorized human, since no real user "owns" them.
+			is_cron_set_hold = old_doc.ceo_hold_by == CEO_HOLD_SYSTEM_USER
+			can_revert = (
+				frappe.session.user == old_doc.ceo_hold_by
+				or (is_cron_set_hold and frappe.session.user == CEO_HOLD_AUTHORIZED_USER)
+			)
+			if not can_revert:
 				frappe.throw(
 					"Only the user who placed this project on CEO Hold can remove it.",
 					frappe.PermissionError
@@ -86,6 +96,20 @@ def on_update(doc, method=None):
 	# Handle project_start_date change - recalculate Critical PO Task deadlines
 	if doc.has_value_changed('project_start_date') and doc.project_start_date:
 		recalculate_critical_po_deadlines(doc.name, doc.project_start_date)
+
+	# Project Schedule sync — only re-run when the project window changes, so
+	# every (non-overridden) milestone's start_date / end_date is recomputed
+	# against the new window. Manual overrides (changed_by_user = 1) stay
+	# frozen. Header enable/disable goes through the Setup Progress Tracking
+	# wizard, which calls `ensure_project_schedule` directly, so we don't need
+	# to also trigger from on_update here.
+	if doc.has_value_changed('project_start_date') or doc.has_value_changed('project_end_date'):
+		sync_project_schedule(doc, method)
+
+	# Realtime CEO Hold re-check when the gap limit drops (or is first set).
+	if doc.has_value_changed('cashflow_gap_limit'):
+		from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import trigger_check
+		trigger_check(doc.name)
 
 
 def recalculate_critical_po_deadlines(project_name, project_start_date):

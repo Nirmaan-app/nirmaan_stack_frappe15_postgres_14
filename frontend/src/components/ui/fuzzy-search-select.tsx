@@ -210,7 +210,7 @@ const tokenSearchConfig = {
 };
 
 // Calculate match score for an item
-function calculateMatchScore(
+export function calculateMatchScore(
     item: FuzzyOptionType,
     searchTokens: string[],
     config: Required<TokenSearchConfig>
@@ -301,6 +301,62 @@ function calculateMatchScore(
 // Helper to escape special regex characters
 function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Fill TokenSearchConfig with the same defaults FuzzySearchSelect applies internally.
+function withTokenSearchDefaults(config: TokenSearchConfig): Required<TokenSearchConfig> {
+    return {
+        searchFields: config.searchFields,
+        minSearchLength: config.minSearchLength ?? 1,
+        caseSensitive: config.caseSensitive ?? false,
+        partialMatch: config.partialMatch ?? true,
+        minTokenLength: config.minTokenLength ?? 1,
+        tokenSeparator: config.tokenSeparator ?? /\s+/,
+        fieldWeights: config.fieldWeights ?? {},
+        minTokenMatches: config.minTokenMatches ?? 1,
+    };
+}
+
+/**
+ * Pure helper that ranks a list using the same token-score algorithm
+ * FuzzySearchSelect uses internally. Works on any object shape — only the
+ * fields named in `config.searchFields` are read. Empty query returns the
+ * input unchanged.
+ */
+export function rankByTokenScore<T extends Record<string, any>>(
+    items: T[],
+    query: string,
+    config: TokenSearchConfig
+): T[] {
+    const trimmed = (query ?? "").trim();
+    const filled = withTokenSearchDefaults(config);
+
+    if (!trimmed || trimmed.length < filled.minSearchLength) return items;
+
+    const tokens = trimmed
+        .split(filled.tokenSeparator)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= filled.minTokenLength);
+
+    if (tokens.length === 0) return items;
+
+    const matches: { item: T; result: SearchMatch }[] = [];
+    for (const item of items) {
+        const result = calculateMatchScore(item as FuzzyOptionType, tokens, filled);
+        if (result) matches.push({ item, result });
+    }
+
+    matches.sort((a, b) => {
+        if (a.result.isFullMatch !== b.result.isFullMatch) {
+            return a.result.isFullMatch ? -1 : 1;
+        }
+        if (a.result.matchedTokenCount !== b.result.matchedTokenCount) {
+            return b.result.matchedTokenCount - a.result.matchedTokenCount;
+        }
+        return b.result.score - a.result.score;
+    });
+
+    return matches.map((m) => m.item);
 }
 
 // ============================================================================
@@ -487,12 +543,30 @@ export function FuzzySearchSelect<T extends FuzzyOptionType, IsMulti extends boo
         setInputValue("");
     };
     
+    const ScrollableDefaultMenuList = (props: MenuListProps<T, IsMulti>) => {
+        const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+            const target = e.currentTarget;
+            const atTop = target.scrollTop <= 0;
+            const atBottom =
+                target.scrollTop + target.clientHeight >= target.scrollHeight - 1;
+            if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) return;
+            e.stopPropagation();
+            target.scrollTop += e.deltaY;
+        };
+        return (
+            <components.MenuList
+                {...props}
+                innerProps={{ ...(props.innerProps || {}), onWheel: handleWheel }}
+            />
+        );
+    };
+
     const MappedCustomMenuList = customMenuListComponent
         ? (props: MenuListProps<T, IsMulti>) => {
               const CustomComponent = customMenuListComponent;
               return <CustomComponent {...props} {...customMenuListProps} />;
           }
-        : components.MenuList;
+        : ScrollableDefaultMenuList;
 
     return (
         <ReactSelect<T, IsMulti>

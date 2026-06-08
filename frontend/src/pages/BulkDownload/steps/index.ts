@@ -4,3 +4,4 @@ export { InvoiceSteps } from "./InvoiceSteps";
 export { DCSteps } from "./DCSteps";
 export { MIRSteps } from "./MIRSteps";
 export { DNSteps } from "./DNSteps";
+export { ClientInvoiceSteps } from "./ClientInvoiceSteps";

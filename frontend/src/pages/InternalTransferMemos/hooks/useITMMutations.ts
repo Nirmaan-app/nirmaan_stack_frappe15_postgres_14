@@ -1,27 +1,6 @@
 import { useFrappePostCall, useFrappeAuth } from "frappe-react-sdk";
 import { captureApiError } from "@/utils/sentry/captureApiError";
 
-// ---- ITR Mutations (approve/reject items) ----
-
-interface ApproveITRResponse {
-  message: {
-    itr_name: string;
-    itr_status: string;
-    created_itms: string[];
-    count: number;
-  };
-}
-
-interface RejectITRResponse {
-  message: {
-    itr_name: string;
-    itr_status: string;
-    rejected_count: number;
-  };
-}
-
-// ---- ITM Mutations (dispatch/delete) ----
-
 interface DispatchResponse {
   message: {
     name: string;
@@ -39,18 +18,16 @@ interface DeleteResponse {
 }
 
 /**
- * Lifecycle mutations for ITR (approve/reject items) and ITM (dispatch/delete).
+ * Lifecycle mutations for Internal Transfer Memos.
+ *
+ * After the ITR collapse, ITMs are born `Approved` directly from the picker
+ * (`create_itms`); this hook only covers post-create transitions:
+ *
+ *   * `dispatch(name)` — Approved → Dispatched (Admin / Procurement only)
+ *   * `deleteItm(name)` — destroys an Approved ITM and releases its reservation
  */
 export function useITMMutations() {
   const { currentUser } = useFrappeAuth();
-
-  const approveITRCall = useFrappePostCall<ApproveITRResponse>(
-    "nirmaan_stack.api.internal_transfers.approve_itr_items.approve_itr_items"
-  );
-
-  const rejectITRCall = useFrappePostCall<RejectITRResponse>(
-    "nirmaan_stack.api.internal_transfers.approve_itr_items.reject_itr_items"
-  );
 
   const dispatchCall = useFrappePostCall<DispatchResponse>(
     "nirmaan_stack.api.internal_transfers.lifecycle.dispatch_itm"
@@ -60,50 +37,6 @@ export function useITMMutations() {
     "nirmaan_stack.api.internal_transfers.lifecycle.delete_itm"
   );
 
-  // --- ITR: Approve selected items → creates ITMs ---
-  const approveITRItems = async (itrName: string, itemNames: string[]) => {
-    try {
-      return await approveITRCall.call({
-        itr_name: itrName,
-        item_names: JSON.stringify(itemNames),
-      });
-    } catch (e) {
-      captureApiError({
-        hook: "useITMMutations.approveITRItems",
-        api: "approve_itr_items",
-        feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Request",
-        entity_id: itrName,
-        error: e,
-        user: currentUser ?? undefined,
-      });
-      throw e;
-    }
-  };
-
-  // --- ITR: Reject selected items ---
-  const rejectITRItems = async (itrName: string, itemNames: string[], reason: string) => {
-    try {
-      return await rejectITRCall.call({
-        itr_name: itrName,
-        item_names: JSON.stringify(itemNames),
-        reason,
-      });
-    } catch (e) {
-      captureApiError({
-        hook: "useITMMutations.rejectITRItems",
-        api: "reject_itr_items",
-        feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Request",
-        entity_id: itrName,
-        error: e,
-        user: currentUser ?? undefined,
-      });
-      throw e;
-    }
-  };
-
-  // --- ITM: Dispatch ---
   const dispatch = async (name: string) => {
     try {
       return await dispatchCall.call({ name });
@@ -121,7 +54,6 @@ export function useITMMutations() {
     }
   };
 
-  // --- ITM: Delete ---
   const deleteItm = async (name: string) => {
     try {
       return await deleteCall.call({ name });
@@ -140,12 +72,8 @@ export function useITMMutations() {
   };
 
   return {
-    approveITRItems,
-    rejectITRItems,
     dispatch,
     deleteItm,
-    isApprovingITR: approveITRCall.loading,
-    isRejectingITR: rejectITRCall.loading,
     isDispatching: dispatchCall.loading,
     isDeleting: deleteCall.loading,
   };

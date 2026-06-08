@@ -113,9 +113,7 @@ export const UserForm = () => {
             }
         } catch (error: any) {
             let errorMessage = "Failed to create user";
-            if (error?.message) {
-                errorMessage = error.message;
-            } else if (error?._server_messages) {
+            if (error?._server_messages) {
                 try {
                     const serverMessages = JSON.parse(error._server_messages);
                     if (Array.isArray(serverMessages) && serverMessages.length > 0) {
@@ -125,12 +123,25 @@ export const UserForm = () => {
                 } catch {
                     // If parsing fails, use default message
                 }
+            } else if (error?.message) {
+                errorMessage = error.message;
             } else if (error?.exc_type) {
                 errorMessage = `${error.exc_type}: ${error.message || "Unknown error"}`;
             }
 
+            // Tailored titles for the common backend validation errors so admin
+            // sees the cause at a glance instead of a generic "Error".
+            let title = "Error";
+            if (/mobile number .* already exists/i.test(errorMessage)) {
+                title = "Mobile number already exists";
+            } else if (/mobile number must be exactly 10 digits/i.test(errorMessage)) {
+                title = "Invalid mobile number";
+            } else if (/email .* already exists/i.test(errorMessage)) {
+                title = "Email already exists";
+            }
+
             toast({
-                title: "Error",
+                title,
                 description: errorMessage,
                 variant: "destructive"
             });

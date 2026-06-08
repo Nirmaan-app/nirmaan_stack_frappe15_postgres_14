@@ -30,7 +30,9 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     progressMessage,
     showRateDialog,
     setShowRateDialog,
+    rateDocType,
     initiatePODownload,
+    initiateWODownload,
     showInvoiceDialog,
     setShowInvoiceDialog,
     invoiceType,
@@ -42,6 +44,9 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     triggerDownload,
     stopProgress
   } = useBulkPdfDownload(projectId, projectName);
+
+  const rateLabel = rateDocType === "WO" ? "WOs" : "POs";
+  const rateDocTypeLabel = rateDocType === "WO" ? "Work Orders" : "POs";
 
   return (
     <>
@@ -57,14 +62,14 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
             <Download className="mr-2 h-4 w-4" />
             <span>Download All POs</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBulkDownload("WO", "Work Orders")} className="cursor-pointer">
+          <DropdownMenuItem onClick={initiateWODownload} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All WOs</span>
           </DropdownMenuItem>
           {!isProjectManager && (
             <DropdownMenuItem onClick={initiateInvoiceDownload} className="cursor-pointer">
               <Download className="mr-2 h-4 w-4" />
-              <span>Download All Invoices</span>
+              <span>Download All Outflow Invoices</span>
             </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => handleBulkDownload("DC", "Delivery Challans")} className="cursor-pointer">
@@ -79,27 +84,33 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
             <Download className="mr-2 h-4 w-4" />
             <span>Download All DNs</span>
           </DropdownMenuItem>
+          {!isProjectManager && (
+            <DropdownMenuItem onClick={() => handleBulkDownload("ClientInvoice", "Client Invoices")} className="cursor-pointer">
+              <Download className="mr-2 h-4 w-4" />
+              <span>Download All Client Invoices</span>
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* PO Rate Selection Dialog */}
+      {/* PO / WO Rate Selection Dialog (shared) */}
       <Dialog open={showRateDialog} onOpenChange={setShowRateDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Download POs</DialogTitle>
+            <DialogTitle>Download {rateLabel}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">
-            <p className="text-sm text-muted-foreground">Select how you want to download the PO documents.</p>
+            <p className="text-sm text-muted-foreground">Select how you want to download the {rateDocTypeLabel} documents.</p>
             <div className="flex flex-col gap-2">
               <Button
                 variant="outline"
-                onClick={() => handleBulkDownload("PO", "POs", { withRate: true })}
+                onClick={() => handleBulkDownload(rateDocType, rateLabel, { withRate: true })}
                 disabled={isProjectManager}
                 className="justify-start h-auto py-3 px-4"
               >
                 <div className="flex flex-col items-start">
                   <span className="font-semibold">With Rate</span>
-                  <span className="text-xs text-muted-foreground font-normal italic lowercase">Shows prices and totals in the POs</span>
+                  <span className="text-xs text-muted-foreground font-normal italic lowercase">Shows prices and totals in the {rateLabel.toLowerCase()}</span>
                   {isProjectManager && (
                     <span className="text-[10px] text-muted-foreground font-normal mt-1">Disabled for Project Managers</span>
                   )}
@@ -107,12 +118,12 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handleBulkDownload("PO", "POs", { withRate: false })}
+                onClick={() => handleBulkDownload(rateDocType, rateLabel, { withRate: false })}
                 className="justify-start h-auto py-3 px-4"
               >
                 <div className="flex flex-col items-start">
                   <span className="font-semibold">Without Rate</span>
-                  <span className="text-xs text-muted-foreground font-normal italic lowercase">Hides prices and totals from the POs</span>
+                  <span className="text-xs text-muted-foreground font-normal italic lowercase">Hides prices and totals from the {rateLabel.toLowerCase()}</span>
                 </div>
               </Button>
             </div>

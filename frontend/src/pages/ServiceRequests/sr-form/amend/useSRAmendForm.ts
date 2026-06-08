@@ -10,6 +10,7 @@ import {
     SRFormValues,
     validateStep1,
     validateStep2,
+    calculateTotal,
     ValidationResult,
 } from "../schema";
 import {
@@ -177,13 +178,23 @@ export const useSRAmendForm = ({
         const formValues = getValues();
         const section = getSectionByIndex(currentStep);
 
+        const guardTotal = (): ValidationResult => {
+            const total = calculateTotal(formValues.items || []);
+            if (total <= 0) {
+                return { success: false, error: "Total Work Order Amount must be greater than 0." };
+            }
+            return { success: true };
+        };
+
         switch (section) {
             case "items":
-                return validateStep1(formValues);
-            case "vendor":
-                return validateStep2(formValues);
-            case "review":
-                // Full validation on review step
+                // Total isn't meaningful on the items step — rates are entered on step 2.
+                return validateStep1(formValues, true);
+            case "vendor": {
+                const r = validateStep2(formValues, true);
+                return r.success ? guardTotal() : r;
+            }
+            case "review": {
                 const result = srFormSchema.safeParse(formValues);
                 if (!result.success) {
                     return {
@@ -191,8 +202,9 @@ export const useSRAmendForm = ({
                         error: result.error.errors[0]?.message || "Please review all details.",
                     };
                 }
-                // Also check step 2 validation logic (total > 0 etc.)
-                return validateStep2(formValues);
+                const r = validateStep2(formValues, true);
+                return r.success ? guardTotal() : r;
+            }
             default:
                 return { success: true };
         }
@@ -267,12 +279,22 @@ export const useSRAmendForm = ({
             return;
         }
 
-        // Additional business validation (Total > 0, etc.)
-        const step2Val = validateStep2(formValues);
+        // Per-line negative-rate is allowed in amend, but the GRAND TOTAL must still be > 0.
+        const step2Val = validateStep2(formValues, true);
         if (!step2Val.success) {
             toast({
                 title: "Validation Error",
                 description: step2Val.error || "Please ensure all rates are entered correctly.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        const grandTotal = calculateTotal(formValues.items || []);
+        if (grandTotal <= 0) {
+            toast({
+                title: "Validation Error",
+                description: "Total Service Amount must be greater than 0.",
                 variant: "destructive",
             });
             return;

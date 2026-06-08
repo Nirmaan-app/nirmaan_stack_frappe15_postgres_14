@@ -109,4 +109,12 @@ nirmaan_stack.patches.v3_0.set_material_plan_delivery_status #v1
 #nirmaan_stack.patches.v3_0.itm_phase2_migration
 nirmaan_stack.patches.v3_0.warehouse_per_make_setup
 nirmaan_stack.patches.v3_0.backfill_pdd_parent_doctype #v2
+nirmaan_stack.patches.v3_0.drop_itr_doctype
+nirmaan_stack.patches.v3_0.backfill_project_schedule #v2
+nirmaan_stack.patches.v3_0.backfill_cashflow_gap_limited #v4
+nirmaan_stack.patches.v3_0.backfill_tds_repository_status #v2
+nirmaan_stack.patches.v3_0.backfill_asset_category_type
+nirmaan_stack.patches.v3_0.backfill_blank_item_id
+nirmaan_stack.patches.v3_0.rename_cashflow_gap_limited #1
+nirmaan_stack.patches.v3_0.purge_document_ai_credentials
 nirmaan_stack.patches.v3_0.sync_commission_master_changes

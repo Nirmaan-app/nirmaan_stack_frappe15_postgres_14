@@ -1,7 +1,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, PackageCheck } from "lucide-react";
+import { ArrowRight, PackageCheck, Trash2 } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { InternalTransferMemo } from "@/types/NirmaanStack/InternalTransferMemo";
@@ -14,6 +14,9 @@ interface TransferDetailsCardProps {
   createdByFullName: string | null;
   onMarkDispatched?: () => void;
   showDispatchButton?: boolean;
+  onDelete?: () => void;
+  showDeleteButton?: boolean;
+  isDeleting?: boolean;
 }
 
 /**
@@ -47,21 +50,37 @@ export const TransferDetailsCard: React.FC<TransferDetailsCardProps> = ({
   createdByFullName,
   onMarkDispatched,
   showDispatchButton = false,
+  onDelete,
+  showDeleteButton = false,
+  isDeleting = false,
 }) => {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h3 className="text-red-600 text-lg font-semibold">Transfer Details</h3>
-          {showDispatchButton && onMarkDispatched && (
-            <Button
-              onClick={onMarkDispatched}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              <PackageCheck className="h-4 w-4 mr-1.5" />
-              Mark as Dispatched
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {showDeleteButton && onDelete && (
+              <Button
+                variant="outline"
+                onClick={onDelete}
+                disabled={isDeleting}
+                className="border-destructive text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4 mr-1.5" />
+                {isDeleting ? "Deleting…" : "Delete"}
+              </Button>
+            )}
+            {showDispatchButton && onMarkDispatched && (
+              <Button
+                onClick={onMarkDispatched}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                <PackageCheck className="h-4 w-4 mr-1.5" />
+                Mark as Dispatched
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -123,18 +142,6 @@ export const TransferDetailsCard: React.FC<TransferDetailsCardProps> = ({
           </div>
         </div>
 
-        {/* Transfer Request link (if available) */}
-        {itm.transfer_request && (
-          <>
-            <hr className="border-border" />
-            <div className="text-sm">
-              <span className="text-muted-foreground">Request ID: </span>
-              <span className="font-medium font-mono text-sm">
-                {itm.transfer_request}
-              </span>
-            </div>
-          </>
-        )}
       </CardContent>
     </Card>
   );

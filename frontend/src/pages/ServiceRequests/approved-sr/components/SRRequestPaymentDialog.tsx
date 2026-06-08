@@ -69,18 +69,21 @@ export const SRRequestPaymentDialog: React.FC<SRRequestPaymentDialogProps> = ({
                 break;
             default: calculatedAmount = 0;
         }
-        setEffectiveAmountRequesting(Math.max(0, calculatedAmount));
+        // Allow negative requests (refund/credit after a negative SR amend).
+        // Only the "all-positive" preset modes are floored at 0; raw custom/percentage
+        // input passes through unchanged so a negative number stays negative.
+        setEffectiveAmountRequesting(calculatedAmount);
     }, [selectedOption, customAmountInput, percentageInput, maxPossibleNewRequest, baseAmountForPayment, totalSrAmountExclGST, currentPaidAmount, currentPendingAmount]);
 
     // Client-side validation (Similar to your RequestPaymentDialog for POs)
-    const validateClientSide = useCallback( /* ... same debounce logic ... */ (amount: number) => {
+    const validateClientSide = useCallback((amount: number) => {
         if (amount > maxPossibleNewRequest) { setValidationWarning(`Requested (${formatToRoundedIndianRupee(amount)}) exceeds max allowable (${formatToRoundedIndianRupee(maxPossibleNewRequest)}).`); }
-        else if (amount <= 0 && selectedOption) { setValidationWarning("Amount must be > 0."); }
+        else if (amount === 0 && selectedOption) { setValidationWarning("Amount cannot be 0."); }
         else { setValidationWarning(""); }
-    }, [maxPossibleNewRequest]);
+    }, [maxPossibleNewRequest, selectedOption]);
 
-    useEffect(() => { /* ... same effect to call validateClientSide ... */
-        if (effectiveAmountRequesting > 0 || selectedOption) validateClientSide(effectiveAmountRequesting);
+    useEffect(() => {
+        if (effectiveAmountRequesting !== 0 || selectedOption) validateClientSide(effectiveAmountRequesting);
         else setValidationWarning("");
     }, [effectiveAmountRequesting, selectedOption, validateClientSide]);
 
@@ -90,8 +93,7 @@ export const SRRequestPaymentDialog: React.FC<SRRequestPaymentDialogProps> = ({
             showBlockedToast();
             return;
         }
-        // ... (validation checks for warning or amount <= 0)
-        if (validationWarning || effectiveAmountRequesting <= 0) { /* ... toast error ... */ return; }
+        if (validationWarning || effectiveAmountRequesting === 0) { return; }
 
         try {
             const response = await createPaymentRequestAPI({
@@ -168,7 +170,7 @@ export const SRRequestPaymentDialog: React.FC<SRRequestPaymentDialogProps> = ({
                 <div className="mt-4 text-center font-semibold text-lg">Requesting: <span className="text-primary">{formatToRoundedIndianRupee(effectiveAmountRequesting)}</span></div>
                 <AlertDialogFooter className="mt-4">
                     <AlertDialogCancel onClick={() => { resetForm(); onOpenChange(false);}} disabled={isSubmitting}>Cancel</AlertDialogCancel>
-                    <Button onClick={handleSubmitRequest} disabled={isSubmitting || effectiveAmountRequesting <= 0 || !!validationWarning}>
+                    <Button onClick={handleSubmitRequest} disabled={isSubmitting || effectiveAmountRequesting === 0 || !!validationWarning}>
                         {isSubmitting ? <TailSpin color="#fff" height={20} width={20} /> : "Submit Request"}
                     </Button>
                 </AlertDialogFooter>

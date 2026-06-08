@@ -1,36 +1,8 @@
-// ---- ITR (Transfer Request) — approval document ----
-
-export type ITRStatus = "Pending" | "Completed" | "Rejected";
-
-export interface InternalTransferRequestItem {
-  name?: string;
-  item_id: string;
-  item_name?: string;
-  unit?: string;
-  category?: string;
-  make?: string;
-  transfer_quantity: number;
-  estimated_rate: number;
-  status: "Pending" | "Approved" | "Rejected";
-  rejection_reason?: string;
-  linked_itm?: string;
-}
-
-export interface InternalTransferRequest {
-  name: string;
-  creation: string;
-  modified: string;
-  owner?: string;
-  source_project: string;
-  target_project: string;
-  source_rir?: string;
-  status: ITRStatus;
-  requested_by?: string;
-  memo_count?: number;
-  items: InternalTransferRequestItem[];
-}
-
 // ---- ITM (Transfer Memo) — dispatch/delivery document ----
+//
+// After the ITR collapse, ITMs are born `Approved` directly from the picker
+// via `create_itms`. There is no separate Transfer Request layer; this type
+// is the single source of truth for the doctype shape on the frontend.
 
 export type ITMStatus =
   | "Approved"
@@ -57,8 +29,9 @@ export interface InternalTransferMemo {
   modified_by?: string;
   owner?: string;
   docstatus?: 0 | 1 | 2;
-  transfer_request?: string;
+  source_type?: "Project" | "Warehouse";
   source_project: string;
+  target_type?: "Project" | "Warehouse";
   target_project: string;
   source_rir: string;
   status: ITMStatus;

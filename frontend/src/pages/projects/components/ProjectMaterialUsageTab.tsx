@@ -18,7 +18,7 @@ import { getUrlJsonParam, getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { debounce } from 'lodash';
 import { Input } from '@/components/ui/input';
-import Fuse from 'fuse.js';
+import { rankByTokenScore } from '@/components/ui/fuzzy-search-select';
 import { useMaterialUsageData } from '../hooks/useMaterialUsageData';
 
 // =================================================================================
@@ -247,19 +247,18 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   // This is the single source of truth for the data displayed in the table and exported to CSV.
   // It applies search, filtering, and sorting in a specific order.
 
-  // Initializes Fuse.js for fuzzy searching on the item names.
-  const fuseInstance = useMemo(() => {
-    if (!allMaterialUsageItems) return null;
-    return new Fuse(allMaterialUsageItems, { keys: ['itemName', 'vendorNames'], threshold: 0.3 });
-  }, [allMaterialUsageItems]);
-  
   // The main `useMemo` hook to process data. This is the single source of truth.
   const processedItems = useMemo(() => {
     let items = allMaterialUsageItems || [];
 
-    // 1. SEARCH: Apply fuzzy search if a search term exists.
-    if (debouncedSearchTerm && fuseInstance) {
-      items = fuseInstance.search(debouncedSearchTerm).map(result => result.item);
+    // 1. SEARCH: token-score (shared with FuzzySearchSelect).
+    if (debouncedSearchTerm) {
+      items = rankByTokenScore(items, debouncedSearchTerm, {
+        searchFields: ['itemName', 'vendorNames'],
+        fieldWeights: { itemName: 2.0, vendorNames: 1.0 },
+        partialMatch: true,
+        minTokenMatches: 1,
+      });
     }
 
     // 2. FILTER: Apply all active faceted filters.
@@ -276,7 +275,6 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   }, [
     allMaterialUsageItems,
     debouncedSearchTerm,
-    fuseInstance,
     categoryFilter,
     billingCategoryFilter,
     deliveryStatusFilter,

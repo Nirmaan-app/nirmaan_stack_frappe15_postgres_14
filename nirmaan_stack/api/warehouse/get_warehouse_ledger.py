@@ -3,7 +3,7 @@ List endpoint for Warehouse Stock Ledger entries.
 
 Conforms to the standard envelope consumed by ``useServerDataTable`` so the
 frontend can sort/filter/search/paginate server-side, matching the pattern
-used by ``get_itms_list`` / ``get_itrs_list``.
+used by ``get_itms_list``.
 """
 
 import json

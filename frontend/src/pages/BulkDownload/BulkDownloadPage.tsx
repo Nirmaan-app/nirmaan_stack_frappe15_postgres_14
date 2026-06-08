@@ -7,7 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
-import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps } from "./steps";
+import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, ClientInvoiceSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 
 interface BulkDownloadPageProps {
@@ -82,6 +82,11 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         filteredDnList,
         filteredInvoiceItemsBase,
         filteredPoDeliveryDocItems,
+        projectInvoiceItems,
+        projectInvoicesLoading,
+        customerOptions,
+        commonCustomerFilter,
+        toggleCustomer,
         searchQuery,
         setSearchQuery,
         statusFilter,
@@ -190,6 +195,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             items={woList}
                             filteredItems={filteredWoList}
                             isLoading={wosLoading}
+                            withRate={withRate}
+                            onWithRateChange={setWithRate}
                             vendorOptions={vendorOptions}
                             vendorFilter={commonVendorFilter}
                             onToggleVendor={toggleVendor}
@@ -243,6 +250,22 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             vendorOptions={vendorOptions}
                             vendorFilter={commonVendorFilter}
                             onToggleVendor={toggleVendor}
+                            dateFilter={commonDateFilter}
+                            onDateFilter={setCommonDateFilter}
+                            onClearFilters={clearFilters}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
+                        />
+                    )}
+
+                    {step === 2 && docType === "ClientInvoice" && (
+                        <ClientInvoiceSteps
+                            {...sharedProps}
+                            items={projectInvoiceItems}
+                            isLoading={projectInvoicesLoading}
+                            customerOptions={customerOptions}
+                            customerFilter={commonCustomerFilter}
+                            onToggleCustomer={toggleCustomer}
                             dateFilter={commonDateFilter}
                             onDateFilter={setCommonDateFilter}
                             onClearFilters={clearFilters}

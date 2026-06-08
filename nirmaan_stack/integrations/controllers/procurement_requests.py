@@ -540,6 +540,12 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
     # frappe.msgprint(f"Procurement Request {doc.name} passed validation for PO creation.", indicator="green", title="Validation Passed")
     # return True
 
+def validate(doc, method):
+    for item in doc.get("order_list") or []:
+        if not item.item_id:
+            item.item_id = item.name
+
+
 def after_insert(doc, method):
     # if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
     # last_prs = frappe.db.get_list("Procurement Requests", 

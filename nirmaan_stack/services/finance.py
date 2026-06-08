@@ -150,7 +150,7 @@ def get_total_pending(src):
     pending_payments = frappe.get_all(
         "Project Payments",
         filters=[
-            ["status", "in", ("Requested", "Approved", "Rejected")],
+            ["status", "in", ("Requested", "CEO Pending", "Approved", "Rejected")],
             ["document_type", "=", src.doctype],
             ["document_name", "=", src.name]
         ],

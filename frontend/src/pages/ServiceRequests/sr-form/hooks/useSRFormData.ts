@@ -46,8 +46,10 @@ export interface UseSRFormDataReturn {
     serviceItems: WOServiceItem[];
     itemsLoading: boolean;
 
-    // Service categories
+    // Service categories that have at least one WO Service Item (for the main package picker)
     categories: CategoryOption[];
+    // Service categories with NO items — shown only in the Add Custom Service dialog
+    emptyCategories: CategoryOption[];
     categoriesLoading: boolean;
     categoriesError: unknown;
 
@@ -131,20 +133,29 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
         projectId ? `Projects ${projectId}` : null
     );
 
-    /* ─────────────────────────────────────────────────────────
-       TRANSFORM CATEGORIES TO OPTIONS
-       ───────────────────────────────────────────────────────── */
-    const categories = useMemo<CategoryOption[]>(() => {
-        if (!categoryData) return [];
-        return categoryData.map((cat) => ({
-            value: cat.name,
-            label: cat.category_name,
-        }));
-    }, [categoryData]);
-
     const serviceItems = useMemo<WOServiceItem[]>(() => {
         return itemData || [];
     }, [itemData]);
+
+    /* ─────────────────────────────────────────────────────────
+       TRANSFORM + SPLIT CATEGORIES
+       - `categories`: have ≥1 WO Service Item — shown in main "Select Package"
+       - `emptyCategories`: have 0 items — shown only in Add Custom Service dialog
+       ───────────────────────────────────────────────────────── */
+    const { categories, emptyCategories } = useMemo<{
+        categories: CategoryOption[];
+        emptyCategories: CategoryOption[];
+    }>(() => {
+        if (!categoryData) return { categories: [], emptyCategories: [] };
+        const populated = new Set(serviceItems.map((it) => it.category_link));
+        const withItems: CategoryOption[] = [];
+        const empties: CategoryOption[] = [];
+        for (const cat of categoryData) {
+            const opt: CategoryOption = { value: cat.name, label: cat.category_name };
+            (populated.has(cat.name) ? withItems : empties).push(opt);
+        }
+        return { categories: withItems, emptyCategories: empties };
+    }, [categoryData, serviceItems]);
 
     /* ─────────────────────────────────────────────────────────
        TRANSFORM VENDORS TO OPTIONS
@@ -188,6 +199,7 @@ export function useSRFormData(projectId?: string): UseSRFormDataReturn {
     return {
         // Categories
         categories,
+        emptyCategories,
         categoriesLoading,
         categoriesError: categoriesError ?? null,
 

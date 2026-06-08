@@ -5,7 +5,7 @@ import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { subDays, subMonths, subYears, startOfWeek, startOfMonth, startOfQuarter, startOfYear, isAfter, isBefore, isEqual, isWithinInterval } from "date-fns";
 import { useUserData } from "@/hooks/useUserData";
 
-export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN";
+export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
 
 const BULK_SOCKET_EVENTS = [
@@ -33,6 +33,11 @@ import { PODeliveryDocuments as BasePODeliveryDocuments } from "@/types/NirmaanS
 export interface PODeliveryDocuments extends BasePODeliveryDocuments {
     vendor_name?: string;
     dc_date?: string;
+}
+
+import { ProjectInvoice as BaseProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+export interface ProjectInvoice extends BaseProjectInvoice {
+    company_name?: string;
 }
 
 export interface WOItem {
@@ -77,6 +82,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const [withRate, setWithRate] = useState(true);
     const [invoiceSubType, setInvoiceSubType] = useState<InvoiceSubType>("All Invoices");
     const [commonVendorFilter, setCommonVendorFilter] = useState<string[]>([]);
+    const [commonCustomerFilter, setCommonCustomerFilter] = useState<string[]>([]);
     const [commonDateFilter, setCommonDateFilter] = useState<DateFilterValue | undefined>();
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState<string[]>([]);
@@ -101,12 +107,17 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         setCommonVendorFilter((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
     }, []);
 
+    const toggleCustomer = useCallback((c: string) => {
+        setCommonCustomerFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+    }, []);
+
     const toggleStatus = useCallback((s: string) => {
         setStatusFilter((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
     }, []);
 
     const clearFilters = useCallback(() => {
         setCommonVendorFilter([]);
+        setCommonCustomerFilter([]);
         setCommonDateFilter(undefined);
         setSearchQuery("");
         setStatusFilter([]);
@@ -166,6 +177,17 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         projectId ? `bulk-podd-${projectId}` : null
     );
 
+    const { data: projectInvoices = [], isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>(
+        "Project Invoices",
+        {
+            fields: ["name", "customer", "customer.company_name" as any, "invoice_no", "invoice_date", "amount", "attachment", "creation"],
+            filters: [["project", "=", projectId]],
+            limit: 0,
+            orderBy: { field: "`tabProject Invoices`.invoice_date", order: "asc" },
+        },
+        projectId ? `bulk-pi-${projectId}` : null
+    );
+
     const { data: criticalTasks = [], isLoading: criticalTasksLoading } = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
@@ -193,6 +215,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         if (docType === "WO") woList.forEach(w => avail.add(w.vendor!));
         if (docType === "Invoice") vendorInvoices.forEach(v => avail.add(v.vendor!));
         if (docType === "DC" || docType === "MIR") poDeliveryDocs.forEach(d => avail.add(d.vendor!));
+        if (docType === "ClientInvoice") return [];
         return allVendorOptions.filter(o => avail.has(o.value));
     }, [docType, allVendorOptions, poList, woList, vendorInvoices, poDeliveryDocs]);
 
@@ -291,12 +314,35 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const dcItems = useMemo(() => filteredPoDeliveryDocItems.filter(d => d.type === "Delivery Challan"), [filteredPoDeliveryDocItems]);
     const mirItems = useMemo(() => filteredPoDeliveryDocItems.filter(d => d.type === "Material Inspection Report"), [filteredPoDeliveryDocItems]);
 
+    const customerOptions = useMemo(() => {
+        const map = new Map<string, string>();
+        projectInvoices.forEach(p => p.customer && map.set(p.customer, p.company_name || p.customer));
+        return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+    }, [projectInvoices]);
+
+    const filteredProjectInvoices = useMemo(() => {
+        let l = projectInvoices.filter(p => !!p.attachment);
+        if (commonCustomerFilter.length) l = l.filter(p => commonCustomerFilter.includes(p.customer!));
+        if (commonDateFilter) l = l.filter(p => isDateMatchingFilter(p.invoice_date || p.creation!, commonDateFilter));
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            l = l.filter(p =>
+                p.name.toLowerCase().includes(q)
+                || (p.invoice_no && p.invoice_no.toLowerCase().includes(q))
+                || (p.company_name && p.company_name.toLowerCase().includes(q))
+                || (p.customer && p.customer.toLowerCase().includes(q))
+            );
+        }
+        return l;
+    }, [projectInvoices, commonCustomerFilter, commonDateFilter, searchQuery]);
+
     const itemCounts = useMemo(() => ({
         PO: poList.length, WO: woList.length, Invoice: vendorInvoices.filter(v => v.invoice_attachment).length,
         DC: poDeliveryDocs.filter(d => d.type === "Delivery Challan" && d.nirmaan_attachment).length,
         MIR: poDeliveryDocs.filter(d => d.type === "Material Inspection Report" && d.nirmaan_attachment).length,
         DN: poList.filter(p => ["Delivered", "Partially Delivered"].includes(p.status!)).length,
-    }), [poList, woList, vendorInvoices, poDeliveryDocs]);
+        ClientInvoice: projectInvoices.filter(p => !!p.attachment).length,
+    }), [poList, woList, vendorInvoices, poDeliveryDocs, projectInvoices]);
 
     const poStatuses = useMemo(() => Array.from(new Set(poList.map(p => p.status!).filter(Boolean))).sort(), [poList]);
 
@@ -311,7 +357,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     // Selection Reset Effect (Option B): Reset selection when filters change
     useEffect(() => {
         setSelectedIds([]);
-    }, [commonVendorFilter, commonDateFilter, searchQuery, statusFilter]);
+    }, [commonVendorFilter, commonCustomerFilter, commonDateFilter, searchQuery, statusFilter]);
 
     const selectMultipleCriticalTaskPOs = useCallback((taskNames: string[]) => {
         const all = new Set<string>();
@@ -328,7 +374,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const handleDownload = async () => {
         if (loading) return;
         if (!selectedIds.length) { toast({ title: "No items selected", variant: "destructive" }); return; }
-        const labelMap: Record<BulkDocType, string> = { PO: "POs", WO: "WOs", Invoice: "Invoices", DC: "DCs", MIR: "MIRs", DN: "DNs" };
+        const labelMap: Record<BulkDocType, string> = { PO: "POs", WO: "WOs", Invoice: "Invoices", DC: "DCs", MIR: "MIRs", DN: "DNs", ClientInvoice: "Client Invoices" };
         const label = labelMap[docType!];
 
         try {
@@ -364,6 +410,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
                 case "WO":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_wos";
                     formData.append("names", JSON.stringify(selectedIds));
+                    formData.append("with_rate", (isProjectManager ? false : withRate) ? "1" : "0");
                     break;
                 case "DN":
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_dns";
@@ -379,6 +426,11 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
                     formData.append("attachment_names", JSON.stringify(filteredPoDeliveryDocItems.filter(d => selectedIds.includes(d.name)).map(d => d.nirmaan_attachment!)));
                     formData.append("doc_type", docType);
+                    break;
+                case "ClientInvoice":
+                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_attachments";
+                    formData.append("attachment_names", JSON.stringify(filteredProjectInvoices.filter(p => selectedIds.includes(p.name)).map(p => p.attachment!)));
+                    formData.append("doc_type", "Client Invoices");
                     break;
             }
 
@@ -420,6 +472,11 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         filteredDnList,
         filteredInvoiceItemsBase,
         filteredPoDeliveryDocItems,
+        projectInvoiceItems: filteredProjectInvoices,
+        projectInvoicesLoading,
+        customerOptions,
+        commonCustomerFilter,
+        toggleCustomer,
         searchQuery,
         setSearchQuery,
         statusFilter,

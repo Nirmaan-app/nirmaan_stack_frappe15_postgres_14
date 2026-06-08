@@ -66,6 +66,7 @@ interface EditProjectInvoiceDialogProps {
 interface InvoiceFormState {
     invoice_no: string;
     amount: string;
+    amount_excl_gst: string;
     date: string;
     project: string;
     project_name: string;
@@ -80,6 +81,7 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
     const [invoiceData, setInvoiceData] = useState<InvoiceFormState>({
         invoice_no: "",
         amount: "",
+        amount_excl_gst: "",
         date: "",
         project: "",
         project_name: "",
@@ -119,6 +121,10 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
             setInvoiceData({
                 invoice_no: invoiceToEdit.invoice_no || "",
                 amount: invoiceToEdit.amount?.toString() || "",
+                amount_excl_gst:
+                    invoiceToEdit.amount_excl_gst !== undefined && invoiceToEdit.amount_excl_gst !== null
+                        ? invoiceToEdit.amount_excl_gst.toString()
+                        : "",
                 date: invoiceToEdit.invoice_date ? formatDateFns(new Date(invoiceToEdit.invoice_date), "yyyy-MM-dd") : "",
                 project: invoiceToEdit.project || "",
                 project_name: project?.project_name || invoiceToEdit.project || "",
@@ -147,9 +153,11 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
         setInvoiceData({
             invoice_no: "",
             amount: "",
+            amount_excl_gst: "",
             date: "",
             project: "",
             project_name: "",
+            project_gst: "",
             customer: "",
             customer_name: "",
         });
@@ -206,6 +214,11 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
             amount: parseNumber(invoiceData.amount),
             invoice_date: invoiceData.date,
             project_gst: invoiceData.project_gst,
+            // Excl. GST is optional — write null when cleared so users can wipe it.
+            amount_excl_gst:
+                invoiceData.amount_excl_gst.trim() !== ""
+                    ? parseNumber(invoiceData.amount_excl_gst)
+                    : (null as unknown as number | undefined),
         };
 
         try {
@@ -440,44 +453,87 @@ export function EditProjectInvoiceDialog({ invoiceToEdit, listMutate, onClose }:
                             </div>
                         </div>
 
-                        {/* Amount */}
-                        <div className="space-y-1.5">
-                            <Label htmlFor="amount" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
-                                Amount (Incl. GST) <span className="text-red-500">*</span>
-                            </Label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
-                                <Input
-                                    id="amount"
-                                    name="amount"
-                                    type="text"
-                                    inputMode="decimal"
-                                    placeholder="0.00"
-                                    value={invoiceData.amount}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (/^-?\d*\.?\d*$/.test(val)) {
-                                            setInvoiceData(prev => ({ ...prev, amount: val }));
-                                            if (formErrors.amount) {
-                                                setFormErrors(prev => ({ ...prev, amount: undefined }));
+                        {/* Amount Excl. GST + Incl. GST side-by-side */}
+                        <div className="grid grid-cols-2 gap-3">
+                            {/* Amount (Excl. GST) — optional */}
+                            <div className="space-y-1.5">
+                                <Label htmlFor="amount_excl_gst" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                    <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
+                                    Amount (Excl. GST)
+                                </Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                                    <Input
+                                        id="amount_excl_gst"
+                                        name="amount_excl_gst"
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0.00"
+                                        value={invoiceData.amount_excl_gst}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (/^-?\d*\.?\d*$/.test(val)) {
+                                                setInvoiceData(prev => ({ ...prev, amount_excl_gst: val }));
+                                                if (formErrors.amount_excl_gst) {
+                                                    setFormErrors(prev => ({ ...prev, amount_excl_gst: undefined }));
+                                                }
                                             }
-                                        }
-                                    }}
-                                    disabled={isLoading}
-                                    className={cn(
-                                        "pl-7 h-10 text-base font-medium transition-all",
-                                        "focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500",
-                                        formErrors.amount && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
-                                    )}
-                                />
+                                        }}
+                                        disabled={isLoading}
+                                        className={cn(
+                                            "pl-7 h-10 text-base font-medium transition-all",
+                                            "focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500",
+                                            formErrors.amount_excl_gst && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
+                                        )}
+                                    />
+                                </div>
+                                {formErrors.amount_excl_gst && (
+                                    <p className="text-xs text-red-500 flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        {formErrors.amount_excl_gst}
+                                    </p>
+                                )}
                             </div>
-                            {formErrors.amount && (
-                                <p className="text-xs text-red-500 flex items-center gap-1">
-                                    <AlertCircle className="w-3 h-3" />
-                                    {formErrors.amount}
-                                </p>
-                            )}
+
+                            {/* Amount (Incl. GST) — required */}
+                            <div className="space-y-1.5">
+                                <Label htmlFor="amount" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                    <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
+                                    Amount (Incl. GST) <span className="text-red-500">*</span>
+                                </Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                                    <Input
+                                        id="amount"
+                                        name="amount"
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0.00"
+                                        value={invoiceData.amount}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (/^-?\d*\.?\d*$/.test(val)) {
+                                                setInvoiceData(prev => ({ ...prev, amount: val }));
+                                                if (formErrors.amount) {
+                                                    setFormErrors(prev => ({ ...prev, amount: undefined }));
+                                                }
+                                            }
+                                        }}
+                                        disabled={isLoading}
+                                        className={cn(
+                                            "pl-7 h-10 text-base font-medium transition-all",
+                                            "focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500",
+                                            formErrors.amount && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
+                                        )}
+                                    />
+                                </div>
+                                {formErrors.amount && (
+                                    <p className="text-xs text-red-500 flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        {formErrors.amount}
+                                    </p>
+                                )}
+                            </div>
                         </div>
 
                         {/* Attachment Section */}

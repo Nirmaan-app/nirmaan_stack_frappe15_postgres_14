@@ -5,7 +5,8 @@ export interface ProjectInvoice {
   // --- Core Invoice Fields ---
   invoice_no: string;
   invoice_date: string; // A date string, e.g., "2025-06-16"
-  amount: number;       // Currency field type in Frappe returns numeric values.
+  amount: number;       // Total amount Incl. GST. Currency field returns numeric values.
+  amount_excl_gst?: number; // Net amount Excl. GST (pre-tax subtotal). Optional in v1.
 
   // --- Linked Documents ---
   customer: string; // The `name` of the Customer document
@@ -32,4 +33,17 @@ export interface ProjectInvoice {
    * 2 = Cancelled
    */
   docstatus: 0 | 1 | 2;
+
+  // --- Document AI autofill metadata (set when this invoice was created via autofill) ---
+  autofill_used?: 0 | 1;
+  autofill_processor_id?: string;
+  autofill_extracted_invoice_no?: string;
+  autofill_extracted_invoice_date?: string;
+  autofill_extracted_amount?: number;
+  /** AI-extracted net amount (Excl. GST) — captured at autofill time. */
+  autofill_extracted_net_amount?: number;
+  /** JSON: `{invoice_no, invoice_date, amount, net_amount}` confidence scores. */
+  autofill_confidence_json?: string;
+  /** JSON: full Document AI entity list `[{type, value, confidence}, ...]`. */
+  autofill_all_entities_json?: string;
 }

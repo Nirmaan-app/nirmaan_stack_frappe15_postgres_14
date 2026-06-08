@@ -5,7 +5,8 @@ import { UserContext } from "@/utils/auth/UserProvider";
 // UI Components
 import ProjectSelect from "@/components/custom-select/project-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText } from "lucide-react";
+import { FileText, ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
@@ -372,7 +373,7 @@ export const DeliveryChallansAndMirs = () => {
           {selectedProject && (
             <>
               {/* PO / ITM toggle */}
-              <div className="flex gap-1.5 mb-4">
+              <div className="flex flex-wrap items-center gap-1.5 mb-4">
                 <button
                   onClick={() => handleParentModeChange("PO")}
                   className={cn(
@@ -395,6 +396,13 @@ export const DeliveryChallansAndMirs = () => {
                 >
                   Transfer Memos
                 </button>
+                <Link
+                  to={`/projects/${selectedProject}?page=projectdcmir`}
+                  className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-sky-200 text-sky-600 hover:bg-sky-50"
+                >
+                  Project DC & MIR
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
               </div>
 
               <CategoryFilter

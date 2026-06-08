@@ -4,12 +4,27 @@ import { ArrowLeft } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { toast } from "@/components/ui/use-toast";
 
 import { useUserData } from "@/hooks/useUserData";
-import { ITM_APPROVE_ROLES, ITM_DISPATCH_ROLES, ITM_VIEW_ROLES } from "@/constants/itm";
+import {
+  ITM_APPROVE_ROLES,
+  ITM_DELETE_ROLES,
+  ITM_DISPATCH_ROLES,
+  ITM_VIEW_ROLES,
+} from "@/constants/itm";
 
 import { useITM } from "./hooks/useITM";
 import { useITMMutations } from "./hooks/useITMMutations";
@@ -37,9 +52,10 @@ export const ITMDetail: React.FC = () => {
   const { role, user_id } = useUserData();
 
   const { data, isLoading, error, mutate } = useITM(id);
-  const { dispatch, isDispatching } = useITMMutations();
+  const { dispatch, deleteItm, isDispatching, isDeleting } = useITMMutations();
 
   const [dispatchSheetOpen, setDispatchSheetOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const payload = data?.message;
   const itm = payload?.itm;
@@ -55,9 +71,15 @@ export const ITMDetail: React.FC = () => {
   );
 
   // Dispatch authority is broader than admin: Admin + Procurement Executive can
-  // dispatch (see ITM_DISPATCH_ROLES). Approve/reject stays Admin-only via isAdmin.
+  // dispatch (see ITM_DISPATCH_ROLES). Delete is broader still — anyone in
+  // ITM_DELETE_ROLES (Admin / PMO / Procurement) can delete a pre-dispatch ITM.
   const canDispatch = useMemo(
     () => ITM_DISPATCH_ROLES.includes(role) || user_id === "Administrator",
+    [role, user_id]
+  );
+
+  const canDelete = useMemo(
+    () => ITM_DELETE_ROLES.includes(role) || user_id === "Administrator",
     [role, user_id]
   );
 
@@ -65,6 +87,27 @@ export const ITMDetail: React.FC = () => {
   const isApproved = status === "Approved";
   const isDispatched = status ? DISPATCHED_STATUSES.has(status) : false;
   const showDispatchButton = isApproved && canDispatch;
+  const showDeleteButton = isApproved && canDelete;
+
+  const handleDelete = async () => {
+    if (!itm) return;
+    try {
+      await deleteItm(itm.name);
+      toast({
+        title: `${itm.name} deleted`,
+        description: "Reserved inventory has been released.",
+        variant: "success",
+      });
+      setDeleteDialogOpen(false);
+      navigate("/internal-transfer-memos?tab=Approved");
+    } catch (e: any) {
+      toast({
+        title: "Failed to delete",
+        description: e?.message || "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // --- Render guards ---
   if (!canView) {
@@ -119,6 +162,9 @@ export const ITMDetail: React.FC = () => {
         createdByFullName={payload.requested_by_full_name}
         showDispatchButton={showDispatchButton}
         onMarkDispatched={() => setDispatchSheetOpen(true)}
+        showDeleteButton={showDeleteButton}
+        onDelete={() => setDeleteDialogOpen(true)}
+        isDeleting={isDeleting}
       />
 
       {/* Transfer List */}
@@ -173,6 +219,29 @@ export const ITMDetail: React.FC = () => {
           onSuccess={() => mutate()}
         />
       )}
+
+      {/* Delete confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {itm.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the transfer memo and release the
+              reserved inventory back to the source. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

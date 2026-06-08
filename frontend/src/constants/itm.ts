@@ -16,10 +16,14 @@ export const ITM_APPROVE_ROLES: readonly string[] = [
 ] as const;
 
 /**
- * Roles allowed to delete a pre-dispatch ITM (Creator may also delete their own).
+ * Roles allowed to delete a pre-dispatch ITM. Mirrors backend ``DELETE_ROLES``
+ * in ``integrations/controllers/internal_transfer_memo.py``. Creator-eligible
+ * profiles can clean up an Approved ITM regardless of who originally raised it.
  */
 export const ITM_DELETE_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+  "Nirmaan Procurement Executive Profile",
 ] as const;
 
 /**

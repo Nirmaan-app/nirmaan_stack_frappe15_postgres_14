@@ -1,4 +1,4 @@
-import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText } from "lucide-react";
+import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
@@ -35,7 +35,7 @@ const TYPE_CONFIG: {
         },
         {
             type: "Invoice",
-            label: "Invoices",
+            label: "Outflow Invoices",
             description: "Download PO invoices, WO invoices, or all",
             icon: Receipt,
             iconBg: "bg-purple-50 group-hover:bg-purple-100",
@@ -65,6 +65,14 @@ const TYPE_CONFIG: {
             iconBg: "bg-rose-50 group-hover:bg-rose-100",
             iconColor: "text-rose-600",
         },
+        {
+            type: "ClientInvoice",
+            label: "Client Invoices",
+            description: "Download client invoice attachments raised on the project",
+            icon: ReceiptText,
+            iconBg: "bg-indigo-50 group-hover:bg-indigo-100",
+            iconColor: "text-indigo-600",
+        },
     ];
 
 export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
@@ -72,7 +80,7 @@ export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
     const filteredTypeConfig = TYPE_CONFIG.filter((config) => {
-        if (isProjectManager && config.type === "Invoice") return false;
+        if (isProjectManager && (config.type === "Invoice" || config.type === "ClientInvoice")) return false;
         return true;
     });
 

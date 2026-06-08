@@ -140,13 +140,14 @@ def download_selected_pos(project, names, with_rate=1):
 
 
 @frappe.whitelist()
-def download_selected_wos(project, names):
+def download_selected_wos(project, names, with_rate=1):
     project_name = frappe.db.get_value("Projects", project, "project_name") or project
     frappe.enqueue(
         "nirmaan_stack.api.pdf_helper.bulk_download.run_bulk_download_job",
         project=project,
         doc_type="WO",
         names=names,
+        with_rate=with_rate,
         user=frappe.session.user,
         custom_filename=f"{project_name}_Selected_WOs.pdf",
         queue="long"
@@ -203,7 +204,7 @@ def download_all_pos(project, with_rate=1):
 
 
 @frappe.whitelist()
-def download_all_wos(project):
+def download_all_wos(project, with_rate=1):
     project_name = frappe.db.get_value("Projects", project, "project_name") or project
     names = frappe.get_all("Service Requests", filters={"project": project, "status": "Approved"}, fields=["name"], order_by="creation asc")
     names = [n.name for n in names]
@@ -212,6 +213,7 @@ def download_all_wos(project):
         project=project,
         doc_type="WO",
         names=json.dumps(names),
+        with_rate=with_rate,
         user=frappe.session.user,
         custom_filename=f"{project_name}_All_WOs.pdf",
         queue="long"
@@ -289,6 +291,14 @@ def run_bulk_download_job(project, doc_type, names=None, attachment_names=None, 
                     attachment_names = [vi.invoice_attachment for vi in vendor_invoices if vi.invoice_attachment]
                 else:
                     attachment_names = [d.name for d in frappe.get_all("Nirmaan Attachments", filters={"project": project, "attachment_type": config["filter"]}, fields=["name"], order_by="creation asc")]
+        elif doc_type == "Client Invoices":
+            project_invoices = frappe.get_all(
+                "Project Invoices",
+                filters={"project": project},
+                fields=["attachment"],
+                order_by="invoice_date asc",
+            )
+            attachment_names = [pi.attachment for pi in project_invoices if pi.attachment]
 
     items_to_process = attachment_names if attachment_names else names
     if not items_to_process:
@@ -315,7 +325,13 @@ def run_bulk_download_job(project, doc_type, names=None, attachment_names=None, 
 
             if attachment_names:
                 # Attachment Logic
-                if item.startswith("/files/") or item.startswith("http"):
+                # Any URL-like value (file path or S3-proxy URL) goes through
+                # _fetch_attachment_content; bare doc names hit the Nirmaan
+                # Attachments lookup. Project Invoice attachments are S3-proxy
+                # URLs like /api/method/frappe_s3_attachment.controller... so
+                # we route on the leading "/" or "http" rather than a strict
+                # /files/ prefix list.
+                if item.startswith("/") or item.startswith("http"):
                     content = _fetch_attachment_content(item)
                 else:
                     content = _fetch_attachment_content_by_name(item)
@@ -328,7 +344,7 @@ def run_bulk_download_job(project, doc_type, names=None, attachment_names=None, 
                 # Generic Doc Logic (PO, WO, DN)
                 dt_map = {"PO": "Procurement Orders", "WO": "Service Requests", "DN": "Procurement Orders"}
                 dt = dt_map.get(doc_type)
-                pf_map = {"PO": "PO Orders" if with_rate else "PO Orders Without Rate", "WO": "Work Orders", "DN": "PO Delivery Histroy"}
+                pf_map = {"PO": "PO Orders" if with_rate else "PO Orders Without Rate", "WO": "Work Orders" if with_rate else "Work Orders Without Rate", "DN": "PO Delivery Histroy"}
                 pf = pf_map.get(doc_type)
                 
                 pdf_content = frappe.get_print(dt, item, print_format=pf, as_pdf=True)

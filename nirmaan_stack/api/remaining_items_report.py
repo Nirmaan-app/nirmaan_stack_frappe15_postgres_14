@@ -88,13 +88,25 @@ def submit_remaining_items_report(project, report_date, items):
 
 
 @frappe.whitelist()
-def get_latest_remaining_quantities(project):
+def get_latest_remaining_quantities(project, include_reservations=False):
     """Get the latest submitted report's remaining quantities for a project.
 
-    Remaining quantities are reduced by dispatched ITM transfer quantities
-    for ITMs dispatched after this report's date, so "Copy Previous Report"
-    reflects committed transfers and avoids double-counting.
+    Always reduces remaining quantities by **dispatched** ITM transfer
+    quantities for ITMs dispatched AFTER this report's modified timestamp,
+    so callers see committed transfers reflected.
+
+    Args:
+        project: Project name.
+        include_reservations: When truthy, additionally subtract qty held
+            by **Approved** (not yet dispatched) ITMs from this project.
+            Use this for read-only "what's pickable now" views (Inventory
+            Report, Project Material Usage tab). Do NOT use it for the
+            Copy-Previous-Report flow that feeds a new RIR submission —
+            once the PM submits a fresh RIR with the discounted value,
+            the dispatch deduction would re-apply on top, double-counting.
     """
+    include_reservations = _truthy(include_reservations)
+
     latest = frappe.get_all(
         "Remaining Items Report",
         filters={"project": project, "status": "Submitted"},
@@ -136,8 +148,29 @@ def get_latest_remaining_quantities(project):
         key = f"{d.category}_{d.item_id}"
         deduction_map[key] = d.deducted_qty or 0
 
-    # Warehouse-bound material is now transferred via ITMs (target_type=Warehouse),
-    # already counted in itm_deductions above.
+    # Optional reservation leg — Approved ITMs that haven't dispatched yet.
+    # Read-only views opt in via `include_reservations=True` so users see the
+    # soft-hold; the RIR-creation flow leaves it off to avoid the dispatch
+    # double-count described in the docstring.
+    reservation_map = {}
+    if include_reservations:
+        itm_reservations = frappe.db.sql(
+            """
+            SELECT itmi.item_id, itmi.category,
+                   SUM(itmi.transfer_quantity) AS reserved_qty
+            FROM "tabInternal Transfer Memo Item" itmi
+            JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+            WHERE itm.source_project = %(project)s
+              AND itm.source_type = 'Project'
+              AND itm.status = 'Approved'
+            GROUP BY itmi.item_id, itmi.category
+            """,
+            {"project": project},
+            as_dict=True,
+        )
+        for r in itm_reservations:
+            key = f"{r.category}_{r.item_id}"
+            reservation_map[key] = r.reserved_qty or 0
 
     items_dict = {}
     for item in doc.items:
@@ -146,13 +179,28 @@ def get_latest_remaining_quantities(project):
         # Only deduct from real values; preserve -1 sentinel ("not filled")
         if remaining is not None and remaining != -1:
             deduction = deduction_map.get(key, 0)
-            remaining = max(remaining - deduction, 0)
+            reservation = reservation_map.get(key, 0)
+            remaining = max(remaining - deduction - reservation, 0)
         items_dict[key] = {
             "remaining_quantity": remaining,
             "dn_quantity": item.dn_quantity,
         }
 
     return {"report_date": str(doc.report_date), "submitted_by": doc.submitted_by, "submitted_by_full_name": submitted_by_full_name, "items": items_dict}
+
+
+def _truthy(value) -> bool:
+    """Coerce frappe-whitelist string args ('true'/'1'/'yes') and bools/ints
+    to a boolean. Whitelist endpoints receive query-string values as strings,
+    so callers can't rely on Python truthiness alone for ``"false"``.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "y", "t")
+    return False
 
 
 @frappe.whitelist()

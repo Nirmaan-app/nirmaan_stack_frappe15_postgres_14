@@ -14,6 +14,11 @@ from frappe.model.document import Document
 from typing import Optional
 import json
 
+from nirmaan_stack.api.invoices._auto_approve import (
+    apply_auto_approval,
+    evaluate_auto_approve_eligibility,
+)
+
 
 @frappe.whitelist()
 def update_invoice_data(
@@ -27,7 +32,10 @@ def update_invoice_data(
     autofill_extracted_invoice_no: str = None,
     autofill_extracted_invoice_date: str = None,
     autofill_extracted_amount: str = None,
+    autofill_extracted_supplier_gstin: str = None,
+    autofill_extracted_receiver_gstin: str = None,
     autofill_all_entities_json: str = None,
+    autofill_source_file_url: str = None,
 ):
     """
     Creates or updates an invoice entry for a document (PO or SR).
@@ -42,14 +50,14 @@ def update_invoice_data(
         invoice_attachment (str, optional): URL of the uploaded invoice attachment. Defaults to None.
         isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
         invoice_id (str, optional): The name of the existing Vendor Invoice to update.
-        autofill_used (bool, optional): True if this invoice was prefilled via Document AI autofill.
-            When True, the backend resolves the processor ID from Document AI Settings and stores
-            it on the Vendor Invoice for traceability.
+        autofill_used (bool, optional): True if this invoice was prefilled via document autofill.
+            When True, the backend records the extractor model (gemini_model) on the Vendor
+            Invoice for traceability.
         autofill_confidence_json (str, optional): JSON string of per-field confidence scores.
         autofill_extracted_invoice_no (str, optional): Original invoice number value AI extracted.
         autofill_extracted_invoice_date (str, optional): Original invoice date value AI extracted (YYYY-MM-DD).
         autofill_extracted_amount (str, optional): Original total amount value AI extracted.
-        autofill_all_entities_json (str, optional): JSON array of every entity Document AI returned
+        autofill_all_entities_json (str, optional): JSON array of every entity the extractor returned
             ({type, value, confidence}). Used by the recon UI to surface the full AI extraction.
 
     Returns:
@@ -69,6 +77,16 @@ def update_invoice_data(
             frappe.throw(f"Invalid JSON format provided for invoice_data: {invoice_data}")
         except ValueError as ve:
             frappe.throw(str(ve))
+
+        # Hard-block amount overage on POs. Even if the frontend allowed a submit
+        # (older clients, manual API calls), the server rejects when the total of
+        # all Pending+Approved invoices for this PO would exceed the PO total.
+        if doctype == "Procurement Orders":
+            _check_po_amount_overage(
+                po_name=docname,
+                new_amount=new_invoice_entry_data.get("amount"),
+                exclude_invoice_id=invoice_id,
+            )
 
         # --- Start Transaction ---
         frappe.db.begin()
@@ -121,21 +139,19 @@ def update_invoice_data(
                 vendor_invoice.save(ignore_permissions=True)
             else:
                 # Create new record
-                # Resolve the processor ID from Document AI Settings if autofill was used.
+                # Record which extractor produced the autofill, for audit/traceability.
                 # The frontend doesn't send this — backend is the source of truth.
                 resolved_processor_id = None
                 if autofill_used:
                     try:
-                        from nirmaan_stack.services.document_ai import (
-                            get_document_ai_settings,
-                            resolve_processor_id,
+                        from nirmaan_stack.services.extraction.files import (
+                            get_extraction_settings,
                         )
-                        settings = get_document_ai_settings()
-                        resolved_processor_id = resolve_processor_id(settings, "Vendor Invoices")
+                        resolved_processor_id = get_extraction_settings().get("gemini_model")
                     except Exception:
-                        # Non-fatal — invoice still gets saved, just without processor_id traceability.
+                        # Non-fatal — invoice still gets saved, just without extractor traceability.
                         frappe.log_error(
-                            title="Autofill processor_id resolution failed",
+                            title="Autofill extractor id resolution failed",
                             message=frappe.get_traceback(),
                         )
 
@@ -149,8 +165,32 @@ def update_invoice_data(
                     autofill_extracted_invoice_no=autofill_extracted_invoice_no,
                     autofill_extracted_invoice_date=autofill_extracted_invoice_date,
                     autofill_extracted_amount=autofill_extracted_amount,
+                    autofill_extracted_supplier_gstin=autofill_extracted_supplier_gstin,
+                    autofill_extracted_receiver_gstin=autofill_extracted_receiver_gstin,
                     autofill_all_entities_json=autofill_all_entities_json,
                 )
+
+                # Auto-approve evaluation. Fires inline on fresh inserts (never
+                # on edits — manual edit flow stays as-is). Runs in the same
+                # transaction so there's no Pending → Approved flicker.
+                try:
+                    eligible, fail_reasons = evaluate_auto_approve_eligibility(
+                        invoice_doc=vendor_invoice,
+                        parent_doc=doc,
+                        autofill_source_file_url=autofill_source_file_url,
+                    )
+                    if eligible:
+                        apply_auto_approval(vendor_invoice)
+                    else:
+                        apply_auto_approval(vendor_invoice, fail_reasons=fail_reasons)
+                    vendor_invoice.save(ignore_permissions=True)
+                except Exception:
+                    # Auto-approve failure must never block invoice creation —
+                    # invoice stays Pending and a human reviews it.
+                    frappe.log_error(
+                        title="Auto-approve evaluation failed",
+                        message=frappe.get_traceback(),
+                    )
         except Exception as invoice_err:
             frappe.log_error(
                 f"Failed to {'update' if invoice_id else 'create'} Vendor Invoice for {doctype} {docname}",
@@ -186,6 +226,16 @@ def update_invoice_data(
             }
         }
 
+    except frappe.ValidationError as ve:
+        # Expected, user-actionable errors (overage, missing fields, malformed
+        # JSON, etc. — anything raised via frappe.throw). Surface the actual
+        # message so the frontend toast tells the user what to do.
+        frappe.db.rollback()
+        return {
+            "status": 400,
+            "message": str(ve),
+            "error": str(ve),
+        }
     except Exception as e:
         frappe.db.rollback()
         frappe.log_error(title="Invoice Data Update Error", message=frappe.get_traceback())
@@ -222,6 +272,8 @@ def create_vendor_invoice(
     autofill_extracted_invoice_no: Optional[str] = None,
     autofill_extracted_invoice_date: Optional[str] = None,
     autofill_extracted_amount: Optional[str] = None,
+    autofill_extracted_supplier_gstin: Optional[str] = None,
+    autofill_extracted_receiver_gstin: Optional[str] = None,
     autofill_all_entities_json: Optional[str] = None,
 ) -> Document:
     """
@@ -231,8 +283,8 @@ def create_vendor_invoice(
         parent_doc: The parent PO or SR document
         invoice_data: Dict with invoice_no, amount, date
         attachment_id: Nirmaan Attachments document name (optional)
-        autofill_used: Whether this invoice was prefilled via Document AI autofill
-        autofill_processor_id: Document AI processor ID used for extraction
+        autofill_used: Whether this invoice was prefilled via document autofill
+        autofill_processor_id: Extractor model id (gemini_model) used for extraction
         autofill_confidence_json: JSON string of per-field confidence scores
         autofill_extracted_invoice_no: Original invoice_no AI extracted (pre-edit)
         autofill_extracted_invoice_date: Original invoice_date AI extracted (pre-edit, YYYY-MM-DD)
@@ -270,6 +322,8 @@ def create_vendor_invoice(
         "autofill_extracted_invoice_no": autofill_extracted_invoice_no if autofill_used else None,
         "autofill_extracted_invoice_date": autofill_extracted_invoice_date if autofill_used else None,
         "autofill_extracted_amount": autofill_extracted_amount if autofill_used else None,
+        "autofill_extracted_supplier_gstin": autofill_extracted_supplier_gstin if autofill_used else None,
+        "autofill_extracted_receiver_gstin": autofill_extracted_receiver_gstin if autofill_used else None,
         "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
     })
     invoice.insert(ignore_permissions=True)
@@ -389,3 +443,55 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
             "message": f"Invoice deletion failed. Please contact support.",
             "error": str(e)
         }
+
+
+def _check_po_amount_overage(po_name: str, new_amount, exclude_invoice_id: Optional[str] = None):
+    """Reject the request if (existing Pending+Approved invoices + new amount)
+    would exceed the PO's total_amount (incl. GST).
+
+    Excludes the invoice being edited (so editing in place doesn't double-count).
+    Raises via `frappe.throw` so the caller's outer try/except returns the error
+    to the frontend with a clear, user-actionable message.
+    """
+    if not po_name:
+        return
+    try:
+        new_amount_float = float(new_amount or 0)
+    except (TypeError, ValueError):
+        new_amount_float = 0.0
+    if new_amount_float <= 0:
+        return  # nothing to validate
+
+    po_total = frappe.db.get_value("Procurement Orders", po_name, "total_amount")
+    try:
+        po_total = float(po_total or 0)
+    except (TypeError, ValueError):
+        po_total = 0.0
+    if po_total <= 0:
+        return  # PO total not set / zero — skip validation
+
+    sql = """
+        SELECT COALESCE(SUM(invoice_amount), 0) AS total
+        FROM "tabVendor Invoices"
+        WHERE document_type = %(doctype)s
+          AND document_name = %(po_name)s
+          AND status IN ('Pending', 'Approved')
+    """
+    params = {"doctype": "Procurement Orders", "po_name": po_name}
+    if exclude_invoice_id:
+        sql += " AND name != %(exclude)s"
+        params["exclude"] = exclude_invoice_id
+
+    rows = frappe.db.sql(sql, params, as_dict=True)
+    existing = float(rows[0].get("total") or 0) if rows else 0.0
+
+    would_be_total = existing + new_amount_float
+    # Tolerate up to ₹10 of rounding drift (GST/freight rounding on real invoices
+    # commonly differ from PO totals by a few rupees). Tighter than this triggered
+    # spurious blocks on legitimate ₹0.10–₹5 deltas.
+    if would_be_total > po_total + 10:
+        frappe.throw(
+            f"Total invoiced amount would be ₹{would_be_total:,.2f}, which exceeds "
+            f"the PO total of ₹{po_total:,.2f}. Already invoiced ₹{existing:,.2f}. "
+            f"Please revise the amount before submitting."
+        )

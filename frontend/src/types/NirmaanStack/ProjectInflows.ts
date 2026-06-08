@@ -21,4 +21,6 @@ export interface ProjectInflows{
 	inflow_attachment: string
   /** UTR : Data */
   utr: string
+  /** Project Invoice this inflow paid against (one invoice may receive many inflows). */
+  invoice?: string
 }

@@ -34,14 +34,24 @@ def on_update(doc, method):
 
 
 
-    """Recalculate PO delivery fields when a DN is deleted."""
 def on_trash(doc, method):
-    """Recalculate delivery fields when a DN is deleted."""
+    """No-op — recalc must run after the row is gone from the DB.
+
+    Previously this hook called `recalculate_itm_delivery_fields` for ITM-
+    parented DNs, but `on_trash` fires *before* the SQL DELETE. The recalc
+    query therefore still saw the doomed row and the deletion had no effect
+    on received quantities, ITM status, or warehouse stock. Recalc lives in
+    `after_delete` for both PO and ITM now.
+    """
+    pass
+
+
+def after_delete(doc, method):
+    """Recalculate delivery fields after a DN is deleted."""
     if getattr(doc, "parent_doctype", None) == "Internal Transfer Memo":
         recalculate_itm_delivery_fields(doc.parent_docname)
         return
-        
-def after_delete(doc, method):
+
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)
         # Vendor credit recalculation after DN deletion
@@ -95,6 +105,8 @@ def recalculate_po_delivery_fields(po_name):
     # regardless of delivery progress. Normal status calc only resumes once all items are dispatched.
     if _has_undispatched_items(po):
         po.status = "Partially Dispatched"
+    elif not remaining_dns:
+        po.status = "Dispatched"
     else:
         po.status = calculate_order_status(po.get("items"))
 
@@ -183,8 +195,17 @@ def recalculate_itm_delivery_fields(itm_name):
         itm.status = "Delivered"
     elif any_received:
         itm.status = "Partially Delivered"
-    # else: stay at current status (Dispatched)
+    elif itm.status in ("Partially Delivered", "Delivered"):
+        # All DNs were deleted (received_quantity == 0 across all items).
+        # Revert to Dispatched so the state machine matches reality.
+        itm.status = "Dispatched"
+    # else: leave as-is (Approved / Dispatched)
 
+    # Signal to the ITM `validate` hook that this save is system-initiated
+    # from a DN recalculation — backward transitions (e.g. Delivered →
+    # Partially Delivered when a DN qty is reduced) are legitimate here and
+    # must bypass the forward-only state machine.
+    itm.flags.from_dn_recalc = True
     itm.save(ignore_permissions=True)
 
     # For warehouse-target ITMs, adjust Warehouse Stock Item by delivery delta

@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
-import { ArrowLeft, Package, Users, UserX, Boxes } from 'lucide-react';
+import { ArrowLeft, Package, Users, UserX, Boxes, Search, X, Briefcase, Laptop } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { useUserData } from '@/hooks/useUserData';
@@ -17,12 +18,24 @@ import {
     ASSET_CATEGORY_DOCTYPE,
     ASSET_MASTER_DOCTYPE,
     ASSET_MANAGEMENT_DOCTYPE,
+    AssetCategoryType,
 } from './assets.constants';
 
 interface AssetCategory {
     name: string;
     asset_category: string;
+    category_type: AssetCategoryType | null;
 }
+
+const categoryTypeBadgeClass: Record<AssetCategoryType, string> = {
+    Project: 'bg-blue-50 text-blue-700 border-blue-200',
+    IT: 'bg-purple-50 text-purple-700 border-purple-200',
+};
+
+const categoryTypeIconMap: Record<AssetCategoryType, React.ReactNode> = {
+    Project: <Briefcase className="h-3 w-3 mr-1" />,
+    IT: <Laptop className="h-3 w-3 mr-1" />,
+};
 
 interface AssetMaster {
     name: string;
@@ -67,6 +80,10 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         assigneeName?: string;
         assignmentId?: string;
     } | null>(null);
+
+    // Search query for filtering assets by name, serial, or assignee
+    const [searchQuery, setSearchQuery] = useState('');
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
     // Fetch category details
     const { data: category, error: categoryError, isLoading: categoryLoading } = useFrappeGetDoc<AssetCategory>(
@@ -154,12 +171,31 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         return { assignmentMap: assignMap, declarationPendingMap: pendingMap };
     }, [assignments]);
 
-    // Separate assigned and unassigned assets
+    // Apply search filter first so both section badges and rendered cards stay in
+    // sync from one source of truth. Matches asset name, serial number, or the
+    // assigned user's resolved full name (falls back to user id if name missing).
+    const filteredAssets = useMemo(() => {
+        if (!assets) return [];
+        if (!normalizedQuery) return assets;
+        return assets.filter((asset) => {
+            const name = (asset.asset_name || '').toLowerCase();
+            const serial = (asset.asset_serial_number || '').toLowerCase();
+            const assigneeId = asset.current_assignee || '';
+            const assigneeName = (assigneeMap[assigneeId] || assigneeId).toLowerCase();
+            return (
+                name.includes(normalizedQuery) ||
+                serial.includes(normalizedQuery) ||
+                assigneeName.includes(normalizedQuery)
+            );
+        });
+    }, [assets, assigneeMap, normalizedQuery]);
+
+    // Separate assigned and unassigned assets (post-filter)
     const { assignedAssets, unassignedAssets } = useMemo(() => {
         const assigned: AssetMaster[] = [];
         const unassigned: AssetMaster[] = [];
 
-        assets?.forEach((asset) => {
+        filteredAssets.forEach((asset) => {
             if (asset.current_assignee) {
                 assigned.push(asset);
             } else {
@@ -168,7 +204,11 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         });
 
         return { assignedAssets: assigned, unassignedAssets: unassigned };
-    }, [assets]);
+    }, [filteredAssets]);
+
+    const hasActiveSearch = normalizedQuery.length > 0;
+    const totalAssetsInCategory = assets?.length ?? 0;
+    const visibleAssetsCount = filteredAssets.length;
 
     const handleAssignClick = (asset: AssetMaster) => {
         setSelectedAsset({
@@ -197,34 +237,73 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
 
     if (error) return <AlertDestructive error={error as unknown as Error} />;
 
+    const categoryType = category?.category_type;
+    const isKnownCategoryType = categoryType === 'Project' || categoryType === 'IT';
+
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center gap-4">
-                <Link to="/asset-management">
-                    <Button variant="ghost" size="icon" className="h-9 w-9">
-                        <ArrowLeft className="h-5 w-5" />
-                    </Button>
-                </Link>
-                <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                        <Boxes className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                        {isLoading ? (
-                            <Skeleton className="h-7 w-48 bg-gray-200" />
-                        ) : (
-                            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">
-                                {category?.asset_category}
-                            </h1>
-                        )}
-                        <div className="flex items-center gap-2 mt-0.5">
-                            <Badge variant="outline" className="text-xs">
-                                <Package className="h-3 w-3 mr-1" />
-                                {assets?.length || 0} assets
-                            </Badge>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-4">
+                    <Link to="/asset-management">
+                        <Button variant="ghost" size="icon" className="h-9 w-9">
+                            <ArrowLeft className="h-5 w-5" />
+                        </Button>
+                    </Link>
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                            <Boxes className="h-6 w-6 text-primary" />
+                        </div>
+                        <div>
+                            {isLoading ? (
+                                <Skeleton className="h-7 w-48 bg-gray-200" />
+                            ) : (
+                                <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">
+                                    {category?.asset_category}
+                                </h1>
+                            )}
+                            <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                <Badge variant="outline" className="text-xs">
+                                    <Package className="h-3 w-3 mr-1" />
+                                    {hasActiveSearch
+                                        ? `${visibleAssetsCount} of ${totalAssetsInCategory} assets`
+                                        : `${totalAssetsInCategory} assets`}
+                                </Badge>
+                                {isKnownCategoryType && (
+                                    <Badge
+                                        variant="outline"
+                                        className={`text-xs font-medium ${categoryTypeBadgeClass[categoryType as AssetCategoryType]}`}
+                                    >
+                                        {categoryTypeIconMap[categoryType as AssetCategoryType]}
+                                        {categoryType}
+                                    </Badge>
+                                )}
+                            </div>
                         </div>
                     </div>
+                </div>
+
+                {/* Search */}
+                <div className="relative w-full sm:w-80">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search by asset name, serial, or assignee"
+                        className="pl-9 pr-9"
+                    />
+                    {hasActiveSearch && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 hover:bg-transparent"
+                            onClick={() => setSearchQuery('')}
+                            aria-label="Clear search"
+                        >
+                            <X className="h-4 w-4 text-gray-400" />
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -251,9 +330,13 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                         {assignedAssets.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg border border-dashed border-emerald-200 bg-emerald-50/30">
                                 <Users className="h-10 w-10 text-emerald-300 mb-3" />
-                                <p className="text-sm text-emerald-600 font-medium">No assigned assets</p>
+                                <p className="text-sm text-emerald-600 font-medium">
+                                    {hasActiveSearch ? 'No matching assigned assets' : 'No assigned assets'}
+                                </p>
                                 <p className="text-xs text-emerald-500 mt-1">
-                                    Assets assigned to users will appear here
+                                    {hasActiveSearch
+                                        ? 'Try a different search term'
+                                        : 'Assets assigned to users will appear here'}
                                 </p>
                             </div>
                         ) : (
@@ -291,9 +374,13 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                         {unassignedAssets.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg border border-dashed border-slate-200 bg-slate-50/30">
                                 <UserX className="h-10 w-10 text-slate-300 mb-3" />
-                                <p className="text-sm text-slate-600 font-medium">No unassigned assets</p>
+                                <p className="text-sm text-slate-600 font-medium">
+                                    {hasActiveSearch ? 'No matching unassigned assets' : 'No unassigned assets'}
+                                </p>
                                 <p className="text-xs text-slate-500 mt-1">
-                                    All assets in this category are currently assigned
+                                    {hasActiveSearch
+                                        ? 'Try a different search term'
+                                        : 'All assets in this category are currently assigned'}
                                 </p>
                             </div>
                         ) : (

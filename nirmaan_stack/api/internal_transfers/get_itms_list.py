@@ -47,7 +47,7 @@ _ORDER_BY_FIELDS = {
 	"requested_by": "itm.requested_by",
 	"requested_by_full_name": "usr.full_name",
 	"approved_on": "itm.approved_on",
-	"transfer_request": "itm.transfer_request",
+	"dispatched_on": "itm.dispatched_on",
 }
 
 # Frappe filter field → SQL expression, constrains which fields the
@@ -61,7 +61,6 @@ _FILTER_FIELDS = {
 	"approved_by": "itm.approved_by",
 	"creation": "itm.creation",
 	"modified": "itm.modified",
-	"transfer_request": "itm.transfer_request",
 }
 
 
@@ -191,12 +190,10 @@ def get_itms_list(
 			itm.approved_by,
 			appr.full_name AS approved_by_full_name,
 			itm.approved_on,
-			itm.rejection_reason,
 			itm.dispatched_by,
 			itm.dispatched_on,
 			itm.latest_delivery_date,
-			itm.owner,
-			itm.transfer_request
+			itm.owner
 		FROM "tabInternal Transfer Memo" itm
 		LEFT JOIN "tabProjects" src ON src.name = itm.source_project
 		LEFT JOIN "tabProjects" tgt ON tgt.name = itm.target_project

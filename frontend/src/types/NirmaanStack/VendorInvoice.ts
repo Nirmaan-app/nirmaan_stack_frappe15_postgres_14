@@ -47,10 +47,17 @@ export interface VendorInvoice {
   autofill_extracted_invoice_no?: string;
   autofill_extracted_invoice_date?: string;
   autofill_extracted_amount?: number;
+  autofill_extracted_supplier_gstin?: string;
+  autofill_extracted_receiver_gstin?: string;
   /** JSON string of `{invoice_no, invoice_date, amount}` confidence scores */
   autofill_confidence_json?: string;
   /** JSON string of full Document AI entity list `[{type, value, confidence}, ...]` */
   autofill_all_entities_json?: string;
+
+  /** Auto-approve audit fields (set when the system auto-approved this invoice). */
+  auto_approved?: 0 | 1;
+  /** Comma-separated reason tokens for invoices that did NOT auto-approve. */
+  auto_approve_skip_reasons?: string;
 }
 
 /**

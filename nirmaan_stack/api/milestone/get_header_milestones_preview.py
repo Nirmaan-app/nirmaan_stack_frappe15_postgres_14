@@ -68,6 +68,20 @@ def get_header_milestones_preview(project, work_header, zone=None):
                     }
                 )
 
+            # Report rows come back ordered by `idx` (child-table insertion
+            # order), which can drift from the canonical Work Milestones order
+            # whenever masters are added/reordered after the report was seeded.
+            # Re-sort the merged list against the master's work_milestone_order
+            # so the UI matches the schedule grid and milestone summary order.
+            order_by_name = {
+                m.work_milestone_name: m.work_milestone_order
+                for m in master_rows
+            }
+            merged.sort(key=lambda row: (
+                order_by_name.get(row.get("work_milestone_name"), 9999),
+                row.get("work_milestone_name") or "",
+            ))
+
             return {
                 "source": "report",
                 "report_name": latest.name,

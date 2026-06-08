@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { ArrowLeftRight, Search } from "lucide-react";
+import { ArrowLeftRight, Eye, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import {
   FuzzySearchSelect,
@@ -14,8 +15,10 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
 import { ITM_CREATE_ROLES } from "@/constants/itm";
+import { cn } from "@/lib/utils";
 import type { Projects } from "@/types/NirmaanStack/Projects";
 import { InventoryPickerTable } from "./components/InventoryPickerTable";
+import { SelectionReviewDrawer } from "./components/SelectionReviewDrawer";
 import { TransferRequestPreviewDialog } from "./TransferRequestPreviewDialog";
 import { useInventoryPickerData } from "./hooks/useInventoryPickerData";
 import { useCreateITMs } from "./hooks/useCreateITMs";
@@ -39,8 +42,12 @@ export default function CreateITMPage() {
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<SelectionState>({});
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
-  const { items, isLoading, error } = useInventoryPickerData(search);
+  // Fetch the full picker dataset once and let the table apply token-based
+  // search client-side, matching the Inventory page UX. Backend `search` is
+  // intentionally left empty so the rank algorithm runs on the complete set.
+  const { items, isLoading, error } = useInventoryPickerData("");
   const { create, isLoading: isCreating } = useCreateITMs();
 
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
@@ -57,6 +64,23 @@ export default function CreateITMPage() {
   }, [projects]);
 
   const isWarehouseTarget = targetProject?.value === WAREHOUSE_VALUE;
+
+  // Counters / flags driving the Review trigger button — total picks across
+  // sources, plus a boolean for "any pick has qty 0 or > available" so the
+  // button can pulse a destructive ring when something needs the user's eye.
+  const { totalPicks, hasInvalidQty } = useMemo(() => {
+    let count = 0;
+    let invalid = false;
+    for (const byKey of Object.values(selection)) {
+      for (const entry of Object.values(byKey)) {
+        count += 1;
+        if (!(entry.qty > 0) || entry.qty > entry.available_quantity) {
+          invalid = true;
+        }
+      }
+    }
+    return { totalPicks: count, hasInvalidQty: invalid };
+  }, [selection]);
 
   const { isValid, flatSelections, invalidReason } = useMemo(() => {
     if (!targetProject) {
@@ -119,11 +143,11 @@ export default function CreateITMPage() {
       });
       const count = result?.message?.count ?? 1;
       toast({
-        title: `${count} transfer request${count !== 1 ? "s" : ""} created`,
+        title: `${count} transfer memo${count !== 1 ? "s" : ""} created`,
         variant: "success",
       });
       setPreviewOpen(false);
-      navigate("/internal-transfer-memos?tab=Pending");
+      navigate("/internal-transfer-memos?tab=Approved");
     } catch (e: any) {
       toast({
         title: "Failed to create transfer memos",
@@ -187,14 +211,40 @@ export default function CreateITMPage() {
 
       {/* Picker */}
       <div className="rounded-md border bg-card p-4 space-y-3 flex-1 flex flex-col min-h-0">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search item name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search item name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setReviewOpen(true)}
+            className={cn(
+              "ml-auto gap-2",
+              hasInvalidQty && "ring-2 ring-destructive/40"
+            )}
+            title={
+              hasInvalidQty
+                ? "Some selections still need a quantity"
+                : "Review your selections"
+            }
+          >
+            <Eye className="h-4 w-4" />
+            Cart
+            <Badge
+              variant={hasInvalidQty ? "destructive" : "secondary"}
+              className="ml-0.5 h-5 min-w-[20px] justify-center px-1.5 text-[11px] tabular-nums"
+            >
+              {totalPicks}
+            </Badge>
+          </Button>
         </div>
 
         {error ? (
@@ -207,9 +257,17 @@ export default function CreateITMPage() {
             targetProject={isWarehouseTarget ? null : (targetProject?.value ?? null)}
             selection={selection}
             onSelectionChange={setSelection}
+            searchQuery={search}
           />
         )}
       </div>
+
+      <SelectionReviewDrawer
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        selection={selection}
+        onSelectionChange={setSelection}
+      />
 
       <TransferRequestPreviewDialog
         open={previewOpen}

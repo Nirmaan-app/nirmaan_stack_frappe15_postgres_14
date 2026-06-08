@@ -177,7 +177,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
               >
                 {sr.name?.slice(-5)}
               </Link>
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="opacity-90 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
                   parentDoc={sr}
                   parentDoctype="Service Requests"

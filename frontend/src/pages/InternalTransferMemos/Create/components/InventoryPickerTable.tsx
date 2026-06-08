@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useMemo, useState } from "react";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import {
   Table,
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/tooltip";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { tokenSearch, type TokenSearchConfig } from "@/utils/tokenSearch";
 import { cn } from "@/lib/utils";
 import type {
   InventoryPickerItem,
@@ -33,7 +35,17 @@ interface InventoryPickerTableProps {
   targetProject: string | null;
   selection: SelectionState;
   onSelectionChange: (next: SelectionState) => void;
+  /** Free-text query — token-ranked across item_name + category + unit. */
+  searchQuery?: string;
 }
+
+// Same shape as the Inventory page's ITEM_SEARCH_CONFIG so multi-word queries
+// rank consistently across both surfaces.
+const PICKER_SEARCH_CONFIG: TokenSearchConfig = {
+  searchFields: ["item_name", "category", "unit"],
+  fieldWeights: { item_name: 2.5, category: 1.0, unit: 1.0 },
+  minTokenMatches: 1,
+};
 
 // =============================================================================
 // PO refs renderer — popover-style tooltip, no navigation (picker is cross-project)
@@ -117,6 +129,7 @@ export function InventoryPickerTable({
   targetProject,
   selection,
   onSelectionChange,
+  searchQuery = "",
 }: InventoryPickerTableProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -124,6 +137,42 @@ export function InventoryPickerTable({
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+
+  // Billing category enrichment — picker API doesn't return billing_category,
+  // so we mirror the Inventory page approach: fetch Items master once and map
+  // by item_id. SWR key matches the Inventory page so a single request is
+  // shared across both surfaces.
+  const { data: itemsData } = useFrappeGetDocList<{
+    name: string;
+    billing_category: string;
+  }>(
+    "Items",
+    { fields: ["name", "billing_category"], limit: 0 },
+    "all_items_billing_category"
+  );
+
+  const billingCategoryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    itemsData?.forEach((it) => {
+      if (it.name && it.billing_category) {
+        map.set(it.name, it.billing_category);
+      }
+    });
+    return map;
+  }, [itemsData]);
+
+  const getBillingCategory = useCallback(
+    (itemId: string, category: string): string => {
+      const fromMaster = billingCategoryMap.get(itemId);
+      if (fromMaster) return fromMaster;
+      // Same fallback heuristic as useInventoryItemWise so the two surfaces
+      // never disagree on what to display.
+      if (category === "Additional Charges") return "";
+      if (itemId?.startsWith("ITEM-")) return "";
+      return "Billable";
+    },
+    [billingCategoryMap]
+  );
 
   // =============================================================================
   // Filter option lists — derived, NOT kept in state
@@ -153,9 +202,17 @@ export function InventoryPickerTable({
   // =============================================================================
   // Filtered data + recomputed parent metrics (from surviving sources only)
   // =============================================================================
+  // Token search runs first so the score-based ranking survives into the table
+  // when no facet filter overrides it. Facets then prune by category / unit /
+  // project without re-sorting.
+  const searchedData = useMemo(
+    () => (searchQuery.trim() ? tokenSearch(data, searchQuery, PICKER_SEARCH_CONFIG) : data),
+    [data, searchQuery]
+  );
+
   const filteredData = useMemo(() => {
     const out: InventoryPickerItem[] = [];
-    for (const item of data) {
+    for (const item of searchedData) {
       if (selectedCategories.size && !selectedCategories.has(item.category)) continue;
       if (selectedUnits.size && !selectedUnits.has(item.unit)) continue;
 
@@ -184,7 +241,7 @@ export function InventoryPickerTable({
       });
     }
     return out;
-  }, [data, selectedProjects, selectedCategories, selectedUnits]);
+  }, [searchedData, selectedProjects, selectedCategories, selectedUnits]);
 
   const toggleExpand = useCallback((itemId: string) => {
     setExpanded((prev) => {
@@ -303,7 +360,7 @@ export function InventoryPickerTable({
                 <span>Category</span>
               </div>
             </TableHead>
-            <TableHead className="text-muted-foreground">Billing Cat.</TableHead>
+            <TableHead>Billing Cat.</TableHead>
             <TableHead>
               <div className="flex items-center gap-1">
                 <SimpleFacetedFilter
@@ -372,7 +429,11 @@ export function InventoryPickerTable({
                       {item.category}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                  <TableCell className="text-xs">
+                    {getBillingCategory(item.item_id, item.category) || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs">{item.unit}</TableCell>
                   <TableCell className="text-right font-medium tabular-nums">
                     {item.total_remaining_qty.toLocaleString("en-IN")}

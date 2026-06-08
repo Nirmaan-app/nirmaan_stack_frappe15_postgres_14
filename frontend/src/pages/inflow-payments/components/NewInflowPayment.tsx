@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState, useContext } from "react";
-import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
+import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappeDocTypeEventListener, useFrappePostCall } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
-import { AlertCircle, ArrowDownToLine, Building2, Calendar, CreditCard, FileText, Hash, IndianRupee } from "lucide-react";
+import { AlertCircle, ArrowDownToLine, Building2, Calendar, CreditCard, FileText, Hash, IndianRupee, Loader2, Sparkles } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
+import ReactSelect from "react-select";
 
 // --- UI Components ---
 import ProjectSelect from "@/components/custom-select/project-select";
@@ -20,10 +21,14 @@ import { Separator } from "@/components/ui/separator";
 
 // --- Types ---
 import { ProjectInflows as ProjectInflowsType } from "@/types/NirmaanStack/ProjectInflows"; // Alias for clarity
+import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 
+type InvoiceOption = { value: string; label: string };
+
 // --- Utils & State ---
+import { getSelectStyles } from "@/config/selectTheme";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
@@ -69,9 +74,29 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
     const [isProjectValidForPayment, setIsProjectValidForPayment] = useState(false); // Project has a customer
     const [formErrors, setFormErrors] = useState<Partial<Record<keyof NewInflowFormState, string>>>({});
 
+    // --- Autofill state ---
+    // Gated reveal inside Payment Details: pick project → upload pitch → autofill →
+    // pre-filled form. `uploadedFileUrl` caches the upload done at file-select time so
+    // submit doesn't re-upload. `autofilledFields` drives amber tint + clears as user edits.
+    const [receiptStage, setReceiptStage] = useState<"upload" | "form">("upload");
+    const [isAutofilling, setIsAutofilling] = useState(false);
+    const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+    const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
+    // Session counter that invalidates in-flight extractions on cancel /
+    // project change / dialog close. Without this, a slow Document AI response
+    // can land after the user has already moved on and silently repopulate
+    // the form with stale data.
+    const extractionSessionRef = useRef(0);
+
+    // --- Linked invoice (single — one inflow pays against one invoice) ---
+    const [selectedInvoice, setSelectedInvoice] = useState<InvoiceOption | null>(null);
+
     // --- Data Mutators ---
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
+    const { call: extractPaymentFields } = useFrappePostCall(
+        "nirmaan_stack.api.payment_autofill.extract_payment_fields"
+    );
 
     // --- Supporting Data Fetches ---
     // Fetch all projects for selection, and customers for display mapping
@@ -91,6 +116,28 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
     const { data: projectInflows, isLoading: projectInflowsLoading, mutate: projectInflowsMutate } = useFrappeGetDocList<ProjectInflowsType>(
         "Project Inflows", { fields: ["project", "amount"], limit: 100000 }, // Fetch all, only needed fields
         "AllProjectInflowsForValidation" // Specific key for SWR
+    );
+
+    // Invoices belonging to the currently selected project — populates the
+    // "Linked Invoices" multi-select. Only fires once a project is picked.
+    const { data: projectInvoicesForLink, isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>(
+        "Project Invoices",
+        {
+            filters: formState.project ? [["project", "=", formState.project]] : undefined,
+            fields: ["name", "invoice_no", "amount", "invoice_date"],
+            limit: 1000,
+            orderBy: { field: "invoice_date", order: "desc" },
+        },
+        formState.project ? `ProjectInvoicesForInflow_${formState.project}` : null
+    );
+
+    const invoiceOptions = useMemo<InvoiceOption[]>(
+        () =>
+            (projectInvoicesForLink ?? []).map(inv => ({
+                value: inv.name,
+                label: `${inv.invoice_no || inv.name} — ${formatToRoundedIndianRupee(inv.amount || 0)}`,
+            })),
+        [projectInvoicesForLink]
     );
 
     // --- Event Listener for Realtime Updates ---
@@ -129,6 +176,17 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
             setIsProjectValidForPayment(false);
         }
         setFormErrors({}); // Clear errors on project change
+        // Reset receipt / autofill state — different project means different receipt context.
+        // Bump the session counter so any in-flight extraction (e.g., user changed
+        // their mind mid-autofill) lands silently and doesn't overwrite the reset.
+        extractionSessionRef.current++;
+        setPaymentScreenshot(null);
+        setUploadedFileUrl(null);
+        setAutofilledFields(new Set());
+        setIsAutofilling(false);
+        setReceiptStage("upload");
+        // Linked invoice is project-scoped — clear it when the project changes.
+        setSelectedInvoice(null);
     }, [projects, customers, toast]);
 
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,7 +195,85 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
         if (formErrors[name as keyof NewInflowFormState]) {
             setFormErrors(prev => ({...prev, [name]: undefined })); // Clear error on change
         }
-    }, [formErrors]);
+        // If user manually edits an auto-filled field, drop its amber tint.
+        if (autofilledFields.has(name)) {
+            setAutofilledFields(prev => {
+                const next = new Set(prev);
+                next.delete(name);
+                return next;
+            });
+        }
+    }, [formErrors, autofilledFields]);
+
+    const runAutofillExtraction = useCallback(async (file: File) => {
+        // Claim a session for this extraction. Any reset / cancel / project
+        // change bumps the ref, so by the time the promise resolves we can
+        // tell whether the user has moved on and skip state updates.
+        const session = ++extractionSessionRef.current;
+        setIsAutofilling(true);
+        try {
+            const tempDocName = `temp-inflow-${Date.now()}`;
+            const uploaded = await upload(file, {
+                doctype: "Project Inflows",
+                docname: tempDocName,
+                fieldname: "inflow_attachment",
+                isPrivate: true,
+            });
+            if (session !== extractionSessionRef.current) return;
+            setUploadedFileUrl(uploaded.file_url);
+
+            const res = await extractPaymentFields({ file_url: uploaded.file_url });
+            if (session !== extractionSessionRef.current) return;
+            const data = (res as any)?.message ?? res;
+
+            const filled = new Set<string>();
+            const updates: Partial<NewInflowFormState> = {};
+            if (data?.utr) { updates.utr = data.utr; filled.add("utr"); }
+            if (data?.payment_date) { updates.payment_date = data.payment_date; filled.add("payment_date"); }
+            if (data?.transfer_amount) { updates.amount = data.transfer_amount; filled.add("amount"); }
+            if (Object.keys(updates).length > 0) {
+                setFormState(prev => ({ ...prev, ...updates }));
+            }
+            setAutofilledFields(filled);
+
+            if (filled.size > 0) {
+                toast({
+                    title: "Auto-filled from receipt",
+                    description: `Filled ${filled.size} field${filled.size > 1 ? "s" : ""}. Please verify before recording.`,
+                    variant: "success",
+                });
+            } else {
+                toast({
+                    title: "Couldn't auto-fill",
+                    description: "Please enter Amount, UTR, and Date manually.",
+                });
+            }
+        } catch (e: any) {
+            if (session !== extractionSessionRef.current) return;
+            toast({
+                title: "Auto-fill failed",
+                description: e?.message || "Please enter details manually.",
+                variant: "destructive",
+            });
+        } finally {
+            // Only flip stage/spinner if we're still the current session —
+            // otherwise the reset path has already moved us back to "upload".
+            if (session === extractionSessionRef.current) {
+                setIsAutofilling(false);
+                setReceiptStage("form");
+            }
+        }
+    }, [upload, extractPaymentFields, toast]);
+
+    const handleFileSelect = useCallback((file: File | null) => {
+        setPaymentScreenshot(file);
+        // Any previously-uploaded file becomes stale the moment the user picks a new one.
+        setUploadedFileUrl(null);
+        setAutofilledFields(new Set());
+        if (file) {
+            runAutofillExtraction(file);
+        }
+    }, [runAutofillExtraction]);
 
     const validateForm = useCallback((): boolean => {
         const errors: Partial<Record<keyof NewInflowFormState, string>> = {};
@@ -161,18 +297,18 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
 
         let fileUrl: string | undefined = undefined;
         try {
-            if (paymentScreenshot) {
-                // Frappe requires a temporary docname if the main doc isn't created yet for file attachment.
-                // Using a placeholder; the file will be re-linked upon successful doc creation if needed,
-                // or a better approach is to create doc first, then attach.
-                // For simplicity with createDoc, we'll create, then update with file URL if needed.
-                const tempDocName = `temp-inflow-${Date.now()}`; // Temporary name
+            if (uploadedFileUrl) {
+                // Already uploaded during the autofill flow — reuse the same File record.
+                fileUrl = uploadedFileUrl;
+            } else if (paymentScreenshot) {
+                // Fallback: a screenshot is selected but never went through autofill upload
+                // (e.g., autofill failed mid-upload). Upload now under the same temp-docname pattern.
+                const tempDocName = `temp-inflow-${Date.now()}`;
                 const fileArgs = {
-                    doctype: "Project Inflows", // Target doctype
-                    docname: tempDocName,      // Temporary name, file is public by default
-                    fieldname: "inflow_attachment", // Field to attach to
-                    // file: paymentScreenshot,
-                    isPrivate: true, // Make it private
+                    doctype: "Project Inflows",
+                    docname: tempDocName,
+                    fieldname: "inflow_attachment",
+                    isPrivate: true,
                 };
                 const uploadedFile = await upload(paymentScreenshot, fileArgs);
                 fileUrl = uploadedFile.file_url;
@@ -185,6 +321,8 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                 payment_date: formState.payment_date,
                 utr: formState.utr.trim(),
                 inflow_attachment: fileUrl, // Will be undefined if no screenshot
+                // Single Link to a Project Invoice; one invoice can be paid by multiple inflows.
+                invoice: selectedInvoice?.value || undefined,
             };
 
             await createDoc("Project Inflows", docToCreate);
@@ -200,27 +338,42 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
             console.error("Error adding inflow payment:", error);
             toast({ title: "Failed!", description: error.message || "Failed to add payment.", variant: "destructive" });
         }
-    }, [createDoc, formState, paymentScreenshot, toggleNewInflowDialog, projectInflowsMutate, upload, validateForm, toast]);
+    }, [createDoc, formState, paymentScreenshot, uploadedFileUrl, selectedInvoice, toggleNewInflowDialog, projectInflowsMutate, upload, validateForm, toast]);
 
     const closeDialogAndReset = () => {
+        // Invalidate any in-flight autofill so its eventual response doesn't
+        // leak into the next dialog session.
+        extractionSessionRef.current++;
         setFormState(INITIAL_FORM_STATE);
         setPaymentScreenshot(null);
         setFormErrors({});
+        setUploadedFileUrl(null);
+        setAutofilledFields(new Set());
+        setIsAutofilling(false);
+        setReceiptStage("upload");
+        setSelectedInvoice(null);
         toggleNewInflowDialog(); // From Zustand store
     };
 
     // Effect to reset form when dialog opens/closes (if newInflowDialog state changes externally)
     useEffect(() => {
         if (newInflowDialog) {
+            // Bump session so any orphaned autofill from a prior open can't land here.
+            extractionSessionRef.current++;
             setFormState(INITIAL_FORM_STATE); // Reset form when dialog is to be shown
             setPaymentScreenshot(null);
             setFormErrors({});
             setIsProjectValidForPayment(false); // Reset validation
+            setUploadedFileUrl(null);
+            setAutofilledFields(new Set());
+            setIsAutofilling(false);
+            setReceiptStage("upload");
+            setSelectedInvoice(null);
         }
     }, [newInflowDialog]);
 
 
-    const isSubmitDisabled = !formState.project || !formState.amount || !formState.utr || !formState.payment_date || !isProjectValidForPayment || Object.keys(formErrors).length > 0;
+    const isSubmitDisabled = !formState.project || !formState.amount || !formState.utr || !formState.payment_date || !isProjectValidForPayment || Object.keys(formErrors).length > 0 || isAutofilling;
     const isLoadingAny = createLoading || uploadLoading || projectsLoading || customersLoading || projectInflowsLoading;
 
     return (
@@ -312,6 +465,39 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                                 </AlertDescription>
                             </Alert>
                         )}
+
+                        {/* Linked Invoice — single-select, scoped to selected project.
+                            One inflow pays against one invoice; one invoice can receive many inflows. */}
+                        {formState.project && isProjectValidForPayment && (
+                            <div className="space-y-1.5">
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Linked Invoice
+                                    <span className="text-xs font-normal text-slate-400 ml-1">(Optional)</span>
+                                </Label>
+                                <ReactSelect
+                                    options={invoiceOptions}
+                                    value={selectedInvoice}
+                                    onChange={(opt) => setSelectedInvoice((opt as InvoiceOption | null) ?? null)}
+                                    isClearable
+                                    placeholder={
+                                        projectInvoicesLoading
+                                            ? "Loading invoices…"
+                                            : invoiceOptions.length === 0
+                                                ? "No invoices found for this project"
+                                                : "Select the invoice this payment covers…"
+                                    }
+                                    isDisabled={projectInvoicesLoading}
+                                    isLoading={projectInvoicesLoading}
+                                    classNamePrefix="react-select"
+                                    menuPortalTarget={typeof document !== "undefined" ? document.body : undefined}
+                                    menuPosition="fixed"
+                                    // Centralized theme sets `pointer-events: auto` on every menu
+                                    // layer — required so clicks land inside Radix dialogs.
+                                    styles={getSelectStyles<InvoiceOption, false>()}
+                                    noOptionsMessage={() => "No invoices found for this project"}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {/* Divider */}
@@ -326,115 +512,171 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                         </div>
                     </div>
 
-                    {/* Payment Details Section */}
+                    {/* Payment Details Section — gated by project validity AND receipt stage.
+                        Stage 1 ("upload"): receipt picker + Skip; Stage 2 ("form"): the actual fields. */}
                     <div className={cn(
                         "space-y-4 transition-opacity",
                         !isProjectValidForPayment && "opacity-50 pointer-events-none"
                     )}>
-                        {/* Amount */}
-                        <div className="space-y-1.5">
-                            <Label htmlFor="amount" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
-                                Amount <span className="text-red-500">*</span>
-                            </Label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
-                                <Input
-                                    id="amount"
-                                    name="amount"
-                                    type="number"
-                                    placeholder="0.00"
-                                    value={formState.amount}
-                                    onChange={handleInputChange}
-                                    disabled={!isProjectValidForPayment}
-                                    className={cn(
-                                        "pl-7 h-10 text-base font-medium transition-all",
-                                        "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
-                                        formErrors.amount && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
-                                    )}
-                                />
-                            </div>
-                            {formErrors.amount && (
-                                <p className="text-xs text-red-500 flex items-center gap-1">
-                                    <AlertCircle className="w-3 h-3" />
-                                    {formErrors.amount}
-                                </p>
-                            )}
-                        </div>
-
-                        {/* UTR and Date - Side by side */}
-                        <div className="grid grid-cols-2 gap-3">
-                            {/* UTR */}
-                            <div className="space-y-1.5">
-                                <Label htmlFor="utr" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                    <Hash className="w-3.5 h-3.5 text-slate-400" />
-                                    UTR/Ref <span className="text-red-500">*</span>
-                                </Label>
-                                <Input
-                                    id="utr"
-                                    name="utr"
-                                    type="text"
-                                    placeholder="Reference No."
-                                    value={formState.utr}
-                                    onChange={handleInputChange}
-                                    disabled={!isProjectValidForPayment}
-                                    className={cn(
-                                        "h-10 transition-all",
-                                        "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
-                                        formErrors.utr && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
-                                    )}
-                                />
-                                {formErrors.utr && (
-                                    <p className="text-xs text-red-500 flex items-center gap-1">
-                                        <AlertCircle className="w-3 h-3" />
-                                        {formErrors.utr}
-                                    </p>
+                        {receiptStage === "upload" ? (
+                            // ───────── Stage 1: Upload receipt ─────────
+                            <div className="space-y-4">
+                                {!isAutofilling ? (
+                                    <>
+                                        <div className="text-center space-y-1">
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                Upload Payment Receipt
+                                            </h3>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                We'll read the receipt and fill in Amount, UTR, and Date for you.
+                                            </p>
+                                        </div>
+                                        <CustomAttachment
+                                            label="Choose Receipt (PDF or image)"
+                                            selectedFile={paymentScreenshot}
+                                            onFileSelect={handleFileSelect}
+                                            disabled={!isProjectValidForPayment}
+                                            maxFileSize={5 * 1024 * 1024}
+                                        />
+                                        <p className="text-[11px] text-center text-slate-400 dark:text-slate-500">
+                                            Supported: PDF, PNG, JPG · max 5 MB
+                                        </p>
+                                    </>
+                                ) : (
+                                    <div className="flex flex-col items-center gap-3 py-6">
+                                        <Loader2 className="h-8 w-8 text-emerald-600 animate-spin" />
+                                        <div className="text-center space-y-1">
+                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                Reading your receipt…
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                AI is extracting payment details. This usually takes a few seconds.
+                                            </p>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
-
-                            {/* Payment Date */}
-                            <div className="space-y-1.5">
-                                <Label htmlFor="payment_date" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                                    Date <span className="text-red-500">*</span>
-                                </Label>
-                                <Input
-                                    id="payment_date"
-                                    name="payment_date"
-                                    type="date"
-                                    value={formState.payment_date}
-                                    onChange={handleInputChange}
-                                    disabled={!isProjectValidForPayment}
-                                    max={formatDate(new Date(), "yyyy-MM-dd")}
-                                    className={cn(
-                                        "h-10 transition-all",
-                                        "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
-                                        formErrors.payment_date && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
-                                    )}
-                                />
-                                {formErrors.payment_date && (
-                                    <p className="text-xs text-red-500 flex items-center gap-1">
-                                        <AlertCircle className="w-3 h-3" />
-                                        {formErrors.payment_date}
-                                    </p>
+                        ) : (
+                            // ───────── Stage 2: Form (prefilled if autofill ran) ─────────
+                            <>
+                                {autofilledFields.size > 0 && (
+                                    <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                                        <Sparkles className="h-3.5 w-3.5 text-amber-700 flex-shrink-0" />
+                                        <span className="text-xs text-amber-900 leading-snug">
+                                            Auto-filled from receipt — please review and edit if anything is wrong.
+                                        </span>
+                                    </div>
                                 )}
-                            </div>
-                        </div>
 
-                        {/* Attachment */}
-                        <div className="space-y-1.5">
-                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                <FileText className="w-3.5 h-3.5 text-slate-400" />
-                                Payment Proof
-                                <span className="text-xs font-normal text-slate-400">(Optional)</span>
-                            </Label>
-                            <CustomAttachment
-                                selectedFile={paymentScreenshot}
-                                onFileSelect={setPaymentScreenshot}
-                                disabled={!isProjectValidForPayment}
-                                maxFileSize={5 * 1024 * 1024}
-                            />
-                        </div>
+                                {/* Amount */}
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="amount" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                        <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
+                                        Amount <span className="text-red-500">*</span>
+                                    </Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                                        <Input
+                                            id="amount"
+                                            name="amount"
+                                            type="number"
+                                            placeholder="0.00"
+                                            value={formState.amount}
+                                            onChange={handleInputChange}
+                                            disabled={!isProjectValidForPayment}
+                                            className={cn(
+                                                "pl-7 h-10 text-base font-medium transition-all",
+                                                "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
+                                                autofilledFields.has("amount") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400",
+                                                formErrors.amount && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
+                                            )}
+                                        />
+                                    </div>
+                                    {formErrors.amount && (
+                                        <p className="text-xs text-red-500 flex items-center gap-1">
+                                            <AlertCircle className="w-3 h-3" />
+                                            {formErrors.amount}
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* UTR and Date - Side by side */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* UTR */}
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="utr" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                            <Hash className="w-3.5 h-3.5 text-slate-400" />
+                                            UTR/Ref <span className="text-red-500">*</span>
+                                        </Label>
+                                        <Input
+                                            id="utr"
+                                            name="utr"
+                                            type="text"
+                                            placeholder="Reference No."
+                                            value={formState.utr}
+                                            onChange={handleInputChange}
+                                            disabled={!isProjectValidForPayment}
+                                            className={cn(
+                                                "h-10 transition-all",
+                                                "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
+                                                autofilledFields.has("utr") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400",
+                                                formErrors.utr && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
+                                            )}
+                                        />
+                                        {formErrors.utr && (
+                                            <p className="text-xs text-red-500 flex items-center gap-1">
+                                                <AlertCircle className="w-3 h-3" />
+                                                {formErrors.utr}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Payment Date */}
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="payment_date" className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                            Date <span className="text-red-500">*</span>
+                                        </Label>
+                                        <Input
+                                            id="payment_date"
+                                            name="payment_date"
+                                            type="date"
+                                            value={formState.payment_date}
+                                            onChange={handleInputChange}
+                                            disabled={!isProjectValidForPayment}
+                                            max={formatDate(new Date(), "yyyy-MM-dd")}
+                                            className={cn(
+                                                "h-10 transition-all",
+                                                "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500",
+                                                autofilledFields.has("payment_date") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400",
+                                                formErrors.payment_date && "border-red-300 focus:border-red-500 focus:ring-red-500/20"
+                                            )}
+                                        />
+                                        {formErrors.payment_date && (
+                                            <p className="text-xs text-red-500 flex items-center gap-1">
+                                                <AlertCircle className="w-3 h-3" />
+                                                {formErrors.payment_date}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Attachment (replaceable; re-pick re-runs autofill) */}
+                                <div className="space-y-1.5">
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                        <FileText className="w-3.5 h-3.5 text-slate-400" />
+                                        Payment Proof
+                                        <span className="text-xs font-normal text-slate-400">(Optional)</span>
+                                    </Label>
+                                    <CustomAttachment
+                                        selectedFile={paymentScreenshot}
+                                        onFileSelect={handleFileSelect}
+                                        disabled={!isProjectValidForPayment}
+                                        maxFileSize={5 * 1024 * 1024}
+                                    />
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 

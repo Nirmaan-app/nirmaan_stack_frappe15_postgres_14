@@ -73,20 +73,10 @@ def get_itm(name: str) -> dict:
 		)
 		user_names = {r["name"]: r["full_name"] for r in rows}
 
-	# --- Transfer Request status (if linked) ---
-	transfer_request_status = None
-	if doc.transfer_request:
-		tr_status = frappe.db.get_value(
-			"Internal Transfer Request", doc.transfer_request, "status"
-		)
-		transfer_request_status = tr_status
-
 	return {
 		"itm": doc.as_dict(),
 		"source_project_name": "Warehouse" if getattr(doc, "source_type", None) == "Warehouse" else project_names.get(doc.source_project),
 		"target_project_name": "Warehouse" if getattr(doc, "target_type", None) == "Warehouse" else project_names.get(doc.target_project),
 		"requested_by_full_name": user_names.get(doc.requested_by) if doc.requested_by else None,
 		"approved_by_full_name": user_names.get(doc.approved_by) if doc.approved_by else None,
-		"transfer_request": doc.transfer_request,
-		"transfer_request_status": transfer_request_status,
 	}

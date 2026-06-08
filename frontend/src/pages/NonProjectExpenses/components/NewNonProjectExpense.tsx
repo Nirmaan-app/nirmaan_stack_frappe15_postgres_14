@@ -1,16 +1,17 @@
 // src/pages/non-project-expenses/components/NewNonProjectExpense.tsx
 
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import {
     useFrappeCreateDoc,
     useFrappeFileUpload,
     useFrappeGetDocList,
+    useFrappePostCall,
     GetDocListArgs,
     FrappeDoc
 } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { formatDate as formatDateFns } from "date-fns";
-import { Check, ChevronsUpDown } from "lucide-react"; // Icons for Combobox
+import { Check, ChevronsUpDown, Loader2, Sparkles } from "lucide-react"; // Icons for Combobox + autofill
 
 // --- UI Components ---
 import {
@@ -93,8 +94,24 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     // State for the Expense Type Popover/Command
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
 
+    // --- Document AI autofill (Payment Details side only) ---
+    // When the user uploads a payment receipt we extract UTR / Payment_Date /
+    // Transfer_Amount via the expense processor and pre-fill the form. The
+    // session ref invalidates in-flight extractions on cancel / reset /
+    // checkbox-uncheck so stale responses can't leak into a fresh form.
+    const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
+    const [isAutofilling, setIsAutofilling] = useState(false);
+    const [uploadedPaymentUrl, setUploadedPaymentUrl] = useState<string | null>(null);
+    // Two-stage flow inside the Payment Details block (mirrors inflow):
+    // "upload" → receipt picker + Skip; "form" → the actual date/ref/attachment fields.
+    const [paymentStage, setPaymentStage] = useState<"upload" | "form">("upload");
+    const extractionSessionRef = useRef(0);
+
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
+    const { call: extractPaymentFields } = useFrappePostCall(
+        "nirmaan_stack.api.payment_autofill.extract_payment_fields"
+    );
 
     const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
     const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
@@ -114,7 +131,105 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         if (formErrors[name as keyof NewExpenseFormState]) {
             setFormErrors(prev => ({ ...prev, [name]: undefined }));
         }
-    }, [formErrors]);
+        // If user manually edits an auto-filled field, drop its amber tint.
+        if (autofilledFields.has(name)) {
+            setAutofilledFields(prev => {
+                const next = new Set(prev);
+                next.delete(name);
+                return next;
+            });
+        }
+    }, [formErrors, autofilledFields]);
+
+    // Skip Document AI for file types it doesn't accept (csv / xlsx). NPE
+    // allows those for archival but the backend would throw on extraction.
+    const SUPPORTED_EXTS = ["pdf", "png", "jpg", "jpeg"];
+    const isSupportedForAutofill = (file: File) => {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        return SUPPORTED_EXTS.includes(ext);
+    };
+
+    const runPaymentAutofill = useCallback(async (file: File) => {
+        const session = ++extractionSessionRef.current;
+        setIsAutofilling(true);
+        try {
+            const tempDocName = `temp-npe-${Date.now()}`;
+            const uploaded = await upload(file, {
+                doctype: "Non Project Expenses",
+                docname: tempDocName,
+                fieldname: "payment_attachment",
+                isPrivate: true,
+            });
+            if (session !== extractionSessionRef.current) return;
+            setUploadedPaymentUrl(uploaded.file_url);
+
+            const res = await extractPaymentFields({ file_url: uploaded.file_url });
+            if (session !== extractionSessionRef.current) return;
+            const data = (res as any)?.message ?? res;
+
+            const filled = new Set<string>();
+            const updates: Partial<NewExpenseFormState> = {};
+            if (data?.utr) { updates.payment_ref = data.utr; filled.add("payment_ref"); }
+            if (data?.payment_date) { updates.payment_date = data.payment_date; filled.add("payment_date"); }
+            if (data?.transfer_amount) { updates.amount = data.transfer_amount; filled.add("amount"); }
+            if (Object.keys(updates).length > 0) {
+                setFormState(prev => ({ ...prev, ...updates }));
+            }
+            setAutofilledFields(filled);
+
+            if (filled.size > 0) {
+                toast({
+                    title: "Auto-filled from receipt",
+                    description: `Filled ${filled.size} field${filled.size > 1 ? "s" : ""}. Please verify before saving.`,
+                    variant: "success",
+                });
+            } else {
+                toast({
+                    title: "Couldn't auto-fill",
+                    description: "Please enter Amount, Payment Ref, and Payment Date manually.",
+                });
+            }
+        } catch (e: any) {
+            if (session !== extractionSessionRef.current) return;
+            toast({
+                title: "Auto-fill failed",
+                description: e?.message || "Please enter details manually.",
+                variant: "destructive",
+            });
+        } finally {
+            if (session === extractionSessionRef.current) {
+                setIsAutofilling(false);
+                // Advance to form whether extraction succeeded or failed —
+                // user always lands on the fields to verify / complete entry.
+                setPaymentStage("form");
+            }
+        }
+    }, [upload, extractPaymentFields, toast]);
+
+    const handlePaymentFileSelect = useCallback((file: File | null) => {
+        setPaymentAttachmentFile(file);
+        // Picking a new file invalidates any cached upload + autofill tint.
+        setUploadedPaymentUrl(null);
+        setAutofilledFields(new Set());
+        if (file && isSupportedForAutofill(file)) {
+            runPaymentAutofill(file);
+        }
+    }, [runPaymentAutofill]);
+
+    // Wrap the checkbox toggle so unchecking Record Payment Details also
+    // invalidates any in-flight extraction and clears autofill state.
+    // Checking it back ON starts fresh at the upload stage.
+    const handleRecordPaymentDetailsChange = useCallback((checked: boolean) => {
+        extractionSessionRef.current++;
+        if (!checked) {
+            setAutofilledFields(new Set());
+            setIsAutofilling(false);
+            setUploadedPaymentUrl(null);
+            setPaymentAttachmentFile(null);
+        }
+        setPaymentStage("upload");
+        setRecordPaymentDetails(checked);
+    }, []);
 
     // Handler for Expense Type selection from CommandItem
     const handleExpenseTypeSelect = useCallback((currentValue: string) => {
@@ -160,10 +275,16 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         let invoiceAttachmentUrl: string | undefined = undefined;
 
         try {
-            // Attachment upload logic (same as before)
-            if (recordPaymentDetails && paymentAttachmentFile) {
-                const uploadedFile = await upload(paymentAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "payment_attachment" });
-                paymentAttachmentUrl = uploadedFile.file_url;
+            // Payment attachment: reuse the upload performed during autofill if
+            // available; otherwise fall back to the original upload-on-submit
+            // (which is also the path used for unsupported file types).
+            if (recordPaymentDetails) {
+                if (uploadedPaymentUrl) {
+                    paymentAttachmentUrl = uploadedPaymentUrl;
+                } else if (paymentAttachmentFile) {
+                    const uploadedFile = await upload(paymentAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "payment_attachment" });
+                    paymentAttachmentUrl = uploadedFile.file_url;
+                }
             }
             if (recordInvoiceDetails && invoiceAttachmentFile) {
                 const uploadedFile = await upload(invoiceAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "invoice_attachment" });
@@ -189,10 +310,13 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         }
     }, [
         createDoc, formState, validateForm, toast, refetchList, toggleNewNonProjectExpenseDialog, upload,
-        recordPaymentDetails, paymentAttachmentFile, recordInvoiceDetails, invoiceAttachmentFile
+        recordPaymentDetails, paymentAttachmentFile, uploadedPaymentUrl, recordInvoiceDetails, invoiceAttachmentFile
     ]);
 
     const closeDialogAndReset = useCallback(() => {
+        // Invalidate any in-flight autofill so its eventual response doesn't
+        // leak state into the next dialog session.
+        extractionSessionRef.current++;
         setFormState(INITIAL_FORM_STATE);
         setFormErrors({});
         setRecordPaymentDetails(false);
@@ -200,11 +324,17 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         setPaymentAttachmentFile(null);
         setInvoiceAttachmentFile(null);
         setExpenseTypePopoverOpen(false); // Close popover on dialog close
+        setAutofilledFields(new Set());
+        setIsAutofilling(false);
+        setUploadedPaymentUrl(null);
+        setPaymentStage("upload");
         setNewNonProjectExpenseDialog(false); // Use the setter
     }, [setNewNonProjectExpenseDialog]);
 
     useEffect(() => {
         if (newNonProjectExpenseDialog) {
+            // Bump session so any orphan autofill from a previous open can't land here.
+            extractionSessionRef.current++;
             setFormState(INITIAL_FORM_STATE);
             setFormErrors({});
             setRecordPaymentDetails(true);
@@ -212,11 +342,15 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
             setPaymentAttachmentFile(null);
             setInvoiceAttachmentFile(null);
             setExpenseTypePopoverOpen(false);
+            setAutofilledFields(new Set());
+            setIsAutofilling(false);
+            setUploadedPaymentUrl(null);
+            setPaymentStage("upload");
         }
     }, [newNonProjectExpenseDialog]);
 
     const isLoadingOverall = createLoading || uploadLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || !formState.payment_date;
+    const isSubmitDisabled = isLoadingOverall || isAutofilling || !formState.type || !formState.description.trim() || !formState.amount || !formState.payment_date;
 
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
@@ -286,7 +420,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                     </div>
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="amount_new_npe" className="text-right col-span-1">Amount <sup className="text-destructive">*</sup></Label>
-                        <Input id="amount_new_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
+                        <Input id="amount_new_npe" name="amount" type="number" value={formState.amount} onChange={handleInputChange} className={cn("col-span-3", autofilledFields.has("amount") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} disabled={isLoadingOverall} />
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
                             Use negative amount for refunds.
@@ -297,34 +431,87 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
 
                     {/* Payment Details */}
                     <div className="flex items-center space-x-2">
-                        <Checkbox id="recordPaymentDetails_new_npe" checked={recordPaymentDetails} onCheckedChange={(checked) => setRecordPaymentDetails(Boolean(checked))} disabled={isLoadingOverall} />
+                        <Checkbox id="recordPaymentDetails_new_npe" checked={recordPaymentDetails} onCheckedChange={(checked) => handleRecordPaymentDetailsChange(Boolean(checked))} disabled={isLoadingOverall} />
                         <Label htmlFor="recordPaymentDetails_new_npe" className="font-medium">Record Payment Details</Label>
                     </div>
                     {recordPaymentDetails && (
                         <div className="pl-6 space-y-3 border-l-2 ml-2 mt-2 border-dashed">
-                            <div className="grid grid-cols-4 items-center gap-3">
-                                <Label htmlFor="payment_date_new_npe" className="text-right col-span-1">Payment Date <sup className="text-destructive">*</sup></Label>
-                                <Input id="payment_date_new_npe" name="payment_date" type="date" value={formState.payment_date} onChange={handleInputChange} max={formatDateFns(new Date(), "yyyy-MM-dd")} className="col-span-3" disabled={isLoadingOverall} />
-                                {formErrors.payment_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
-                            </div>
-                            <div className="grid grid-cols-4 items-center gap-3">
-                                <Label htmlFor="payment_ref_new_npe" className="text-right col-span-1">Payment Ref</Label>
-                                <Input id="payment_ref_new_npe" name="payment_ref" value={formState.payment_ref} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
-                            </div>
-                            <div className="grid grid-cols-4 items-start gap-3">
-                                <Label className="text-right col-span-1 pt-2">Payment Attachment</Label>
-                                <div className="col-span-3">
-                                    <CustomAttachment
-                                        label="Upload Payment Proof"
-                                        selectedFile={paymentAttachmentFile}
-                                        onFileSelect={setPaymentAttachmentFile}
-                                        onError={handleAttachmentError}
-                                        maxFileSize={5 * 1024 * 1024}
-                                        acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
-                                        disabled={isLoadingOverall}
-                                    />
+                            {paymentStage === "upload" ? (
+                                // ───────── Stage 1: Upload receipt ─────────
+                                <div className="space-y-4 py-2">
+                                    {!isAutofilling ? (
+                                        <>
+                                            <div className="text-center space-y-1">
+                                                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                    Upload Payment Receipt
+                                                </h3>
+                                                <p className="text-xs text-muted-foreground">
+                                                    We'll read the receipt and fill in Amount, Payment Ref, and Payment Date for you.
+                                                </p>
+                                            </div>
+                                            <CustomAttachment
+                                                label="Choose Receipt (PDF or image)"
+                                                selectedFile={paymentAttachmentFile}
+                                                onFileSelect={handlePaymentFileSelect}
+                                                onError={handleAttachmentError}
+                                                maxFileSize={5 * 1024 * 1024}
+                                                acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
+                                                disabled={isLoadingOverall}
+                                            />
+                                            <p className="text-[11px] text-center text-muted-foreground">
+                                                Supported for auto-fill: PDF, PNG, JPG · max 5 MB
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <div className="flex flex-col items-center gap-3 py-6">
+                                            <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
+                                            <div className="text-center space-y-1">
+                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                    Reading your receipt…
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    AI is extracting payment details. This usually takes a few seconds.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
+                            ) : (
+                                // ───────── Stage 2: Form (prefilled if autofill ran) ─────────
+                                <>
+                                    {autofilledFields.size > 0 && (
+                                        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                                            <Sparkles className="h-3.5 w-3.5 text-amber-700 flex-shrink-0" />
+                                            <span className="text-xs text-amber-900 leading-snug">
+                                                Auto-filled from receipt — please review and edit if anything is wrong.
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="grid grid-cols-4 items-center gap-3">
+                                        <Label htmlFor="payment_date_new_npe" className="text-right col-span-1">Payment Date <sup className="text-destructive">*</sup></Label>
+                                        <Input id="payment_date_new_npe" name="payment_date" type="date" value={formState.payment_date} onChange={handleInputChange} max={formatDateFns(new Date(), "yyyy-MM-dd")} className={cn("col-span-3", autofilledFields.has("payment_date") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} disabled={isLoadingOverall} />
+                                        {formErrors.payment_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-3">
+                                        <Label htmlFor="payment_ref_new_npe" className="text-right col-span-1">Payment Ref</Label>
+                                        <Input id="payment_ref_new_npe" name="payment_ref" value={formState.payment_ref} onChange={handleInputChange} className={cn("col-span-3", autofilledFields.has("payment_ref") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} disabled={isLoadingOverall} />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-start gap-3">
+                                        <Label className="text-right col-span-1 pt-2">Payment Attachment</Label>
+                                        <div className="col-span-3">
+                                            <CustomAttachment
+                                                label="Upload Payment Proof"
+                                                selectedFile={paymentAttachmentFile}
+                                                onFileSelect={handlePaymentFileSelect}
+                                                onError={handleAttachmentError}
+                                                maxFileSize={5 * 1024 * 1024}
+                                                acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
+                                                disabled={isLoadingOverall}
+                                            />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 

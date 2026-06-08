@@ -78,6 +78,7 @@ import CommissionReportList from '@/pages/CommissionReport/commission-report-lis
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
 import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 
+
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
@@ -123,7 +124,6 @@ const ProjectGstPage = lazy(() => import("@/pages/ProjectGst/ProjectGstPage"));
 const InternalTransferMemosList = lazy(() => import("@/pages/InternalTransferMemos/InternalTransferMemosList"));
 const CreateITMPage = lazy(() => import("@/pages/InternalTransferMemos/Create/CreateITMPage"));
 const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
-const ITRDetail = lazy(() => import("@/pages/InternalTransferMemos/ITRDetail"));
 
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
@@ -737,7 +737,6 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <Suspense fallback={null}><InternalTransferMemosList /></Suspense> },
               { path: "create", element: <Suspense fallback={null}><CreateITMPage /></Suspense> },
-              { path: "itr/:id", element: <Suspense fallback={null}><ITRDetail /></Suspense> },
               { path: ":id", element: <Suspense fallback={null}><ITMDetail /></Suspense> },
             ],
           },

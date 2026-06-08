@@ -32,7 +32,6 @@ export interface EnrichedITM {
   creation: string;
   dispatch_date?: string | null;
   latest_delivery_date?: string | null;
-  transfer_request?: string | null;
   requested_by?: string | null;
   categories: string[];
   category_count: number;

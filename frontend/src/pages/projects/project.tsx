@@ -459,6 +459,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "PO Summary",
           key: PROJECT_PAGE_TABS.PO_SUMMARY,
         },
+        ...(isProjectManager ? [{
+          label: "DC & MIR",
+          key: PROJECT_PAGE_TABS.DC_MIR,
+        }] : []),
         {
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
@@ -681,7 +685,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
       }] : []),
     ];
-  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser]);
+  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {

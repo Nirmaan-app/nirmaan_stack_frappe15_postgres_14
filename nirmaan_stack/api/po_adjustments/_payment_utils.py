@@ -136,7 +136,7 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     Reduces modifiable terms bottom-up strictly according to reduction needed.
     Adjusts the original PO's un-paid payment terms from the bottom up (LIFO).
     """
-    locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "Approved"]]
+    locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "CEO Pending", "Approved"]]
     modifiable_terms = [t for t in original_po.payment_terms if t.term_status == "Created"]
     return_terms = [t for t in original_po.payment_terms if t.term_status == "Return"]
 
@@ -186,7 +186,7 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     if abs(discrepancy) > 0.01:
         last_adjustable_term = next(
             (t for t in reversed(original_po.payment_terms)
-             if t.term_status not in ["Paid", "Requested", "Approved"] and "Return" not in (t.label or "")),
+             if t.term_status not in ["Paid", "Requested", "CEO Pending", "Approved"] and "Return" not in (t.label or "")),
             None
         )
         if last_adjustable_term:

@@ -80,6 +80,10 @@ def after_insert(doc, method):
 
 def validate(doc, method):
     """Prevent reverting PO status if Delivery Notes exist."""
+    for item in doc.get("items") or []:
+        if not item.item_id:
+            item.item_id = item.name
+
     old_doc = doc.get_doc_before_save()
     if old_doc and old_doc.status in ("Partially Dispatched", "Dispatched") and doc.status == "PO Approved":
         if frappe.db.exists("Delivery Notes", {"procurement_order": doc.name}):

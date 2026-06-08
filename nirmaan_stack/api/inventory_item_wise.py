@@ -4,8 +4,20 @@ API endpoint for cross-project item-wise inventory summary.
 Aggregates items from the latest submitted Remaining Items Report
 per project, joined with max PO rates for estimated cost calculation.
 
-Dispatched ITM transfers after the latest RIR are deducted from
-remaining quantities so the summary reflects committed transfers.
+Two layers reduce the displayed remaining quantity:
+
+  * **Approved ITM reservations** — soft-hold for ITMs that have been
+    created but not yet dispatched. These rows haven't moved any
+    physical inventory but the qty is committed to a transfer and
+    must not be picked again.
+  * **Post-RIR ITM dispatches** — ITMs already Dispatched / Partially
+    Delivered / Delivered with ``dispatched_on > RIR.modified``. The PM
+    hasn't yet baked these outflows into a fresh report, so we subtract
+    them here to avoid double-counting.
+
+Once an ITM transitions Approved → Dispatched the row drops out of the
+reservation leg and into the dispatch leg — same numeric reduction,
+clean handoff between the two CTEs.
 
 Rows are keyed by `(project, item_id, make)` so that the same item in
 different makes appears as distinct rows — mirroring how Warehouse
@@ -47,6 +59,24 @@ def get_inventory_item_wise_summary():
         FROM latest_reports lr
         JOIN "tabRemaining Item Entry" ri ON ri.parent = lr.name
         WHERE ri.remaining_quantity > 0
+    ),
+    approved_itm_reservations AS (
+        -- Soft-hold: Approved ITMs created but not yet dispatched. These
+        -- haven't moved any physical inventory yet but the qty is
+        -- committed to a transfer, so we subtract it here so the
+        -- Inventory Item-Wise summary reflects what's actually pickable.
+        -- Once the ITM transitions to Dispatched+ it falls out of this
+        -- CTE and into `dispatched_itm_deductions` below.
+        SELECT
+            itm.source_project AS project,
+            itmi.item_id,
+            itmi.make,
+            SUM(itmi.transfer_quantity) AS reserved_qty
+        FROM "tabInternal Transfer Memo Item" itmi
+        JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+        WHERE itm.status = 'Approved'
+          AND itm.source_type = 'Project'
+        GROUP BY itm.source_project, itmi.item_id, itmi.make
     ),
     dispatched_itm_deductions AS (
         -- Dispatches AFTER the latest RIR was last saved (modified) are not
@@ -94,15 +124,29 @@ def get_inventory_item_wise_summary():
         ri.unit,
         ri.category,
         ri.make,
-        GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0) AS remaining_quantity,
+        GREATEST(
+            ri.remaining_quantity
+              - COALESCE(ar.reserved_qty, 0)
+              - COALESCE(dd.deducted_qty, 0),
+            0
+        ) AS remaining_quantity,
         COALESCE(mr.max_quote, 0) AS max_rate,
         COALESCE(mr.max_quote_tax, 18) AS tax,
-        GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0)
+        GREATEST(
+            ri.remaining_quantity
+              - COALESCE(ar.reserved_qty, 0)
+              - COALESCE(dd.deducted_qty, 0),
+            0
+        )
             * COALESCE(mr.max_quote, 0)
             * (1 + COALESCE(mr.max_quote_tax, 18) / 100.0) AS estimated_cost,
         COALESCE(pn.po_list, ARRAY[]::text[]) AS po_numbers
     FROM report_items ri
     JOIN "tabProjects" p ON p.name = ri.project
+    LEFT JOIN approved_itm_reservations ar
+        ON ar.project = ri.project
+       AND ar.item_id = ri.item_id
+       AND ar.make IS NOT DISTINCT FROM ri.make
     LEFT JOIN dispatched_itm_deductions dd
         ON dd.project = ri.project
        AND dd.item_id = ri.item_id
@@ -115,7 +159,12 @@ def get_inventory_item_wise_summary():
         ON pn.project = ri.project
        AND pn.item_id = ri.item_id
        AND pn.make IS NOT DISTINCT FROM ri.make
-    WHERE GREATEST(ri.remaining_quantity - COALESCE(dd.deducted_qty, 0), 0) > 0
+    WHERE GREATEST(
+            ri.remaining_quantity
+              - COALESCE(ar.reserved_qty, 0)
+              - COALESCE(dd.deducted_qty, 0),
+            0
+        ) > 0
     ORDER BY ri.item_id, ri.make NULLS FIRST, ri.project
     """
 

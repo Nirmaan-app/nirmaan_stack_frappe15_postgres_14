@@ -46,6 +46,7 @@ export const SRAmendPage = () => {
         srDoc,
         initialFormValues,
         categories,
+        emptyCategories,
         serviceItems,
         vendors,
         project,
@@ -91,8 +92,10 @@ export const SRAmendPage = () => {
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        emptyCategories={emptyCategories}
                         serviceItems={serviceItems}
                         isLoading={dataLoading}
+                        allowNegative
                     />
                 );
             case "vendor":

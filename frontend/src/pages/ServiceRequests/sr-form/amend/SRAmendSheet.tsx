@@ -109,7 +109,7 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
     /* ─────────────────────────────────────────────────────────
        DATA HOOK
        ───────────────────────────────────────────────────────── */
-    const { initialFormValues, categories, serviceItems, vendors, isLoading, hasError } =
+    const { initialFormValues, categories, emptyCategories, serviceItems, vendors, isLoading, hasError } =
         useSRAmendData(srId);
 
     /* ─────────────────────────────────────────────────────────
@@ -156,8 +156,10 @@ export const SRAmendSheet: React.FC<SRAmendSheetProps> = ({
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        emptyCategories={emptyCategories}
                         serviceItems={serviceItems}
                         isLoading={isLoading}
+                        allowNegative
                     />
                 );
             case "vendor":

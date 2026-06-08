@@ -16,8 +16,10 @@ export interface UseSRAmendDataReturn {
     srDoc: ServiceRequests | undefined;
     /** Form values transformed from the SR document */
     initialFormValues: SRFormValues | undefined;
-    /** Service categories for dropdown */
+    /** Service categories that have rate-card items (main package picker) */
     categories: CategoryOption[];
+    /** Service categories with no rate-card items (Add Custom Service dialog only) */
+    emptyCategories: CategoryOption[];
     /** Service items (rate card) */
     serviceItems: any[];
     /** Service vendors for dropdown */
@@ -91,6 +93,7 @@ export function useSRAmendData(srId: string | undefined): UseSRAmendDataReturn {
        ───────────────────────────────────────────────────────── */
     const {
         categories,
+        emptyCategories,
         serviceItems,
         vendors,
         project,
@@ -102,20 +105,20 @@ export function useSRAmendData(srId: string | undefined): UseSRAmendDataReturn {
        COMPUTE INITIAL FORM VALUES
        ───────────────────────────────────────────────────────── */
     const initialFormValues = useMemo<SRFormValues | undefined>(() => {
-        // Only compute when all required data is loaded
-        if (!srDoc) {
+        // Defer until both the SR doc AND the rate card are loaded — otherwise
+        // `transformSRToFormValues` runs against an empty rate card, mismarks
+        // items as custom, and a later `reset()` wipes any in-progress edits.
+        if (!srDoc || formDataLoading) {
             return undefined;
         }
 
-        // Transform SR document to form values
-        // Pass project and vendor for richer references
         return transformSRToFormValues(
             srDoc,
             project || null,
             vendor || null,
             serviceItems
         );
-    }, [srDoc, project, vendor, serviceItems]);
+    }, [srDoc, project, vendor, serviceItems, formDataLoading]);
 
     /* ─────────────────────────────────────────────────────────
        COMBINED LOADING STATE
@@ -137,6 +140,7 @@ export function useSRAmendData(srId: string | undefined): UseSRAmendDataReturn {
         srDoc,
         initialFormValues,
         categories,
+        emptyCategories,
         serviceItems,
         vendors,
         project,

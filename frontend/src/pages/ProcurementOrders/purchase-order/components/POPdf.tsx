@@ -1277,8 +1277,8 @@ export const POPdf: React.FC<POPdfProps> = ({
 
   return (
     <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
-      <SheetContent className="overflow-y-auto md:min-w-[900px]">
-        <div className="flex gap-2">
+      <SheetContent className="overflow-y-auto w-[95vw] sm:max-w-[95vw] md:max-w-[1000px] p-4 sm:p-6">
+        <div className="flex flex-wrap gap-2 pr-12">
           {/* Hide Print and Download buttons for Project Manager role */}
           {role !== "Nirmaan Project Manager Profile" && (
             <>

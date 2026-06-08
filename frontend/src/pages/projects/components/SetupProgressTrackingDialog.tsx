@@ -93,6 +93,10 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
         "nirmaan_stack.api.milestone.get_header_milestones_preview.ensure_zone_reports"
     );
 
+    const { call: ensureProjectSchedule } = useFrappePostCall(
+        "nirmaan_stack.api.milestone.project_schedule.ensure_project_schedule"
+    );
+
     const [currentStep, setCurrentStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -297,6 +301,17 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
                         variant: "destructive",
                     });
                 }
+            }
+
+            try {
+                await ensureProjectSchedule({ project_id: projectData.name });
+            } catch (schedErr) {
+                console.error("ensure_project_schedule failed on setup:", schedErr);
+                toast({
+                    title: "Warning",
+                    description: "Setup saved but project schedule sync failed.",
+                    variant: "destructive",
+                });
             }
 
             await onSuccess();

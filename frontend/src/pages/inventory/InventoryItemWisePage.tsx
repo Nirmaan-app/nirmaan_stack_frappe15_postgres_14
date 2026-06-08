@@ -13,6 +13,8 @@ import {
   ListX,
   Warehouse,
   FileText,
+  Package,
+  FolderKanban,
 } from "lucide-react";
 import { useUserData } from "@/hooks/useUserData";
 import { ITM_CREATE_ROLES } from "@/constants/itm";
@@ -44,16 +46,55 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { tokenSearch, type TokenSearchConfig } from "@/utils/tokenSearch";
 import { unparse } from "papaparse";
 import { formatDate as formatDateFns } from "date-fns";
 import { useInventoryItemWise } from "./hooks/useInventoryItemWise";
-import type { AggregatedItemRow } from "./inventory.types";
+import type {
+  AggregatedItemRow,
+  AggregatedProjectRow,
+  ItemInProjectDetail,
+} from "./inventory.types";
+
+// =============================================================================
+// VIEW MODE
+// =============================================================================
+
+type ViewMode = "item" | "project";
+
+// =============================================================================
+// SEARCH CONFIGS — same token-scoring algorithm as the FuzzySearchSelect
+// dropdown so multi-word queries like "tile 600 mm" rank "600x600mm Vitrified
+// Tile" highest.
+// =============================================================================
+
+const ITEM_SEARCH_CONFIG: TokenSearchConfig = {
+  searchFields: ["item_name", "category", "unit"],
+  fieldWeights: { item_name: 2.5, category: 1.0, unit: 1.0 },
+  minTokenMatches: 1,
+};
+
+const PROJECT_SEARCH_CONFIG: TokenSearchConfig = {
+  searchFields: ["project_name"],
+  fieldWeights: { project_name: 2.0 },
+  minTokenMatches: 1,
+};
 
 // =============================================================================
 // SORT
 // =============================================================================
 
-type SortKey = "item_name" | "totalRemainingQty" | "totalEstimatedCost" | "projectCount" | "poCount";
+// Some sort keys overlap (totalRemainingQty / totalEstimatedCost / poCount work
+// in both modes). Mode-specific: item_name + projectCount for item-wise,
+// project_name + itemCount for project-wise.
+type SortKey =
+  | "item_name"
+  | "project_name"
+  | "totalRemainingQty"
+  | "totalEstimatedCost"
+  | "projectCount"
+  | "itemCount"
+  | "poCount";
 
 interface SortableHeaderProps {
   sortableKey: SortKey;
@@ -75,43 +116,49 @@ function SortableHeader({
   onClearSort,
 }: SortableHeaderProps) {
   const isSorted = currentSortKey === sortableKey;
-  const alignmentClass = className?.includes("text-right")
-    ? "justify-end"
-    : "justify-start";
+  const isRightAligned = className?.includes("text-right");
+  // Put the sort chevron on the opposite side from the label, so the label
+  // sits flush with the data column edge (left for left-aligned, right for
+  // right-aligned). Otherwise the chevron pushes the label inward and it
+  // visually drifts away from the data below.
+  const sortControl = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+          {isSorted ? (
+            currentSortDirection === "asc" ? (
+              <ArrowUp className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowDown className="h-3.5 w-3.5" />
+            )
+          ) : (
+            <ChevronsUpDown className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => onSetSort(sortableKey, "asc")}>
+          <ArrowUp className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+          Asc
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onSetSort(sortableKey, "desc")}>
+          <ArrowDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+          Desc
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onClearSort} disabled={!isSorted}>
+          <ListX className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+          Clear
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
   return (
     <TableHead className={className}>
-      <div className={`flex items-center gap-1 ${alignmentClass}`}>
-        <span>{children}</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
-              {isSorted ? (
-                currentSortDirection === "asc" ? (
-                  <ArrowUp className="h-3.5 w-3.5" />
-                ) : (
-                  <ArrowDown className="h-3.5 w-3.5" />
-                )
-              ) : (
-                <ChevronsUpDown className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onSetSort(sortableKey, "asc")}>
-              <ArrowUp className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
-              Asc
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onSetSort(sortableKey, "desc")}>
-              <ArrowDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
-              Desc
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onClearSort} disabled={!isSorted}>
-              <ListX className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
-              Clear
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className={`flex items-center gap-1 ${isRightAligned ? "justify-end" : "justify-start"}`}>
+        {isRightAligned && sortControl}
+        <span className="whitespace-nowrap">{children}</span>
+        {!isRightAligned && sortControl}
       </div>
     </TableHead>
   );
@@ -122,9 +169,9 @@ function SortableHeader({
 // =============================================================================
 
 type FlatRow =
-  | { type: "item"; data: AggregatedItemRow }
+  | { type: "item-parent"; data: AggregatedItemRow }
   | {
-      type: "project";
+      type: "item-project-child";
       data: {
         project: string;
         project_name: string;
@@ -133,15 +180,89 @@ type FlatRow =
         estimated_cost: number;
         po_numbers: string[];
       };
-    };
+    }
+  | { type: "project-parent"; data: AggregatedProjectRow }
+  | { type: "project-item-child"; data: ItemInProjectDetail & { project: string } };
+
+// =============================================================================
+// PROJECT-WISE AGGREGATION
+// =============================================================================
+
+function aggregateByProject(items: AggregatedItemRow[]): AggregatedProjectRow[] {
+  const projMap = new Map<string, AggregatedProjectRow>();
+  for (const item of items) {
+    for (const p of item.projects) {
+      let proj = projMap.get(p.project);
+      if (!proj) {
+        proj = {
+          project: p.project,
+          project_name: p.project_name,
+          itemCount: 0,
+          totalRemainingQty: 0,
+          totalEstimatedCost: 0,
+          distinctMakes: [],
+          distinctCategories: [],
+          allPONumbers: [],
+          items: [],
+        };
+        projMap.set(p.project, proj);
+      }
+      proj.items.push({
+        item_id: item.item_id,
+        item_name: item.item_name,
+        unit: item.unit,
+        category: item.category,
+        billingCategory: item.billingCategory,
+        make: p.make,
+        remaining_quantity: p.remaining_quantity,
+        max_rate: p.max_rate,
+        tax: p.tax,
+        estimated_cost: p.estimated_cost,
+        po_numbers: p.po_numbers,
+      });
+      proj.itemCount += 1;
+      proj.totalRemainingQty += p.remaining_quantity;
+      proj.totalEstimatedCost += p.estimated_cost;
+    }
+  }
+  for (const proj of projMap.values()) {
+    const makeSet = new Set<string>();
+    const catSet = new Set<string>();
+    const poSet = new Set<string>();
+    for (const it of proj.items) {
+      if (it.make) makeSet.add(it.make);
+      if (it.category) catSet.add(it.category);
+      for (const po of it.po_numbers) poSet.add(po);
+    }
+    proj.distinctMakes = Array.from(makeSet).sort();
+    proj.distinctCategories = Array.from(catSet).sort();
+    proj.allPONumbers = Array.from(poSet);
+  }
+  return Array.from(projMap.values()).sort((a, b) =>
+    a.project_name.localeCompare(b.project_name)
+  );
+}
 
 // =============================================================================
 // CSV EXPORT
 // =============================================================================
 
-function exportInventoryCsv(items: AggregatedItemRow[]) {
-  if (!items.length) return;
+function downloadCsv(rows: (string | number)[][], headers: string[], filenamePrefix: string) {
+  const csvString = unparse([headers, ...rows], { skipEmptyLines: true });
+  const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const timestamp = formatDateFns(new Date(), "yyyyMMdd_HHmmss");
+  link.href = url;
+  link.setAttribute("download", `${filenamePrefix}_${timestamp}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
+function exportItemWiseCsv(items: AggregatedItemRow[]) {
+  if (!items.length) return;
   const headers = [
     "Item Name",
     "Make",
@@ -152,7 +273,6 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
     "Total Estimated Cost",
     "Project Count",
   ];
-
   const rows = items.map((item) => [
     item.item_name,
     item.distinctMakes.join(", "),
@@ -163,18 +283,30 @@ function exportInventoryCsv(items: AggregatedItemRow[]) {
     Math.ceil(item.totalEstimatedCost),
     item.projectCount,
   ]);
+  downloadCsv(rows, headers, "Inventory_Item_Wise");
+}
 
-  const csvString = unparse([headers, ...rows], { skipEmptyLines: true });
-  const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const timestamp = formatDateFns(new Date(), "yyyyMMdd_HHmmss");
-  link.href = url;
-  link.setAttribute("download", `Inventory_Item_Wise_${timestamp}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+function exportProjectWiseCsv(projects: AggregatedProjectRow[]) {
+  if (!projects.length) return;
+  const headers = [
+    "Project Name",
+    "Items Count",
+    "Distinct Makes",
+    "Distinct Categories",
+    "Total Remaining Qty",
+    "Total Estimated Cost",
+    "PO Count",
+  ];
+  const rows = projects.map((p) => [
+    p.project_name,
+    p.itemCount,
+    p.distinctMakes.join(", "),
+    p.distinctCategories.join(", "),
+    p.totalRemainingQty,
+    Math.ceil(p.totalEstimatedCost),
+    p.allPONumbers.length,
+  ]);
+  downloadCsv(rows, headers, "Inventory_Project_Wise");
 }
 
 // =============================================================================
@@ -188,14 +320,30 @@ function renderInventoryPONumbers(poNumbers: string[], project: string) {
     <Link
       key={po}
       to={`/projects/${project}/po/${po.replace(/\//g, "&=")}`}
-      className="text-blue-600 hover:underline text-xs"
+      className="text-blue-600 hover:underline text-xs whitespace-nowrap"
       onClick={(e) => e.stopPropagation()}
     >
       {po}
     </Link>
   );
 
-  if (poNumbers.length === 1) return poLink(poNumbers[0]);
+  if (poNumbers.length === 1) {
+    // Single-PO case: render on a single line. The POs column is wide enough
+    // for standard 18-char refs (e.g. "PO/030/00088/25-26") to fit fully;
+    // the `truncate` is just a safety net for rare extra-long refs and the
+    // `title` exposes the full text on hover.
+    const po = poNumbers[0];
+    return (
+      <Link
+        to={`/projects/${project}/po/${po.replace(/\//g, "&=")}`}
+        title={po}
+        className="text-blue-600 hover:underline text-xs whitespace-nowrap truncate inline-block max-w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {po}
+      </Link>
+    );
+  }
 
   return (
     <TooltipProvider>
@@ -229,6 +377,9 @@ export default function InventoryItemWisePage() {
   const { role } = useUserData();
   const canCreateITM = ITM_CREATE_ROLES.includes(role);
 
+  // View mode
+  const [viewMode, setViewMode] = useState<ViewMode>("item");
+
   // Search
   const [search, setSearch] = useState("");
 
@@ -245,19 +396,37 @@ export default function InventoryItemWisePage() {
   const [sortKey, setSortKey] = useState<SortKey | null>("totalEstimatedCost");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  // Expand — keyed by item_id (page now clubs by item, like the ITM picker).
+  // Expand — keyed by item_id in item mode, project_id in project mode.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const toggleExpand = useCallback((itemId: string) => {
+  const toggleExpand = useCallback((rowKey: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
       return next;
     });
   }, []);
 
-  // Filter options
+  // Toggle view mode — reset cross-mode state to avoid stale expand/sort/search.
+  const handleSetViewMode = useCallback((mode: ViewMode) => {
+    setViewMode((prev) => {
+      if (prev === mode) return prev;
+      setExpanded(new Set());
+      setSortKey("totalEstimatedCost");
+      setSortDir("desc");
+      setSearch("");
+      return mode;
+    });
+  }, []);
+
+  // Project-wise aggregation
+  const aggregatedByProject = useMemo(
+    () => aggregateByProject(items),
+    [items]
+  );
+
+  // Filter options (shared facets — derived from items either way)
   const categoryOptions = useMemo(() => {
     const cats = new Set(items.map((i) => i.category).filter(Boolean));
     return Array.from(cats)
@@ -307,49 +476,33 @@ export default function InventoryItemWisePage() {
       .map((m) => ({ label: m === "" ? "—" : m, value: m }));
   }, [items]);
 
-  // Filtered + sorted items
+  // Filtered + sorted items (item-wise mode)
   const filteredItems = useMemo(() => {
-    let result = items;
+    let result: AggregatedItemRow[] = items;
 
-    // Search
     if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      result = result.filter((item) =>
-        item.item_name.toLowerCase().includes(q)
-      );
+      result = tokenSearch(result, search, ITEM_SEARCH_CONFIG);
     }
-
-    // Category filter
     if (selectedCategories.size > 0) {
       result = result.filter((item) => selectedCategories.has(item.category));
     }
-
-    // Billing category filter
     if (selectedBillingCategories.size > 0) {
       result = result.filter((item) => selectedBillingCategories.has(item.billingCategory));
     }
-
-    // Unit filter
     if (selectedUnits.size > 0) {
       result = result.filter((item) => selectedUnits.has(item.unit));
     }
-
-    // Make filter — keep an item if ANY of its projects matches a selected
-    // make. Empty string represents NULL/—.
     if (selectedMakes.size > 0) {
       result = result.filter((item) =>
         item.projects.some((p) => selectedMakes.has(p.make ?? ""))
       );
     }
-
-    // Project filter
     if (selectedProjects.size > 0) {
       result = result.filter((item) =>
         item.projects.some((p) => selectedProjects.has(p.project))
       );
     }
 
-    // Sort
     if (sortKey) {
       result = [...result].sort((a, b) => {
         let cmp = 0;
@@ -357,7 +510,11 @@ export default function InventoryItemWisePage() {
           cmp = a.item_name.localeCompare(b.item_name);
         } else if (sortKey === "poCount") {
           cmp = a.allPONumbers.length - b.allPONumbers.length;
-        } else if (sortKey === "totalRemainingQty" || sortKey === "totalEstimatedCost" || sortKey === "projectCount") {
+        } else if (
+          sortKey === "totalRemainingQty" ||
+          sortKey === "totalEstimatedCost" ||
+          sortKey === "projectCount"
+        ) {
           cmp = a[sortKey] - b[sortKey];
         }
         return sortDir === "asc" ? cmp : -cmp;
@@ -365,38 +522,127 @@ export default function InventoryItemWisePage() {
     }
 
     return result;
-  }, [items, search, selectedCategories, selectedBillingCategories, selectedUnits, selectedMakes, selectedProjects, sortKey, sortDir]);
+  }, [
+    items,
+    search,
+    selectedCategories,
+    selectedBillingCategories,
+    selectedUnits,
+    selectedMakes,
+    selectedProjects,
+    sortKey,
+    sortDir,
+  ]);
 
-  // Flatten for virtualization
+  // Filtered + sorted projects (project-wise mode)
+  const filteredProjects = useMemo(() => {
+    let result: AggregatedProjectRow[] = aggregatedByProject;
+
+    if (search.trim()) {
+      result = tokenSearch(result, search, PROJECT_SEARCH_CONFIG);
+    }
+    if (selectedCategories.size > 0) {
+      result = result.filter((p) =>
+        p.items.some((i) => selectedCategories.has(i.category))
+      );
+    }
+    if (selectedBillingCategories.size > 0) {
+      result = result.filter((p) =>
+        p.items.some((i) => selectedBillingCategories.has(i.billingCategory))
+      );
+    }
+    if (selectedUnits.size > 0) {
+      result = result.filter((p) =>
+        p.items.some((i) => selectedUnits.has(i.unit))
+      );
+    }
+    if (selectedMakes.size > 0) {
+      result = result.filter((p) =>
+        p.items.some((i) => selectedMakes.has(i.make ?? ""))
+      );
+    }
+    if (selectedProjects.size > 0) {
+      result = result.filter((p) => selectedProjects.has(p.project));
+    }
+
+    if (sortKey) {
+      result = [...result].sort((a, b) => {
+        let cmp = 0;
+        if (sortKey === "project_name") {
+          cmp = a.project_name.localeCompare(b.project_name);
+        } else if (sortKey === "poCount") {
+          cmp = a.allPONumbers.length - b.allPONumbers.length;
+        } else if (
+          sortKey === "itemCount" ||
+          sortKey === "totalRemainingQty" ||
+          sortKey === "totalEstimatedCost"
+        ) {
+          cmp = (a as AggregatedProjectRow)[sortKey] - (b as AggregatedProjectRow)[sortKey];
+        }
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }, [
+    aggregatedByProject,
+    search,
+    selectedCategories,
+    selectedBillingCategories,
+    selectedUnits,
+    selectedMakes,
+    selectedProjects,
+    sortKey,
+    sortDir,
+  ]);
+
+  // Flatten for virtualization — different shapes per mode
   const flatRows = useMemo<FlatRow[]>(() => {
     const rows: FlatRow[] = [];
-    for (const item of filteredItems) {
-      rows.push({ type: "item", data: item });
-      if (expanded.has(item.item_id)) {
-        for (const proj of item.projects) {
-          rows.push({
-            type: "project",
-            data: {
-              project: proj.project,
-              project_name: proj.project_name,
-              make: proj.make,
-              remaining_quantity: proj.remaining_quantity,
-              estimated_cost: proj.estimated_cost,
-              po_numbers: proj.po_numbers,
-            },
-          });
+    if (viewMode === "item") {
+      for (const item of filteredItems) {
+        rows.push({ type: "item-parent", data: item });
+        if (expanded.has(item.item_id)) {
+          for (const proj of item.projects) {
+            rows.push({
+              type: "item-project-child",
+              data: {
+                project: proj.project,
+                project_name: proj.project_name,
+                make: proj.make,
+                remaining_quantity: proj.remaining_quantity,
+                estimated_cost: proj.estimated_cost,
+                po_numbers: proj.po_numbers,
+              },
+            });
+          }
+        }
+      }
+    } else {
+      for (const proj of filteredProjects) {
+        rows.push({ type: "project-parent", data: proj });
+        if (expanded.has(proj.project)) {
+          for (const it of proj.items) {
+            rows.push({
+              type: "project-item-child",
+              data: { ...it, project: proj.project },
+            });
+          }
         }
       }
     }
     return rows;
-  }, [filteredItems, expanded]);
+  }, [viewMode, filteredItems, filteredProjects, expanded]);
 
   // Virtualizer
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: flatRows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (flatRows[index].type === "item" ? 48 : 40),
+    estimateSize: (index) => {
+      const t = flatRows[index].type;
+      return t === "item-parent" || t === "project-parent" ? 48 : 40;
+    },
     overscan: 20,
   });
 
@@ -413,16 +659,29 @@ export default function InventoryItemWisePage() {
     setSortDir("asc");
   }, []);
 
+  const handleExport = useCallback(() => {
+    if (viewMode === "item") exportItemWiseCsv(filteredItems);
+    else exportProjectWiseCsv(filteredProjects);
+  }, [viewMode, filteredItems, filteredProjects]);
+
   // Summary stats
-  const totalItems = filteredItems.length;
-  const totalQty = useMemo(
-    () => filteredItems.reduce((s, i) => s + i.totalRemainingQty, 0),
-    [filteredItems]
-  );
-  const totalCost = useMemo(
-    () => filteredItems.reduce((s, i) => s + i.totalEstimatedCost, 0),
-    [filteredItems]
-  );
+  const totalParents = viewMode === "item" ? filteredItems.length : filteredProjects.length;
+  const totalQty = useMemo(() => {
+    if (viewMode === "item") {
+      return filteredItems.reduce((s, i) => s + i.totalRemainingQty, 0);
+    }
+    return filteredProjects.reduce((s, p) => s + p.totalRemainingQty, 0);
+  }, [viewMode, filteredItems, filteredProjects]);
+  const totalCost = useMemo(() => {
+    if (viewMode === "item") {
+      return filteredItems.reduce((s, i) => s + i.totalEstimatedCost, 0);
+    }
+    return filteredProjects.reduce((s, p) => s + p.totalEstimatedCost, 0);
+  }, [viewMode, filteredItems, filteredProjects]);
+
+  // Sort key for the count column (col 4) varies per mode.
+  const countSortKey: SortKey = viewMode === "item" ? "projectCount" : "itemCount";
+  const isCountSorted = sortKey === countSortKey;
 
   if (isLoading) return <LoadingFallback />;
   if (error) return <AlertDestructive error={error} />;
@@ -434,7 +693,7 @@ export default function InventoryItemWisePage() {
         <div className="flex items-center gap-2">
           <Warehouse className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-bold tracking-tight">
-            Inventory — Item-Wise Summary
+            Inventory — {viewMode === "item" ? "Item-Wise" : "Project-Wise"} Summary
           </h2>
         </div>
         <div className="flex items-center gap-2">
@@ -450,8 +709,8 @@ export default function InventoryItemWisePage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => exportInventoryCsv(filteredItems)}
-            disabled={!filteredItems.length}
+            onClick={handleExport}
+            disabled={viewMode === "item" ? !filteredItems.length : !filteredProjects.length}
           >
             <Download className="mr-2 h-4 w-4" />
             Export CSV
@@ -462,8 +721,10 @@ export default function InventoryItemWisePage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-lg border bg-card p-3">
-          <p className="text-xs text-muted-foreground">Unique Items</p>
-          <p className="text-2xl font-bold">{totalItems.toLocaleString("en-IN")}</p>
+          <p className="text-xs text-muted-foreground">
+            {viewMode === "item" ? "Unique Items" : "Active Projects"}
+          </p>
+          <p className="text-2xl font-bold">{totalParents.toLocaleString("en-IN")}</p>
         </div>
         <div className="rounded-lg border bg-card p-3">
           <p className="text-xs text-muted-foreground">Total Remaining Qty</p>
@@ -478,18 +739,45 @@ export default function InventoryItemWisePage() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* View mode toggle */}
+        <div className="inline-flex items-center rounded-md border bg-muted/30 p-0.5">
+          <Button
+            type="button"
+            variant={viewMode === "item" ? "default" : "ghost"}
+            size="sm"
+            className="h-7 px-3 text-xs"
+            onClick={() => handleSetViewMode("item")}
+          >
+            <Package className="mr-1.5 h-3.5 w-3.5" />
+            Item-wise
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === "project" ? "default" : "ghost"}
+            size="sm"
+            className="h-7 px-3 text-xs"
+            onClick={() => handleSetViewMode("project")}
+          >
+            <FolderKanban className="mr-1.5 h-3.5 w-3.5" />
+            Project-wise
+          </Button>
+        </div>
+
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search item name..."
+            placeholder={viewMode === "item" ? "Search item name..." : "Search project name..."}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8"
           />
         </div>
         <span className="ml-auto text-sm text-muted-foreground">
-          {filteredItems.length} item{filteredItems.length !== 1 ? "s" : ""}
+          {totalParents}{" "}
+          {viewMode === "item"
+            ? `item${totalParents !== 1 ? "s" : ""}`
+            : `project${totalParents !== 1 ? "s" : ""}`}
         </span>
       </div>
 
@@ -499,43 +787,63 @@ export default function InventoryItemWisePage() {
         className="rounded-md border overflow-auto"
         style={{ height: "calc(100vh - 320px)" }}
       >
-        <Table>
+        <Table className="table-fixed min-w-[1250px] [&_th]:px-2 [&_td]:px-2">
+          <colgroup>
+            <col style={{ width: "36px" }} />
+            <col style={{ width: "220px" }} />
+            <col style={{ width: "100px" }} />
+            <col style={{ width: "140px" }} />
+            <col style={{ width: "140px" }} />
+            <col style={{ width: "140px" }} />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "80px" }} />
+            <col style={{ width: "145px" }} />
+            <col style={{ width: "120px" }} />
+          </colgroup>
           <TableHeader className="sticky top-0 bg-background z-10">
             <TableRow>
-              <TableHead className="w-10" />
-              <SortableHeader
-                sortableKey="item_name"
-                currentSortKey={sortKey}
-                currentSortDirection={sortDir}
-                onSetSort={handleSetSort}
-                onClearSort={handleClearSort}
-              >
-                Item Name
-              </SortableHeader>
-              <TableHead>
+              <TableHead className="w-8" />
+              {viewMode === "item" ? (
+                <SortableHeader
+                  sortableKey="item_name"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDir}
+                  onSetSort={handleSetSort}
+                  onClearSort={handleClearSort}
+                >
+                  Item Name
+                </SortableHeader>
+              ) : (
+                <SortableHeader
+                  sortableKey="project_name"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDir}
+                  onSetSort={handleSetSort}
+                  onClearSort={handleClearSort}
+                >
+                  Project Name
+                </SortableHeader>
+              )}
+              <TableHead className="!pl-5">
                 <div className="flex items-center gap-1">
+                  <span className="whitespace-nowrap">Make</span>
                   <SimpleFacetedFilter
                     title="Make"
                     options={makeOptions}
                     selectedValues={selectedMakes}
                     onSelectedValuesChange={setSelectedMakes}
                   />
-                  <span>Make</span>
                 </div>
               </TableHead>
               <TableHead className="text-right">
                 <div className="flex items-center gap-1 justify-end">
-                  <SimpleFacetedFilter
-                    title="Project"
-                    options={projectOptions}
-                    selectedValues={selectedProjects}
-                    onSelectedValuesChange={setSelectedProjects}
-                  />
-                  <span>Projects</span>
+                  {/* Order: [sort] [label] [funnel] — funnel sits on the right
+                      of the label, matching the Make/Category/Billing/Unit
+                      columns. */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
-                        {sortKey === "projectCount" ? (
+                        {isCountSorted ? (
                           sortDir === "asc" ? (
                             <ArrowUp className="h-3.5 w-3.5" />
                           ) : (
@@ -547,21 +855,30 @@ export default function InventoryItemWisePage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleSetSort("projectCount", "asc")}>
+                      <DropdownMenuItem onClick={() => handleSetSort(countSortKey, "asc")}>
                         <ArrowUp className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
                         Asc
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleSetSort("projectCount", "desc")}>
+                      <DropdownMenuItem onClick={() => handleSetSort(countSortKey, "desc")}>
                         <ArrowDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
                         Desc
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={handleClearSort} disabled={sortKey !== "projectCount"}>
+                      <DropdownMenuItem onClick={handleClearSort} disabled={!isCountSorted}>
                         <ListX className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
                         Clear
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  <span className="whitespace-nowrap">{viewMode === "item" ? "Projects" : "Items"}</span>
+                  {viewMode === "item" && (
+                    <SimpleFacetedFilter
+                      title="Project"
+                      options={projectOptions}
+                      selectedValues={selectedProjects}
+                      onSelectedValuesChange={setSelectedProjects}
+                    />
+                  )}
                 </div>
               </TableHead>
               <SortableHeader
@@ -576,35 +893,35 @@ export default function InventoryItemWisePage() {
               </SortableHeader>
               <TableHead>
                 <div className="flex items-center gap-1">
+                  <span className="whitespace-nowrap">Category</span>
                   <SimpleFacetedFilter
                     title="Category"
                     options={categoryOptions}
                     selectedValues={selectedCategories}
                     onSelectedValuesChange={setSelectedCategories}
                   />
-                  <span>Category</span>
                 </div>
               </TableHead>
               <TableHead>
                 <div className="flex items-center gap-1">
+                  <span className="whitespace-nowrap">Billing Cat.</span>
                   <SimpleFacetedFilter
                     title="Billing Cat."
                     options={billingCategoryOptions}
                     selectedValues={selectedBillingCategories}
                     onSelectedValuesChange={setSelectedBillingCategories}
                   />
-                  <span>Billing Cat.</span>
                 </div>
               </TableHead>
               <TableHead>
                 <div className="flex items-center gap-1">
+                  <span className="whitespace-nowrap">Unit</span>
                   <SimpleFacetedFilter
                     title="Unit"
                     options={unitOptions}
                     selectedValues={selectedUnits}
                     onSelectedValuesChange={setSelectedUnits}
                   />
-                  <span>Unit</span>
                 </div>
               </TableHead>
               <SortableHeader
@@ -633,7 +950,9 @@ export default function InventoryItemWisePage() {
             {virtualizer.getVirtualItems().length === 0 ? (
               <TableRow>
                 <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                  No inventory items found.
+                  {viewMode === "item"
+                    ? "No inventory items found."
+                    : "No projects with inventory found."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -651,7 +970,8 @@ export default function InventoryItemWisePage() {
                 )}
                 {virtualizer.getVirtualItems().map((vRow) => {
                   const row = flatRows[vRow.index];
-                  if (row.type === "item") {
+
+                  if (row.type === "item-parent") {
                     const item = row.data;
                     const isExpanded = expanded.has(item.item_id);
                     return (
@@ -662,21 +982,23 @@ export default function InventoryItemWisePage() {
                         className="cursor-pointer hover:bg-muted/50"
                         onClick={() => toggleExpand(item.item_id)}
                       >
-                        <TableCell className="w-10">
+                        <TableCell className="w-8">
                           {isExpanded ? (
                             <ChevronDown className="h-4 w-4" />
                           ) : (
                             <ChevronRight className="h-4 w-4" />
                           )}
                         </TableCell>
-                        <TableCell className="font-medium max-w-[250px] truncate">
+                        <TableCell className="font-medium truncate" title={item.item_name}>
                           {item.item_name}
                         </TableCell>
-                        <TableCell className="text-xs">
+                        <TableCell className="text-xs truncate !pl-5">
                           {item.distinctMakes.length === 0 ? (
                             <span className="text-muted-foreground">—</span>
                           ) : item.distinctMakes.length === 1 ? (
-                            <span>{item.distinctMakes[0]}</span>
+                            <span title={item.distinctMakes[0]}>
+                              {item.distinctMakes[0]}
+                            </span>
                           ) : (
                             <Badge variant="secondary" className="text-xs">
                               {item.distinctMakes.length} makes
@@ -693,13 +1015,13 @@ export default function InventoryItemWisePage() {
                             {item.allPONumbers.length}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-xs">
+                        <TableCell className="truncate" title={item.category}>
+                          <Badge variant="outline" className="text-xs whitespace-nowrap max-w-full truncate">
                             {item.category}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs">{item.billingCategory}</TableCell>
-                        <TableCell className="text-xs">{item.unit}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{item.billingCategory}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{item.unit}</TableCell>
                         <TableCell className="text-right font-medium tabular-nums">
                           {item.totalRemainingQty.toLocaleString("en-IN")}
                         </TableCell>
@@ -708,18 +1030,19 @@ export default function InventoryItemWisePage() {
                         </TableCell>
                       </TableRow>
                     );
-                  } else {
-                    // Project sub-row
+                  }
+
+                  if (row.type === "item-project-child") {
                     const proj = row.data;
                     return (
                       <TableRow
-                        key={`proj-${proj.project}-${vRow.index}`}
+                        key={`itemproj-${proj.project}-${vRow.index}`}
                         data-index={vRow.index}
                         ref={virtualizer.measureElement}
                         className="bg-muted/30"
                       >
-                        <TableCell />
-                        <TableCell className="pl-8">
+                        <TableCell className="w-8" />
+                        <TableCell className="pl-8 truncate" title={proj.project_name}>
                           <Link
                             to={`/projects/${proj.project}`}
                             className="text-blue-600 hover:underline text-sm"
@@ -728,7 +1051,7 @@ export default function InventoryItemWisePage() {
                             {proj.project_name}
                           </Link>
                         </TableCell>
-                        <TableCell className="text-xs">
+                        <TableCell className="text-xs truncate !pl-5" title={proj.make ?? undefined}>
                           {proj.make ? (
                             proj.make
                           ) : (
@@ -751,6 +1074,119 @@ export default function InventoryItemWisePage() {
                       </TableRow>
                     );
                   }
+
+                  if (row.type === "project-parent") {
+                    const proj = row.data;
+                    const isExpanded = expanded.has(proj.project);
+                    return (
+                      <TableRow
+                        key={`proj-${proj.project}`}
+                        data-index={vRow.index}
+                        ref={virtualizer.measureElement}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => toggleExpand(proj.project)}
+                      >
+                        <TableCell className="w-8">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium truncate" title={proj.project_name}>
+                          <Link
+                            to={`/projects/${proj.project}`}
+                            className="text-blue-600 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {proj.project_name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-xs truncate !pl-5">
+                          {proj.distinctMakes.length === 0 ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : proj.distinctMakes.length === 1 ? (
+                            <span>{proj.distinctMakes[0]}</span>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs">
+                              {proj.distinctMakes.length} makes
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="secondary" className="text-xs">
+                            {proj.itemCount}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="secondary" className="text-xs">
+                            {proj.allPONumbers.length}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {proj.distinctCategories.length === 0 ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : proj.distinctCategories.length === 1 ? (
+                            <Badge variant="outline" className="text-xs">
+                              {proj.distinctCategories[0]}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs whitespace-nowrap">
+                              {proj.distinctCategories.length} cats
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {proj.totalRemainingQty.toLocaleString("en-IN")}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {formatToIndianRupee(proj.totalEstimatedCost)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+
+                  // project-item-child
+                  const it = row.data;
+                  return (
+                    <TableRow
+                      key={`projitem-${it.project}-${it.item_id}-${vRow.index}`}
+                      data-index={vRow.index}
+                      ref={virtualizer.measureElement}
+                      className="bg-muted/30"
+                    >
+                      <TableCell className="w-8" />
+                      <TableCell className="pl-8 text-sm truncate" title={it.item_name}>
+                        {it.item_name}
+                      </TableCell>
+                      <TableCell className="text-xs truncate !pl-5" title={it.make ?? undefined}>
+                        {it.make ? (
+                          it.make
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell />
+                      <TableCell>
+                        {renderInventoryPONumbers(it.po_numbers, it.project)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {it.category}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">{it.billingCategory}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">{it.unit}</TableCell>
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {it.remaining_quantity.toLocaleString("en-IN")}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {formatToIndianRupee(it.estimated_cost)}
+                      </TableCell>
+                    </TableRow>
+                  );
                 })}
                 {/* spacer bottom */}
                 {virtualizer.getVirtualItems().length > 0 && (

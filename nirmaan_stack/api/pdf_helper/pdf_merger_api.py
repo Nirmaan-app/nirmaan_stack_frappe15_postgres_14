@@ -200,21 +200,28 @@ def fetch_attachment_content(original_url: str) -> bytes:
         # Local filesystem
         else:
             file_path = None
-            if original_url.startswith("/files/") or original_url.startswith("/private/files/"):
+            if original_url.startswith("/private/files/"):
                 file_path = frappe.utils.get_files_path(
-                    original_url.lstrip("/"),
-                    is_private=original_url.startswith("/private/")
+                    original_url[len("/private/files/"):],
+                    is_private=True
                 )
-            
+            elif original_url.startswith("/files/"):
+                file_path = frappe.utils.get_files_path(
+                    original_url[len("/files/"):],
+                    is_private=False
+                )
+
             if file_path and os.path.exists(file_path):
                 with open(file_path, "rb") as f:
                     return f.read()
-            else:
-                # Fallback HTTP
-                url = f"{frappe.utils.get_site_url(frappe.local.site)}{file_url}"
-                res = requests.get(url, timeout=30)
-                res.raise_for_status()
-                return res.content
+
+            # Authenticated fallback — works for private files inside the worker
+            # since frappe.set_user was called before enqueueing the job.
+            from frappe.utils.file_manager import get_file
+            _, content = get_file(original_url)
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            return content
                 
     except Exception as e:
         frappe.log_error(f"fetch_attachment_content failed: {original_url} - {e}")

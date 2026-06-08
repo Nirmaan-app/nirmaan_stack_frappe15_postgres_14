@@ -10,7 +10,8 @@
         "task_name",
         "category_link",
         "order",
-        "deadline_offset"
+        "deadline_offset",
+        "is_recurring"
     ],
     "fields": [
         {
@@ -41,6 +42,12 @@
             "fieldtype": "Int",
             "label": "Deadline Offset (Days)",
             "description": "Number of days after project creation date to set as expected completion date"
+        },
+        {
+            "fieldname": "is_recurring",
+            "fieldtype": "Check",
+            "label": "Auto-Renew After Each Cycle",
+            "description": "When checked, the per-project task automatically opens a new cycle of Deadline Offset days each time the deadline elapses. Halts when project status is Completed or CEO Hold."
         }
     ],
     "index_web_pages_for_search": 1,

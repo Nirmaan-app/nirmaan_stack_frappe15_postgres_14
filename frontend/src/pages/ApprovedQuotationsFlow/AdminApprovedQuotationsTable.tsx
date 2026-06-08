@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState, useCallback, useRef } from "react";
-import Fuse from "fuse.js";
+import { rankByTokenScore } from "@/components/ui/fuzzy-search-select";
 import {
   ColumnDef,
   useReactTable,
@@ -104,20 +104,15 @@ export default function AdminApprovedQuotationsTable({
       "po_list_for_project_name_lookup"
     );
 
-  const fuse = useMemo(
-    () =>
-      allItems
-        ? new Fuse(allItems, { keys: ["item_name"], threshold: 0.4 })
-        : null,
-    [allItems]
-  );
   const itemSuggestions = useMemo(() => {
-    if (!itemSearchInput.trim() || !fuse) return [];
-    return fuse
-      .search(itemSearchInput)
-      .slice(0, 10)
-      .map((result) => result.item);
-  }, [itemSearchInput, fuse]);
+    if (!itemSearchInput.trim() || !allItems) return [];
+    return rankByTokenScore(allItems, itemSearchInput, {
+      searchFields: ["item_name"],
+      fieldWeights: { item_name: 2.0 },
+      partialMatch: true,
+      minTokenMatches: 1,
+    }).slice(0, 10);
+  }, [itemSearchInput, allItems]);
   const vendorMap = useMemo(() => {
     const map = new Map<string, string>();
     vendorsList?.forEach((vendor) => map.set(vendor.name, vendor.vendor_name));

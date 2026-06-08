@@ -71,8 +71,8 @@ export default function RequestFromWarehouse() {
   const { data: stockData, isLoading: loadingStock } = useWarehouseStock("");
   const stockRows = useMemo(() => stockData?.message || [], [stockData]);
 
-  const { call: createITR } = useFrappePostCall(
-    "nirmaan_stack.api.internal_transfers.create_transfer_request.create_transfer_request"
+  const { call: createITMs } = useFrappePostCall(
+    "nirmaan_stack.api.internal_transfers.create_itms.create_itms"
   );
 
   const toggleItem = useCallback(
@@ -119,7 +119,7 @@ export default function RequestFromWarehouse() {
 
     setSubmitting(true);
     try {
-      const result = await createITR({
+      const result = await createITMs({
         target_project: targetProject.value,
         selections: JSON.stringify(
           valid.map((s) => ({
@@ -131,11 +131,11 @@ export default function RequestFromWarehouse() {
           }))
         ),
       });
-      const created = (result as any)?.message?.requests || [];
-      toast({ title: "Success", description: `Transfer Request ${created.join(", ")} created.`, variant: "success" });
-      navigate("/internal-transfer-memos");
+      const created = (result as any)?.message?.itms || [];
+      toast({ title: "Success", description: `Transfer Memo ${created.join(", ")} created.`, variant: "success" });
+      navigate("/internal-transfer-memos?tab=Approved");
     } catch (e: any) {
-      toast({ title: "Error", description: e?.message || "Failed to create request.", variant: "destructive" });
+      toast({ title: "Error", description: e?.message || "Failed to create transfer memo.", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -185,18 +185,18 @@ export default function RequestFromWarehouse() {
           ) : stockRows.length === 0 ? (
             <p className="text-muted-foreground text-sm">No items available in warehouse.</p>
           ) : (
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[40px]"></TableHead>
-                    <TableHead>Item Name</TableHead>
-                    <TableHead>Make</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
-                    <TableHead className="text-right">Est. Rate</TableHead>
+                    <TableHead className="min-w-[180px]">Item Name</TableHead>
+                    <TableHead className="min-w-[120px]">Make</TableHead>
+                    <TableHead className="min-w-[140px]">Category</TableHead>
+                    <TableHead className="min-w-[70px]">Unit</TableHead>
+                    <TableHead className="text-right min-w-[90px]">Available</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Quantity</TableHead>
+                    <TableHead className="text-right min-w-[110px]">Est. Rate</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

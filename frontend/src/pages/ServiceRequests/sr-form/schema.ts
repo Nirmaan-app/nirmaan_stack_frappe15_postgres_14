@@ -19,6 +19,8 @@ export const serviceItemSchema = z.object({
     uom: z.string().min(1, { message: "Unit of measure is required" }),
     quantity: z.coerce.number().refine((val) => val !== 0, { message: "Quantity is required and cannot be zero" }),
     rate: z.coerce.number().refine((val) => val !== 0, { message: "Rate is required and cannot be zero" }),
+    // Items pulled from the rate card carry `standard_rate`. Custom items leave it undefined,
+    // which is how we tell them apart in the UI.
     standard_rate: z.coerce.number().optional(),
 });
 
@@ -132,7 +134,7 @@ export const createServiceItem = (
     uom: string = "",
     quantity: number = 0,
     rate: number = 0,
-    standard_rate: number = 0
+    standard_rate: number | undefined = undefined,
 ): ServiceItemType => ({
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     category,
@@ -152,15 +154,32 @@ export type ValidationResult = {
 };
 
 /**
- * Validation helper for step 1
+ * Find the first line that violates non-negative constraints.
+ * Quantity must always be > 0 (both new-SR and amend).
+ * Rate may be negative only in amend (`allowNegativeRate=true`).
  */
-export const validateStep1 = (values: Partial<SRFormValues>): ValidationResult => {
+const findInvalidNegativeLine = (
+    items: ServiceItemType[],
+    allowNegativeRate: boolean,
+): { item: ServiceItemType; field: "quantity" | "rate" } | null => {
+    for (const item of items) {
+        if ((item.quantity ?? 0) < 0) return { item, field: "quantity" };
+        if (!allowNegativeRate && (item.rate ?? 0) < 0) return { item, field: "rate" };
+    }
+    return null;
+};
+
+/**
+ * Validation helper for step 1.
+ * Pass `allowNegativeRate=true` (amend flow) to permit a negative rate / line amount.
+ * Quantity is always required to be positive.
+ */
+export const validateStep1 = (values: Partial<SRFormValues>, allowNegativeRate: boolean = false): ValidationResult => {
     const result = step1Schema.safeParse(values);
     if (!result.success) {
         const error = result.error.errors[0];
         let message = error?.message || "Please complete all required fields.";
 
-        // If error is related to a specific item, prepend the item name
         if (error?.path[0] === "items" && typeof error.path[1] === "number") {
             const itemIndex = error.path[1];
             const item = values.items?.[itemIndex];
@@ -170,28 +189,29 @@ export const validateStep1 = (values: Partial<SRFormValues>): ValidationResult =
             }
         }
 
+        return { success: false, error: message };
+    }
+
+    const neg = findInvalidNegativeLine(values.items || [], allowNegativeRate);
+    if (neg) {
+        const itemName = neg.item.description.split('\n')[0];
         return {
             success: false,
-            error: message,
+            error: `${itemName}: ${neg.field === "quantity" ? "Quantity" : "Rate"} cannot be negative.`,
         };
     }
 
-    // Block if total amount is negative
-    const total = calculateTotal(values.items || []);
-    if (total < 0) {
-        return {
-            success: false,
-            error: "Total Service Amount cannot be negative.",
-        };
-    }
+    // Total > 0 is enforced at the Vendor & Rates step, not here — rates are
+    // typically entered on step 2, so the total isn't meaningful yet on step 1.
 
     return { success: true };
 };
 
 /**
- * Validation helper for step 2
+ * Validation helper for step 2.
+ * Pass `allowNegativeRate=true` (amend flow) to permit a negative rate / line amount.
  */
-export const validateStep2 = (values: Partial<SRFormValues>): ValidationResult => {
+export const validateStep2 = (values: Partial<SRFormValues>, allowNegativeRate: boolean = false): ValidationResult => {
     const result = step2Schema.safeParse({
         vendor: values.vendor,
         items: values.items,
@@ -200,7 +220,6 @@ export const validateStep2 = (values: Partial<SRFormValues>): ValidationResult =
         const error = result.error.errors[0];
         let message = error?.message || "Please complete all required fields.";
 
-        // If error is related to a specific item, prepend the item name
         if (error?.path[0] === "items" && typeof error.path[1] === "number") {
             const itemIndex = error.path[1];
             const item = values.items?.[itemIndex];
@@ -210,21 +229,24 @@ export const validateStep2 = (values: Partial<SRFormValues>): ValidationResult =
             }
         }
 
+        return { success: false, error: message };
+    }
+
+    const items = values.items || [];
+    const neg = findInvalidNegativeLine(items, allowNegativeRate);
+    if (neg) {
+        const itemName = neg.item.description.split('\n')[0];
         return {
             success: false,
-            error: message,
+            error: `${itemName}: ${neg.field === "quantity" ? "Quantity" : "Rate"} cannot be negative.`,
         };
     }
 
-    // Manual check for total amount (moved from Zod schema to control timing/message)
-    const items = values.items || [];
-    const total = calculateTotal(items);
-    
-    if (total < 0) {
-        return {
-            success: false,
-            error: "Total Service Amount cannot be negative.",
-        };
+    if (!allowNegativeRate) {
+        const total = calculateTotal(items);
+        if (total <= 0) {
+            return { success: false, error: "Total Service Amount must be greater than 0." };
+        }
     }
 
     return { success: true };

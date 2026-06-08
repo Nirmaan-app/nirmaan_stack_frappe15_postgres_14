@@ -84,13 +84,19 @@ export default function Profile() {
     true
   );
 
-  // Fetch user permissions (for admin OR when viewing own profile)
-  // Note: We fetch from "User Permission" (Frappe's built-in) instead of
-  // "Nirmaan User Permissions" (mirror) so that the document names match
-  // when performing delete operations
+  // Fetch user permissions — Frappe's built-in `User Permission` doctype is
+  // restricted to admin/system-manager roles. Non-admin users (even viewing
+  // their own profile) get a 403 PermissionError and SWR's default retry
+  // would then keep firing the same failed request, looking like a "page
+  // auto-refresh" with the error toast popping repeatedly.
+  //
+  // Strategy:
+  //   - Admin viewers   → fetch `User Permission` (matches doc names for delete ops)
+  //   - Non-admin own   → fetch `Nirmaan User Permissions` mirror (readable by all roles)
+  // Then combine into a single `permission_list` that the UI can consume.
   const {
-    data: permission_list,
-    isLoading: permission_list_loading,
+    data: admin_permission_list,
+    isLoading: admin_permission_loading,
     mutate: permission_list_mutate,
   } = useFrappeGetDocList<NirmaanUserPermissions>(
     "User Permission",
@@ -103,8 +109,30 @@ export default function Profile() {
       limit: 1000,
       orderBy: { field: "creation", order: "desc" },
     },
-    (isAdmin || isOwnProfile) ? undefined : null
+    isAdmin ? undefined : null,
+    { shouldRetryOnError: false }
   );
+
+  const {
+    data: mirror_permission_list,
+    isLoading: mirror_permission_loading,
+  } = useFrappeGetDocList<NirmaanUserPermissions>(
+    "Nirmaan User Permissions",
+    {
+      fields: ["name", "for_value", "creation"],
+      filters: [
+        ["user", "=", id],
+        ["allow", "=", "Projects"],
+      ],
+      limit: 1000,
+      orderBy: { field: "creation", order: "desc" },
+    },
+    !isAdmin && isOwnProfile ? `nirmaan_user_permissions_${id}` : null,
+    { shouldRetryOnError: false }
+  );
+
+  const permission_list = isAdmin ? admin_permission_list : mirror_permission_list;
+  const permission_list_loading = isAdmin ? admin_permission_loading : mirror_permission_loading;
 
   // Submit handlers
   const {
@@ -170,7 +198,10 @@ export default function Profile() {
       (isAdmin || isOwnProfile) ? "asset_masters_for_user_profile" : null
     );
 
-  // Fetch asset categories (for assignment dialog filter)
+  // Fetch asset categories — needed for both the assignment dialog (admin only)
+  // AND the Project/IT sub-tab partitioning in UserAssetsTab (visible to the
+  // user themselves too). Without this fetch on own-profile, every assignment
+  // falls through neither bucket and shows "0 Project / 0 IT".
   const { data: categoryList } =
     useFrappeGetDocList(
       ASSET_CATEGORY_DOCTYPE,
@@ -179,7 +210,7 @@ export default function Profile() {
         limit: 100,
         orderBy: { field: "asset_category", order: "asc" },
       },
-      isAdmin ? "asset_categories_for_user_profile" : null
+      (isAdmin || isOwnProfile) ? "asset_categories_for_user_profile" : null
     );
 
   // Asset count for stats

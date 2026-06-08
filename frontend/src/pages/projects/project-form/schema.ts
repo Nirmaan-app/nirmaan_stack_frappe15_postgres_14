@@ -28,6 +28,9 @@ export const projectFormSchema = z.object({
     project_value_gst: z
         .string()
         .optional(),
+    cashflow_gap_limit: z
+        .string()
+        .optional(),
     carpet_area: z.coerce.number({
         required_error: "Carpet area is required",
         invalid_type_error: "Please enter a valid number"
@@ -184,6 +187,7 @@ export const defaultFormValues: ProjectFormValues = {
     project_name: "",
     project_value: "",
     project_value_gst: "",
+    cashflow_gap_limit: "",
     project_start_date: new Date(),
     project_end_date: undefined,
     project_work_packages: {
@@ -241,7 +245,7 @@ export const defaultFormValues: ProjectFormValues = {
  * Fields to validate for each wizard section
  */
 export const sectionFields: Record<string, (keyof ProjectFormValues)[]> = {
-    projectDetails: ["project_name", "project_type", "project_value", "project_value_gst", "carpet_area"],
+    projectDetails: ["project_name", "project_type", "project_value", "project_value_gst", "cashflow_gap_limit", "carpet_area"],
     projectAddressDetails: ["address_line_1", "address_line_2", "project_city", "project_state", "pin", "email", "phone"],
     projectTimeline: ["project_start_date", "project_end_date"],
     projectAssignees: ["assignees"], // Updated to use new multi-select structure

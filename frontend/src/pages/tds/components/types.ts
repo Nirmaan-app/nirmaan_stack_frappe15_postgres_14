@@ -11,7 +11,10 @@ export interface TDSItem {
     make: string;
     tds_attachment: string;
     creation: string;
+    status?: string;
 }
+
+export const TDS_STATUS_OPTIONS = ["Verified", "Not Verified"] as const;
 
 export const tdsItemSchema = z.object({
     work_package: z.string().min(1, "Work Package is required."),
@@ -21,6 +24,7 @@ export const tdsItemSchema = z.object({
     is_custom_item: z.boolean().optional(),
     item_description: z.string().optional(),
     make: z.string().min(1, "Make is required."),
+    status: z.enum(TDS_STATUS_OPTIONS),
 }).refine(data => {
     // Either tds_item_id OR tds_item_name is required
     if (data.is_custom_item) {

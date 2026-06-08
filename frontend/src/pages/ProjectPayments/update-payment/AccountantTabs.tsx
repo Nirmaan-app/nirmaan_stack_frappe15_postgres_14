@@ -67,7 +67,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { ceoHoldProjectIds } = useCEOHoldProjects();
 
     const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
-    const { getTotalAmount } = useOrderTotals()
+    const { getTotalAmount, getDeliveredAmount } = useOrderTotals()
 
     const [dialogMode, setDialogMode] = useState<"fulfil" | "delete">("fulfil");
     const [currentPayment, setCurrent] = useState<ProjectPaymentUpdateFields | null>(null);
@@ -166,7 +166,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             accessorKey: "approval_date", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
             cell: ({ row }) => {
                 const payment = row.original;
-                const eventId = tab === "New Payments" ? "payment:approved" : "payment:paid";
+                const eventId = tab === "New Payments" ? "payment:ceo_approved" : "payment:paid";
                 const isNew = notifications.find(n => n.docname === payment.name && n.seen === "false" && n.event_id === eventId);
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
@@ -207,13 +207,13 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             enableColumnFilter: true, size: 180,
         },
         {
-            id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value" />,
+            id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
             cell: ({ row }) => {
                 const totalValue = getTotalAmount(row.original.document_name, row.original.document_type).totalWithTax;
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(totalValue)}</div>;
-            }, size: 150, enableSorting: false,
+            }, size: 100, enableSorting: false,
             meta: {
-                exportHeaderName: "PO Value",
+                exportHeaderName: "WO/PO Value",
                 exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmount(row.document_name, row.document_type).totalWithTax),
             }
         },
@@ -222,17 +222,30 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             cell: ({ row }) => {
                 const amountPaid = getTotalAmountPaidForPO(row.original.document_name, ['Paid']);
                 return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid)}</div>;
-            }, size: 180, enableSorting: false,
+            }, size: 100, enableSorting: false,
             meta: {
                 exportHeaderName: "Total Paid",
                 exportValue: (row: ProjectPayments) => formatToRoundedIndianRupee(getTotalAmountPaidForPO(row.document_name, ['Paid'])),
             }
         },
         {
+            id: "payable_against_delivery",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Payable Against Delivery" />,
+            cell: ({ row }) => {
+                const delivered = parseNumber(getDeliveredAmount(row.original.document_name, row.original.document_type));
+                return <div className="font-medium pr-2">{delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}</div>;
+            },
+            size: 100, enableSorting: false,
+            meta: {
+                exportHeaderName: "Payable Against Delivery",
+                exportValue: (row: ProjectPayments) => parseNumber(getDeliveredAmount(row.document_name, row.document_type)),
+            }
+        },
+        {
             accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />,
-            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>,
+            cell: ({ row }) => <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">{formatToRoundedIndianRupee(row.original.amount)}</div>,
             enableColumnFilter: true,
-            size: 130,
+            size: 100,
         },
         // // Columns specific to "Fulfilled Payments" tab
         // ...(tab === "Fulfilled Payments" ? [
@@ -266,9 +279,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => openDialog(row.original, "fulfil")}>Pay</Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={() => openDialog(row.original, "delete")}><Trash2 className="h-4 w-4" /></Button>
                 </div>
-            ), size: 120,
+            ), size: 90,
         } as ColumnDef<ProjectPayments>] : []),
-    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog, getTotalAmountPaidForPO, getTotalAmount]); // Add dependencies
+    ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog, getTotalAmountPaidForPO, getTotalAmount, getDeliveredAmount]); // Add dependencies
 
     // Function to determine if a row can be selected (passed to hook)
     const canPaymentRowBeSelected = useCallback((row: Row<ProjectPayments>): boolean => {

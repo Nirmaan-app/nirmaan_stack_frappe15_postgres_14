@@ -53,8 +53,9 @@ class RemainingItemsReport(Document):
 
         For each (project, item_id), picks `poi.make` from the most recently
         created Purchase Order Item — same rule used by
-        `create_transfer_request._build_metadata_snapshot` so the RIR snapshot
-        stays consistent with what ITR creation would infer at that moment.
+        `api.internal_transfers.create_itms._build_metadata_snapshot` so the
+        RIR snapshot stays consistent with what ITM creation would infer at
+        that moment.
         """
         if (getattr(self, "status", None) or "Draft") != "Submitted":
             return

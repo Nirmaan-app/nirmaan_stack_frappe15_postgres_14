@@ -35,7 +35,6 @@ def get_project_itms(project_id: str) -> dict:
             itm.estimated_value,
             itm.total_items,
             itm.total_quantity,
-            itm.transfer_request,
             itm.dispatched_on,
             itm.latest_delivery_date,
             (SELECT MAX(dn.delivery_date) FROM "tabDelivery Notes" dn

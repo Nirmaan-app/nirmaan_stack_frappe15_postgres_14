@@ -18,7 +18,11 @@ export const useMaterialUsageRemainingQuantities = (projectId: string) => {
     };
   }>(
     "nirmaan_stack.api.remaining_items_report.get_latest_remaining_quantities",
-    { project: projectId },
+    // Opt into the soft-hold leg so this read-only view subtracts qty held
+    // by Approved-but-not-yet-dispatched ITMs. The RIR-creation form
+    // (pages/remaining-items) intentionally does NOT pass this flag — see
+    // the backend docstring for the double-count rationale.
+    { project: projectId, include_reservations: 1 },
     projectId ? materialUsageKeys.remainingQuantities(projectId) : undefined
   );
 };

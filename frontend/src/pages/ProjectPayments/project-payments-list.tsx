@@ -525,6 +525,29 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                     exportValue: (row: any) => getAmountPaid(row.name)
                 }
             },
+            {
+                id: "Payable_Against_Delivery",
+                header: ({ column }) => (
+                    <DataTableColumnHeader column={column} title="Payable Against Delivery" />
+                ),
+                cell: ({ row }) => {
+                    const data = row.original
+                    if (data?.type !== "Purchase Order") {
+                        return <div className="font-medium">N/A</div>
+                    }
+                    const delivered = parseNumber((data as ProcurementOrder)?.po_amount_delivered)
+                    return (
+                        <div className="font-medium">
+                            {delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}
+                        </div>
+                    )
+                },
+                meta: {
+                    exportHeaderName: "Payable Against Delivery",
+                    exportValue: (row: any) =>
+                        row?.type === "Purchase Order" ? parseNumber(row?.po_amount_delivered) : 0
+                }
+            },
             //     ...(!projectId && !customerId ? [
             //         {
             //             id: "Record_Payment",

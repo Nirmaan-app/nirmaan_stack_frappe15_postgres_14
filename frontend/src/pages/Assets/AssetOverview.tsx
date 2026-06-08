@@ -60,6 +60,8 @@ import {
     AlertTriangle,
     Upload,
     Download,
+    Briefcase,
+    Laptop,
 } from 'lucide-react';
 
 import { AssignAssetDialog } from './components/AssignAssetDialog';
@@ -71,6 +73,7 @@ import {
     ASSET_MANAGEMENT_DOCTYPE,
     ASSET_CONDITION_OPTIONS,
     ASSET_CACHE_KEYS,
+    AssetCategoryType,
 } from './assets.constants';
 import { getAssetPermissions } from './utils/permissions';
 
@@ -85,10 +88,14 @@ interface AssetMaster {
     asset_email: string;
     asset_email_password: string;
     asset_pin: string;
+    asset_invoice_attachment: string;
+    asset_certificate_attachment: string;
     current_assignee: string;
     creation: string;
     modified: string;
 }
+
+type ProjectAttachmentField = 'asset_invoice_attachment' | 'asset_certificate_attachment';
 
 interface AssetAssignment {
     name: string;
@@ -110,6 +117,16 @@ const conditionColorMap: Record<string, string> = {
     'Fair': 'bg-amber-50 text-amber-700 border-amber-200',
     'Poor': 'bg-orange-50 text-orange-700 border-orange-200',
     'Damaged': 'bg-red-50 text-red-700 border-red-200',
+};
+
+const categoryTypeBadgeClass: Record<AssetCategoryType, string> = {
+    Project: 'bg-blue-50 text-blue-700 border-blue-200',
+    IT: 'bg-purple-50 text-purple-700 border-purple-200',
+};
+
+const categoryTypeIconMap: Record<AssetCategoryType, React.ReactNode> = {
+    Project: <Briefcase className="h-3 w-3 mr-1" />,
+    IT: <Laptop className="h-3 w-3 mr-1" />,
 };
 
 const AssetOverview: React.FC = () => {
@@ -136,6 +153,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Upload declaration state
     const [declarationFile, setDeclarationFile] = useState<File | null>(null);
     const [isUploadingDeclaration, setIsUploadingDeclaration] = useState(false);
+
+    // Project-asset attachment upload state
+    const [projectAttachmentField, setProjectAttachmentField] = useState<ProjectAttachmentField | null>(null);
+    const [projectAttachmentFile, setProjectAttachmentFile] = useState<File | null>(null);
+    const [isUploadingProjectAttachment, setIsUploadingProjectAttachment] = useState(false);
 
     // Print state
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
@@ -234,7 +256,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { data: categoryList } = useFrappeGetDocList(
         ASSET_CATEGORY_DOCTYPE,
         {
-            fields: ['name', 'asset_category'],
+            fields: ['name', 'asset_category', 'category_type'],
             orderBy: { field: 'asset_category', order: 'asc' },
             limit: 0,
         },
@@ -248,6 +270,35 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         })) || [],
         [categoryList]
     );
+
+    const currentCategoryType: AssetCategoryType | null = useMemo(() => {
+        if (!asset?.asset_category || !categoryList) return null;
+        const match = (categoryList as any[]).find((c) => c.name === asset.asset_category);
+        const t = match?.category_type;
+        return t === 'Project' || t === 'IT' ? t : null;
+    }, [asset?.asset_category, categoryList]);
+
+    // For the Edit dialog: derive type from the *currently selected* category in
+    // the form (not the saved asset) so switching Project ↔ IT in the dropdown
+    // shows/hides the IT Credentials section live.
+    const editingCategoryType: AssetCategoryType | null = useMemo(() => {
+        if (!editForm.asset_category || !categoryList) return null;
+        const match = (categoryList as any[]).find((c) => c.name === editForm.asset_category);
+        const t = match?.category_type;
+        return t === 'Project' || t === 'IT' ? t : null;
+    }, [editForm.asset_category, categoryList]);
+
+    // Hide IT Credentials only when we're *certain* the category is Project. During
+    // the brief categoryList fetch (currentCategoryType === null) we keep the card
+    // visible to avoid a false-hide flash on IT assets.
+    const showITCredentialsCard = currentCategoryType !== 'Project';
+    const showITCredentialsInEditDialog = editingCategoryType !== 'Project';
+    const editDialogTitle =
+        editingCategoryType === 'Project'
+            ? 'Edit Project Asset'
+            : editingCategoryType === 'IT'
+                ? 'Edit IT Asset'
+                : 'Edit Asset';
 
     const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
     const { upload } = useFrappeFileUpload();
@@ -302,15 +353,19 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 asset_condition: editForm.asset_condition || null,
                 asset_serial_number: editForm.asset_serial_number.trim() || null,
                 asset_value: editForm.asset_value ? parseFloat(editForm.asset_value) : null,
-                asset_email: editForm.asset_email.trim() || null,
             };
 
-            // Only update password/pin if provided
-            if (editForm.asset_email_password) {
-                updateData.asset_email_password = editForm.asset_email_password;
-            }
-            if (editForm.asset_pin) {
-                updateData.asset_pin = editForm.asset_pin;
+            // IT credential fields only persist when the (selected) category is IT —
+            // matches the visible form. For a Project asset, email/password/pin are
+            // never sent so we don't accidentally clear stored values nor leak state.
+            if (showITCredentialsInEditDialog) {
+                updateData.asset_email = editForm.asset_email.trim() || null;
+                if (editForm.asset_email_password) {
+                    updateData.asset_email_password = editForm.asset_email_password;
+                }
+                if (editForm.asset_pin) {
+                    updateData.asset_pin = editForm.asset_pin;
+                }
             }
 
             await updateDoc(ASSET_MASTER_DOCTYPE, assetId, updateData);
@@ -337,6 +392,44 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Handle assignment refresh
     const handleAssignmentChange = () => {
         mutate();
+    };
+
+    const projectAttachmentLabel: Record<ProjectAttachmentField, string> = {
+        asset_invoice_attachment: 'Invoice',
+        asset_certificate_attachment: 'Certificate',
+    };
+
+    const handleUploadProjectAttachment = async () => {
+        if (!projectAttachmentField || !projectAttachmentFile) return;
+
+        setIsUploadingProjectAttachment(true);
+        try {
+            const uploaded = await upload(projectAttachmentFile, {
+                doctype: ASSET_MASTER_DOCTYPE,
+                docname: assetId,
+                fieldname: projectAttachmentField,
+                isPrivate: true,
+            });
+            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
+                [projectAttachmentField]: uploaded.file_url,
+            });
+            toast({
+                title: `${projectAttachmentLabel[projectAttachmentField]} Uploaded`,
+                description: 'The attachment has been saved.',
+                variant: 'success',
+            });
+            setProjectAttachmentField(null);
+            setProjectAttachmentFile(null);
+            mutate();
+        } catch (err: any) {
+            toast({
+                title: 'Upload Failed',
+                description: err?.message || 'Failed to upload attachment.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUploadingProjectAttachment(false);
+        }
     };
 
     // Handle declaration upload
@@ -502,7 +595,18 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 icon={<Boxes className="h-4 w-4" />}
                                 label="Category"
                                 value={
-                                    <Badge variant="outline">{asset?.asset_category}</Badge>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Badge variant="outline">{asset?.asset_category}</Badge>
+                                        {currentCategoryType && (
+                                            <Badge
+                                                variant="outline"
+                                                className={`font-medium ${categoryTypeBadgeClass[currentCategoryType]}`}
+                                            >
+                                                {categoryTypeIconMap[currentCategoryType]}
+                                                {currentCategoryType}
+                                            </Badge>
+                                        )}
+                                    </div>
                                 }
                             />
                             <DetailRow
@@ -561,7 +665,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                         </CardContent>
                     </Card>
 
-                    {/* IT Details Card */}
+                    {/* IT Details Card - hidden for Project-type assets */}
+                    {showITCredentialsCard && (
                     <Card>
                         <CardHeader className="pb-4">
                             <CardTitle className="text-base font-medium">IT Credentials</CardTitle>
@@ -651,6 +756,40 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             </div>
                         </CardContent>
                     </Card>
+                    )}
+
+                    {/* Project Attachments Card - Project-type only (sits in the slot
+                        where IT Credentials would be for IT assets) */}
+                    {currentCategoryType === 'Project' && (
+                        <Card>
+                            <CardHeader className="pb-4">
+                                <CardTitle className="text-base font-medium">Project Attachments</CardTitle>
+                                <CardDescription>
+                                    Invoice and certificate documents for this asset
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                <ProjectAttachmentRow
+                                    label="Invoice"
+                                    fileUrl={asset?.asset_invoice_attachment}
+                                    canManage={canManageAssets}
+                                    onUploadClick={() => {
+                                        setProjectAttachmentFile(null);
+                                        setProjectAttachmentField('asset_invoice_attachment');
+                                    }}
+                                />
+                                <ProjectAttachmentRow
+                                    label="Certificate"
+                                    fileUrl={asset?.asset_certificate_attachment}
+                                    canManage={canManageAssets}
+                                    onUploadClick={() => {
+                                        setProjectAttachmentFile(null);
+                                        setProjectAttachmentField('asset_certificate_attachment');
+                                    }}
+                                />
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* Assignment Card - Full Width */}
                     <Card className="md:col-span-2">
@@ -728,9 +867,9 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
                 <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Edit Asset</DialogTitle>
+                        <DialogTitle>{editDialogTitle}</DialogTitle>
                         <DialogDescription>
-                            Update asset information. Leave password/PIN blank to keep unchanged.
+                            Update asset information.{showITCredentialsInEditDialog ? ' Leave password/PIN blank to keep unchanged.' : ''}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -816,7 +955,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             />
                         </div>
 
-                        {/* IT Details Section */}
+                        {/* IT Details Section - hidden when the (selected) category is Project */}
+                        {showITCredentialsInEditDialog && (
                         <div className="pt-4 border-t">
                             <p className="text-sm font-medium text-gray-700 mb-3">IT Credentials</p>
 
@@ -880,6 +1020,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 </div>
                             </div>
                         </div>
+                        )}
                     </div>
 
                     <DialogFooter>
@@ -915,6 +1056,72 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 assetManagementId={currentAssignment?.name}
                 onUnassigned={handleAssignmentChange}
             />
+
+            {/* Upload / Replace Project Attachment Dialog */}
+            <Dialog
+                open={projectAttachmentField !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setProjectAttachmentField(null);
+                        setProjectAttachmentFile(null);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
+                            <FileText className="h-6 w-6 text-emerald-600" />
+                        </div>
+                        <DialogTitle className="text-center text-lg font-semibold">
+                            {projectAttachmentField
+                                ? `Upload ${projectAttachmentLabel[projectAttachmentField]}`
+                                : 'Upload Attachment'}
+                        </DialogTitle>
+                        <DialogDescription className="text-center text-sm text-gray-500">
+                            Attach a document for{' '}
+                            <span className="font-medium text-gray-700">{asset?.asset_name}</span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <CustomAttachment
+                            selectedFile={projectAttachmentFile}
+                            onFileSelect={setProjectAttachmentFile}
+                            acceptedTypes={["image/*", "application/pdf"]}
+                            label="Select File"
+                            maxFileSize={10 * 1024 * 1024}
+                            onError={(err) =>
+                                toast({
+                                    title: 'File Error',
+                                    description: err.message,
+                                    variant: 'destructive',
+                                })
+                            }
+                        />
+                    </div>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setProjectAttachmentField(null);
+                                setProjectAttachmentFile(null);
+                            }}
+                            disabled={isUploadingProjectAttachment}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleUploadProjectAttachment}
+                            disabled={isUploadingProjectAttachment || !projectAttachmentFile}
+                            className="gap-2"
+                        >
+                            {isUploadingProjectAttachment ? 'Uploading...' : 'Upload'}
+                            <Upload className="h-4 w-4" />
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Upload Declaration Dialog */}
             <Dialog open={uploadDeclarationDialogOpen} onOpenChange={setUploadDeclarationDialogOpen}>
@@ -969,6 +1176,47 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         </div>
     );
 };
+
+// Helper component for the Project-asset Invoice/Certificate attachment row
+const ProjectAttachmentRow: React.FC<{
+    label: string;
+    fileUrl?: string;
+    canManage: boolean;
+    onUploadClick: () => void;
+}> = ({ label, fileUrl, canManage, onUploadClick }) => (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/50 p-3">
+        <div className="flex items-center gap-2 min-w-0">
+            <FileText className="h-4 w-4 text-gray-400 shrink-0" />
+            <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-700">{label}</p>
+                {fileUrl ? (
+                    <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 truncate"
+                    >
+                        View attachment
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                ) : (
+                    <p className="text-xs text-gray-400">Not uploaded</p>
+                )}
+            </div>
+        </div>
+        {canManage && (
+            <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 shrink-0"
+                onClick={onUploadClick}
+            >
+                <Upload className="h-3.5 w-3.5" />
+                {fileUrl ? 'Replace' : 'Upload'}
+            </Button>
+        )}
+    </div>
+);
 
 // Helper component for detail rows
 const DetailRow: React.FC<{

@@ -6,6 +6,7 @@ import {
   AlertDialogHeader,
   AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -363,18 +364,33 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell>
                       {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
                     </TableCell>
-                    <TableCell className="whitespace-normal">
+                    <TableCell className="whitespace-nowrap">
                       {payment?.status === "Requested" ? (
-                        <span className="text-xs leading-tight">
+                        <Badge variant="outline" className="border-orange-500 text-orange-600">
                           Requested on {formatDate(payment?.creation)}
-                        </span>
+                        </Badge>
+                      ) : payment?.status === "CEO Pending" ? (
+                        <Badge variant="outline" className="border-blue-500 text-blue-600">
+                          CEO Pending
+                        </Badge>
+                      ) : payment?.status === "Approved" ? (
+                        <Badge variant="outline" className="border-amber-500 text-amber-600">
+                          Approved
+                        </Badge>
+                      ) : payment?.status === "Paid" ? (
+                        <Badge variant="green">Paid</Badge>
+                      ) : payment?.status === "Rejected" ? (
+                        <Badge variant="outline" className="border-red-500 text-red-600">
+                          Rejected
+                        </Badge>
                       ) : (
-                        payment?.status
+                        <Badge variant="outline">{payment?.status}</Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
                         role !== "Nirmaan Accountant Profile" &&
+                        (payment?.status !== "CEO Pending" || role === "Nirmaan Admin Profile") &&
                         <Button
                           variant="ghost"
                           size="icon"

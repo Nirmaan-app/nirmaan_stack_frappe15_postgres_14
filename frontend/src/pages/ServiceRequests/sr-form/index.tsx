@@ -33,7 +33,6 @@ import {
     defaultSRFormValues,
     validateStep1,
     validateStep2,
-    calculateTotal,
     ValidationResult,
 } from "./schema";
 import {
@@ -110,6 +109,7 @@ export const SRFormWizard = () => {
        ───────────────────────────────────────────────────────── */
     const {
         categories,
+        emptyCategories,
         serviceItems,
         vendors,
         project,
@@ -218,15 +218,6 @@ export const SRFormWizard = () => {
                     return {
                         success: false,
                         error: message,
-                    };
-                }
-
-                // Final check for negative total
-                const finalTotal = calculateTotal(currentFormValues.items || []);
-                if (finalTotal < 0) {
-                    return {
-                        success: false,
-                        error: "Total Service Amount cannot be negative.",
                     };
                 }
 
@@ -410,6 +401,7 @@ export const SRFormWizard = () => {
                     <ServiceItemsStep
                         form={form}
                         categories={categories}
+                        emptyCategories={emptyCategories}
                         serviceItems={serviceItems}
                         isLoading={dataLoading}
                     />

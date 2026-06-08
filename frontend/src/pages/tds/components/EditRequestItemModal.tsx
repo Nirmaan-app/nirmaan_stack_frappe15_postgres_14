@@ -27,6 +27,7 @@ import {
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
 import { CustomItemDialog } from "./AddTDSItemDialog";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 
 interface TDSItem {
     name: string;
@@ -68,6 +69,7 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
     const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
 
     // Custom Item state
     const [isCustomItem, setIsCustomItem] = useState(false);
@@ -128,6 +130,7 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
             setAttachmentFile(null);
+            setFileError(null);
 
             const isCustom = item.tds_item_id?.startsWith("CUS-") || (!item.tds_item_id && !!item.tds_item_name);
             setIsCustomItem(!!isCustom);
@@ -247,6 +250,11 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             return;
         }
 
+        if (!attachmentFile && !item.tds_attachment) {
+            setFileError("Attachment is required");
+            return;
+        }
+
         // Rejected-duplicate: same item name + make combo already exists as Rejected in this project
         const duplicate = existingProjectItems?.find(i =>
             i.tds_item_name === selectedItemName &&
@@ -358,12 +366,21 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                                         </Button>
                                     </div>
                                 ) : (
-                                    <ReactSelect
-                                        options={itemOptionsWithCustom}
+                                    <FuzzySearchSelect
+                                        allOptions={itemOptionsWithCustom}
+                                        tokenSearchConfig={{
+                                            searchFields: ['label', 'value', 'categoryName'],
+                                            minSearchLength: 1,
+                                            partialMatch: true,
+                                            minTokenLength: 1,
+                                            fieldWeights: { label: 2.0, value: 1.5, categoryName: 1.0 },
+                                            minTokenMatches: 1,
+                                        }}
                                         value={getItemDisplayValue()}
-                                        onChange={handleItemChange}
-                                        placeholder={selectedWP ? "Select Item" : "Pick a Work Package first"}
+                                        onChange={handleItemChange as any}
+                                        placeholder={selectedWP ? "Search Item Name..." : "Pick a Work Package first"}
                                         isDisabled={!selectedWP}
+                                        isClearable
                                         classNamePrefix="react-select"
                                         formatOptionLabel={(option: any) => (
                                             <span>
@@ -485,11 +502,14 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                             {/* Attachment */}
                             <div className="space-y-1.5 mt-2">
                                 <Label className="text-sm font-bold text-gray-700">
-                                    Attach Document <span className="text-gray-400 font-normal ml-0.5">(Optional)</span>
+                                    Attach Document<span className="text-red-500 ml-0.5">*</span>
                                 </Label>
                                 <CustomAttachment
                                     selectedFile={attachmentFile}
-                                    onFileSelect={setAttachmentFile}
+                                    onFileSelect={(file) => {
+                                        setAttachmentFile(file);
+                                        if (file) setFileError(null);
+                                    }}
                                     acceptedTypes="application/pdf"
                                     label="Upload PDF Document"
                                     maxFileSize={50 * 1024 * 1024}
@@ -500,6 +520,9 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                                         Current file: <a href={item.tds_attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Document</a>
                                     </p>
+                                )}
+                                {fileError && (
+                                    <p className="text-xs font-medium text-red-500">{fileError}</p>
                                 )}
                             </div>
                         </div>

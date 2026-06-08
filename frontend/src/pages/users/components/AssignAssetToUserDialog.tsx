@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
-import { Package, Calendar, FileText } from "lucide-react";
+import { Package, Calendar, FileText, Briefcase, Laptop } from "lucide-react";
 import {
   ASSET_MASTER_DOCTYPE,
   ASSET_MANAGEMENT_DOCTYPE,
@@ -33,12 +33,20 @@ interface AssetMasterRecord {
 interface AssetCategoryRecord {
   name: string;
   asset_category: string;
+  category_type?: "Project" | "IT";
 }
 
 interface SelectOption {
   label: string;
   value: string;
 }
+
+type AssetTypeOption = "Project" | "IT";
+
+const ASSET_TYPE_BUTTONS: { label: string; value: AssetTypeOption; icon: typeof Briefcase }[] = [
+  { label: "Project", value: "Project", icon: Briefcase },
+  { label: "IT", value: "IT", icon: Laptop },
+];
 
 interface AssignAssetToUserDialogProps {
   isOpen: boolean;
@@ -47,6 +55,8 @@ interface AssignAssetToUserDialogProps {
   userName: string;
   unassignedAssets: AssetMasterRecord[];
   categoryList: AssetCategoryRecord[] | undefined;
+  /** Pre-selects the Type dropdown when the dialog opens (e.g. the active sub-tab). */
+  initialAssetType?: AssetTypeOption;
   onAssigned?: () => void;
 }
 
@@ -57,6 +67,7 @@ export function AssignAssetToUserDialog({
   userName,
   unassignedAssets,
   categoryList,
+  initialAssetType,
   onAssigned,
 }: AssignAssetToUserDialogProps) {
   const { toast } = useToast();
@@ -64,38 +75,69 @@ export function AssignAssetToUserDialog({
   const { updateDoc } = useFrappeUpdateDoc();
   const { upload } = useFrappeFileUpload();
 
+  const [assetType, setAssetType] = useState<AssetTypeOption | "">("");
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [assignedDate, setAssignedDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [declarationFile, setDeclarationFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Reset form when dialog opens
+  // Reset form when dialog opens — pre-select the type if the caller passes one.
   useEffect(() => {
     if (isOpen) {
+      setAssetType(initialAssetType ?? "");
       setSelectedCategory("");
       setSelectedAsset("");
       setAssignedDate(format(new Date(), "yyyy-MM-dd"));
       setDeclarationFile(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialAssetType]);
 
-  // Category options
-  const categoryOptions: SelectOption[] = useMemo(
-    () =>
-      categoryList?.map((cat) => ({
-        label: cat.asset_category,
-        value: cat.name,
-      })) || [],
-    [categoryList]
-  );
+  // Reset category + asset when the type switches
+  useEffect(() => {
+    setSelectedCategory("");
+    setSelectedAsset("");
+  }, [assetType]);
 
-  // Filtered asset options based on selected category
+  // Reset asset when category changes (matches the original behavior)
+  useEffect(() => {
+    setSelectedAsset("");
+  }, [selectedCategory]);
+
+  // Category options filtered by selected Type. Falls back to all categories
+  // if no type is chosen yet so we don't silently drop legacy entries that
+  // lack a category_type value.
+  const categoryOptions: SelectOption[] = useMemo(() => {
+    const list = (categoryList ?? []).filter((cat) =>
+      assetType ? cat.category_type === assetType : true
+    );
+    return list.map((cat) => ({ label: cat.asset_category, value: cat.name }));
+  }, [categoryList, assetType]);
+
+  // Category name -> category_type (for filtering assets by type even when no
+  // specific category is picked yet).
+  const categoryTypeMap = useMemo(() => {
+    const map = new Map<string, AssetTypeOption>();
+    (categoryList ?? []).forEach((c) => {
+      if (c.category_type === "Project" || c.category_type === "IT") {
+        map.set(c.name, c.category_type);
+      }
+    });
+    return map;
+  }, [categoryList]);
+
+  // Filtered asset options based on Type, then narrowed further by Category.
   const assetOptions: SelectOption[] = useMemo(() => {
     let filteredAssets = unassignedAssets;
 
+    if (assetType) {
+      filteredAssets = filteredAssets.filter(
+        (asset) => categoryTypeMap.get(asset.asset_category) === assetType
+      );
+    }
+
     if (selectedCategory) {
-      filteredAssets = unassignedAssets.filter(
+      filteredAssets = filteredAssets.filter(
         (asset) => asset.asset_category === selectedCategory
       );
     }
@@ -104,12 +146,7 @@ export function AssignAssetToUserDialog({
       label: `${asset.asset_name}${asset.asset_serial_number ? ` (${asset.asset_serial_number})` : ""}`,
       value: asset.name,
     }));
-  }, [unassignedAssets, selectedCategory]);
-
-  // Reset asset selection when category changes
-  useEffect(() => {
-    setSelectedAsset("");
-  }, [selectedCategory]);
+  }, [unassignedAssets, selectedCategory, assetType, categoryTypeMap]);
 
   const handleSubmit = async () => {
     if (!selectedAsset) {
@@ -206,6 +243,39 @@ export function AssignAssetToUserDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Asset Type — segmented button selector (default = active tab) */}
+          <div>
+            <Label className="text-sm font-medium text-gray-700">
+              Asset Type <span className="text-red-500">*</span>
+            </Label>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {ASSET_TYPE_BUTTONS.map((opt) => {
+                const Icon = opt.icon;
+                const isSelected = assetType === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setAssetType(opt.value)}
+                    className={`
+                      inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium
+                      transition-colors
+                      ${isSelected
+                        ? opt.value === "Project"
+                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                          : "border-purple-500 bg-purple-50 text-purple-700"
+                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }
+                    `}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Category Filter */}
           <div className="space-y-1.5">
             <Label className="text-sm font-medium text-gray-700">
@@ -216,10 +286,13 @@ export function AssignAssetToUserDialog({
               options={categoryOptions}
               value={categoryOptions.find((opt) => opt.value === selectedCategory) || null}
               onChange={(val) => setSelectedCategory(val?.value || "")}
-              placeholder="All categories..."
+              placeholder={
+                assetType
+                  ? `All ${assetType} categories...`
+                  : "Select Asset Type first"
+              }
               isClearable
-              menuPortalTarget={document.body}
-              menuPosition="fixed"
+              isDisabled={!assetType}
               styles={reactSelectStyles}
             />
           </div>
@@ -233,17 +306,18 @@ export function AssignAssetToUserDialog({
               options={assetOptions}
               value={assetOptions.find((opt) => opt.value === selectedAsset) || null}
               onChange={(val) => setSelectedAsset(val?.value || "")}
-              placeholder="Select an asset..."
+              placeholder={
+                assetType ? "Select an asset..." : "Select Asset Type first"
+              }
               isClearable
-              menuPortalTarget={document.body}
-              menuPosition="fixed"
+              isDisabled={!assetType}
               styles={reactSelectStyles}
               noOptionsMessage={() =>
                 unassignedAssets.length === 0
                   ? "No unassigned assets available"
                   : selectedCategory
-                  ? "No assets in this category"
-                  : "No assets available"
+                  ? `No ${assetType} assets in this category`
+                  : `No unassigned ${assetType} assets available`
               }
             />
             {assetOptions.length === 0 && unassignedAssets.length > 0 && selectedCategory && (
@@ -309,7 +383,7 @@ export function AssignAssetToUserDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isSubmitting || !selectedAsset}
+            disabled={isSubmitting || !assetType || !selectedAsset}
             className="gap-2 bg-emerald-600 hover:bg-emerald-700"
           >
             {isSubmitting ? "Assigning..." : "Assign Asset"}

@@ -40,6 +40,7 @@ interface TaskData {
   completion_date: string | null;
   attachment: string | null;
   assigned_to?: string | null;
+  is_recurring?: 0 | 1 | null;
 }
 
 interface EditTaskModalProps {
@@ -57,6 +58,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
 }) => {
   const { user_id, role } = useUserData();
   const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+  const isRecurring = task?.is_recurring === 1;
 
   const [status, setStatus] = useState<string>("");
   const [completionDate, setCompletionDate] = useState("");
@@ -124,7 +126,12 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
       return;
     }
 
-    if ((status === "Sent/Submision" || status === "Approve by client") && !attachment && !task?.attachment) {
+    if (
+      !isRecurring &&
+      (status === "Sent/Submision" || status === "Approve by client") &&
+      !attachment &&
+      !task?.attachment
+    ) {
       toast({
         title: "Validation Error",
         description: `Attachment is required for ${status}.`,
@@ -207,15 +214,33 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="WIP">WIP</SelectItem>
-                <SelectItem value="Sent/Submision">Sent/Submision</SelectItem>
-                <SelectItem value="Approve by client">Approve by client</SelectItem>
+                {isRecurring ? (
+                  <>
+                    <SelectItem value="Done">Done</SelectItem>
+                    <SelectItem value="Not Done">Not Done</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="WIP">WIP</SelectItem>
+                    <SelectItem value="Sent/Submision">Sent/Submision</SelectItem>
+                    <SelectItem value="Approve by client">Approve by client</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>
 
-          {/* Submison Date — shown when "Sent/Submision" */}
-          {status === "Sent/Submision" && (
+          {/* Recurring task context */}
+          {isRecurring && status === "Done" && (
+            <div className="rounded-md p-3 bg-green-50 border border-green-200">
+              <p className="text-sm text-green-800">
+                You've finished this one. A fresh task will show up here once the due date passes.
+              </p>
+            </div>
+          )}
+
+          {/* Submison Date — shown when "Sent/Submision" (legacy non-recurring flow) */}
+          {!isRecurring && status === "Sent/Submision" && (
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1.5">
                 Submison Date
@@ -228,8 +253,8 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
               />
             </div>
           )}
-          {/* Info shown for "Approve by client" */}
-          {status === "Approve by client" && (
+          {/* Info shown for "Approve by client" (legacy non-recurring flow) */}
+          {!isRecurring && status === "Approve by client" && (
             <div className="bg-green-50 border border-green-200 rounded-md p-3">
               <p className="text-sm text-green-800">
                 This will approve the task and update status progress.
@@ -238,13 +263,31 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
             </div>
           )}
 
-          {/* Attachment UI — shown for "Sent/Submision" or "Approve by client" */}
-          {(status === "Sent/Submision" || status === "Approve by client") && (
+          {/* Attachment UI */}
+          {!isRecurring && (status === "Sent/Submision" || status === "Approve by client") && (
             <div className="space-y-1.5 mt-4">
               <label className="text-sm font-medium text-gray-700 block mb-1.5 flex items-center gap-2">
                 <FileText className="w-3.5 h-3.5 text-gray-400" />
                 Proof of Submission / Approval
-                {(status === "Sent/Submision" || status === "Approve by client") && <span className="text-red-500">*</span>}
+                <span className="text-red-500">*</span>
+              </label>
+              <CustomAttachment
+                selectedFile={attachment}
+                onFileSelect={setAttachment}
+                maxFileSize={5 * 1024 * 1024}
+              />
+              {task?.attachment && (
+                <p className="text-[10px] text-gray-500 italic mt-1">
+                  Current attachment: {task.attachment.split("/").pop()}
+                </p>
+              )}
+            </div>
+          )}
+          {isRecurring && status === "Done" && (
+            <div className="space-y-1.5 mt-4">
+              <label className="text-sm font-medium text-gray-700 block mb-1.5 flex items-center gap-2">
+                <FileText className="w-3.5 h-3.5 text-gray-400" />
+                Proof of Submission (optional)
               </label>
               <CustomAttachment
                 selectedFile={attachment}

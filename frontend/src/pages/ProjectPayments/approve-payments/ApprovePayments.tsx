@@ -7,6 +7,7 @@ import {
   FrappeContext,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
+  useFrappePostCall,
   FrappeDoc,
   GetDocListArgs,
 } from "frappe-react-sdk";
@@ -26,12 +27,15 @@ import { useToast } from "@/components/ui/use-toast";
 
 // --- Dialog Component ---
 import { PaymentActionDialog } from "./components/PaymentActionDialog";
+import { BulkActionBar } from "./components/BulkActionBar";
 
 // --- Types and Constants ---
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import {
   DOC_TYPES,
   PAYMENT_STATUS,
@@ -43,7 +47,11 @@ import PaymentSummaryCards from "../PaymentSummaryCards";
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import {
+  formatToApproxLakhs,
+  formatToLakhsNumber,
+  formatToRoundedIndianRupee,
+} from "@/utils/FormatPrice";
 // import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -70,7 +78,8 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
-const URL_SYNC_KEY = "approve_pay";
+const URL_SYNC_KEY_LEAD = "approve_pay";
+const URL_SYNC_KEY_CEO = "ceo_pending_pay";
 
 interface SelectOption {
   label: string;
@@ -78,11 +87,22 @@ interface SelectOption {
 }
 
 // --- Component ---
+type ApprovePaymentsMode = "lead" | "ceo";
+
 interface ApprovePaymentsProps {
   readOnly?: boolean;
+  /**
+   * "lead" (default): Project Lead approving "Requested" payments → "CEO Pending".
+   *                   Approve uses generic doctype PATCH; Reject sets status = "Rejected".
+   * "ceo":            CEO promoting "CEO Pending" payments → "Approved".
+   *                   Approve uses ceo_approve_payment whitelisted API (stamps
+   *                   ceo_approval_date). Reject sets status = "Rejected" via PATCH.
+   */
+  mode?: ApprovePaymentsMode;
 }
 
-export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false }) => {
+export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false, mode = "lead" }) => {
+  const isCEOMode = mode === "ceo";
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   // const { mutate } = useSWRConfig();
@@ -101,7 +121,18 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // --- Supporting Data Fetches (Keep these for lookups/calculations) ---
-  const projectsFetchOptions = getProjectListOptions();
+  // CEO Pending tab also surfaces Project Value; request that field only in
+  // CEO mode so the regular Approve Payments tab keeps its minimal projects
+  // fetch (and its existing shared SWR cache).
+  const projectsFetchOptions = useMemo(
+    () =>
+      getProjectListOptions(
+        isCEOMode
+          ? { fields: ["name", "project_name", "creation", "project_value_gst"] }
+          : undefined
+      ),
+    [isCEOMode]
+  );
 
   // --- Generate Query Keys ---
   const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
@@ -138,10 +169,13 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     {
       fields: [
         "name",
+        "project",
         "status",
         "total_amount",
         "loading_charges",
         "freight_charges",
+        "po_amount_delivered",
+        "amount_paid",
       ],
       limit: 100000,
     },
@@ -160,7 +194,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     },
     "SRs_ApprovePay"
   );
-  // For "Amt Paid" - fetch all paid payments for relevant documents
+  // For "Amt Paid" - fetch all paid payments for relevant documents.
+  // `project` is also needed in CEO mode to compute per-project outflow for
+  // the Cashflow Gap column.
   const {
     data: allPaidPayments,
     isLoading: paidPaymentsLoading,
@@ -168,11 +204,29 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   } = useFrappeGetDocList<ProjectPayments>(
     DOC_TYPES.PROJECT_PAYMENTS,
     {
-      fields: ["name", "document_name", "amount"],
+      fields: ["name", "document_name", "amount", "project"],
       filters: [["status", "=", PAYMENT_STATUS.PAID]],
       limit: 100000,
     },
     "AllPaidPayments_ApprovePay"
+  );
+
+  // --- CEO-Only Fetches for Cashflow Gap ---
+  // Match the formula on the master Projects list (projects.tsx):
+  //   cashflow_gap = (paid payments + expenses) + liabilities − inflow
+  // Liabilities are derived from `purchaseOrders` (po_amount_delivered vs
+  // amount_paid). Expenses and inflows are project-wide rollups, so we fetch
+  // them here gated to CEO mode only — the regular Approve Payments tab
+  // makes zero extra requests.
+  const { data: projectExpenses } = useFrappeGetDocList<ProjectExpenses>(
+    "Project Expenses",
+    { fields: ["projects", "amount"], limit: 100000 },
+    isCEOMode ? "ProjectExpenses_CEOPending" : null
+  );
+  const { data: projectInflows } = useFrappeGetDocList<ProjectInflows>(
+    "Project Inflows",
+    { fields: ["project", "amount"], limit: 100000 },
+    isCEOMode ? "ProjectInflows_CEOPending" : null
   );
 
   // --- Zustand Store & Memoized Lookups ---
@@ -186,6 +240,30 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const vendorOptions = useMemo<SelectOption[]>(
     () => vendors?.map((v) => ({ label: v.vendor_name, value: v.name })) || [],
     [vendors]
+  );
+
+  const projectLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of projectOptions) m.set(o.value, o.label);
+    return m;
+  }, [projectOptions]);
+
+  const vendorLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of vendorOptions) m.set(o.value, o.label);
+    return m;
+  }, [vendorOptions]);
+
+  const projectLabelFor = useCallback(
+    (projectId?: string) =>
+      (projectId && projectLabelMap.get(projectId)) || projectId || "—",
+    [projectLabelMap]
+  );
+
+  const vendorLabelFor = useCallback(
+    (vendorId?: string) =>
+      (vendorId && vendorLabelMap.get(vendorId)) || vendorId || "—",
+    [vendorLabelMap]
   );
 
   const getAmountPaid = useMemo(() => {
@@ -226,6 +304,64 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     [purchaseOrders, serviceOrders]
   );
 
+  const getPoAmountDelivered = useMemo(
+    () =>
+      memoize((docName: string, docType: string) => {
+        if (docType !== DOC_TYPES.PROCUREMENT_ORDERS) return 0;
+        const order = purchaseOrders?.find((po) => po.name === docName);
+        return parseNumber(order?.po_amount_delivered);
+      }, (docName: string, docType: string) => `${docName}-${docType}`),
+    [purchaseOrders]
+  );
+
+  // --- CEO Pending: Project Value + Cashflow Gap lookups ---
+  const getProjectValue = useMemo(() => {
+    const map = new Map<string, number>();
+    projects?.forEach((p) =>
+      map.set(p.name, parseNumber((p as Projects).project_value_gst))
+    );
+    return (projectId?: string) =>
+      (projectId && map.get(projectId)) || 0;
+  }, [projects]);
+
+  const getProjectCashflowGap = useMemo(() => {
+    if (!isCEOMode) return () => 0;
+    const outflow = new Map<string, number>();
+    const liabilities = new Map<string, number>();
+    const inflow = new Map<string, number>();
+
+    allPaidPayments?.forEach((p) => {
+      if (!p.project) return;
+      outflow.set(p.project, (outflow.get(p.project) || 0) + parseNumber(p.amount));
+    });
+    projectExpenses?.forEach((e) => {
+      const proj = (e as any).projects;
+      if (!proj) return;
+      outflow.set(proj, (outflow.get(proj) || 0) + parseNumber(e.amount));
+    });
+    purchaseOrders?.forEach((po) => {
+      const proj = (po as any).project;
+      if (!proj) return;
+      const delivered = parseNumber(po.po_amount_delivered);
+      const paid = parseNumber((po as any).amount_paid);
+      const liability = Math.max(0, delivered - Math.min(paid, delivered));
+      if (liability) liabilities.set(proj, (liabilities.get(proj) || 0) + liability);
+    });
+    projectInflows?.forEach((i) => {
+      if (!i.project) return;
+      inflow.set(i.project, (inflow.get(i.project) || 0) + parseNumber(i.amount));
+    });
+
+    return (projectId?: string) => {
+      if (!projectId) return 0;
+      return (
+        (outflow.get(projectId) || 0) +
+        (liabilities.get(projectId) || 0) -
+        (inflow.get(projectId) || 0)
+      );
+    };
+  }, [isCEOMode, allPaidPayments, projectExpenses, purchaseOrders, projectInflows]);
+
   // --- Callbacks ---
   const handleNewPaymentSeen = useCallback(
     (notification: NotificationType | undefined) => {
@@ -250,9 +386,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   // --- Static Filters for This View ---
   const staticFilters = useMemo(
     () => [
-      ["status", "=", PAYMENT_STATUS.REQUESTED], // Only show payments with status "Requested"
+      ["status", "=", isCEOMode ? PAYMENT_STATUS.CEO_PENDING : PAYMENT_STATUS.REQUESTED],
     ],
-    []
+    [isCEOMode]
   );
 
   // --- Fields to Fetch for the Main DataTable ---
@@ -276,11 +412,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         ),
         cell: ({ row }) => {
           const payment = row.original;
+          const newEventId = isCEOMode ? "payment:approved" : "payment:new";
           const isNew = notifications.find(
             (n) =>
               n.docname === payment.name &&
               n.seen === "false" &&
-              n.event_id === "payment:new"
+              n.event_id === newEventId
           );
           const docLink = payment.document_name?.replace(/\//g, "&=");
           return (
@@ -334,7 +471,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             {formatDate(row.getValue("creation"))}
           </div>
         ),
-        size: 150,
+        size: 100,
         meta: {
           exportHeaderName: "Requested On",
           exportValue: (row: ProjectPayments) => formatDate(row.creation),
@@ -388,10 +525,60 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             row.project,
         },
       },
+      ...(isCEOMode
+        ? ([
+            {
+              id: "project_value",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Project Value (incl.GST)" />
+              ),
+              cell: ({ row }) => {
+                const value = getProjectValue(row.original.project);
+                return (
+                  <div className="font-medium pr-2 tabular-nums">
+                    {value ? formatToApproxLakhs(value) : "N/A"}
+                  </div>
+                );
+              },
+              size: 100,
+              enableSorting: false,
+              meta: {
+                exportHeaderName: "Project Value (incl.GST)",
+                exportValue: (row: ProjectPayments) =>
+                  formatToLakhsNumber(getProjectValue(row.project)),
+              },
+            },
+            {
+              id: "cashflow_gap",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Cashflow Gap" />
+              ),
+              cell: ({ row }) => {
+                const gap = getProjectCashflowGap(row.original.project);
+                return (
+                  <div
+                    className={`font-medium pr-2 tabular-nums ${
+                      gap > 0 ? "text-red-600" : "text-green-600"
+                    }`}
+                  >
+                    {formatToApproxLakhs(gap)}
+                  </div>
+                );
+              },
+              size: 100,
+              enableSorting: false,
+              meta: {
+                exportHeaderName: "Cashflow Gap (in Lakhs)",
+                exportValue: (row: ProjectPayments) =>
+                  formatToLakhsNumber(getProjectCashflowGap(row.project)),
+              },
+            },
+          ] as ColumnDef<ProjectPayments>[])
+        : []),
       {
         id: "po_value",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Value" />
+          <DataTableColumnHeader column={column} title="WO/PO Value" />
         ),
         cell: ({ row }) => {
           const totalValue = getDocumentTotal(
@@ -404,10 +591,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </div>
           );
         },
-        size: 150,
+        size: 100,
         enableSorting: false,
         meta: {
-          exportHeaderName: "PO Value",
+          exportHeaderName: "WO/PO Value",
           exportValue: (row: ProjectPayments) =>
             formatToRoundedIndianRupee(
               getDocumentTotal(row.document_name, row.document_type)
@@ -427,7 +614,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </div>
           );
         },
-        size: 180,
+        size: 100,
         enableSorting: false,
         meta: {
           exportHeaderName: "Total Paid",
@@ -436,16 +623,40 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         },
       },
       {
+        id: "payable_against_delivery",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Payable Against Delivery" />
+        ),
+        cell: ({ row }) => {
+          const delivered = getPoAmountDelivered(
+            row.original.document_name,
+            row.original.document_type
+          );
+          return (
+            <div className="font-medium pr-2">
+              {delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}
+            </div>
+          );
+        },
+        size: 100,
+        enableSorting: false,
+        meta: {
+          exportHeaderName: "Payable Against Delivery",
+          exportValue: (row: ProjectPayments) =>
+            getPoAmountDelivered(row.document_name, row.document_type),
+        },
+      },
+      {
         accessorKey: "amount",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Req. Amt" />
         ),
         cell: ({ row }) => (
-          <div className="font-medium pr-2">
+          <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">
             {formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}
           </div>
         ),
-        size: 150,
+        size: 100,
         meta: {
           exportHeaderName: "Requested Amount",
           exportValue: (row: ProjectPayments) =>
@@ -467,7 +678,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </div>
           );
         },
-        size: 180,
+        size: 120,
         meta: {
           exportHeaderName: "Requested By",
           exportValue: (row: ProjectPayments) =>
@@ -480,8 +691,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         header: "Actions",
         cell: ({ row }: { row: Row<ProjectPayments> }) => (
           <div className="flex items-center gap-1">
-            {" "}
-            {/* Reduced gap */}
             <HoverCard>
               <HoverCardTrigger asChild>
                 <Button
@@ -496,7 +705,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
                 </Button>
               </HoverCardTrigger>
               <HoverCardContent className="text-xs w-auto p-1.5">
-                Approve
+                {isCEOMode ? "CEO Approve" : "Approve"}
               </HoverCardContent>
             </HoverCard>
             <HoverCard>
@@ -518,7 +727,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             </HoverCard>
           </div>
         ),
-        size: 120,
+        size: 80,
         meta: {
           excludedFromExport: true,
         },
@@ -533,8 +742,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       openDialog,
       getDocumentTotal,
       getAmountPaid,
+      getPoAmountDelivered,
+      getProjectValue,
+      getProjectCashflowGap,
       allPaidPayments,
       readOnly,
+      isCEOMode,
     ]
   );
 
@@ -559,9 +772,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     columns: columns,
     fetchFields: fieldsToFetchPP,
     searchableFields: ppSearchableFields,
-    urlSyncKey: URL_SYNC_KEY,
+    urlSyncKey: isCEOMode ? URL_SYNC_KEY_CEO : URL_SYNC_KEY_LEAD,
     defaultSort: "creation desc",
-    enableRowSelection: false,
+    enableRowSelection: !readOnly
+      ? (row) => !ceoHoldProjectIds.has(row.original.project)
+      : false,
     additionalFilters: staticFilters,
   });
 
@@ -610,8 +825,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     ]
   );
 
-  // --- Update Logic using useFrappeUpdateDoc ---
+  // --- Update Logic ---
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+  const { call: ceoApproveCall, loading: ceoApproveLoading } = useFrappePostCall(
+    "nirmaan_stack.api.payments.project_payments.ceo_approve_payment"
+  );
   const handlePaymentUpdate = useCallback(
     async (
       actionType: DialogActionType,
@@ -623,32 +841,45 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         showBlockedToast();
         return;
       }
-      const newStatus =
-        actionType === DIALOG_ACTION_TYPES.APPROVE ||
-          actionType === DIALOG_ACTION_TYPES.EDIT
-          ? PAYMENT_STATUS.APPROVED
-          : PAYMENT_STATUS.REJECTED;
       try {
-        await updateDoc(DOCTYPE, selectedPayment.name, {
-          status: newStatus,
-          amount: amount, // Already a number
-          approval_date: new Date().toISOString().split("T")[0],
-          ...(payment_details && {
-            payment_details: JSON.stringify(payment_details),
-          }), // Add UTR, Date etc.
-        });
+        if (isCEOMode) {
+          if (actionType === DIALOG_ACTION_TYPES.REJECT) {
+            // CEO rejection: no amount edits — flip status to Rejected.
+            await updateDoc(DOCTYPE, selectedPayment.name, {
+              status: PAYMENT_STATUS.REJECTED,
+            });
+          } else {
+            // CEO approval: call the whitelisted API so the backend can enforce
+            // the single-user permission gate (Approved + ceo_approval_date stamp).
+            await ceoApproveCall({ payment_id: selectedPayment.name });
+          }
+        } else {
+          const newStatus =
+            actionType === DIALOG_ACTION_TYPES.APPROVE ||
+              actionType === DIALOG_ACTION_TYPES.EDIT
+              ? PAYMENT_STATUS.CEO_PENDING
+              : PAYMENT_STATUS.REJECTED;
+          await updateDoc(DOCTYPE, selectedPayment.name, {
+            status: newStatus,
+            amount: amount,
+            approval_date: new Date().toISOString().split("T")[0],
+            ...(payment_details && {
+              payment_details: JSON.stringify(payment_details),
+            }),
+          });
+        }
         refetch();
         closeDialog();
         invalidateSidebarCounts();
 
-        //    mutate("payment_dashboard_stats_summary")
-
         toast({
           title: "Success!",
-          description: `Payment ${actionType} successfully!`,
+          description:
+            isCEOMode && actionType !== DIALOG_ACTION_TYPES.REJECT
+              ? "Payment forwarded for fulfilment."
+              : `Payment ${actionType} successfully!`,
           variant: "success",
         });
-        // Refetch is handled by useServerDataTable on data change (via useFrappeDocTypeEventListener)
       } catch (error: any) {
         console.error("Failed to update payment:", error);
         toast({
@@ -658,7 +889,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, closeDialog, toast, isCEOHold, showBlockedToast]
+    [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch]
   );
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
@@ -670,7 +901,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       if (projectId && ceoHoldProjectIds.has(projectId)) {
         return CEO_HOLD_ROW_CLASSES;
       }
-      return undefined;
+      // Override the default bg-muted (gray) selection highlight with green.
+      return "data-[state=selected]:bg-emerald-50 data-[state=selected]:hover:bg-emerald-100";
     },
     [ceoHoldProjectIds]
   );
@@ -739,9 +971,20 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           onExport={"default"}
           onExportAll={exportAllRows}
           isExporting={isExporting}
-          exportFileName={`Approve_Payments_${formatDate(new Date())}`}
+          exportFileName={`${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`}
           getRowClassName={getRowClassName}
-        // toolbarActions={...} // Optional
+          showRowSelection={!readOnly}
+          toolbarActions={
+            !readOnly ? (
+              <BulkActionBar
+                table={table}
+                mode={isCEOMode ? "ceo" : "lead"}
+                refetch={refetch}
+                projectLabelFor={projectLabelFor}
+                vendorLabelFor={vendorLabelFor}
+              />
+            ) : undefined
+          }
         />
       )}
 
@@ -755,7 +998,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading}
+          isLoading={updateLoading || ceoApproveLoading}
         />
       )}
     </div>

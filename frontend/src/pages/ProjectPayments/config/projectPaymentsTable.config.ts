@@ -30,10 +30,11 @@ export const getProjectPaymentsStaticFilters = (tab: string): Array<[string, str
     //     return [["status", "in", ["PO Approved", "Dispatched", "Partially Delivered", "Delivered"]]];
     // }
     switch (tab) {
+        case "CEO Pending": return [...base, ["status", "=", PAYMENT_STATUS.CEO_PENDING]];
         case "New Payments": return [...base, ["status", "=", PAYMENT_STATUS.APPROVED]];
         case "Fulfilled Payments": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
         case "Payments Done": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
-        case "Payments Pending": return [...base, ["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.APPROVED]]];
+        case "Payments Pending": return [...base, ["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.CEO_PENDING, PAYMENT_STATUS.APPROVED]]];
         case "All Payments": return [];
         default: return base; // Or specific default for this view
     }

@@ -18,6 +18,7 @@ export const TASK_STATUS_OPTIONS = [
     // { label: "Completed", value: "Completed" },
     { label: "Submitted", value: "Submitted" },
     { label: "Revision Pending", value: "Revision Pending" },
+    { label: "Revision Submitted", value: "Revision Submitted" },
     { label: "Clarification Awaiting", value: "Clarification Awaiting" },
     { label: "Approved", value: "Approved" },
 ];

@@ -15,6 +15,7 @@ const SRReports = React.lazy(() => import('./components/SRReports'));
 const VendorReports = React.lazy(() => import('./components/VendorReports'));
 const DCMIRReports = React.lazy(() => import('./components/DCMIRReports'));
 const ITMDNDCQuantityReport = React.lazy(() => import('./components/ITMDNDCQuantityReport'));
+const ITMDispatchedReport = React.lazy(() => import('./components/ITMDispatchedReport'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -35,6 +36,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
     { label: 'Payable > PO Amount', value: 'Payable > PO Amount' },
     { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
+    { label: 'Dispatched (ITM)', value: 'Dispatched (ITM)' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },
     { label: 'DN > DC Quantity Report', value: 'DN > DC Quantity Report' },
@@ -197,7 +199,9 @@ export default function ReportsContainer() {
                 : [];
         } else if (activeTab === REPORTS_TABS.PO) {
             if (role === "Nirmaan Project Manager Profile") {
-                return poReportOptions.filter(option => option.value === 'Dispatched for 1 days');
+                return poReportOptions.filter(option =>
+                    ['Dispatched for 1 days', 'Dispatched (ITM)'].includes(option.value)
+                );
             }
             if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
                 // Filter out 2B Reconcile Report for non-Admin/Accountant roles
@@ -288,6 +292,12 @@ export default function ReportsContainer() {
             // other PO report type.
             if (selectedReportType === 'DN > DC Quantity Report' && dcmirParent === 'ITM') {
                 return <ITMDNDCQuantityReport />;
+            }
+            // ITM dispatch report sits alongside the PO version in the
+            // dropdown but renders its own ITM-shaped table. Shows every
+            // ITM currently in `Dispatched` status (no day-threshold).
+            if (selectedReportType === 'Dispatched (ITM)') {
+                return <ITMDispatchedReport />;
             }
             return <POReports />;
         }

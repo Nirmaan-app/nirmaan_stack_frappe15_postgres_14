@@ -4,7 +4,7 @@
  * Updated to use the new API_APPROVE_VENDOR_INVOICE endpoint.
  */
 import { useState, useCallback } from 'react';
-import { useFrappePostCall } from 'frappe-react-sdk';
+import { useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { useToast } from "@/components/ui/use-toast";
 import { API_APPROVE_VENDOR_INVOICE } from '../constants';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
@@ -13,6 +13,8 @@ interface ConfirmationState {
     isOpen: boolean;
     invoiceId: string | null;
     invoiceNo?: string | null;
+    /** Full invoice doc — needed by the Approve dialog's PO ↔ AI comparison view. */
+    invoice: VendorInvoice | null;
     action: "Approved" | "Rejected" | null;
 }
 
@@ -20,6 +22,7 @@ const initialConfirmationState: ConfirmationState = {
     isOpen: false,
     invoiceId: null,
     invoiceNo: null,
+    invoice: null,
     action: null,
 };
 
@@ -29,6 +32,7 @@ interface UseInvoiceActionsProps {
 
 export const useInvoiceTaskActions = ({ onActionSuccess }: UseInvoiceActionsProps = {}) => {
     const { toast } = useToast();
+    const { mutate: globalMutate } = useSWRConfig();
     const [confirmationState, setConfirmationState] = useState<ConfirmationState>(initialConfirmationState);
     const [loadingInvoiceId, setLoadingInvoiceId] = useState<string | null>(null);
 
@@ -53,6 +57,7 @@ export const useInvoiceTaskActions = ({ onActionSuccess }: UseInvoiceActionsProp
                     description: `Invoice ${newStatus.toLowerCase()} successfully.`,
                     variant: "success",
                 });
+                globalMutate("Recon-Total-Invoiced-By-Document");
                 if (onActionSuccess) {
                     onActionSuccess();
                 }
@@ -70,13 +75,14 @@ export const useInvoiceTaskActions = ({ onActionSuccess }: UseInvoiceActionsProp
             setLoadingInvoiceId(null);
             setConfirmationState(initialConfirmationState);
         }
-    }, [approveInvoiceApi, toast, onActionSuccess]);
+    }, [approveInvoiceApi, toast, onActionSuccess, globalMutate]);
 
     const openConfirmationDialog = useCallback((invoice: VendorInvoice, action: "Approved" | "Rejected") => {
         setConfirmationState({
             isOpen: true,
             invoiceId: invoice.name,
             invoiceNo: invoice.invoice_no || invoice.document_name,
+            invoice: invoice,
             action: action,
         });
     }, []);

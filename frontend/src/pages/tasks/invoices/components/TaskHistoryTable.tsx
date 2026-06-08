@@ -24,6 +24,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
+import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { useFacetValues } from "@/hooks/useFacetValues";
@@ -131,6 +132,8 @@ export const TaskHistoryTable: React.FC = () => {
         []
     );
 
+    const { getTotalInvoiced } = useTotalInvoicedByDocument();
+
     // Columns for history view
     const columns = React.useMemo(
         () =>
@@ -140,7 +143,8 @@ export const TaskHistoryTable: React.FC = () => {
                 getTotalAmount,
                 getDeliveredAmount,
                 getAmount,
-                getVendorName
+                getVendorName,
+                getTotalInvoiced
             ),
         [
             getUserName,
@@ -149,6 +153,7 @@ export const TaskHistoryTable: React.FC = () => {
             getAmount,
             getDeliveredAmount,
             getVendorName,
+            getTotalInvoiced,
         ]
     );
 

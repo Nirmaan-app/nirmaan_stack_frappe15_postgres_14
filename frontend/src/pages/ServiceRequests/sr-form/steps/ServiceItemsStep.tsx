@@ -56,9 +56,14 @@ interface CategoryOption {
 
 interface StepProps {
     form: UseFormReturn<SRFormValues>;
+    /** Categories that have ≥1 WO Service Item — drives the main "Select Package" picker */
     categories: CategoryOption[];
+    /** Categories with no rate-card items — only shown in the Add Custom Service dialog */
+    emptyCategories: CategoryOption[];
     serviceItems: WOServiceItem[];
     isLoading?: boolean;
+    /** Allow negative quantity / rate / total. Set true only in amend flows. */
+    allowNegative?: boolean;
 }
 
 /**
@@ -72,8 +77,10 @@ interface StepProps {
 export const ServiceItemsStep: React.FC<StepProps> = ({
     form,
     categories,
+    emptyCategories,
     serviceItems,
     isLoading,
+    allowNegative = false,
 }) => {
     const [selectedCategory, setSelectedCategory] = useState<string>("");
     const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
@@ -89,6 +96,14 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
     const [deletePackageName, setDeletePackageName] = useState<string | null>(null);
 
     const items = form.watch("items") || [];
+
+    // Add Custom Service dialog: shows ALL categories (with items + empty),
+    // alphabetically. Main "Select Package" picker still uses `categories` only.
+    const allDialogCategories = useMemo<CategoryOption[]>(() => {
+        return [...categories, ...emptyCategories].sort((a, b) =>
+            a.label.localeCompare(b.label),
+        );
+    }, [categories, emptyCategories]);
 
     // Filter service items for the selected category
     const filteredStandardItems = useMemo(() => {
@@ -164,15 +179,15 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                 selectedCategory,
                 doc.item_name,
                 doc.unit || "",
-                0, // Qty 0 by default
-                undefined, // Rate empty by default as requested
-                doc.rate || 0 // standard_rate for reference
+                0,
+                undefined,
+                doc.rate || 0, // standard_rate from rate card → marks this as a standard item
             )
         );
 
-        form.setValue("items", [...items, ...newItems]); // Removed shouldValidate: true
-        setCheckedItems(new Set()); // Reset selection
-        setSelectedCategory(""); // Reset category as requested
+        form.setValue("items", [...items, ...newItems]);
+        setCheckedItems(new Set());
+        setSelectedCategory("");
         toast({
             title: "Items Added",
             description: `Added ${newItems.length} standard items to the list.`,
@@ -183,7 +198,26 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
     const handleAddCustomItem = () => {
         const categoryToUse = currentItem.category || selectedCategory;
 
-        if (!categoryToUse || !currentItem.description || !currentItem.uom || currentItem.quantity <= 0 || currentItem.rate <= 0) {
+        // Required-field guard
+        if (!categoryToUse || !currentItem.description || !currentItem.uom) return;
+        if (currentItem.quantity === 0 || currentItem.rate === 0) return;
+
+        // Quantity is never allowed to be negative.
+        if (currentItem.quantity < 0) {
+            toast({
+                title: "Invalid quantity",
+                description: "Quantity cannot be negative.",
+                variant: "destructive",
+            });
+            return;
+        }
+        // Rate may be negative only in amend mode.
+        if (!allowNegative && currentItem.rate < 0) {
+            toast({
+                title: "Invalid rate",
+                description: "Rate cannot be negative.",
+                variant: "destructive",
+            });
             return;
         }
 
@@ -193,12 +227,12 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
             currentItem.uom,
             currentItem.quantity,
             currentItem.rate,
-            0  // Standard rate 0 for custom
+            undefined, // standard_rate undefined → marks this as a custom item
         );
 
         form.setValue("items", [...items, newItem]);
         setCurrentItem({ category: "", description: "", uom: "", quantity: 0, rate: 0 });
-        setSelectedCategory(""); // Reset main category
+        setSelectedCategory("");
         setIsCustomDialogOpen(false);
     };
 
@@ -439,31 +473,66 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                         )}
 
                                         {/* Item Rows */}
-                                        {pkgItems.map(({ originalIndex: index, data: item }, pkgIdx) => (
+                                        {pkgItems.map(({ originalIndex: index, data: item }, pkgIdx) => {
+                                            // No `standard_rate` ⇒ custom item (added via the dialog or saved without a rate-card match).
+                                            // Description / UoM are inline-editable ONLY for custom items, in any mode.
+                                            const isCustom = item.standard_rate === undefined || item.standard_rate === null;
+                                            const canEditLine = isCustom;
+                                            return (
                                             <TableRow key={item.id} className="hover:bg-slate-50/30 border-b border-slate-50 last:border-0 last:bg-transparent group/row">
                                                 <TableCell className="text-sm py-2.5 px-4 transition-colors">
-                                                    <div className="flex flex-col gap-0.5 ml-1">
-                                                        <span className="font-semibold text-slate-900 leading-tight transition-colors">
-                                                            {item.description.split('\n')[0]}
-                                                        </span>
-                                                        {item.description.includes('\n') && (
-                                                            <span className="text-xs text-slate-500 line-clamp-2 leading-relaxed italic opacity-80">
-                                                                {item.description.split('\n').slice(1).join('\n')}
+                                                    {canEditLine ? (
+                                                        <div className="flex flex-col gap-1 ml-1">
+                                                            <Textarea
+                                                                value={item.description}
+                                                                onChange={(e) => updateItemField(index, "description", e.target.value)}
+                                                                className="min-h-[56px] text-sm font-medium border-slate-200 resize-y"
+                                                                placeholder="Service description"
+                                                            />
+                                                            {isCustom && (
+                                                                <span className="text-[10px] uppercase tracking-wider text-primary/70 font-bold">Custom</span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-col gap-0.5 ml-1">
+                                                            <span className="font-semibold text-slate-900 leading-tight transition-colors">
+                                                                {item.description.split('\n')[0]}
                                                             </span>
-                                                        )}
-                                                    </div>
+                                                            {item.description.includes('\n') && (
+                                                                <span className="text-xs text-slate-500 line-clamp-2 leading-relaxed italic opacity-80">
+                                                                    {item.description.split('\n').slice(1).join('\n')}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="text-sm text-center py-2.5">
-                                                    <Badge variant="outline" className="text-[11px] text-slate-500 font-normal border-slate-200 bg-white/50">
-                                                        {item.uom}
-                                                    </Badge>
+                                                    {canEditLine ? (
+                                                        <Input
+                                                            value={item.uom}
+                                                            onChange={(e) => updateItemField(index, "uom", e.target.value)}
+                                                            className="h-9 text-center text-xs bg-white border-slate-200 max-w-[80px] mx-auto"
+                                                            placeholder="Unit"
+                                                        />
+                                                    ) : (
+                                                        <Badge variant="outline" className="text-[11px] text-slate-500 font-normal border-slate-200 bg-white/50">
+                                                            {item.uom}
+                                                        </Badge>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="text-sm p-1 py-2.5 text-center">
                                                     <div className="max-w-[70px] mx-auto">
                                                         <Input
                                                             type="number"
+                                                            min={0}
                                                             value={item.quantity || ""}
-                                                            onChange={(e) => updateItemField(index, "quantity", parseFloat(e.target.value) || 0)}
+                                                            onChange={(e) => {
+                                                                const v = parseFloat(e.target.value);
+                                                                updateItemField(index, "quantity", isNaN(v) || v < 0 ? 0 : v);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                                            }}
                                                             className={`h-9 text-center text-xs bg-white transition-all shadow-none ${form.formState.submitCount > 0 && (form.formState.errors.items as any)?.[index]?.quantity
                                                                 ? "border-red-500 ring-1 ring-red-500/10"
                                                                 : "border-slate-200 focus:border-primary/50 focus:ring-1 focus:ring-primary/10"
@@ -510,7 +579,8 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                                     </div>
                                                 </TableCell>
                                             </TableRow>
-                                        ))}
+                                            );
+                                        })}
                                     </React.Fragment>
                                 ))}
                             </TableBody>
@@ -596,7 +666,7 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                     <SelectValue placeholder="Select package" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {categories?.map((cat) => (
+                                    {allDialogCategories.map((cat) => (
                                         <SelectItem key={cat.value} value={cat.value}>
                                             {cat.label}
                                         </SelectItem>
@@ -641,16 +711,20 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                     id="quantity"
                                     type="number"
                                     placeholder="Enter quantity"
+                                    min={0}
                                     value={currentItem.quantity || ""}
                                     onChange={(e) => setCurrentItem({ ...currentItem, quantity: parseFloat(e.target.value) || 0 })}
-                                    className="h-10 border-slate-200"
+                                    className={`h-10 ${currentItem.quantity < 0 ? "border-red-500 focus-visible:ring-red-500" : "border-slate-200"}`}
                                     step="any"
                                     onKeyDown={(e) => {
-                                        if (e.key === "e") {
+                                        if (e.key === "e" || e.key === "-") {
                                             e.preventDefault();
                                         }
                                     }}
                                 />
+                                {currentItem.quantity < 0 && (
+                                    <p className="text-[11px] text-red-600">Quantity cannot be negative.</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="rate" className="text-sm font-medium">
@@ -664,7 +738,7 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                         placeholder="0.00"
                                         value={currentItem.rate || ""}
                                         onChange={(e) => setCurrentItem({ ...currentItem, rate: parseFloat(e.target.value) || 0 })}
-                                        className="h-10 pl-7 border-slate-200 font-semibold"
+                                        className={`h-10 pl-7 font-semibold ${!allowNegative && currentItem.rate < 0 ? "border-red-500 focus-visible:ring-red-500" : "border-slate-200"}`}
                                         step="any"
                                         onKeyDown={(e) => {
                                             if (e.key === "e") {
@@ -673,6 +747,9 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                                         }}
                                     />
                                 </div>
+                                {!allowNegative && currentItem.rate < 0 && (
+                                    <p className="text-[11px] text-red-600">Rate cannot be negative.</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -683,7 +760,15 @@ export const ServiceItemsStep: React.FC<StepProps> = ({
                         </Button>
                         <Button
                             onClick={handleAddCustomItem}
-                            disabled={!currentItem.description || !currentItem.uom || currentItem.quantity === 0 || currentItem.rate === 0}
+                            disabled={
+                                !currentItem.category ||
+                                !currentItem.description ||
+                                !currentItem.uom ||
+                                currentItem.quantity === 0 ||
+                                currentItem.rate === 0 ||
+                                currentItem.quantity < 0 ||
+                                (!allowNegative && currentItem.rate < 0)
+                            }
                         >
                             Add to List
                         </Button>

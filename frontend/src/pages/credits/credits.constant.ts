@@ -28,25 +28,21 @@ export const PAYMENT_TERM_STATUS_OPTIONS = [
 export type FacetOption = { label: string; value: string };
 export type FacetConfig = { title: string; options: FacetOption[]; isLoading?: boolean };
 
-// Status facet filter options
-// "Due" = Created terms with due_date <= today (computed display_status)
-// The backend translates "Due" filter to the correct SQL condition
+// Facet filter options. All three are dynamically populated by useCredits.ts
+// from the backend get_credits_facets API based on rows actually present in
+// the current filtered dataset. display_status is a computed value: "Due" for
+// Created terms with past due_date, otherwise the raw term_status.
 export const CREDIT_FACET_FILTER_OPTIONS: Record<string, FacetConfig> = {
-    'display_status': {
+    "display_status": {
         title: "Status",
-        options: [
-            { label: "Due", value: "Due" },  // Created + past due_date
-            { label: "Requested", value: "Requested" },
-            { label: "Approved", value: "Approved" },
-            { label: "Paid", value: "Paid" },
-        ],
+        options: [], // populated dynamically (Due, Requested, CEO Pending, Approved, Paid)
     },
     "project_name": {
         title: "Project",
-        options: [], // We will populate this dynamically
+        options: [], // populated dynamically
     },
     "vendor_name": {
         title: "Vendor",
-        options: [], // We will populate this dynamically
+        options: [], // populated dynamically
     },
 };

@@ -1,17 +1,18 @@
 """
-Lifecycle endpoints for Internal Transfer Memos — dispatch only.
+Lifecycle endpoints for Internal Transfer Memos — dispatch + delete.
 
-Approval/rejection logic has moved to the ITR level (approve_itr_items.py).
-ITMs are created in "Approved" status and only need dispatch + delivery management.
+ITMs are created directly in "Approved" status by `create_itms`; this module
+exposes the post-create transitions (dispatch) and the pre-dispatch cleanup
+(delete). Permission gates are imported from the controller so UI gating,
+the validate hook, and these whitelisted endpoints all read from the same
+``role_profile_name`` source of truth.
 """
 
 import frappe
 from frappe import _
 
-# Single source of truth for "who can dispatch" lives on the ITM controller
-# alongside the state-machine guard so UI gating, controller hook, and this
-# whitelisted endpoint stay in sync.
 from nirmaan_stack.integrations.controllers.internal_transfer_memo import (
+    _require_deleter,
     _require_dispatcher,
 )
 
@@ -61,11 +62,19 @@ def dispatch_itm(name: str) -> dict:
 def delete_itm(name: str) -> dict:
     """Delete an ITM that has not yet been dispatched.
 
-    The controller's ``before_delete`` hook blocks deletion for
-    Dispatched / Partially Delivered / Delivered statuses.
+    Authorization mirrors the controller's ``before_delete`` hook:
+    Administrator OR a user whose ``role_profile_name`` is in
+    ``DELETE_ROLES`` (Admin / PMO Executive / Procurement Executive).
+    The hook still runs as defense-in-depth and additionally blocks
+    deletion for Dispatched / Partially Delivered / Delivered statuses.
     """
     if frappe.session.user == "Guest":
         frappe.throw(_("Authentication required."), frappe.PermissionError)
+
+    _require_deleter(
+        _("Only administrators, PMO executives, or procurement executives "
+          "may delete an Internal Transfer Memo.")
+    )
 
     frappe.get_doc("Internal Transfer Memo", name)
     frappe.delete_doc("Internal Transfer Memo", name)

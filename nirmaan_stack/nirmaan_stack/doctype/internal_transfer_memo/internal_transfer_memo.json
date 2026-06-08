@@ -14,7 +14,6 @@
   "target_project",
   "column_break_links",
   "source_rir",
-  "transfer_request",
   "status",
   "summary_section",
   "estimated_value",
@@ -26,8 +25,6 @@
   "approved_by",
   "column_break_approval",
   "approved_on",
-  "rejection_reason_section",
-  "rejection_reason",
   "dispatch_section",
   "dispatched_by",
   "dispatched_on",
@@ -90,13 +87,6 @@
    "label": "Source RIR",
    "mandatory_depends_on": "eval:doc.source_type !== 'Warehouse'",
    "options": "Remaining Items Report"
-  },
-  {
-   "fieldname": "transfer_request",
-   "fieldtype": "Link",
-   "label": "Transfer Request",
-   "options": "Internal Transfer Request",
-   "search_index": 1
   },
   {
    "default": "Approved",
@@ -167,19 +157,9 @@
    "read_only": 1
   },
   {
-   "fieldname": "rejection_reason_section",
-   "fieldtype": "Section Break",
-   "label": "Rejection"
-  },
-  {
-   "fieldname": "rejection_reason",
-   "fieldtype": "Small Text",
-   "label": "Rejection Reason"
-  },
-  {
    "fieldname": "dispatch_section",
    "fieldtype": "Section Break",
-   "label": "Dispatch & Delivery \u2014 populated in Phase 2"
+   "label": "Dispatch & Delivery"
   },
   {
    "fieldname": "dispatched_by",
@@ -220,7 +200,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-18 14:04:23.920432",
+ "modified": "2026-05-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Internal Transfer Memo",

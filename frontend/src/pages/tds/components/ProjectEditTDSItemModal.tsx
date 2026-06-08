@@ -25,6 +25,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 
 interface TDSItem {
     name: string;
@@ -83,6 +84,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
     const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
 
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirmInput, setConfirmInput] = useState("");
@@ -110,6 +112,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
             setAttachmentFile(null);
+            setFileError(null);
         }
     }, [item, open]);
 
@@ -128,9 +131,18 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     }, [repoItems, existingProjectItems]);
 
     const itemNameOptions = useMemo(() => {
+        // Restrict candidates to the row's original Work Package + Category so the
+        // dropdown shows only items within the same domain the user is editing.
+        // (Switching to a foreign WP/category would break the read-only auto-fill labels.)
+        const wpFilter = item?.tds_work_package || "";
+        const catFilter = item?.tds_category || "";
+        const scoped = availableRepoItems.filter(i =>
+            (!wpFilter || i.work_package === wpFilter) &&
+            (!catFilter || i.category === catFilter)
+        );
         // Group by tds_item_id — one option per unique item (multiple makes are collapsed).
         const uniqueById = new Map<string, { tds_item_id: string; tds_item_name: string; category?: string }>();
-        availableRepoItems.forEach(i => {
+        scoped.forEach(i => {
             if (i.tds_item_id && !uniqueById.has(i.tds_item_id)) {
                 uniqueById.set(i.tds_item_id, {
                     tds_item_id: i.tds_item_id,
@@ -151,7 +163,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                 category: (nameCounts.get(e.tds_item_name) || 0) > 1 ? (e.category || '') : '',
             }))
             .sort((a, b) => a.label.localeCompare(b.label));
-    }, [availableRepoItems]);
+    }, [availableRepoItems, item?.tds_work_package, item?.tds_category]);
 
     const makeOptions = useMemo(() => {
         if (!selectedItemId) return [];
@@ -205,6 +217,13 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
         if (!item) return;
         if (!selectedItemId || !selectedMake) {
             toast({ title: "Validation Error", description: "Please select an item and make.", variant: "destructive" });
+            return;
+        }
+
+        // Require either an existing attachment on the row, a freshly picked
+        // file, or one inherited from the selected repo entry's tds_attachment.
+        if (!attachmentFile && !item.tds_attachment && !selectedRepoEntry?.tds_attachment) {
+            setFileError("Attachment is required");
             return;
         }
 
@@ -272,20 +291,42 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                 />
                             </div>
 
+                            {/* Category (auto-fill, read-only) */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">Category (Auto-fill)</Label>
+                                <ReactSelect
+                                    options={displayedCategory ? [{ label: displayedCategory, value: displayedCategory }] : []}
+                                    value={displayedCategory ? { label: displayedCategory, value: displayedCategory } : null}
+                                    isDisabled
+                                    placeholder="Auto-filled from item"
+                                    classNamePrefix="react-select"
+                                    styles={readOnlyStyles}
+                                />
+                            </div>
+
                             {/* Item Name */}
                             <div className="space-y-1">
                                 <Label className="text-sm font-bold text-gray-700">
                                     Item Name<span className="text-red-500 ml-0.5">*</span>
                                 </Label>
-                                <ReactSelect
-                                    options={itemNameOptions}
+                                <FuzzySearchSelect
+                                    allOptions={itemNameOptions}
+                                    tokenSearchConfig={{
+                                        searchFields: ['label', 'value', 'category'],
+                                        minSearchLength: 1,
+                                        partialMatch: true,
+                                        minTokenLength: 1,
+                                        fieldWeights: { label: 2.0, value: 1.5, category: 1.0 },
+                                        minTokenMatches: 1,
+                                    }}
                                     value={
                                         itemNameOptions.find(opt => opt.value === selectedItemId)
                                         || (selectedItemId && item ? { label: item.tds_item_name || "", value: selectedItemId, category: "" } : null)
                                     }
-                                    onChange={handleItemNameChange}
-                                    placeholder="Select Item"
+                                    onChange={handleItemNameChange as any}
+                                    placeholder="Search Item Name..."
                                     classNamePrefix="react-select"
+                                    isClearable
                                     formatOptionLabel={(option: any) => (
                                         <span>
                                             {option.label}
@@ -297,19 +338,6 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                     styles={{
                                         control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
                                     }}
-                                />
-                            </div>
-
-                            {/* Category (auto-fill, read-only) */}
-                            <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">Category (Auto-fill)</Label>
-                                <ReactSelect
-                                    options={displayedCategory ? [{ label: displayedCategory, value: displayedCategory }] : []}
-                                    value={displayedCategory ? { label: displayedCategory, value: displayedCategory } : null}
-                                    isDisabled
-                                    placeholder="Auto-filled from item"
-                                    classNamePrefix="react-select"
-                                    styles={readOnlyStyles}
                                 />
                             </div>
 
@@ -366,25 +394,41 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                             </div>
 
                             {/* Attachment */}
-                            <div className="space-y-1.5 mt-2">
-                                <Label className="text-sm font-bold text-gray-700">
-                                    Attach Document <span className="text-gray-400 font-normal ml-0.5">(Optional)</span>
-                                </Label>
-                                <CustomAttachment
-                                    selectedFile={attachmentFile}
-                                    onFileSelect={setAttachmentFile}
-                                    acceptedTypes="application/pdf"
-                                    label="Upload PDF Document"
-                                    maxFileSize={50 * 1024 * 1024}
-                                    className="w-full"
-                                />
-                                {item?.tds_attachment && !attachmentFile && (
-                                    <p className="text-[10px] text-gray-500 flex items-center gap-1 px-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                        Current file: <a href={item.tds_attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Document</a>
-                                    </p>
-                                )}
-                            </div>
+                            {(() => {
+                                // Existing doc can come from the row itself OR be inherited
+                                // from the currently-selected repo entry (buildUpdates carries
+                                // selectedRepoEntry.tds_attachment over when no new file is picked).
+                                const existingDocUrl = item?.tds_attachment || selectedRepoEntry?.tds_attachment || "";
+                                const hasExistingDoc = !!existingDocUrl;
+                                const attachmentLabel = hasExistingDoc ? "Replace Document" : "Upload PDF Document";
+                                return (
+                                    <div className="space-y-1.5 mt-2">
+                                        <Label className="text-sm font-bold text-gray-700">
+                                            Attach Document<span className="text-red-500 ml-0.5">*</span>
+                                        </Label>
+                                        <CustomAttachment
+                                            selectedFile={attachmentFile}
+                                            onFileSelect={(file) => {
+                                                setAttachmentFile(file);
+                                                if (file) setFileError(null);
+                                            }}
+                                            acceptedTypes="application/pdf"
+                                            label={attachmentLabel}
+                                            maxFileSize={50 * 1024 * 1024}
+                                            className="w-full"
+                                        />
+                                        {hasExistingDoc && !attachmentFile && (
+                                            <p className="text-[10px] text-gray-500 flex items-center gap-1 px-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                                Current file: <a href={existingDocUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Document</a>
+                                            </p>
+                                        )}
+                                        {fileError && (
+                                            <p className="text-xs font-medium text-red-500">{fileError}</p>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     </div>
 

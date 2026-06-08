@@ -3,11 +3,11 @@ Inventory picker data for the Create Internal Transfer Memo flow.
 
 Aggregates the latest submitted Remaining Items Report (RIR) per project,
 joined with the max Purchase Order quote rate per (project, item_id, make), and
-subtracts both pending ITR reservations and approved ITM transfer deductions
+subtracts both Approved ITM reservations and Dispatched ITM transfer deductions
 to produce a live ``available_quantity`` per (item, make, source) triple.
 
-Reservation = Pending/Approved ITR items whose linked ITM is not yet dispatched.
-Deduction   = Dispatched ITMs dispatched after the latest RIR date.
+Reservation = Approved ITMs not yet dispatched.
+Deduction   = Dispatched ITMs dispatched after the latest RIR's modified ts.
 
 The response is tree-shaped: one node per ``item_id`` with aggregated totals
 and a ``sources`` array listing each contributing (source project, make) pair.
@@ -83,20 +83,19 @@ def get_inventory_picker_data(search: str = "") -> list:
 		GROUP BY po.project, poi.item_id, poi.make
 	),
 	reserved_qty AS (
+		-- Approved ITMs (not yet dispatched). Once an ITM transitions to
+		-- Dispatched/Partially Delivered/Delivered it falls out of this
+		-- CTE and into `dispatched_itm_deductions` below.
 		SELECT
-			itr.source_project AS project,
-			itri.item_id,
-			itri.make,
-			SUM(itri.transfer_quantity) AS reserved
-		FROM "tabInternal Transfer Request Item" itri
-		JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
-		WHERE itri.status IN ('Pending', 'Approved')
-		  AND NOT EXISTS (
-		      SELECT 1 FROM "tabInternal Transfer Memo" itm_chk
-		      WHERE itm_chk.name = itri.linked_itm
-		        AND itm_chk.status IN ('Dispatched', 'Partially Delivered', 'Delivered')
-		  )
-		GROUP BY itr.source_project, itri.item_id, itri.make
+			itm.source_project AS project,
+			itmi.item_id,
+			itmi.make,
+			SUM(itmi.transfer_quantity) AS reserved
+		FROM "tabInternal Transfer Memo Item" itmi
+		JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
+		WHERE itm.status = 'Approved'
+		  AND itm.source_type = 'Project'
+		GROUP BY itm.source_project, itmi.item_id, itmi.make
 	),
 	dispatched_itm_deductions AS (
 		-- Dispatches AFTER the latest RIR was last saved (modified) are not

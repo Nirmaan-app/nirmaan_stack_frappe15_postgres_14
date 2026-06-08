@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import { useFrappeGetDocList, useFrappeDeleteDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { useFrappeGetDocList, useFrappeUpdateDoc } from 'frappe-react-sdk';
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
@@ -13,12 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
     Dialog,
     DialogContent,
     DialogDescription,
@@ -26,50 +20,51 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { MoreHorizontal, Pencil, Trash2, Boxes } from 'lucide-react';
+import { Pencil, Boxes, Briefcase, Laptop } from 'lucide-react';
 
 import {
     ASSET_CATEGORY_DOCTYPE,
     ASSET_CATEGORY_FIELDS,
     ASSET_MASTER_DOCTYPE,
+    ASSET_CATEGORY_TYPE_OPTIONS,
+    AssetCategoryType,
 } from '../assets.constants';
 import { getAssetPermissions } from '../utils/permissions';
+import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 
 interface AssetCategory {
     name: string;
     asset_category: string;
+    category_type: AssetCategoryType | null;
     creation: string;
     modified: string;
 }
+
+const typeBadgeClass: Record<AssetCategoryType, string> = {
+    Project: 'bg-blue-50 text-blue-700 border-blue-200',
+    IT: 'bg-purple-50 text-purple-700 border-purple-200',
+};
+
+const typeIconMap: Record<AssetCategoryType, React.ReactNode> = {
+    Project: <Briefcase className="h-3 w-3 mr-1" />,
+    IT: <Laptop className="h-3 w-3 mr-1" />,
+};
 
 export const AssetCategoriesList: React.FC = () => {
     const { toast } = useToast();
     const userData = useUserData();
 
+    const { refreshCategoryDropdowns } = useAssetDataRefresh();
+
     // Edit dialog state
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
     const [editCategoryName, setEditCategoryName] = useState('');
+    const [editCategoryType, setEditCategoryType] = useState<AssetCategoryType | ''>('');
     const [isUpdating, setIsUpdating] = useState(false);
 
-    // Delete dialog state
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [deletingCategory, setDeletingCategory] = useState<AssetCategory | null>(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-
     const { updateDoc } = useFrappeUpdateDoc();
-    const { deleteDoc } = useFrappeDeleteDoc();
 
     // Fetch asset counts per category
     const { data: assetCounts } = useFrappeGetDocList(
@@ -82,6 +77,25 @@ export const AssetCategoriesList: React.FC = () => {
         'asset_counts_by_category'
     );
 
+    // Fetch category counts per type for facet filter labels (e.g., "Project (21)")
+    const { data: categoryCountByType } = useFrappeGetDocList(
+        ASSET_CATEGORY_DOCTYPE,
+        {
+            fields: ['category_type', 'count(name) as count'],
+            groupBy: 'category_type',
+            limit: 0,
+        },
+        'asset_category_count_by_type'
+    );
+
+    const categoryCountByTypeMap = useMemo(() => {
+        const map: Record<string, number> = {};
+        categoryCountByType?.forEach((item: any) => {
+            if (item.category_type) map[item.category_type] = item.count;
+        });
+        return map;
+    }, [categoryCountByType]);
+
     const assetCountMap = useMemo(() => {
         const map: Record<string, number> = {};
         assetCounts?.forEach((item: any) => {
@@ -90,32 +104,33 @@ export const AssetCategoriesList: React.FC = () => {
         return map;
     }, [assetCounts]);
 
-    // Get granular permissions - only users with canManageCategories can edit/delete
+    // Only users with canManageCategories can edit
     const { canManageCategories } = getAssetPermissions(userData?.user_id, userData?.role);
 
-    // Handle edit
     const handleEditClick = useCallback((category: AssetCategory) => {
         setEditingCategory(category);
         setEditCategoryName(category.asset_category);
+        setEditCategoryType(category.category_type || '');
         setEditDialogOpen(true);
     }, []);
 
     const handleEditSubmit = async () => {
-        if (!editingCategory || !editCategoryName.trim()) return;
+        if (!editingCategory || !editCategoryType) return;
 
         try {
             setIsUpdating(true);
             await updateDoc(ASSET_CATEGORY_DOCTYPE, editingCategory.name, {
-                asset_category: editCategoryName.trim(),
+                category_type: editCategoryType,
             });
             toast({
                 title: 'Category Updated',
-                description: `Category renamed to "${editCategoryName.trim()}"`,
+                description: `"${editingCategory.asset_category}" saved as ${editCategoryType}`,
                 variant: 'success',
             });
             setEditDialogOpen(false);
             setEditingCategory(null);
             refetchTable();
+            refreshCategoryDropdowns();
         } catch (error: any) {
             toast({
                 title: 'Error',
@@ -124,48 +139,6 @@ export const AssetCategoriesList: React.FC = () => {
             });
         } finally {
             setIsUpdating(false);
-        }
-    };
-
-    // Handle delete
-    const handleDeleteClick = useCallback((category: AssetCategory) => {
-        setDeletingCategory(category);
-        setDeleteDialogOpen(true);
-    }, []);
-
-    const handleDeleteConfirm = async () => {
-        if (!deletingCategory) return;
-
-        const assetCount = assetCountMap[deletingCategory.name] || 0;
-        if (assetCount > 0) {
-            toast({
-                title: 'Cannot Delete',
-                description: `This category has ${assetCount} asset(s). Please reassign or delete them first.`,
-                variant: 'destructive',
-            });
-            setDeleteDialogOpen(false);
-            return;
-        }
-
-        try {
-            setIsDeleting(true);
-            await deleteDoc(ASSET_CATEGORY_DOCTYPE, deletingCategory.name);
-            toast({
-                title: 'Category Deleted',
-                description: `"${deletingCategory.asset_category}" has been deleted`,
-                variant: 'success',
-            });
-            setDeleteDialogOpen(false);
-            setDeletingCategory(null);
-            refetchTable();
-        } catch (error: any) {
-            toast({
-                title: 'Error',
-                description: error?.message || 'Failed to delete category',
-                variant: 'destructive',
-            });
-        } finally {
-            setIsDeleting(false);
         }
     };
 
@@ -184,7 +157,24 @@ export const AssetCategoriesList: React.FC = () => {
                     </span>
                 </Link>
             ),
-            size: 280,
+            size: 240,
+        },
+        {
+            accessorKey: 'category_type',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+            cell: ({ row }) => {
+                const type = row.original.category_type;
+                if (!type) {
+                    return <span className="text-xs text-gray-400 italic">Untagged</span>;
+                }
+                return (
+                    <Badge variant="outline" className={`font-medium ${typeBadgeClass[type]}`}>
+                        {typeIconMap[type]}
+                        {type}
+                    </Badge>
+                );
+            },
+            size: 120,
         },
         {
             id: 'asset_count',
@@ -214,49 +204,42 @@ export const AssetCategoriesList: React.FC = () => {
         },
         ...(canManageCategories ? [{
             id: 'actions',
-            header: () => <span className="sr-only">Actions</span>,
+            header: () => <span>Actions</span>,
             cell: ({ row }: { row: any }) => {
                 const category = row.original as AssetCategory;
-                const hasAssets = (assetCountMap[category.name] || 0) > 0;
-
                 return (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity data-[state=open]:opacity-100"
-                            >
-                                <span className="sr-only">Open menu</span>
-                                <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                            <DropdownMenuItem
-                                onClick={() => handleEditClick(category)}
-                                className="cursor-pointer"
-                            >
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onClick={() => handleDeleteClick(category)}
-                                className={`cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50 ${hasAssets ? 'opacity-50' : ''}`}
-                            >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-gray-600 hover:text-blue-600 hover:bg-blue-50"
+                        onClick={() => handleEditClick(category)}
+                        title="Edit category"
+                    >
+                        <span className="sr-only">Edit</span>
+                        <Pencil className="h-4 w-4" />
+                    </Button>
                 );
             },
-            size: 60,
+            size: 80,
         }] : []),
-    ], [assetCountMap, canManageCategories, handleEditClick, handleDeleteClick]);
+    ], [assetCountMap, canManageCategories, handleEditClick]);
 
     const searchableFields = [
         { value: 'asset_category', label: 'Category Name', placeholder: 'Search categories...', default: true },
     ];
+
+    const facetFilterOptions = useMemo(() => ({
+        category_type: {
+            title: 'Type',
+            options: ASSET_CATEGORY_TYPE_OPTIONS.map((opt) => {
+                const count = categoryCountByTypeMap[opt.value] ?? 0;
+                return {
+                    label: `${opt.label} (${count})`,
+                    value: opt.value,
+                };
+            }),
+        },
+    }), [categoryCountByTypeMap]);
 
     const {
         table,
@@ -291,6 +274,7 @@ export const AssetCategoriesList: React.FC = () => {
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
                 showExportButton={false}
                 showRowSelection={false}
                 className="[&_tr]:group"
@@ -302,21 +286,52 @@ export const AssetCategoriesList: React.FC = () => {
                     <DialogHeader>
                         <DialogTitle className="text-lg font-semibold">Edit Category</DialogTitle>
                         <DialogDescription className="text-sm text-gray-500">
-                            Update the category name. This will not affect existing assets.
+                            Change the type for this category. The category name cannot be modified.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="py-4">
-                        <Label htmlFor="categoryName" className="text-sm font-medium text-gray-700">
-                            Category Name
-                        </Label>
-                        <Input
-                            id="categoryName"
-                            value={editCategoryName}
-                            onChange={(e) => setEditCategoryName(e.target.value)}
-                            placeholder="Enter category name"
-                            className="mt-1.5"
-                            autoFocus
-                        />
+                    <div className="space-y-4 py-4">
+                        <div>
+                            <Label htmlFor="categoryName" className="text-sm font-medium text-gray-700">
+                                Category Name
+                            </Label>
+                            <Input
+                                id="categoryName"
+                                value={editCategoryName}
+                                readOnly
+                                disabled
+                                className="mt-1.5 bg-gray-50 text-gray-600 cursor-not-allowed"
+                            />
+                        </div>
+                        <div>
+                            <Label className="text-sm font-medium text-gray-700">
+                                Category Type <span className="text-red-500">*</span>
+                            </Label>
+                            <div className="mt-1.5 grid grid-cols-2 gap-2">
+                                {ASSET_CATEGORY_TYPE_OPTIONS.map((opt) => {
+                                    const isSelected = editCategoryType === opt.value;
+                                    return (
+                                        <button
+                                            key={opt.value}
+                                            type="button"
+                                            onClick={() => setEditCategoryType(opt.value)}
+                                            className={`
+                                                inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium
+                                                transition-colors
+                                                ${isSelected
+                                                    ? opt.value === 'Project'
+                                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                                        : 'border-purple-500 bg-purple-50 text-purple-700'
+                                                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                                                }
+                                            `}
+                                        >
+                                            {typeIconMap[opt.value]}
+                                            {opt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                     <DialogFooter className="gap-2 sm:gap-0">
                         <Button
@@ -328,36 +343,17 @@ export const AssetCategoriesList: React.FC = () => {
                         </Button>
                         <Button
                             onClick={handleEditSubmit}
-                            disabled={isUpdating || !editCategoryName.trim() || editCategoryName === editingCategory?.asset_category}
+                            disabled={
+                                isUpdating
+                                || !editCategoryType
+                                || editCategoryType === (editingCategory?.category_type || '')
+                            }
                         >
                             {isUpdating ? 'Saving...' : 'Save Changes'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            {/* Delete Confirmation Dialog */}
-            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Category</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Are you sure you want to delete <strong>"{deletingCategory?.asset_category}"</strong>?
-                            This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={handleDeleteConfirm}
-                            disabled={isDeleting}
-                            className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
-                        >
-                            {isDeleting ? 'Deleting...' : 'Delete'}
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </>
     );
 };

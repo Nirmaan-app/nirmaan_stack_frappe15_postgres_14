@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import ReactSelect, { components, MenuListProps } from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
-import { Trash2, FileText, MessageSquare, PlusCircle } from 'lucide-react';
+import { Trash2, FileText, PlusCircle } from 'lucide-react';
 import { useTdsRepositoryItems, useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
 import { useCreateTdsItem, useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
@@ -571,8 +571,8 @@ if (selectedBoqLineItem.length > 300) {
                 </div>
                 */}
 
-                <Button 
-                    className="w-full bg-gray-50 hover:bg-gray-100 text-gray-900 border border-gray-200 font-medium"
+                <Button
+                    className="w-full bg-red-600 hover:bg-red-700 text-white font-medium disabled:bg-gray-100 disabled:text-gray-400 disabled:border disabled:border-gray-200 disabled:hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-100"
                     onClick={handleAddItem}
                     disabled={!selectedDoc}
                 >
@@ -625,18 +625,9 @@ if (selectedBoqLineItem.length > 300) {
                                     </TableCell>
                                     <TableCell className="text-center">
                                         {item.tds_boq_line_item ? (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <div className="flex justify-center items-center cursor-pointer">
-                                                            <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
-                                                        </div>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent className="max-w-[300px] whitespace-normal break-words">
-                                                        <p>{item.tds_boq_line_item}</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
+                                            <span className="text-sm text-gray-700 whitespace-normal break-words">
+                                                {item.tds_boq_line_item}
+                                            </span>
                                         ) : (
                                             <span className="text-gray-300">-</span>
                                         )}
@@ -646,6 +637,27 @@ if (selectedBoqLineItem.length > 300) {
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => window.open(item.tds_attachment, '_blank')}>
                                                 <FileText className="h-4 w-4" />
                                             </Button>
+                                        ) : item.attachmentFile ? (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-blue-600 hover:bg-blue-50"
+                                                            onClick={() => {
+                                                                const url = URL.createObjectURL(item.attachmentFile!);
+                                                                window.open(url, '_blank');
+                                                            }}
+                                                        >
+                                                            <FileText className="h-4 w-4" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent className="max-w-[300px] whitespace-normal break-words">
+                                                        <p>{item.attachmentFile.name} (uploads on submit)</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
                                         ) : (
                                             <span className="text-gray-300">-</span>
                                         )}

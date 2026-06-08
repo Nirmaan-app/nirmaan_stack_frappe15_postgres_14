@@ -59,26 +59,34 @@ export function parseServiceOrderList(sr: ServiceRequests, masterItems?: any[]):
     // 3. Transform to form type with safe defaults
     return list.map((item): ServiceItemType => {
         const description = item.description || "";
+        const category = item.category || "Unknown";
         const rate = item.rate !== undefined
             ? (typeof item.rate === "string" ? parseFloat(item.rate) || 0 : item.rate)
             : undefined;
 
-        // Try to find standard rate from master items if missing
-        let stdRate = (item as any).standard_rate !== undefined
-            ? (typeof (item as any).standard_rate === "string" ? parseFloat((item as any).standard_rate) || 0 : (item as any).standard_rate)
-            : undefined;
+        // Resolve standard_rate: first honor a saved value on the SR row,
+        // then fall back to a rate-card lookup by (description + category).
+        // An undefined result means "custom item" — that's how the UI decides.
+        const savedStd = (item as any).standard_rate;
+        let stdRate: number | undefined =
+            savedStd === undefined || savedStd === null
+                ? undefined
+                : typeof savedStd === "string"
+                    ? parseFloat(savedStd) || undefined
+                    : savedStd;
 
-        if (stdRate === undefined && masterItems) {
-            // Find a standard item with matching name
-            const masterMatch = masterItems.find(m => m.item_name === description);
+        if (stdRate === undefined && masterItems && masterItems.length > 0) {
+            const masterMatch = masterItems.find(
+                (m) => m.item_name === description && m.category_link === category,
+            );
             if (masterMatch) {
                 stdRate = masterMatch.rate;
             }
         }
 
         return {
-            id: item.id || createServiceItem(item.category).id,
-            category: item.category || "Unknown",
+            id: item.id || createServiceItem(category).id,
+            category,
             description,
             uom: item.uom || "",
             quantity: typeof item.quantity === "string" ? parseFloat(item.quantity) || 0 : item.quantity || 0,

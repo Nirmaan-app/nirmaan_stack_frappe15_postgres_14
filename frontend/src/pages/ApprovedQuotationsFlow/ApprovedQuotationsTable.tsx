@@ -40,6 +40,10 @@ import { useNirmaanUnitOptions } from "@/components/helpers/SelectUnit";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues, FacetValue } from "@/hooks/useFacetValues";
+import {
+  rankByTokenScore,
+  TokenSearchConfig,
+} from "@/components/ui/fuzzy-search-select";
 
 // Constants
 import {
@@ -64,149 +68,16 @@ interface ProcurementOrderType {
 interface AQWithProject extends ApprovedQuotationsType {
   project_name: string;
 }
-// Define the structure for your search configuration
-interface TokenSearchConfig {
-  searchFields: Array<keyof ItemsType>; // The fields on ItemsType to search (e.g., 'item_name', 'name')
-  tokenSeparator: RegExp; // How to split the input string (e.g., /\s+/)
-  minSearchLength: number; // Minimum length of input to start searching
-  minTokenLength: number; // Minimum length of a token to be considered
-  minTokenMatches: number; // Minimum number of tokens that must match for an item to be included
-  caseSensitive: boolean;
-  partialMatch: boolean; // true for substring match, false for word boundary match
-  fieldWeights: Partial<Record<keyof ItemsType, number>>; // Weights for each field
-}
-
-// Define the structure for the score calculation result
-interface SearchMatch {
-  item: ItemsType;
-  score: number;
-  matchedFields: string[];
-  matchPositions: Record<string, number[]>;
-  isFullMatch: boolean;
-  matchedTokenCount: number;
-}
-
-// Define the default configuration (Adjust these values to fine-tune your search)
+// Item search config shared with FuzzySearchSelect's token-score algorithm.
+// minSearchLength=2 is intentional: this popover should not flood with results
+// for a single character.
 const ITEM_SEARCH_CONFIG: TokenSearchConfig = {
-  searchFields: ["item_name", "name"], // Search item name and item code
-  tokenSeparator: /\s+/, // Splits by space, hyphen, underscore, slash, and parentheses
-  minSearchLength: 2, // Start searching after 2 characters
-  minTokenLength: 1, // Consider tokens of length 1 or more
-  minTokenMatches: 1, // Must match at least 1 token
-  caseSensitive: false,
-  partialMatch: true, // Use substring matching (more forgiving)
-  fieldWeights: {
-    item_name: 2, // Give item_name a higher weight
-    name: 1, // Item code is secondary
-  },
+  searchFields: ["item_name", "name"],
+  minSearchLength: 2,
+  partialMatch: true,
+  fieldWeights: { item_name: 2, name: 1 },
+  minTokenMatches: 1,
 };
-
-// Utility function placed outside the component
-function calculateMatchScore(
-  item: ItemsType,
-  searchTokens: string[],
-  config: TokenSearchConfig
-): SearchMatch | null {
-  const {
-    searchFields,
-    caseSensitive,
-    partialMatch,
-    fieldWeights,
-    minTokenMatches,
-  } = config as Required<TokenSearchConfig>; // Use Required type for safety
-
-  let totalScore = 0;
-  const matchedFields: string[] = [];
-  const matchPositions: Record<string, number[]> = {};
-
-  const tokenMatchStatus = new Array(searchTokens.length).fill(false);
-  let totalTokenMatches = 0;
-
-  for (const field of searchFields) {
-    // We assume item[field] is of type string based on your config and ItemsType definition
-    const fieldValue = String(item[field as keyof ItemsType] || "");
-    const searchableText = caseSensitive
-      ? fieldValue
-      : fieldValue.toLowerCase();
-    const fieldWeight = fieldWeights[field as keyof ItemsType] || 1;
-
-    let fieldMatchCount = 0;
-    const positions: number[] = [];
-
-    searchTokens.forEach((token, tokenIndex) => {
-      const searchToken = caseSensitive ? token : token.toLowerCase();
-
-      if (partialMatch) {
-        const position = searchableText.indexOf(searchToken);
-        if (position !== -1) {
-          if (!tokenMatchStatus[tokenIndex]) {
-            tokenMatchStatus[tokenIndex] = true;
-            totalTokenMatches++;
-          }
-          fieldMatchCount++;
-          positions.push(position);
-        }
-      } else {
-        const wordBoundaryRegex = new RegExp(
-          `\\b${escapeRegex(searchToken)}\\b`,
-          "i"
-        );
-        if (wordBoundaryRegex.test(searchableText)) {
-          if (!tokenMatchStatus[tokenIndex]) {
-            tokenMatchStatus[tokenIndex] = true;
-            totalTokenMatches++;
-          }
-          fieldMatchCount++;
-          const match = searchableText.match(wordBoundaryRegex);
-          if (match) positions.push(match.index || 0);
-        }
-      }
-    });
-
-    if (fieldMatchCount > 0) {
-      matchedFields.push(field as string);
-      matchPositions[field as string] = positions;
-
-      // Score calculation
-      const matchRatio = fieldMatchCount / searchTokens.length;
-      const avgPosition =
-        positions.length > 0
-          ? positions.reduce((a, b) => a + b, 0) / positions.length
-          : 0;
-      const positionScore = positions.length > 0 ? 1 / (avgPosition + 1) : 0;
-
-      // Combine ratio and position score, weighted by the field's importance
-      totalScore += (matchRatio * 1000 + positionScore * 100) * fieldWeight;
-    }
-  }
-
-  // Check if minimum token matches requirement is met
-  if (totalTokenMatches < minTokenMatches) {
-    return null;
-  }
-
-  // Calculate if this is a full match (all tokens matched)
-  const isFullMatch = tokenMatchStatus.every((status) => status);
-
-  // Bonus for full matches
-  if (isFullMatch) {
-    totalScore *= 1.5; // 50% bonus for full matches
-  }
-
-  return {
-    item,
-    score: totalScore,
-    matchedFields,
-    matchPositions,
-    isFullMatch,
-    matchedTokenCount: totalTokenMatches,
-  };
-}
-
-// Helper to escape special regex characters
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 const calculateTotalAmount = (row: ApprovedQuotationsType): number => {
   const quote = parseFloat(row.quote || "0");
@@ -314,62 +185,20 @@ export default function ApprovedQuotationsTable({
     }
 
     if (
-      trimmedInput.length < ITEM_SEARCH_CONFIG.minSearchLength ||
+      trimmedInput.length < (ITEM_SEARCH_CONFIG.minSearchLength ?? 1) ||
       !uniqueAllItems
     ) {
       setFilteredSuggestions([]);
       return;
     }
 
-    // 2. Tokenize the search input
-    const searchTokens = trimmedInput
-      .split(ITEM_SEARCH_CONFIG.tokenSeparator)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= ITEM_SEARCH_CONFIG.minTokenLength);
+    const ranked = rankByTokenScore(allOptions, trimmedInput, ITEM_SEARCH_CONFIG);
 
-    if (searchTokens.length === 0) {
-      setFilteredSuggestions([]);
-      return;
-    }
-
-    // 3. Score and filter all options
-    const matchResults: SearchMatch[] = [];
-
-    for (const option of allOptions) {
-      // Use custom function
-      const matchResult = calculateMatchScore(
-        option,
-        searchTokens,
-        ITEM_SEARCH_CONFIG
-      );
-      if (matchResult) {
-        matchResults.push(matchResult);
-      }
-    }
-
-    // 4. Multi-tiered Sorting (The Ranking)
-    matchResults.sort((a, b) => {
-      // Primary sort: by full match status (true first: -1)
-      if (a.isFullMatch !== b.isFullMatch) {
-        return a.isFullMatch ? -1 : 1;
-      }
-      // Secondary sort: by number of matched tokens (higher count first)
-      if (a.matchedTokenCount !== b.matchedTokenCount) {
-        return b.matchedTokenCount - a.matchedTokenCount;
-      }
-      // Tertiary sort: by score (higher score first)
-      return b.score - a.score;
-    });
-
-    // 5. Extract items AND perform final filtering (excluding already selected items)
     const selectedItemNames = new Set(selectedItems.map((item) => item.value));
-
-    const finalSuggestions = matchResults
-      .map((result) => result.item)
-      .filter((item) => !selectedItemNames.has(item.item_name)); // Filter out selected items here
-
-    setFilteredSuggestions(finalSuggestions);
-  }, [debouncedSearchInput, uniqueAllItems, selectedItems]); // Dependencies: debounced input, all items, and selected items list
+    setFilteredSuggestions(
+      ranked.filter((item) => !selectedItemNames.has(item.item_name))
+    );
+  }, [debouncedSearchInput, uniqueAllItems, selectedItems]);
 
   // Removed original itemSuggestions useMemo and finalRenderedSuggestions useMemo
 

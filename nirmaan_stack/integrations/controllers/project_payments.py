@@ -4,39 +4,55 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
 from .procurement_requests import get_user_name
 
-
 # --- HELPER FUNCTION FOR HOOKS ---
-# This helper function uses the "search" method to find the related PO term.
+# PO term status mirrors Project Payment status 1:1 (Requested / CEO Pending /
+# Approved / Paid / Rejected). On payment delete, the linked term reverts to Created.
 def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
     """
     Finds the corresponding PO term by searching through the child table
     and updates its status.
     """
+    if payment_doc.flags.get("bulk_approval"):
+        # Bulk endpoint owns the PO row lock and syncs terms once per group.
+        return
+
     if payment_doc.document_type != "Procurement Orders":
         return
 
     try:
         # Load the entire parent PO document to access its child table
         po_doc = frappe.get_doc("Procurement Orders", payment_doc.document_name)
-        
+
         for term in po_doc.get("payment_terms"):
             # The search condition: find the term linking to this payment
             if term.project_payment == payment_doc.name:
                 term.term_status = new_status
                 if clear_link:
                     term.project_payment = "" # Clear the link on deletion
-                
+
                 # Save the entire PO document with the updated child table
                 po_doc.save(ignore_permissions=True)
                 return # Exit once found and saved
 
     except Exception as e:
         frappe.log_error(f"Failed during PO term search-and-update for payment {payment_doc.name}. Error: {e}", "Payment Sync Failed")
+
+
+def _get_ceo_user():
+    """Returns the CEO Nirmaan User row for notifications (same shape as
+    get_admin_users / get_allowed_accountants), or None if missing."""
+    return frappe.db.get_value(
+        "Nirmaan Users",
+        {"name": CEO_AUTHORIZED_USER},
+        ["fcm_token", "name", "full_name", "role_profile", "push_notification"],
+        as_dict=True,
+    )
 
 
 # --- HOOK IMPLEMENTATIONS ---
@@ -120,23 +136,66 @@ def on_update(doc, method):
     _find_and_update_po_term(doc, doc.status)
     
     # --- Notification logic for specific status transitions ---
-    if old_doc.status == 'Requested' and doc.status == "Approved":
+    if old_doc.status == 'Requested' and doc.status == "CEO Pending":
+        # Project Lead has approved → notify the CEO that a payment is awaiting their gate.
+        if doc.flags.get("bulk_approval"):
+            # Bulk endpoint emits one summary notification covering all payments.
+            return
+        ceo_user = _get_ceo_user()
+        project = frappe.get_doc("Projects", doc.project)
+        if ceo_user:
+            if ceo_user.get("push_notification") == "true":
+                notification_title = f"Payment Awaiting CEO Approval — {project.project_name}"
+                notification_body = (
+                    f"Hi {ceo_user.get('full_name')}, a payment for PO:{doc.document_name} has been approved by the project lead "
+                    "and is awaiting your final review."
+                )
+                click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=CEO%20Pending"
+                PrNotification(ceo_user, notification_title, notification_body, click_action_url)
+
+            message = {
+                "title": _("Payment Awaiting CEO Approval"),
+                "description": _(f"Payment for PO: {doc.document_name} is awaiting CEO approval."),
+                "project": doc.project, "sender": frappe.session.user, "docname": doc.name
+            }
+            new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+            new_notification_doc.update({
+                "recipient": ceo_user.get('name'), "recipient_role": ceo_user.get('role_profile'),
+                "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
+                "title": message["title"], "description": message["description"],
+                "document": 'Project Payments', "docname": doc.name, "project": doc.project,
+                "seen": "false", "type": "info", "event_id": "payment:approved",
+                "action_url": "project-payments?tab=CEO%20Pending"
+            })
+            new_notification_doc.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+            message["notificationId"] = new_notification_doc.name
+            frappe.publish_realtime(event="payment:approved", message=message, user=ceo_user.get('name'))
+        else:
+            print(f"CEO user {CEO_AUTHORIZED_USER} not found or disabled — skipping CEO notification.")
+
+    elif old_doc.status == 'CEO Pending' and doc.status == 'Approved':
+        # CEO has approved → notify accountants that the payment is ready to fulfil.
+        if doc.flags.get("bulk_approval"):
+            # Bulk endpoint emits one summary notification per accountant per project.
+            return
         accountants = get_allowed_accountants(doc)
         project = frappe.get_doc("Projects", doc.project)
         if accountants:
             for user in accountants:
                 if user.get("push_notification") == "true":
-                    notification_title = f"Payment Approved for Project {project.project_name}!"
+                    notification_title = f"Payment Ready to Fulfil — {project.project_name}"
                     notification_body = (
-                        f"Hi {user.get('full_name')}, a new payment has been approved for the PO:{doc.document_name}. "
-                        "Please review and fulfill the payment."
+                        f"Hi {user.get('full_name')}, the CEO has approved a payment for PO:{doc.document_name}. "
+                        "Please review and fulfil the payment."
                     )
                     click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=New%20Payments"
                     PrNotification(user, notification_title, notification_body, click_action_url)
-                
+
                 message = {
-                    "title": _("New Payment Approved"),
-                    "description": _(f"A new payment has been approved for the PO: {doc.document_name}!"),
+                    "title": _("Payment Ready to Fulfil"),
+                    "description": _(f"CEO has approved the payment for PO: {doc.document_name}."),
                     "project": doc.project, "sender": frappe.session.user, "docname": doc.name
                 }
                 new_notification_doc = frappe.new_doc('Nirmaan Notifications')
@@ -145,17 +204,17 @@ def on_update(doc, method):
                     "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
                     "title": message["title"], "description": message["description"],
                     "document": 'Project Payments', "docname": doc.name, "project": doc.project,
-                    "seen": "false", "type": "info", "event_id": "payment:approved",
+                    "seen": "false", "type": "info", "event_id": "payment:ceo_approved",
                     "action_url": "project-payments?tab=New%20Payments"
                 })
                 new_notification_doc.insert(ignore_permissions=True)
                 frappe.db.commit()
 
                 message["notificationId"] = new_notification_doc.name
-                frappe.publish_realtime(event="payment:approved", message=message, user=user.get('name'))
+                frappe.publish_realtime(event="payment:ceo_approved", message=message, user=user.get('name'))
         else:
             print("No accountants found with push notifications enabled.")
-    
+
     elif old_doc.status == 'Approved' and doc.status == 'Paid':
         # Vendor credit recalculation on payment fulfillment
         if doc.document_type == "Procurement Orders":

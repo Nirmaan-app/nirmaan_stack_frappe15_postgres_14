@@ -3,7 +3,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 
-export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN";
+export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
 
 export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const { toast } = useToast();
@@ -18,8 +18,9 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     
     const [downloadToken, setDownloadToken] = useState<{ token: string, filename: string } | null>(null);
 
-    // PO/WO specific
+    // PO/WO rate-selection dialog (shared)
     const [showRateDialog, setShowRateDialog] = useState(false);
+    const [rateDocType, setRateDocType] = useState<"PO" | "WO">("PO");
     const [withRate, setWithRate] = useState(true);
 
     // Invoice specific
@@ -27,6 +28,13 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const [invoiceType, setInvoiceType] = useState<string>("All Invoices");
 
     const initiatePODownload = () => {
+        setRateDocType("PO");
+        setShowRateDialog(true);
+        setWithRate(true);
+    };
+
+    const initiateWODownload = () => {
+        setRateDocType("WO");
         setShowRateDialog(true);
         setWithRate(true);
     };
@@ -65,7 +73,7 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
 
     const handleBulkDownload = async (type: DownloadType, label: string, options?: any) => {
         try {
-            if (type === "PO") setShowRateDialog(false);
+            if (type === "PO" || type === "WO") setShowRateDialog(false);
             if (type === "Invoice") setShowInvoiceDialog(false);
 
             setLoading(true);
@@ -102,7 +110,9 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
                     formData.append("with_rate", effectiveWithRate ? "1" : "0");
                     break;
                 case "WO":
+                    const woWithRate = isProjectManager ? false : !!options?.withRate;
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_wos`;
+                    formData.append("with_rate", woWithRate ? "1" : "0");
                     break;
                 case "Invoice":
                     const invType = options?.invoiceType || invoiceType;
@@ -119,6 +129,10 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
                     break;
                 case "DN":
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_dns`;
+                    break;
+                case "ClientInvoice":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "Client Invoices");
                     break;
             }
 
@@ -152,9 +166,11 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         progressMessage,
         showRateDialog,
         setShowRateDialog,
+        rateDocType,
         withRate,
         setWithRate,
         initiatePODownload,
+        initiateWODownload,
         showInvoiceDialog,
         setShowInvoiceDialog,
         invoiceType,

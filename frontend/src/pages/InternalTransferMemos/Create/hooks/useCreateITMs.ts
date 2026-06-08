@@ -4,7 +4,7 @@ import type { CreateItmsPayloadSelection } from "../types";
 
 interface CreateResponse {
   message: {
-    requests: string[];
+    itms: string[];
     count: number;
   };
 }
@@ -16,12 +16,13 @@ interface CreatePayload {
 }
 
 /**
- * Wraps `create_transfer_request` — creates ITR only (no ITMs).
- * ITMs are created later when admin approves items.
+ * Wraps `create_itms` — creates Internal Transfer Memo(s) directly in
+ * "Approved" status, one per source-project group (plus one extra for
+ * warehouse-sourced selections, if any).
  */
 export function useCreateITMs() {
   const { call, loading, error } = useFrappePostCall<CreateResponse>(
-    "nirmaan_stack.api.internal_transfers.create_transfer_request.create_transfer_request"
+    "nirmaan_stack.api.internal_transfers.create_itms.create_itms"
   );
   const { currentUser } = useFrappeAuth();
 
@@ -32,9 +33,9 @@ export function useCreateITMs() {
     } catch (e) {
       captureApiError({
         hook: "useCreateITMs",
-        api: "create_transfer_request",
+        api: "create_itms",
         feature: "internal_transfer_memo",
-        doctype: "Internal Transfer Request",
+        doctype: "Internal Transfer Memo",
         error: e,
         user: currentUser ?? undefined,
       });

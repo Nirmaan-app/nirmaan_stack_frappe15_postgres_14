@@ -304,6 +304,39 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
+            {/* Cashflow Gap Limit */}
+            <FormField
+                control={form.control}
+                name="cashflow_gap_limit"
+                render={({ field }) => (
+                    <FormItem className="lg:flex lg:items-center gap-4">
+                        <FormLabel className="md:basis-2/12">
+                            Cashflow Gap Limit
+                        </FormLabel>
+                        <div className="flex flex-col items-start md:basis-2/4">
+                            <FormControl>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    placeholder="e.g. 200000"
+                                    onKeyDown={(e) => {
+                                        if (e.key === "-" || e.key === "e") {
+                                            e.preventDefault();
+                                        }
+                                    }}
+                                    {...field}
+                                />
+                            </FormControl>
+                            <FormMessage />
+                            <FormDescription className="text-amber-600 flex items-center gap-1">
+                                <Info className="h-3 w-3" />
+                                If the cashflow gap exceeds this, the project auto-flips to CEO Hold daily. Leave blank to skip.
+                            </FormDescription>
+                        </div>
+                    </FormItem>
+                )}
+            />
+
             {/* Carpet Area */}
             <FormField
                 control={form.control}

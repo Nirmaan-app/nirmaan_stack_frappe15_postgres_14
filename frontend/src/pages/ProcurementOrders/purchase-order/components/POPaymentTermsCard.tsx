@@ -801,6 +801,11 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
             Return
           </Badge>
         )}
+        {term?.term_status === "CEO Pending" && (
+          <Badge variant="outline" className="border-blue-500 text-blue-600">
+            CEO Pending
+          </Badge>
+        )}
         {term?.term_status === "Approved" && (
           <Badge variant="outline" className="border-grey-500 text-grey-600">
             Approved

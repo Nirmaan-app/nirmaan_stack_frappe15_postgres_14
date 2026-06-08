@@ -28,7 +28,6 @@ export interface ITMListRow {
   target_type?: string;
   target_project: string;
   target_project_name?: string | null;
-  transfer_request?: string | null;
   source_rir?: string | null;
   estimated_value?: number | null;
   total_items?: number | null;
@@ -37,23 +36,17 @@ export interface ITMListRow {
   requested_by_full_name?: string | null;
   approved_by?: string | null;
   approved_on?: string | null;
-  rejection_reason?: string | null;
+  dispatched_by?: string | null;
+  dispatched_on?: string | null;
+  latest_delivery_date?: string | null;
   owner?: string | null;
-  // ITR per-status item counts (returned by get_itrs_list)
-  pending_count?: number | null;
-  approved_count?: number | null;
-  rejected_count?: number | null;
 }
 
 /**
  * Whitelisted API backing the list tabs — matches get_itms_list.py.
- * Overridden via useServerDataTable's `apiEndpoint` config.
  */
 export const ITM_LIST_API_ENDPOINT =
   "nirmaan_stack.api.internal_transfers.get_itms_list.get_itms_list";
-
-export const ITR_LIST_API_ENDPOINT =
-  "nirmaan_stack.api.internal_transfers.get_itrs_list.get_itrs_list";
 
 /**
  * Server-side search across ITM ID + source/target project names (per
@@ -78,7 +71,6 @@ export const ITM_FETCH_FIELDS: (keyof ITMListRow)[] = [
   "name",
   "creation",
   "status",
-  "transfer_request",
   "source_type",
   "source_project",
   "source_project_name",
@@ -94,174 +86,17 @@ export const ITM_FETCH_FIELDS: (keyof ITMListRow)[] = [
 
 export const ITM_DATE_COLUMNS: string[] = ["creation"];
 
-// ---- ITR-specific config (Transfer Request tabs) ----
-
-export const ITR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-  {
-    value: "name",
-    label: "Request ID",
-    placeholder: "Search by request ID...",
-    default: true,
-  },
-];
-
 /**
- * Column set for ITR (Transfer Request) list tabs.
- * Takes tabValue to build correct detail link with itemFilter param.
+ * Facet options for the Status column. Used on the "All Requests" tab so
+ * users can narrow the cross-status view. Order mirrors the lifecycle:
+ * Approved → Dispatched → Partially Delivered → Delivered.
  */
-export function getItrListColumns(tabValue: string): ColumnDef<ITMListRow>[] {
-  const filterParam =
-    tabValue === "Pending" ? "?itemFilter=Pending" :
-    tabValue === "Rejected" ? "?itemFilter=Rejected" : "";
-
-  return [
-  {
-    accessorKey: "name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Request ID" />
-    ),
-    cell: ({ row }) => (
-      <Link
-        to={`/internal-transfer-memos/itr/${row.original.name}${filterParam}`}
-        className="font-medium text-primary underline underline-offset-2 hover:text-primary/80 whitespace-nowrap"
-      >
-        {row.original.name}
-      </Link>
-    ),
-    size: 160,
-    meta: {
-      exportHeaderName: "Request ID",
-      exportValue: (row: ITMListRow) => row.name,
-    },
-  },
-  {
-    accessorKey: "source_project_name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="From" />
-    ),
-    cell: ({ row }) => (
-      <div className="truncate max-w-[200px]" title={(row.original as any).source_type === "Warehouse" ? "Warehouse" : ((row.original as any).source_project_name || "--")}>
-        {(row.original as any).source_type === "Warehouse" ? "Warehouse" : ((row.original as any).source_project_name || "--")}
-      </div>
-    ),
-    size: 200,
-    meta: {
-      exportHeaderName: "From",
-      exportValue: (row: ITMListRow) => (row as any).source_project_name || "",
-    },
-  },
-  {
-    accessorKey: "target_project_name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="To" />
-    ),
-    cell: ({ row }) => {
-      const label = row.original.target_type === "Warehouse"
-        ? "Warehouse"
-        : (row.original.target_project_name || row.original.target_project || "--");
-      return (
-        <div className="truncate max-w-[200px]" title={label}>{label}</div>
-      );
-    },
-    size: 200,
-    meta: {
-      exportHeaderName: "To",
-      exportValue: (row: ITMListRow) =>
-        row.target_type === "Warehouse" ? "Warehouse" : (row.target_project_name || row.target_project || ""),
-    },
-  },
-  {
-    accessorKey: "status",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Status" />
-    ),
-    cell: ({ row }) => <ITMStatusBadge status={row.original.status} />,
-    enableColumnFilter: true,
-    size: 160,
-    meta: {
-      enableFacet: true,
-      facetTitle: "Status",
-      exportHeaderName: "Status",
-      exportValue: (row: ITMListRow) => row.status,
-    },
-  },
-  {
-    accessorKey: "estimated_value",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Est Value" />
-    ),
-    cell: ({ row }) => (
-      <div className="font-medium pr-2 text-right tabular-nums">
-        {formatToRoundedIndianRupee(row.original.estimated_value ?? 0)}
-      </div>
-    ),
-    size: 140,
-    meta: {
-      exportHeaderName: "Est Value",
-      exportValue: (row: ITMListRow) => parseNumber(row.estimated_value ?? 0) || 0,
-    },
-  },
-  {
-    accessorKey: "total_items",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Total Items" className="justify-end" />
-    ),
-    cell: ({ row }) => (
-      <div className="text-right pr-2 tabular-nums">{row.original.total_items ?? 0}</div>
-    ),
-    size: 110,
-    meta: {
-      exportHeaderName: "Total Items",
-      exportValue: (row: ITMListRow) => row.total_items ?? 0,
-    },
-  },
-  {
-    accessorKey: "total_quantity",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Total Qty" className="justify-end" />
-    ),
-    cell: ({ row }) => {
-      const qty = parseNumber(row.original.total_quantity ?? 0) || 0;
-      return <div className="text-right pr-2 tabular-nums">{qty.toFixed(2)}</div>;
-    },
-    size: 110,
-    meta: {
-      exportHeaderName: "Total Qty",
-      exportValue: (row: ITMListRow) => parseNumber(row.total_quantity ?? 0) || 0,
-    },
-  },
-  {
-    accessorKey: "creation",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Created On" />
-    ),
-    cell: ({ row }) => (
-      <div className="whitespace-nowrap">{formatDate(row.original.creation)}</div>
-    ),
-    size: 130,
-    meta: {
-      exportHeaderName: "Created On",
-      exportValue: (row: ITMListRow) => formatDate(row.creation),
-    },
-  },
-  {
-    accessorKey: "requested_by_full_name",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Created By" />
-    ),
-    cell: ({ row }) => (
-      <div className="truncate max-w-[180px]" title={row.original.requested_by_full_name || row.original.requested_by || ""}>
-        {row.original.requested_by_full_name || row.original.requested_by || row.original.owner || "--"}
-      </div>
-    ),
-    size: 180,
-    meta: {
-      exportHeaderName: "Created By",
-      exportValue: (row: ITMListRow) => row.requested_by_full_name || row.requested_by || row.owner || "",
-    },
-  },
-  ];
-}
+export const ITM_STATUS_FACET_OPTIONS: { label: string; value: string }[] = [
+  { label: "Approved", value: "Approved" },
+  { label: "Dispatched", value: "Dispatched" },
+  { label: "Partially Delivered", value: "Partially Delivered" },
+  { label: "Delivered", value: "Delivered" },
+];
 
 // ---- ITM-specific config (Transfer Memo tabs) ----
 
@@ -287,25 +122,6 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
     meta: {
       exportHeaderName: "ITM ID",
       exportValue: (row: ITMListRow) => row.name,
-    },
-  },
-  {
-    accessorKey: "transfer_request",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Request" />
-    ),
-    cell: ({ row }) => {
-      const val = row.original.transfer_request;
-      return val ? (
-        <span className="text-xs text-muted-foreground whitespace-nowrap">{val}</span>
-      ) : (
-        <span className="text-muted-foreground text-xs">—</span>
-      );
-    },
-    size: 140,
-    meta: {
-      exportHeaderName: "Request",
-      exportValue: (row: ITMListRow) => row.transfer_request || "",
     },
   },
   {
@@ -372,7 +188,11 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
   {
     accessorKey: "estimated_value",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Est Value" />
+      <DataTableColumnHeader
+        column={column}
+        title="Est Value"
+        className="flex-1 justify-end pr-2"
+      />
     ),
     cell: ({ row }) => (
       <div className="font-medium pr-2 text-right tabular-nums">
@@ -392,7 +212,7 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
       <DataTableColumnHeader
         column={column}
         title="Total Items"
-        className="justify-end"
+        className="flex-1 justify-end pr-2"
       />
     ),
     cell: ({ row }) => (
@@ -412,7 +232,7 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
       <DataTableColumnHeader
         column={column}
         title="Total Qty"
-        className="justify-end"
+        className="flex-1 justify-end pr-2"
       />
     ),
     cell: ({ row }) => {
@@ -475,16 +295,16 @@ export const itmListColumns: ColumnDef<ITMListRow>[] = [
 ];
 
 /**
- * Per-tab column visibility. Tabs whose name already implies the status
- * hide the Status column to avoid a wall of identical badges. "All
- * Requests" is the only tab where Status is meaningful, so it stays
- * visible there.
+ * Per-tab column visibility. Status is hidden where the tab name already
+ * implies the value (Approved / Dispatched / Partially Delivered / Delivered)
+ * and shown on the catch-all "All Requests" tab where rows span every status.
+ * Delete is intentionally not exposed in the list — it lives only on the ITM
+ * detail page.
  */
 export const itmTabColumnVisibility: Record<string, VisibilityState> = {
-  Pending: { status: false },
-  "All Requests": {},
-  Rejected: { status: false },
   Approved: { status: false },
   Dispatched: { status: false },
+  "Partially Delivered": { status: false },
   Delivered: { status: false },
+  All: {},
 };

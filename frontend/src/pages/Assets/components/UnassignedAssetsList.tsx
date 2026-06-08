@@ -10,6 +10,7 @@ import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useUserData } from '@/hooks/useUserData';
 import { Package, Hash, UserPlus } from 'lucide-react';
 
@@ -22,6 +23,7 @@ import {
     ASSET_DATE_COLUMNS,
     ASSET_CONDITION_OPTIONS,
     ASSET_CATEGORY_DOCTYPE,
+    AssetCategoryType,
 } from '../assets.constants';
 import { getAssetPermissions } from '../utils/permissions';
 
@@ -47,33 +49,122 @@ const conditionColorMap: Record<string, string> = {
 
 interface UnassignedAssetsListProps {
     onAssigned?: () => void;
+    assetType?: AssetCategoryType;
 }
 
-export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAssigned }) => {
+// Outer guard — blocks table mount until typed categoryList is loaded so the
+// inner useServerDataTable doesn't fire a racy first fetch with a placeholder.
+export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAssigned, assetType }) => {
+    const { data: categoryList, isLoading: categoryListLoading } = useFrappeGetDocList(
+        ASSET_CATEGORY_DOCTYPE,
+        {
+            fields: ['name', 'asset_category'],
+            filters: assetType ? [['category_type', '=', assetType]] : [],
+            orderBy: { field: 'asset_category', order: 'asc' },
+            limit: 0,
+        },
+        assetType ? `asset_categories_for_unassigned_filter_${assetType}` : 'asset_categories_for_unassigned_filter'
+    );
+
+    if (assetType && (categoryListLoading || !categoryList)) {
+        return <Skeleton className="h-96 w-full bg-gray-100" />;
+    }
+
+    return (
+        <UnassignedAssetsListInner
+            assetType={assetType}
+            categoryList={categoryList ?? []}
+            onAssigned={onAssigned}
+        />
+    );
+};
+
+interface UnassignedAssetsListInnerProps {
+    assetType?: AssetCategoryType;
+    categoryList: { name: string; asset_category: string }[];
+    onAssigned?: () => void;
+}
+
+const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
+    assetType,
+    categoryList,
+    onAssigned,
+}) => {
     const userData = useUserData();
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
     const [selectedAsset, setSelectedAsset] = useState<{ id: string; name: string } | null>(null);
 
-    // Fetch categories for facet filter
-    const { data: categoryList } = useFrappeGetDocList(
-        ASSET_CATEGORY_DOCTYPE,
-        {
-            fields: ['name', 'asset_category'],
-            orderBy: { field: 'asset_category', order: 'asc' },
-            limit: 0,
-        },
-        'asset_categories_for_unassigned_filter'
-    );
-
-    const categoryOptions = useMemo(() =>
-        categoryList?.map((cat: any) => ({
-            label: cat.asset_category,
-            value: cat.name,
-        })) || [],
+    const categoryNames = useMemo(
+        () => categoryList.map((c) => c.name),
         [categoryList]
     );
 
-    // Get granular permissions - canAssignAsset determines if user can assign unassigned assets
+    // Source for facets — all unassigned assets in the current type scope.
+    // `is not set` catches both NULL and ''; `in ["", null]` would drop
+    // nulls at the REST API boundary.
+    const facetSourceFilters = useMemo(() => {
+        const filters: any[] = [['current_assignee', 'is', 'not set']];
+        if (assetType) {
+            if (categoryNames.length === 0) filters.push(['asset_category', 'in', ['__none__']]);
+            else filters.push(['asset_category', 'in', categoryNames]);
+        }
+        return filters;
+    }, [assetType, categoryNames]);
+
+    const { data: facetSource } = useFrappeGetDocList<{
+        name: string;
+        asset_name: string;
+        asset_category: string;
+        asset_condition: string;
+    }>(
+        ASSET_MASTER_DOCTYPE,
+        {
+            fields: ['name', 'asset_name', 'asset_category', 'asset_condition'],
+            filters: facetSourceFilters,
+            limit: 0,
+        },
+        assetType ? `unassigned_facet_source_${assetType}` : 'unassigned_facet_source'
+    );
+
+    const facetCounts = useMemo(() => {
+        const counts = {
+            asset_name: new Map<string, number>(),
+            asset_category: new Map<string, number>(),
+            asset_condition: new Map<string, number>(),
+        };
+        (facetSource ?? []).forEach((row) => {
+            const n = row.asset_name?.trim();
+            if (n) counts.asset_name.set(n, (counts.asset_name.get(n) ?? 0) + 1);
+            if (row.asset_category) counts.asset_category.set(row.asset_category, (counts.asset_category.get(row.asset_category) ?? 0) + 1);
+            if (row.asset_condition) counts.asset_condition.set(row.asset_condition, (counts.asset_condition.get(row.asset_condition) ?? 0) + 1);
+        });
+        return counts;
+    }, [facetSource]);
+
+    const categoryOptions = useMemo(() =>
+        categoryList.map((cat) => ({
+            label: `${cat.asset_category} (${facetCounts.asset_category.get(cat.name) ?? 0})`,
+            value: cat.name,
+        })),
+        [categoryList, facetCounts]
+    );
+
+    const conditionOptions = useMemo(() =>
+        ASSET_CONDITION_OPTIONS.map((opt) => ({
+            label: `${opt.label} (${facetCounts.asset_condition.get(opt.value) ?? 0})`,
+            value: opt.value,
+        })),
+        [facetCounts]
+    );
+
+    const assetNameOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.asset_name.forEach((count, name) => {
+            opts.push({ label: `${name} (${count})`, value: name });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts]);
+
     const { canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
 
     const handleAssignClick = (asset: AssetMaster) => {
@@ -190,6 +281,21 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
         }] : []),
     ], [canAssignAsset]);
 
+    // Match the summary card's Unassigned filter so the table, the Asset
+    // Name facet, and the summary count all agree. Uses `is not set` (matches
+    // NULL or '') — `in ["", null]` would drop nulls at the REST API.
+    const additionalFilters = useMemo(() => {
+        const filters: any[] = [['current_assignee', 'is', 'not set']];
+        if (assetType) {
+            if (categoryNames.length === 0) {
+                filters.push(['asset_category', 'in', ['__none__']]);
+            } else {
+                filters.push(['asset_category', 'in', categoryNames]);
+            }
+        }
+        return filters;
+    }, [assetType, categoryNames]);
+
     const {
         table,
         totalCount,
@@ -208,21 +314,25 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
         fetchFields: ASSET_MASTER_FIELDS as unknown as string[],
         searchableFields: ASSET_SEARCHABLE_FIELDS,
         defaultSort: 'creation desc',
-        urlSyncKey: 'unassigned_assets',
+        urlSyncKey: assetType ? `unassigned_assets_${assetType.toLowerCase()}` : 'unassigned_assets',
         enableRowSelection: false,
-        additionalFilters: [['current_assignee', '=', '']],
+        additionalFilters,
     });
 
     const facetFilterOptions = useMemo(() => ({
+        asset_name: {
+            title: 'Asset Name',
+            options: assetNameOptions,
+        },
         asset_category: {
             title: 'Category',
             options: categoryOptions,
         },
         asset_condition: {
             title: 'Condition',
-            options: ASSET_CONDITION_OPTIONS,
+            options: conditionOptions,
         },
-    }), [categoryOptions]);
+    }), [assetNameOptions, categoryOptions, conditionOptions]);
 
     return (
         <>
@@ -243,7 +353,7 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
                 onExport="default"
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
-                exportFileName="unassigned_assets_data"
+                exportFileName={assetType ? `unassigned_${assetType.toLowerCase()}_assets_data` : 'unassigned_assets_data'}
                 showRowSelection={false}
             />
 

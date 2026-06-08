@@ -9,7 +9,8 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { Badge } from '@/components/ui/badge';
-import { Package, User, Hash, IndianRupee } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Package, User, Hash } from 'lucide-react';
 
 import {
     ASSET_MASTER_DOCTYPE,
@@ -18,6 +19,7 @@ import {
     ASSET_DATE_COLUMNS,
     ASSET_CONDITION_OPTIONS,
     ASSET_CATEGORY_DOCTYPE,
+    AssetCategoryType,
 } from '../assets.constants';
 
 interface AssetMaster {
@@ -47,16 +49,42 @@ const conditionColorMap: Record<string, string> = {
     'Damaged': 'bg-red-50 text-red-700 border-red-200',
 };
 
-export const AssetMasterList: React.FC = () => {
-    // Fetch categories for facet filter
-    const { data: categoryList } = useFrappeGetDocList(
+interface AssetMasterListProps {
+    assetType?: AssetCategoryType;
+}
+
+// Outer guard: resolves category names for the chosen type, then mounts the
+// inner table. Until the category list is loaded we render a skeleton — this
+// prevents useServerDataTable from firing a racy first fetch with a sentinel
+// (`__none__`) filter that returns 0 rows.
+export const AssetMasterList: React.FC<AssetMasterListProps> = ({ assetType }) => {
+    const { data: categoryList, isLoading: categoryListLoading } = useFrappeGetDocList(
         ASSET_CATEGORY_DOCTYPE,
         {
             fields: ['name', 'asset_category'],
+            filters: assetType ? [['category_type', '=', assetType]] : [],
             orderBy: { field: 'asset_category', order: 'asc' },
             limit: 0,
         },
-        'asset_categories_for_filter'
+        assetType ? `asset_categories_for_filter_${assetType}` : 'asset_categories_for_filter'
+    );
+
+    if (assetType && (categoryListLoading || !categoryList)) {
+        return <Skeleton className="h-96 w-full bg-gray-100" />;
+    }
+
+    return <AssetMasterListInner assetType={assetType} categoryList={categoryList ?? []} />;
+};
+
+interface AssetMasterListInnerProps {
+    assetType?: AssetCategoryType;
+    categoryList: { name: string; asset_category: string }[];
+}
+
+const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, categoryList }) => {
+    const categoryNames = useMemo(
+        () => categoryList.map((c) => c.name),
+        [categoryList]
     );
 
     // Fetch users for displaying assignee names
@@ -77,13 +105,86 @@ export const AssetMasterList: React.FC = () => {
         return map;
     }, [usersList]);
 
-    const categoryOptions = useMemo(() =>
-        categoryList?.map((cat: any) => ({
-            label: cat.asset_category,
-            value: cat.name,
-        })) || [],
-        [categoryList]
+    // Scope filter shared by the table query and the facet-options query so the
+    // table and its filter dropdowns see the same Project/IT-bound dataset.
+    const scopeFilter = useMemo(() => {
+        if (!assetType) return [];
+        if (categoryNames.length === 0) return [['asset_category', 'in', ['__none__']]];
+        return [['asset_category', 'in', categoryNames]];
+    }, [assetType, categoryNames]);
+
+    // Fetch all asset names + assignees + category + condition scoped to the
+    // current type, so we can build facet filter options that cover the
+    // entire dataset (not just the current page) and embed per-option counts.
+    const { data: facetSource } = useFrappeGetDocList<{
+        name: string;
+        asset_name: string;
+        current_assignee: string;
+        asset_category: string;
+        asset_condition: string;
+    }>(
+        ASSET_MASTER_DOCTYPE,
+        {
+            fields: ['name', 'asset_name', 'current_assignee', 'asset_category', 'asset_condition'],
+            filters: scopeFilter,
+            limit: 0,
+        },
+        assetType
+            ? `asset_master_facet_source_${assetType}`
+            : 'asset_master_facet_source'
     );
+
+    // Count occurrences per field value — drives the "(N)" suffix on each
+    // facet option (matches the Categories tab pattern).
+    const facetCounts = useMemo(() => {
+        const counts = {
+            asset_name: new Map<string, number>(),
+            current_assignee: new Map<string, number>(),
+            asset_category: new Map<string, number>(),
+            asset_condition: new Map<string, number>(),
+        };
+        (facetSource ?? []).forEach((row) => {
+            const n = row.asset_name?.trim();
+            if (n) counts.asset_name.set(n, (counts.asset_name.get(n) ?? 0) + 1);
+            if (row.current_assignee) counts.current_assignee.set(row.current_assignee, (counts.current_assignee.get(row.current_assignee) ?? 0) + 1);
+            if (row.asset_category) counts.asset_category.set(row.asset_category, (counts.asset_category.get(row.asset_category) ?? 0) + 1);
+            if (row.asset_condition) counts.asset_condition.set(row.asset_condition, (counts.asset_condition.get(row.asset_condition) ?? 0) + 1);
+        });
+        return counts;
+    }, [facetSource]);
+
+    const categoryOptions = useMemo(() =>
+        categoryList.map((cat) => ({
+            label: `${cat.asset_category} (${facetCounts.asset_category.get(cat.name) ?? 0})`,
+            value: cat.name,
+        })),
+        [categoryList, facetCounts]
+    );
+
+    const conditionOptions = useMemo(() =>
+        ASSET_CONDITION_OPTIONS.map((opt) => ({
+            label: `${opt.label} (${facetCounts.asset_condition.get(opt.value) ?? 0})`,
+            value: opt.value,
+        })),
+        [facetCounts]
+    );
+
+    const assetNameOptions = useMemo(() => {
+        const opts: { label: string; value: string; count: number }[] = [];
+        facetCounts.asset_name.forEach((count, name) => {
+            opts.push({ label: `${name} (${count})`, value: name, count });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts]);
+
+    const assigneeOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.current_assignee.forEach((count, userId) => {
+            const name = usersMap[userId] || userId;
+            opts.push({ label: `${name} (${count})`, value: userId });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts, usersMap]);
 
     const columns = useMemo<ColumnDef<AssetMaster>[]>(() => [
         {
@@ -243,6 +344,8 @@ export const AssetMasterList: React.FC = () => {
         },
     ], [usersMap]);
 
+    const additionalFilters = scopeFilter;
+
     const {
         table,
         totalCount,
@@ -260,20 +363,29 @@ export const AssetMasterList: React.FC = () => {
         fetchFields: ASSET_MASTER_FIELDS as unknown as string[],
         searchableFields: ASSET_SEARCHABLE_FIELDS,
         defaultSort: 'creation desc',
-        urlSyncKey: 'asset_master',
+        urlSyncKey: assetType ? `asset_master_${assetType.toLowerCase()}` : 'asset_master',
         enableRowSelection: false,
+        additionalFilters,
     });
 
     const facetFilterOptions = useMemo(() => ({
+        asset_name: {
+            title: 'Asset Name',
+            options: assetNameOptions,
+        },
         asset_category: {
             title: 'Category',
             options: categoryOptions,
         },
         asset_condition: {
             title: 'Condition',
-            options: ASSET_CONDITION_OPTIONS,
+            options: conditionOptions,
         },
-    }), [categoryOptions]);
+        current_assignee: {
+            title: 'Assignee',
+            options: assigneeOptions,
+        },
+    }), [assetNameOptions, categoryOptions, conditionOptions, assigneeOptions]);
 
     return (
         <DataTable<AssetMaster>
@@ -293,7 +405,7 @@ export const AssetMasterList: React.FC = () => {
             onExport="default"
             onExportAll={exportAllRows}
             isExporting={isExporting}
-            exportFileName="asset_master_data"
+            exportFileName={assetType ? `asset_master_${assetType.toLowerCase()}_data` : 'asset_master_data'}
             showRowSelection={false}
         />
     );

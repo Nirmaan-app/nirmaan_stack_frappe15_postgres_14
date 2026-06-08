@@ -19,6 +19,56 @@ import SITEURL from "@/constants/siteURL";
 import { parseNumber } from "@/utils/parseNumber";
 
 /**
+ * Maps Document AI entity types (snake_case) to human-readable labels.
+ */
+const ENTITY_LABELS: Record<string, string> = {
+    invoice_id: "Invoice Number",
+    invoice_number: "Invoice Number",
+    invoice_date: "Invoice Date",
+    total_amount: "Total Amount",
+    net_amount: "Net Amount",
+    total_tax_amount: "Total Tax Amount",
+    amount_due: "Amount Due",
+    supplier_name: "Supplier Name",
+    supplier_gstin: "Supplier GSTIN",
+    receiver_gstin: "Receiver GSTIN",
+    purchase_order: "Purchase Order",
+    due_date: "Due Date",
+    currency: "Currency",
+};
+
+const ACRONYMS = new Set(["gstin", "po", "wo", "pr", "sr", "id", "no"]);
+
+const humanizeEntityType = (type: string): string => {
+    if (ENTITY_LABELS[type]) return ENTITY_LABELS[type];
+    return type
+        .split(/[_\s]+/)
+        .filter(Boolean)
+        .map((word) => {
+            const lower = word.toLowerCase();
+            if (ACRONYMS.has(lower)) return lower.toUpperCase();
+            return lower.charAt(0).toUpperCase() + lower.slice(1);
+        })
+        .join(" ");
+};
+
+const formatEntityValue = (type: string, value: string): string => {
+    if (!value) return value;
+    // Format date-like fields as dd-MMM-yyyy (project standard).
+    if (/date/i.test(type)) {
+        const d = new Date(value);
+        if (!isNaN(d.getTime())) {
+            try {
+                return formatDate(d, "dd-MMM-yyyy");
+            } catch {
+                // fall through and return raw value
+            }
+        }
+    }
+    return value;
+};
+
+/**
  * Renders a small info icon that, on hover, displays all entities Document AI
  * extracted for an invoice (type, value, confidence). Only rendered when the
  * invoice was actually created via autofill.
@@ -72,13 +122,15 @@ const AutofillEntitiesHoverCard: React.FC<{ invoice: VendorInvoice }> = ({ invoi
                                         : conf >= 0.7
                                             ? "text-amber-700"
                                             : "text-red-700";
+                                const label = humanizeEntityType(entity.type);
+                                const displayValue = formatEntityValue(entity.type, entity.value);
                                 return (
                                     <tr key={i} className="border-t border-gray-100">
-                                        <td className="px-3 py-1.5 font-mono text-[11px] text-gray-600 align-top">
-                                            {entity.type}
+                                        <td className="px-3 py-1.5 text-[11px] text-gray-700 align-top">
+                                            {label}
                                         </td>
                                         <td className="px-3 py-1.5 text-gray-900 break-words">
-                                            {entity.value || <span className="text-gray-400 italic">empty</span>}
+                                            {displayValue || <span className="text-gray-400 italic">empty</span>}
                                         </td>
                                         <td className={`px-3 py-1.5 text-right font-mono ${confColor}`}>
                                             {(conf * 100).toFixed(0)}%
@@ -102,7 +154,11 @@ const getCommonColumns = (
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getAmount?: (orderId: string, statuses: string[]) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
-    getVendorName?: (orderId: string, type: string) => string
+    getVendorName?: (orderId: string, type: string) => string,
+    // Returns sum of `invoice_amount` for all Vendor Invoices with same parent
+    // (document_type + document_name) AND status in ['Pending', 'Approved'].
+    // Same scope as `_existing_invoiced_sum` used by autofill validation.
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
         {
             accessorKey: "document_name",
@@ -251,14 +307,49 @@ const getCommonColumns = (
         },
         {
             accessorKey: "invoice_amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Amt (incl. GST)" />,
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight inline-block">Invoice Amt<br />(incl. GST)</span>}
+                />
+            ),
             cell: ({ row }) => (
                 <div>{formatToRoundedIndianRupee(parseNumber(row.original.invoice_amount))}</div>
             ),
+            size: 150,
             sortingFn: 'alphanumeric',
             meta: {
                 exportHeaderName: "Invoice Amt (incl. GST)",
                 exportValue: (row: VendorInvoice) => row.invoice_amount
+            }
+        },
+        {
+            // Running total invoiced against this row's parent PO/SR — sum of
+            // invoice_amount for all Pending+Approved invoices with same
+            // (document_type + document_name). Same value across all rows of
+            // the same parent, matches `_existing_invoiced_sum` used by autofill
+            // validation. Reviewers can compare this against the PO total to
+            // see how much of the order has been invoiced so far.
+            id: "total_invoiced_for_parent",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Total" />,
+            cell: ({ row }) => {
+                if (!getTotalInvoiced) {
+                    return <span className="text-gray-400 italic">—</span>;
+                }
+                const total = getTotalInvoiced(row.original.document_name, row.original.document_type);
+                if (!total) {
+                    return <span className="text-gray-400 italic">—</span>;
+                }
+                return <div>{formatToRoundedIndianRupee(total)}</div>;
+            },
+            size: 160,
+            enableSorting: false,
+            meta: {
+                exportHeaderName: "Invoice Total (Pending + Approved)",
+                exportValue: (row: VendorInvoice) =>
+                    getTotalInvoiced
+                        ? getTotalInvoiced(row.document_name, row.document_type)
+                        : ""
             }
         },
         {
@@ -291,9 +382,10 @@ export const getPendingTaskColumns = (
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getAmount?: (orderId: string, statuses: string[]) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
-    getVendorName?: (orderId: string, type: string) => string
+    getVendorName?: (orderId: string, type: string) => string,
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -357,9 +449,10 @@ export const getTaskHistoryColumns = (
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getAmount?: (orderId: string, statuses: string[]) => number,
-    getVendorName?: (orderId: string, type: string) => string
+    getVendorName?: (orderId: string, type: string) => string,
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -382,11 +475,20 @@ export const getTaskHistoryColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Actioned By" />,
             cell: ({ row }) => {
                 if (row.original.status === "Pending") return <div>N/A</div>;
+                // Auto-approved invoices have approved_by = "System". Surface
+                // the "(Auto)" suffix inline instead of a separate column so
+                // reviewers can see at a glance that the system stamped it.
+                if (row.original.approved_by === "System") {
+                    return <div>System (Auto)</div>;
+                }
                 return <div>{getUserName(row.original.approved_by) || 'Administrator'}</div>;
             },
             meta: {
                 exportHeaderName: "Actioned By",
-                exportValue: (row: VendorInvoice) => getUserName(row.approved_by) || 'Administrator'
+                exportValue: (row: VendorInvoice) =>
+                    row.approved_by === "System"
+                        ? "System (Auto)"
+                        : getUserName(row.approved_by) || 'Administrator'
             }
         },
         {

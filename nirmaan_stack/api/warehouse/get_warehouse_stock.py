@@ -3,11 +3,12 @@ List endpoint for per-item warehouse stock.
 
 Conforms to the standard envelope consumed by ``useServerDataTable`` so the
 frontend can sort/filter/search/paginate server-side, matching the pattern
-used by ``get_itms_list`` / ``get_itrs_list``.
+used by ``get_itms_list``.
 
 On-hand stock is read from ``Warehouse Stock Item`` (updated by ITM delivery
 for inward, ITM dispatch for outward). Reservations come from Approved ITMs
-not yet dispatched and Pending/Approved ITRs from warehouse.
+sourcing the warehouse — once dispatched, the row drops out of the reservation
+sum and the on-hand quantity is decremented in the same transaction.
 """
 
 import json
@@ -158,25 +159,14 @@ def get_warehouse_stock(
 	# --- Main query (data + computed columns) ---
 	data_sql = f"""
 		WITH itm_approved AS (
+			-- Approved ITMs sourcing the warehouse (not yet dispatched).
+			-- Single reservation source — ITR has been collapsed into ITM.
 			SELECT itmi.item_id, itmi.make, SUM(itmi.transfer_quantity) AS reserved_itm
 			FROM "tabInternal Transfer Memo Item" itmi
 			JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
 			WHERE itm.source_type = 'Warehouse'
 			  AND itm.status = 'Approved'
 			GROUP BY itmi.item_id, itmi.make
-		),
-		itr_reserved AS (
-			SELECT itri.item_id, itri.make, SUM(itri.transfer_quantity) AS reserved_itr
-			FROM "tabInternal Transfer Request Item" itri
-			JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
-			WHERE itr.source_type = 'Warehouse'
-			  AND itri.status IN ('Pending', 'Approved')
-			  AND NOT EXISTS (
-			      SELECT 1 FROM "tabInternal Transfer Memo" itm_chk
-			      WHERE itm_chk.name = itri.linked_itm
-			        AND itm_chk.status IN ('Approved', 'Dispatched', 'Partially Delivered', 'Delivered')
-			  )
-			GROUP BY itri.item_id, itri.make
 		),
 		base AS (
 			SELECT
@@ -190,12 +180,11 @@ def get_warehouse_stock(
 				wsi.estimated_rate,
 				wsi.creation,
 				wsi.modified,
-				(COALESCE(a.reserved_itm, 0) + COALESCE(r.reserved_itr, 0)) AS total_reserved,
-				GREATEST(wsi.quantity - COALESCE(a.reserved_itm, 0) - COALESCE(r.reserved_itr, 0), 0) AS available_quantity,
+				COALESCE(a.reserved_itm, 0) AS total_reserved,
+				GREATEST(wsi.quantity - COALESCE(a.reserved_itm, 0), 0) AS available_quantity,
 				(wsi.quantity * wsi.estimated_rate) AS estimated_value
 			FROM "tabWarehouse Stock Item" wsi
 			LEFT JOIN itm_approved a ON a.item_id = wsi.item_id AND a.make IS NOT DISTINCT FROM wsi.make
-			LEFT JOIN itr_reserved r ON r.item_id = wsi.item_id AND r.make IS NOT DISTINCT FROM wsi.make
 		)
 		SELECT *
 		FROM base w
@@ -211,25 +200,14 @@ def get_warehouse_stock(
 	# --- Count query (share WHERE, drop pagination args) ---
 	count_sql = f"""
 		WITH itm_approved AS (
+			-- Approved ITMs sourcing the warehouse (not yet dispatched).
+			-- Single reservation source — ITR has been collapsed into ITM.
 			SELECT itmi.item_id, itmi.make, SUM(itmi.transfer_quantity) AS reserved_itm
 			FROM "tabInternal Transfer Memo Item" itmi
 			JOIN "tabInternal Transfer Memo" itm ON itmi.parent = itm.name
 			WHERE itm.source_type = 'Warehouse'
 			  AND itm.status = 'Approved'
 			GROUP BY itmi.item_id, itmi.make
-		),
-		itr_reserved AS (
-			SELECT itri.item_id, itri.make, SUM(itri.transfer_quantity) AS reserved_itr
-			FROM "tabInternal Transfer Request Item" itri
-			JOIN "tabInternal Transfer Request" itr ON itri.parent = itr.name
-			WHERE itr.source_type = 'Warehouse'
-			  AND itri.status IN ('Pending', 'Approved')
-			  AND NOT EXISTS (
-			      SELECT 1 FROM "tabInternal Transfer Memo" itm_chk
-			      WHERE itm_chk.name = itri.linked_itm
-			        AND itm_chk.status IN ('Approved', 'Dispatched', 'Partially Delivered', 'Delivered')
-			  )
-			GROUP BY itri.item_id, itri.make
 		),
 		base AS (
 			SELECT
@@ -243,12 +221,11 @@ def get_warehouse_stock(
 				wsi.estimated_rate,
 				wsi.creation,
 				wsi.modified,
-				(COALESCE(a.reserved_itm, 0) + COALESCE(r.reserved_itr, 0)) AS total_reserved,
-				GREATEST(wsi.quantity - COALESCE(a.reserved_itm, 0) - COALESCE(r.reserved_itr, 0), 0) AS available_quantity,
+				COALESCE(a.reserved_itm, 0) AS total_reserved,
+				GREATEST(wsi.quantity - COALESCE(a.reserved_itm, 0), 0) AS available_quantity,
 				(wsi.quantity * wsi.estimated_rate) AS estimated_value
 			FROM "tabWarehouse Stock Item" wsi
 			LEFT JOIN itm_approved a ON a.item_id = wsi.item_id AND a.make IS NOT DISTINCT FROM wsi.make
-			LEFT JOIN itr_reserved r ON r.item_id = wsi.item_id AND r.make IS NOT DISTINCT FROM wsi.make
 		)
 		SELECT COUNT(*)
 		FROM base w

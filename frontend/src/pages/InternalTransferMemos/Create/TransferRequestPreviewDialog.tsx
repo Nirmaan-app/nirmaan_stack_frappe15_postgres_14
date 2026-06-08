@@ -57,11 +57,11 @@ export function TransferRequestPreviewDialog({
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
-                Transfer Request Preview
+                Transfer Memo Preview
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Review the transfer requests grouped by source project before
-                creating formal transfer documents.
+                Review the transfer memos grouped by source project before
+                creating them. Each memo will be created in <span className="font-semibold">Approved</span> status, ready to dispatch.
               </p>
             </div>
             <div className="text-right shrink-0">
@@ -89,7 +89,7 @@ export function TransferRequestPreviewDialog({
                 className="rounded-md border bg-card p-4 space-y-2"
               >
                 <Badge variant="secondary" className="text-[10px]">
-                  Transfer Request {idx + 1}
+                  Transfer Memo {idx + 1}
                 </Badge>
                 <p className="font-bold text-sm flex items-center gap-2 flex-wrap">
                   <span>{grp.source_project_name}</span>
@@ -134,15 +134,15 @@ export function TransferRequestPreviewDialog({
           </Button>
           <p className="text-center text-xs text-muted-foreground flex-1">
             This will generate{" "}
-            <span className="font-semibold">{docCount}</span> formal transfer
-            document{docCount === 1 ? "" : "s"}
+            <span className="font-semibold">{docCount}</span> transfer
+            memo{docCount === 1 ? "" : "s"}
           </p>
           <Button
             onClick={onConfirm}
             disabled={isSubmitting || docCount === 0}
             className="gap-2"
           >
-            {isSubmitting ? "Creating..." : "Create Transfer Request"}
+            {isSubmitting ? "Creating..." : "Create Transfer Memos"}
             {!isSubmitting && <ArrowRight className="h-4 w-4" />}
           </Button>
         </DialogFooter>
