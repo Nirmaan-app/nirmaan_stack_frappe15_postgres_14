@@ -13,6 +13,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { CardListSkeleton } from "@/components/ui/skeleton";
 import { TaskWiseTable } from "./components/TaskWiseTable";
 import { DEFAULT_PROJECT_STATUS_FILTER } from "@/components/common/projectStatus";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 const PMO_TABS = {
   PROJECT_WISE: "project",
@@ -377,11 +378,13 @@ const PMODashboardList: React.FC = () => {
                   onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
                   className={`
                   group flex flex-col justify-between
-                  border bg-white rounded-xl
+                  border rounded-xl
                   transition-all duration-300 ease-in-out
                   hover:shadow-md hover:border-blue-400
                   cursor-pointer h-full min-h-[220px]
-                  border-gray-200
+                  ${project.status === 'CEO Hold'
+                    ? 'border-red-300 bg-red-50 hover:bg-red-100'
+                    : 'border-gray-200 bg-white'}
                 `}
                 >
                   <div className="p-4 flex flex-col h-full relative">
@@ -392,9 +395,7 @@ const PMODashboardList: React.FC = () => {
                           <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
                             {project.project_name || project.name}
                           </h3>
-                          <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-100 shadow-sm leading-none shrink-0">
-                            {project.status}
-                          </span>
+                          <ProjectStatusBadge status={project.status} />
                         </div>
                       </div>
                       <ProgressCircle
@@ -491,7 +492,7 @@ const PMODashboardList: React.FC = () => {
                       <div
                         key={project.name}
                         onClick={() => navigate(`/pmo-dashboard/${project.name}`)}
-                        className="group flex flex-col justify-between border border-orange-300 bg-orange-50/30 rounded-xl transition-all duration-300 ease-in-out hover:shadow-md hover:border-blue-400 cursor-pointer h-full min-h-[220px]"
+                        className={`group flex flex-col justify-between border rounded-xl transition-all duration-300 ease-in-out hover:shadow-md hover:border-blue-400 cursor-pointer h-full min-h-[220px] ${project.status === 'CEO Hold' ? 'border-red-300 bg-red-50 hover:bg-red-100' : 'border-orange-300 bg-orange-50/30'}`}
                       >
                         <div className="p-4 flex flex-col h-full relative">
                           {/* Card Header */}
