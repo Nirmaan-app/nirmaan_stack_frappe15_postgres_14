@@ -10,6 +10,11 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 
+# Payments strictly below this auto-approve straight to "Approved",
+# bypassing the Requested → CEO Pending → Approved gates.
+# Separate from PO_REVISION_AUTO_APPROVAL_THRESHOLD so the two can diverge.
+PAYMENT_AUTO_APPROVAL_THRESHOLD = 5000.0
+
 @frappe.whitelist()
 def create_payment_request_for_service(data: str) -> str:
     """
@@ -57,6 +62,10 @@ def create_payment_request_for_service(data: str) -> str:
         ).format(frappe.format_value(available, "Currency")))
 
     # ── create payment doc  (ACID wrapper) ─────────────────────────
+    # Small payments auto-approve; negative refunds (amount < 0) always go
+    # through manual review, hence the strict `0 < amount` lower bound.
+    auto_approve = 0 < amount < PAYMENT_AUTO_APPROVAL_THRESHOLD
+
     pay = frappe.new_doc("Project Payments")
     pay.update({
         "document_type" : doctype,
@@ -64,9 +73,17 @@ def create_payment_request_for_service(data: str) -> str:
         "project"       : src.project,
         "vendor"        : src.vendor,
         "amount"        : round(amount),
-        "status"        : "Requested",
+        "status"        : "Approved" if auto_approve else "Requested",
     })
+    if auto_approve:
+        pay.approval_date = nowdate()
+        pay.ceo_approval_date = nowdate()
     pay.insert()
+
+    if auto_approve:
+        pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
+            frappe.format_value(PAYMENT_AUTO_APPROVAL_THRESHOLD, "Currency")))
+
     frappe.db.commit()
 
     return frappe.as_json({"name": pay.name})
@@ -136,7 +153,9 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
                 "Maximum amount you can request is {0} (available balance)"
             ).format(frappe.format_value(available, "Currency")))
 
-        # --- Step 4: Create the payment document ---
+        # --- Step 4: Create the payment document (small ones skip both gates) ---
+        auto_approve = 0 < amount < PAYMENT_AUTO_APPROVAL_THRESHOLD
+
         pay = frappe.new_doc("Project Payments")
         pay.update({
             "document_type": doctype,
@@ -144,19 +163,27 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
             "project": project,
             "vendor": vendor,
             "amount": round(amount, 2),
-            "status": "Requested",
+            "status": "Approved" if auto_approve else "Requested",
         })
+        if auto_approve:
+            pay.approval_date = nowdate()
+            pay.ceo_approval_date = nowdate()   # both gates cleared by the rule
 
-        # This insert will trigger the 'after_insert' hook for notifications.
+        # This insert will trigger the 'after_insert' hook, which routes
+        # notifications by status (auto-approved → accountants + admin record note).
         pay.insert(ignore_permissions=True)
 
-        # --- Step 5: Update the PO Payment Term row with the link ---
-        # This establishes the bidirectional relationship
+        if auto_approve:
+            pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
+                frappe.format_value(PAYMENT_AUTO_APPROVAL_THRESHOLD, "Currency")))
+
+        # --- Step 5: Update the PO Payment Term row, mirroring the payment status ---
+        # This establishes the bidirectional relationship.
         frappe.db.set_value(
             "PO Payment Terms",
             ptname,
             {
-                "term_status": "Requested",
+                "term_status": "Approved" if auto_approve else "Requested",
                 "project_payment": pay.name
             }
         )

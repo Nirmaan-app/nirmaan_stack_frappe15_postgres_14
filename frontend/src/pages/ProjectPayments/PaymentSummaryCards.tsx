@@ -230,6 +230,13 @@ interface PaymentStats {
     payment_done_today_amount: number;
     payment_done_7_days: number;
     payment_done_7_days_amount: number;
+    // --- Cash flow (last 30 days) ---
+    total_inflow_30_days_count: number;
+    total_inflow_30_days_amount: number;
+    total_project_outflow_30_days_count: number;
+    total_project_outflow_30_days_amount: number;
+    total_non_project_expense_30_days_count: number;
+    total_non_project_expense_30_days_amount: number;
 }
 
 const formatToRoundedIndianRupee = (value: number) =>
@@ -273,6 +280,8 @@ const getAccent = (type: string) => {
 };
 
 const getHoverText = (label: string) => {
+    if (label.includes("Total Inflow")) return "Total money received (Project Inflows) in the last 30 days.";
+    if (label.includes("Total Outflow")) return "Total money paid out in the last 30 days — project payments (PO/WO) plus non-project expenses.";
     if (label.includes("Pending Payment Request")) return "Payments Requested but not yet Approved.";
     if (label.includes("Pending Payment Approval")) return "All payments awaiting an approval gate (Requested + CEO Pending).";
     if (label.includes("Total Payment Due")) return "Total amount of all payments not yet Paid.";
@@ -346,7 +355,8 @@ const BreakdownRow: React.FC<{
     labelLong?: string;
     amount: number;
     count: number;
-}> = ({ tone, label, labelLong, amount, count }) => {
+    amountClassName?: string;
+}> = ({ tone, label, labelLong, amount, count, amountClassName = "text-slate-900 dark:text-slate-100" }) => {
     const c = TONE_CLASSES[tone];
     return (
         <div className="grid grid-cols-[auto,1fr,auto] gap-x-2 items-center text-[11px]">
@@ -366,7 +376,7 @@ const BreakdownRow: React.FC<{
                     ({count})
                 </span>
             </div>
-            <span className="text-slate-900 dark:text-slate-100 tabular-nums font-semibold whitespace-nowrap">
+            <span className={`tabular-nums font-semibold whitespace-nowrap ${amountClassName}`}>
                 {formatToRoundedIndianRupee(amount)}
             </span>
         </div>
@@ -421,6 +431,13 @@ const RecentActivityTile: React.FC<{
     paidTodayCount: number;
     paid7dAmount: number;
     paid7dCount: number;
+    // Cash flow (last 30 days)
+    inflowAmount: number;
+    inflowCount: number;
+    projectOutflowAmount: number;
+    projectOutflowCount: number;
+    nonProjectOutflowAmount: number;
+    nonProjectOutflowCount: number;
 }> = ({
     l1TodayAmount, l1TodayCount,
     ceoTodayAmount, ceoTodayCount,
@@ -428,6 +445,9 @@ const RecentActivityTile: React.FC<{
     ceo7dAmount, ceo7dCount,
     paidTodayAmount, paidTodayCount,
     paid7dAmount, paid7dCount,
+    inflowAmount, inflowCount,
+    projectOutflowAmount, projectOutflowCount,
+    nonProjectOutflowAmount, nonProjectOutflowCount,
 }) => (
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex h-full">
             <div className="w-1 shrink-0 bg-emerald-500 dark:bg-emerald-600" />
@@ -449,29 +469,38 @@ const RecentActivityTile: React.FC<{
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-slate-200 dark:divide-slate-700 gap-y-2">
                     {/* TODAY column */}
                     <div className="space-y-1 sm:pr-4">
-
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Approved<span className="lg:hidden"> Today</span>
-                        </div>
                         <BreakdownRow tone="amber" label="L1" labelLong="L1 Approval Today" amount={l1TodayAmount} count={l1TodayCount} />
                         <BreakdownRow tone="blue" label="CEO" labelLong="CEO Approval Today" amount={ceoTodayAmount} count={ceoTodayCount} />
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500 pt-1">
-                            Paid<span className="lg:hidden"> Today</span>
-                        </div>
+                        <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid Today" amount={paidTodayAmount} count={paidTodayCount} />
                     </div>
                     {/* 7 DAYS column */}
                     <div className="space-y-1 sm:pl-4">
-
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Approved<span className="lg:hidden"> (7 Days)</span>
-                        </div>
                         <BreakdownRow tone="amber" label="L1" labelLong="L1 Approval (7 days)" amount={l17dAmount} count={l17dCount} />
                         <BreakdownRow tone="blue" label="CEO" labelLong="CEO Approval (7 days)" amount={ceo7dAmount} count={ceo7dCount} />
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500 pt-1">
-                            Paid<span className="lg:hidden"> (7 Days)</span>
-                        </div>
+                        <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid (7 days)" amount={paid7dAmount} count={paid7dCount} />
+                    </div>
+                </div>
+                {/* Cash flow (last 30 days) — Inflow | Outflow (project PO/WO + non-project) */}
+                <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-slate-200 dark:divide-slate-700 gap-y-2">
+                        {/* INFLOW */}
+                        <div className="space-y-1 sm:pr-4">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Inflow (30 Days)</div>
+                            <BreakdownRow tone="emerald" label="Inflow" labelLong="Total Inflow" amount={inflowAmount} count={inflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        {/* OUTFLOW */}
+                        <div className="space-y-1 sm:pl-4">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Outflow (30 Days)</span>
+                                <span className="text-[11px] font-bold tabular-nums text-primary whitespace-nowrap">
+                                    {formatToRoundedIndianRupee(projectOutflowAmount + nonProjectOutflowAmount)}
+                                </span>
+                            </div>
+                            <BreakdownRow tone="red" label="Project" labelLong="Project (PO+WO + Exp)" amount={projectOutflowAmount} count={projectOutflowCount} amountClassName="text-primary" />
+                            <BreakdownRow tone="amber" label="Non-Project" labelLong="Non-Project Expense" amount={nonProjectOutflowAmount} count={nonProjectOutflowCount} amountClassName="text-primary" />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -602,6 +631,21 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                             </span>
                         </div>
                     </div>
+                    {/* Cash flow (last 30 days) */}
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                        <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-2 border border-emerald-100 dark:border-emerald-900/50">
+                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Inflow (30d)</span>
+                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_inflow_30_days_amount)}
+                            </span>
+                        </div>
+                        <div className="bg-red-50 dark:bg-red-950/30 rounded-md p-2 border border-red-100 dark:border-red-900/50">
+                            <span className="text-[9px] font-medium text-red-600 dark:text-red-400 uppercase block">Outflow (30d)</span>
+                            <span className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_project_outflow_30_days_amount + stats.total_non_project_expense_30_days_amount)}
+                            </span>
+                        </div>
+                    </div>
                 </CardContent>
             </div>
 
@@ -648,6 +692,12 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 paidTodayCount={stats.payment_done_today}
                                 paid7dAmount={stats.payment_done_7_days_amount}
                                 paid7dCount={stats.payment_done_7_days}
+                                inflowAmount={stats.total_inflow_30_days_amount}
+                                inflowCount={stats.total_inflow_30_days_count}
+                                projectOutflowAmount={stats.total_project_outflow_30_days_amount}
+                                projectOutflowCount={stats.total_project_outflow_30_days_count}
+                                nonProjectOutflowAmount={stats.total_non_project_expense_30_days_amount}
+                                nonProjectOutflowCount={stats.total_non_project_expense_30_days_count}
                             />
                         </div>
                     </div>

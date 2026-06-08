@@ -6,6 +6,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { CriticalPOTasksTab } from "@/pages/projects/CriticalPOTasks/CriticalPOTasksTab";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
 const CriticalPOTrackerDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -47,6 +48,11 @@ const CriticalPOTrackerDetail: React.FC = () => {
           <p className="text-sm text-gray-500">Critical PO Tasks</p>
         </div>
       </div>
+
+      {/* CEO Hold guard banner */}
+      {project.status === "CEO Hold" && (
+        <CEOHoldBanner heldBy={project.ceo_hold_by} />
+      )}
 
       {/* Critical PO Tasks Content - Reuse existing component */}
       <CriticalPOTasksTab

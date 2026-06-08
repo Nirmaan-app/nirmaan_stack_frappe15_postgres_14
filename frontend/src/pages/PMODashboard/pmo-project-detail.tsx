@@ -22,6 +22,8 @@ import EditTaskModal from "./components/EditTaskModal";
 import { AssignPMODialog } from "./components/AssignPMODialog";
 import TaskHistoryDrawer from "./components/TaskHistoryDrawer";
 import { parseAssignedFromField, type AssignedPMODetail } from "./utils";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 interface TaskItem {
   name: string;
@@ -504,6 +506,11 @@ const PMOProjectDetail: React.FC = () => {
         </span>
       </div> */}
 
+      {/* CEO Hold guard banner */}
+      {project?.status === "CEO Hold" && (
+        <CEOHoldBanner className="mb-6" heldBy={project?.ceo_hold_by} />
+      )}
+
       {/* Project Info Card */}
       <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="px-6 py-6">
@@ -511,11 +518,7 @@ const PMOProjectDetail: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900">
               {project?.project_name || projectId}
             </h1>
-            {project?.status && (
-              <span className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-                {project.status}
-              </span>
-            )}
+            <ProjectStatusBadge status={project?.status} />
           </div>
         </div>
 
