@@ -44,8 +44,8 @@ export interface CommissionReportTask {
     // a row only has them set after the wizard is submitted at least once.
     response_data?: string;            // JSON string. Parse on read.
     response_snapshot_id?: string;     // SHA-256 docname → Commission Report Template Snapshot
-    response_filled_at?: string;       // Datetime ISO
-    response_report_type?: string;       // User id
+    response_filled_at?: string;       // Datetime ISO — stamped on first submit
+    response_filled_by?: string;       // Link to User — who first filled the report
 
     // Other fields to preserve
     sort_order: number;
