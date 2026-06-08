@@ -731,6 +731,10 @@ export const appRoutes: RouteObject[] = [
           // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
           { path: "upload-boq/hub/:boqId/review/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetReviewPage") },
 
+          // TEMPORARY dev harness for Slice 1a live-cert -- REMOVE in Slice 1b.
+          // Exercises SheetSearchView in isolation on real data; not linked from any UI.
+          { path: "upload-boq/_dev-sheetview/:boqId/:sheetName", lazy: () => import("@/pages/boq-wizard/_DevSheetSearchHarness") },
+
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
           // Commented out routes from original:
