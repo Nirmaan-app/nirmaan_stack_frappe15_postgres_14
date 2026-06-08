@@ -62,13 +62,14 @@ import {
 
 // --- Zod Schemas ---
 const categoryFormSchema = z.object({
-    category_name: z.string().min(1, "Category Name is required."),
+    // .trim() normalizes the value so leading/trailing spaces are never saved.
+    category_name: z.string().trim().min(1, "Category Name is required."),
     work_package_link: z.string().min(1, "Work Package is required."),
 });
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
 const taskFormSchema = z.object({
-    task_name: z.string().min(1, "Task Name is required."),
+    task_name: z.string().trim().min(1, "Task Name is required."),
     deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
     report_type: z.enum(['Field', 'Vendor']).default('Field'),
 });

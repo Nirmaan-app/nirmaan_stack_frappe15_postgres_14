@@ -311,34 +311,6 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                         />
                     </div>
 
-                    {/* Assign */}
-                    <div className="space-y-1">
-                        <Label htmlFor="designer" className="text-xs font-medium">Assign</Label>
-                        <ReactSelect
-                            isMulti
-                            value={selectedDesigners}
-                            options={designerOptions}
-                            onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
-                            placeholder="Select assignees..."
-                            classNamePrefix="react-select"
-                            formatOptionLabel={(option) => (
-                                <div>
-                                    {option.userName}
-                                    {option.roleLabel && (
-                                        <span className="text-red-700 font-light">
-                                            {" "}({option.roleLabel})
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                            getOptionLabel={(option) => option.searchableLabel || option.userName}
-                            styles={{
-                                control: (base) => ({ ...base, minHeight: '36px', fontSize: '14px' }),
-                                option: (base) => ({ ...base, fontSize: '14px' })
-                            }}
-                        />
-                    </div>
-
                     {/* Filled By */}
                     <div className="space-y-1">
                         <Label htmlFor="report_type" className="text-xs font-medium">Report Type</Label>
@@ -360,29 +332,16 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                         </p>
                     </div>
 
-                    {/* Deadline & File Link in 2 columns */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label htmlFor="deadline" className="text-xs font-medium">Deadline</Label>
-                            <Input
-                                id="deadline"
-                                type="date"
-                                value={taskState.deadline || ''}
-                                onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))}
-                                className="h-9"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <Label htmlFor="file_link" className="text-xs font-medium">File Link</Label>
-                            <Input
-                                id="file_link"
-                                type="url"
-                                value={taskState.file_link || ''}
-                                onChange={(e) => setTaskState(prev => ({ ...prev, file_link: e.target.value }))}
-                                placeholder="https://..."
-                                className="h-9"
-                            />
-                        </div>
+                    {/* Deadline */}
+                    <div className="space-y-1">
+                        <Label htmlFor="deadline" className="text-xs font-medium">Deadline</Label>
+                        <Input
+                            id="deadline"
+                            type="date"
+                            value={taskState.deadline || ''}
+                            onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))}
+                            className="h-9"
+                        />
                     </div>
                 </div>
 
@@ -1705,6 +1664,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                 </button>
                             )}
 
+                            {/* Custom task creation removed — tasks come from the master only.
                             {!isRestrictedAssigneeRole && (
                                 <Button
                                     variant="outline"
@@ -1725,6 +1685,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                     <Plus className="h-3 w-3" /> Create Task
                                 </Button>
                             )}
+                            */}
                             {activeTab && (
                                 <TooltipProvider>
                                     <Tooltip delayDuration={200}>
