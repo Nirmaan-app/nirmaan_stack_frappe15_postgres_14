@@ -76,6 +76,8 @@ import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
 // NEW COMMISSION REPORT PAGES
 import CommissionReportList from '@/pages/CommissionReport/commission-report-list';
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
+import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
+
 
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
@@ -354,6 +356,12 @@ export const appRoutes: RouteObject[] = [
               {
                 path: ":id",
                 element: <ProjectCommissionReportDetail />,
+              },
+
+              // 3. Report Wizard (Phase 4 — template-driven Fill/View/Edit)
+              {
+                path: ":id/task/:childRowName/fill",
+                element: <CommissionReportWizard />,
               },
             ],
           },

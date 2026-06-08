@@ -75,6 +75,7 @@
     "zustand": "^5.0.0-rc.2"
   },
   "devDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.60.2",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
