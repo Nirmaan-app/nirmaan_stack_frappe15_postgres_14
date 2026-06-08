@@ -137,7 +137,7 @@ thead { display: table-header-group; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td><div class="sig-line">&nbsp;</div><div class="sig-role">{{ label }}</div><div class="sig-cap">(Signature &amp; Stamp)</div></td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td><div class="sig-line">&nbsp;</div><div class="sig-role">{{ label }}</div></td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
