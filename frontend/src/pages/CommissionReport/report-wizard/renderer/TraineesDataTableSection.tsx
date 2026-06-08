@@ -136,11 +136,9 @@ const MeasurementPassCell: React.FC<{
                     field.onChange(isPass ? '' : defaultValue);
                 };
 
-                // Visual label drops the unit (e.g. "MΩ") — the column-group
-                // header already says "VALUES IN MΩ", so the unit would
-                // duplicate it and force truncation in the narrow cell.
-                // Stored value still includes the unit for the print + edit.
-                const displayLabel = defaultValue.replace(/\s*M(Ω|Ohm)?\s*$/i, '').trim() || defaultValue;
+                // Show the full value including the unit (e.g. ">200 MΩ") so the
+                // reading is unambiguous on screen.
+                const displayLabel = defaultValue;
 
                 if (isPass) {
                     return (

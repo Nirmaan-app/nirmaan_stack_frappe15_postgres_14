@@ -226,14 +226,17 @@ export const CommissionReportWizard: React.FC = () => {
     }, [visibleStepDefs.length, currentStep]);
 
     // In view mode, open straight on the single-page Review summary (the auto step
-    // with no sections), instead of making the user page through every step.
+    // with no sections), instead of paging through every step.
+    // IMPORTANT: only when the report is actually FILLED. While the parent doc is
+    // still loading, `canEdit` is false → `mode` is transiently "view"; without the
+    // isFilled guard a fresh fill would wrongly jump to Review and get stuck there.
     const viewJumpedRef = useRef(false);
     useEffect(() => {
-        if (mode !== 'view' || viewJumpedRef.current || visibleStepDefs.length === 0) return;
+        if (mode !== 'view' || !isFilled || viewJumpedRef.current || visibleStepDefs.length === 0) return;
         const reviewIdx = visibleStepDefs.findIndex((s) => s.sections.length === 0);
         setCurrentStep(reviewIdx >= 0 ? reviewIdx : visibleStepDefs.length - 1);
         viewJumpedRef.current = true;
-    }, [mode, visibleStepDefs]);
+    }, [mode, isFilled, visibleStepDefs]);
 
     // Initialize form values once template + prefill + (optional) existing response are ready.
     // The response_data is the single source of truth for attachments — each slot value

@@ -25,6 +25,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
         let pending = 0;
         let pendingApproval = 0;
         let approved = 0;
+        let rejected = 0;
         let completed = 0;
 
         tasks.forEach((task: any) => {
@@ -37,6 +38,8 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                 pendingApproval++;
             } else if (status === 'Approved') {
                 approved++;
+            } else if (status === 'Rejected') {
+                rejected++;
             } else if (status === 'Completed') {
                 completed++;
             } else {
@@ -45,7 +48,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
             }
         });
 
-        return { notApplicable, pending, pendingApproval, approved, completed };
+        return { notApplicable, pending, pendingApproval, approved, rejected, completed };
     }, [tasks]);
 
     const activeTasks = tasks.length - statusCounts.notApplicable;
@@ -155,6 +158,11 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                 <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-teal-50/80 rounded-md border border-teal-100">
                                     <span className="text-teal-700">Approved</span>
                                     <span className="font-semibold text-teal-900">{statusCounts.approved}</span>
+                                </div>
+                                {/* Rejected */}
+                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-red-50/80 rounded-md border border-red-100">
+                                    <span className="text-red-700">Rejected</span>
+                                    <span className="font-semibold text-red-900">{statusCounts.rejected}</span>
                                 </div>
                                 {/* Completed */}
                                 <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-green-50/80 rounded-md border border-green-100">

@@ -23,6 +23,10 @@ export const getUnifiedStatusStyle = (status: string) => {
         return 'bg-indigo-50 text-indigo-700 border border-indigo-200';
     }
 
+    if (status === 'Rejected') {
+        return 'bg-red-50 text-red-700 border border-red-200';
+    }
+
     if (status === 'Pending') {
         return 'bg-amber-50 text-amber-700 border border-amber-200';
     }

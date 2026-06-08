@@ -9,6 +9,7 @@ TASK_STATUSES = [
     "Pending",
     "Pending Approval",
     "Approved",
+    "Rejected",
     "Completed"
 ]
 

@@ -155,7 +155,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
 
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
     const refetchRef = useRef<() => void>(() => {});
-    const refresh = useCallback(() => refetchRef.current?.(), []);
+    // Refresh BOTH the task table and the tracker list so the status-tab counts
+    // update immediately after any status change (Fill/Submit/Upload/Resolve/N-A…).
+    const refresh = useCallback(() => { refetchRef.current?.(); refetchList?.(); }, [refetchList]);
 
     const checkIfUserAssigned = useCallback((task: FlattenedTask) => {
         const designers = parseDesignersFromField(task.assigned_designers);
@@ -180,6 +182,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
                 { label: "Pending", value: "Pending" },
                 { label: "Pending Approval", value: "Pending Approval" },
                 { label: "Approved", value: "Approved" },
+                { label: "Rejected", value: "Rejected" },
                 { label: "Completed", value: "Completed" },
             ],
         },

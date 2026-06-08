@@ -52,9 +52,11 @@ interface FlattenedTask extends CommissionReportTask {
 interface Props {
     /** When set, scope the queue to a single project tracker and hide the Project column. */
     trackerName?: string;
+    /** Called after approve/reject so the parent can refresh counts / tracker doc. */
+    onRefresh?: () => void;
 }
 
-export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName }) => {
+export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }) => {
     const { categoryData, FacetProjectsOptions } = useCommissionMasters();
     const { map: masterMap } = useMasterTaskMap();
 
@@ -64,7 +66,9 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName }) => {
         { open: false, mode: null, task: null },
     );
     const refetchRef = useRef<() => void>(() => {});
-    const refresh = useCallback(() => refetchRef.current?.(), []);
+    // Refresh BOTH this table and the parent (tracker doc / list) so status counts
+    // and other views update immediately after approve/reject.
+    const refresh = useCallback(() => { refetchRef.current?.(); onRefresh?.(); }, [onRefresh]);
 
     const openApproval = useCallback((task: FlattenedTask, mode: 'approve' | 'reject') => {
         const info = masterMap.get(masterMapKey(task.commission_category, task.task_name));

@@ -29,6 +29,7 @@ import {
 
 import type { CommissionReportTask } from '../types';
 import { todayDate } from '../utils';
+import { useUserData } from '@/hooks/useUserData';
 import { useUpdateCommissionTaskChild } from '../data/useCommissionMutations';
 import { type MasterTaskInfo, masterMapKey } from './FillReportButton';
 import { ReportPreviewDialog } from './ReportPreviewDialog';
@@ -62,6 +63,8 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     const navigate = useNavigate();
     const { upload } = useFrappeFileUpload();
     const { updateTaskChild } = useUpdateCommissionTaskChild();
+    const { role, user_id } = useUserData();
+    const isAdmin = role === 'Nirmaan Admin Profile' || user_id === 'Administrator';
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [busy, setBusy] = useState(false);
@@ -165,11 +168,15 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     if (canDownload && hasTemplate) {
         moreItems.push({ icon: Eye, label: 'View generated report', onClick: () => openPreview(genUrl, canDownload, task.task_name) });
     }
-    if (canEdit && (status === 'Pending')) {
-        moreItems.push({ icon: Ban, label: 'Mark as Not Applicable', onClick: () => setStatus('Not Applicable', { deadline: '' }) });
+    if (canEdit && (status === 'Pending' || status === 'Rejected')) {
+        moreItems.push({ icon: Ban, label: 'Mark as Not Applicable', onClick: () => setStatus('Not Applicable', { deadline: '' }), danger: true });
     }
     if (canEdit && status === 'Not Applicable') {
         moreItems.push({ icon: RotateCcw, label: 'Re-activate (Pending)', onClick: () => setStatus('Pending') });
+    }
+    // Admin-only: reopen a submitted/approved/completed Field report back to Pending.
+    if (isAdmin && !isVendor && (status === 'Pending Approval' || status === 'Approved' || status === 'Completed')) {
+        moreItems.push({ icon: RotateCcw, label: 'Send back to Pending', onClick: () => setStatus('Pending'), danger: true });
     }
     if (canEdit && onConfigure) {
         moreItems.push({ icon: Settings, label: 'Report Type / Deadline / Comments', onClick: () => onConfigure(task) });
@@ -178,7 +185,13 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     const moreMenu = moreItems.length > 0 && (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-500" title="More actions" disabled={busy}>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-7 w-7 border-gray-300 text-slate-600 hover:bg-gray-100 hover:text-slate-900"
+                    title="More actions"
+                    disabled={busy}
+                >
                     <MoreVertical className="h-4 w-4" />
                 </Button>
             </DropdownMenuTrigger>
@@ -209,9 +222,12 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
 
     const shell = (primary: React.ReactNode, helper?: string) => (
         <div className="flex flex-col items-center gap-0.5 w-full">
-            <div className="flex items-center justify-center gap-1">
+            <div className="flex items-center w-full gap-1">
                 {hiddenInput}
-                {primary}
+                {/* primary centered; the ⋮ stays pinned to the right end of the cell */}
+                <div className="flex-1 flex items-center justify-center gap-1">
+                    {primary}
+                </div>
                 {moreMenu}
             </div>
             {helper && <span className="text-[10px] text-gray-400 text-center leading-tight">{helper}</span>}
@@ -253,6 +269,21 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
                 {primaryBtn(Upload, 'Upload Signed', triggerUpload, 'bg-green-600 hover:bg-green-700')}
             </div>,
             'Download → sign → upload signed copy',
+        );
+    }
+
+    if (status === 'Rejected') {
+        if (!canEdit) {
+            return shell(<span className="text-[11px] text-red-600">Rejected</span>);
+        }
+        if (isVendor) {
+            return shell(primaryBtn(Upload, 'Upload Report', triggerUpload, 'bg-blue-600 hover:bg-blue-700'));
+        }
+        // Resolve = edit the submission; saving it moves the task to Pending, where
+        // "Submit for Approval" then appears.
+        return shell(
+            primaryBtn(FileEdit, 'Resolve', () => goWizard('edit'), 'bg-blue-600 hover:bg-blue-700'),
+            'Resolve (edit), then submit for approval',
         );
     }
 

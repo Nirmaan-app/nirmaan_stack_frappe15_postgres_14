@@ -1787,7 +1787,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             <div className="p-4 md:px-6 overflow-x-auto">
                 {isApprover && viewMode === 'approval' ? (
                     /* Pending Approval queue (same table as the list page, scoped to this project) */
-                    <GlobalApprovalsTable trackerName={trackerId || ''} />
+                    <GlobalApprovalsTable trackerName={trackerId || ''} onRefresh={refetchTracker} />
                 ) : (
                 /* DataTable for active zone */
                 <DataTable<CommissionReportTask>

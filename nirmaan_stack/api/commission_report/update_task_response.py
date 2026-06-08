@@ -19,16 +19,18 @@ EVIDENCE_DOCTYPE = "Commission Report Template Snapshot"
 CHILD_DOCTYPE = "Commission Report Task Child Table"
 
 # Roles that can edit any task regardless of assignment.
+# Project Manager edits by project role (not per-task assignment).
 _FULL_EDIT_ROLES = {
     "System Manager",
+    "Nirmaan Admin",
     "Nirmaan PMO Executive",
     "Nirmaan Design Lead",
+    "Nirmaan Project Manager",
 }
 
 # Roles restricted to tasks they're personally assigned to.
 _RESTRICTED_EDIT_ROLES = {
     "Nirmaan Design Executive",
-    "Nirmaan Project Manager",
 }
 
 
@@ -174,16 +176,22 @@ def update_task_response(
 
     snapshot_id = _get_or_create_snapshot(snapshot_payload)
 
-    # Single-row, four-field write — bypasses the "rewrite array" anti-pattern.
+    update_fields = {
+        "response_data": response_data,
+        "response_snapshot_id": snapshot_id,
+        "response_filled_at": task_row.response_filled_at or now_datetime(),
+        "response_filled_by": task_row.response_filled_by or frappe.session.user,
+    }
+    # Resolving a Rejected report (saving the edit) sends it back to Pending so the
+    # team can resubmit for approval.
+    if task_row.task_status == "Rejected":
+        update_fields["task_status"] = "Pending"
+
+    # Single-row write — bypasses the "rewrite array" anti-pattern.
     frappe.db.set_value(
         CHILD_DOCTYPE,
         task_row_name,
-        {
-            "response_data": response_data,
-            "response_snapshot_id": snapshot_id,
-            "response_filled_at": task_row.response_filled_at or now_datetime(),
-            "response_filled_by": task_row.response_filled_by or frappe.session.user,
-        },
+        update_fields,
         update_modified=False,  # don't bump child row modified to keep parent.modified meaningful
     )
     # Bump the parent's modified so subsequent concurrency checks see this change.

@@ -9,6 +9,7 @@ export const TASK_STATUS_OPTIONS = [
     { label: "Pending", value: "Pending" },
     { label: "Pending Approval", value: "Pending Approval" },
     { label: "Approved", value: "Approved" },
+    { label: "Rejected", value: "Rejected" },
     { label: "Completed", value: "Completed" },
 ];
 

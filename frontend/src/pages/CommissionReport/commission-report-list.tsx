@@ -103,6 +103,21 @@ export default function CommissionReportList() {
         });
     }, [trackerDocsWithReport, searchTerm, effectiveStatusFilter]);
 
+    // Task counts per status (across all trackers) for the Task Wise status tabs.
+    const statusTaskCounts = useMemo(() => {
+        const acc: Record<string, number> = { All: 0, Pending: 0, "Pending Approval": 0, Approved: 0, Rejected: 0, Completed: 0 };
+        trackerDocsWithReport.forEach((doc: any) => {
+            const sc = doc.status_counts || {};
+            acc.Pending += sc.Pending || 0;
+            acc["Pending Approval"] += sc["Pending Approval"] || 0;
+            acc.Approved += sc.Approved || 0;
+            acc.Rejected += sc.Rejected || 0;
+            acc.Completed += sc.Completed || 0;
+            acc.All += doc.total_tasks || 0;
+        });
+        return acc;
+    }, [trackerDocsWithReport]);
+
     const activeDocs = useMemo(() => filteredDocs.filter((doc: any) => doc.hide_commission_report !== 1), [filteredDocs]);
     const hiddenDocs = useMemo(() => filteredDocs.filter((doc: any) => doc.hide_commission_report === 1), [filteredDocs]);
 
@@ -286,18 +301,24 @@ export default function CommissionReportList() {
                             { value: "Pending", label: "Pending", active: "bg-orange-500 text-white", inactive: "text-orange-700 border-orange-300 hover:bg-orange-50" },
                             { value: "Pending Approval", label: "Pending Approval", active: "bg-indigo-600 text-white", inactive: "text-indigo-700 border-indigo-300 hover:bg-indigo-50" },
                             { value: "Approved", label: "Approved", active: "bg-teal-600 text-white", inactive: "text-teal-700 border-teal-300 hover:bg-teal-50" },
+                            { value: "Rejected", label: "Rejected", active: "bg-red-600 text-white", inactive: "text-red-700 border-red-300 hover:bg-red-50" },
                             { value: "Completed", label: "Completed", active: "bg-green-600 text-white", inactive: "text-green-700 border-green-300 hover:bg-green-50" },
                         ] as const).map((tab) => (
                             <button
                                 key={tab.value}
                                 onClick={() => setActiveStatusTab(tab.value)}
-                                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-150 border ${
+                                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-150 border inline-flex items-center gap-1.5 ${
                                     activeStatusTab === tab.value
                                         ? `${tab.active} shadow-sm`
                                         : `bg-white ${tab.inactive}`
                                 }`}
                             >
-                                {tab.label}
+                                <span>{tab.label}</span>
+                                <span className={`px-1.5 py-0 text-[10px] rounded-full min-w-[18px] text-center ${
+                                    activeStatusTab === tab.value ? "bg-white/25 text-white" : "bg-gray-100 text-gray-600"
+                                }`}>
+                                    {statusTaskCounts[tab.value] ?? 0}
+                                </span>
                             </button>
                         ))}
                     </div>
@@ -305,7 +326,7 @@ export default function CommissionReportList() {
                     <TaskWiseTable
                         refetchList={refetchList}
                         user_id={user_id}
-                        isDesignExecutive={isRestrictedAssigneeRole}
+                        isDesignExecutive={isDesignExecutive}
                         statusFilter={activeStatusTab}
                     />
                     </div>
@@ -313,7 +334,7 @@ export default function CommissionReportList() {
 
                     {isApprover && activeTab === COMMISSION_TABS.PENDING_APPROVAL && (
                         <div className="px-2 mt-4">
-                            <GlobalApprovalsTable />
+                            <GlobalApprovalsTable onRefresh={refetchList} />
                         </div>
                     )}
                 </>
