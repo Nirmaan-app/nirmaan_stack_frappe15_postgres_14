@@ -13,6 +13,15 @@ export interface ServiceItemType {
 	rate?: string | number
 }
 
+export interface WorkOrderItem {
+	name: string
+	item_name: string
+	category: string
+	uom: string
+	quantity: number
+	rate: number
+}
+
 export interface ServiceRequests {
 	name: string
 	creation: string
@@ -28,10 +37,12 @@ export interface ServiceRequests {
 	project: string
 	/**	Vendor : Link - Vendors	*/
 	vendor: string
-	/**	Service Order List : JSON	*/
-	service_order_list: {
+	/**	Service Order List : JSON (legacy, kept in dual-write)	*/
+	service_order_list?: {
 		list: ServiceItemType[]
 	}
+	/**	Work Order Items : Table - Work Order Items	*/
+	work_order_items?: WorkOrderItem[]
 	/**	Service Category List : JSON	*/
 	service_category_list: {
 		list: ServiceCategoryType[]

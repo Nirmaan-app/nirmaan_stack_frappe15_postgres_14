@@ -80,10 +80,22 @@ def generate_versions(doc, method):
         data["changed"].append(["po_details", serialize_dates(po_details), []])
 
     # ... (similar changes for other doctypes if they include date/datetime fields) ...
-    # Example for Service Requests:
+    # Service Requests — items now live in the `work_order_items` child table.
     elif doc.doctype == "Service Requests":
         previous_state = doc.status
-        data["changed"].append(["service_order_list", doc.service_order_list, []])
+        # Snapshot child rows as plain dicts for the deletion audit trail.
+        work_order_items_snapshot = [
+            serialize_dates({
+                "name": row.name,
+                "item_name": row.item_name,
+                "category": row.category,
+                "uom": row.uom,
+                "quantity": row.quantity,
+                "rate": row.rate,
+            })
+            for row in (doc.get("work_order_items") or [])
+        ]
+        data["changed"].append(["work_order_items", work_order_items_snapshot, []])
         sr_details = {
             "project" : doc.project,
             "vendor" : doc.vendor,

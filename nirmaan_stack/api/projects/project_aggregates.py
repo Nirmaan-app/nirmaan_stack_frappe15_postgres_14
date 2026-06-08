@@ -6,20 +6,14 @@ from frappe.utils.caching import redis_cache
 
 
 def _calculate_sr_totals(sr_doc):
-    total_excl_gst = 0
-    if sr_doc.get("service_order_list"):
-        try:
-            service_list = json.loads(sr_doc.service_order_list) if isinstance(sr_doc.service_order_list, str) else sr_doc.service_order_list
-            if isinstance(service_list, dict) and isinstance(service_list.get("list"), list):
-                for item in service_list.get("list"):
-                    total_excl_gst += flt(item.get("rate")) * flt(item.get("quantity"))
-        except Exception as e:
-            print(f"Error parsing service_order_list for SR {sr_doc.name}: {e}")
-            frappe.log_error(f"Error parsing service_order_list for SR {sr_doc.name}: {frappe.get_traceback()}", "SR Aggregate Calculation")
-
-    if sr_doc.get("gst") == "true":
-        return {"total_incl_gst":  total_excl_gst * 1.18, "total_excl_gst": total_excl_gst}
-    return {"total_incl_gst":  total_excl_gst, "total_excl_gst": total_excl_gst}
+    """
+    Returns {total_incl_gst, total_excl_gst} for one SR.
+    `total_amount` on the SR doc is computed by `validate` on every save and
+    already includes GST when gst === "true". No item iteration needed.
+    """
+    total_incl_gst = flt(sr_doc.get("total_amount"))
+    total_excl_gst = total_incl_gst / 1.18 if sr_doc.get("gst") == "true" else total_incl_gst
+    return {"total_incl_gst": total_incl_gst, "total_excl_gst": total_excl_gst}
 
 #@redis_cache(shared=True)
 @frappe.whitelist()
@@ -49,17 +43,15 @@ def get_project_sr_summary_aggregates(project_id: str):
         ["status", "=", "Approved"] # Only considering "Approved" SRs for these totals
     ]
 
-    # Fetch necessary fields from Service Requests for calculations
+    # `total_amount` is denormalized on the parent — one query is enough.
     service_requests = frappe.get_all(
         "Service Requests",
         filters=sr_filters,
-        fields=["name", "service_order_list", "gst"] # Fields needed for total calculation
-        # limit_page_length = 0 # Get all matching for accurate sum
+        fields=["name", "gst", "total_amount"]
     )
 
     total_sr_value_inc_gst = total_sr_value_excl_gst = 0.0
     for sr in service_requests:
-        # frappe.get_all returns list of dicts, ensure it's a FrappeDict for consistent .get behavior
         totals = _calculate_sr_totals(frappe._dict(sr))
         total_sr_value_inc_gst += totals.get("total_incl_gst", 0.0)
         total_sr_value_excl_gst += totals.get("total_excl_gst", 0.0)

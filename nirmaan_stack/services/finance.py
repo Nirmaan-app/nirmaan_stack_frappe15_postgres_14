@@ -1,14 +1,8 @@
-import frappe, json
+import frappe
 import frappe.model
 import frappe.model.document
 from frappe.utils import flt
-from decimal import Decimal
 from frappe import _
-
-# your_app_name/api/payment_requests.py (or where this function resides)
-import frappe
-from frappe.utils import flt # flt is fine for this, no need for Decimal unless very high precision needed
-import json
 
 def get_source_document_financials(source_doc: frappe.model.document.Document) -> dict:
     """
@@ -57,33 +51,13 @@ def get_source_document_financials(source_doc: frappe.model.document.Document) -
         payable_total = items_base_total + items_gst_total
 
     elif source_doc.doctype == "Service Requests":
-        service_items_base_total = 0.0
-        
-        service_list_data = source_doc.get("service_order_list")
-        if isinstance(service_list_data, str):
-            try:
-                service_list_data = json.loads(service_list_data)
-            except json.JSONDecodeError:
-                frappe.log_error(f"Invalid JSON in service_order_list for SR {source_doc.name}", frappe.get_traceback())
-                service_list_data = {}
-
-        if service_list_data and isinstance(service_list_data.get("list"), list):
-            for item in service_list_data.get("list"):
-                if not isinstance(item, dict): continue
-
-                qty = flt(item.get("quantity"))
-                rate = flt(item.get("rate"))
-                service_items_base_total += qty * rate
-        
-        total_value_without_gst = service_items_base_total # Assuming services don't have item-wise tax in your model
-        
-        # SR GST logic: If doc.gst is a percentage string like "18"
-        sr_gst_enabled =  source_doc.get("gst", "false") == "true" # e.g., "true" or "false"
-        if sr_gst_enabled:
-            gst_amount_on_services = total_value_without_gst * (18.0 / 100.0)
-            payable_total = total_value_without_gst + gst_amount_on_services
-        else: # No GST or GST is "0"
-            payable_total = total_value_without_gst
+        # `total_amount` is fresh on every save (validate) and already includes
+        # GST when sr.gst === "true". Derive both legs from it.
+        payable_total = flt(source_doc.get("total_amount"))
+        if source_doc.get("gst") == "true":
+            total_value_without_gst = payable_total / 1.18
+        else:
+            total_value_without_gst = payable_total
 
     else:
         frappe.throw(_("Unsupported document type for financial calculation: {0}").format(source_doc.doctype))

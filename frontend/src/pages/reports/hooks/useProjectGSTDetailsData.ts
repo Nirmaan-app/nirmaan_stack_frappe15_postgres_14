@@ -50,8 +50,11 @@ export const useProjectGSTDetailsData = () => {
     }), []);
     const { data: procurementOrders, isLoading: isLoadingPOs } = useFrappeGetDocList<any>("Procurement Orders", poOptions);
 
+    // `gst` is required so each SR-linked Vendor Invoice can be assigned the correct
+    // GST ratio (1.18 if sr.gst === "true", else 1.0). Without it, non-GST SR
+    // invoices are incorrectly treated as if they carried 18% GST.
     const srOptions = useMemo(() => ({
-        fields: ["name", "project_gst"] as any,
+        fields: ["name", "project_gst", "gst"] as any,
         limit: 0
     }), []);
     const { data: serviceRequests, isLoading: isLoadingSRs } = useFrappeGetDocList<any>("Service Requests", srOptions);
@@ -131,6 +134,15 @@ export const useProjectGSTDetailsData = () => {
         return map;
     }, [serviceRequests]);
 
+    // SR-name → GST ratio: 1.18 if SR has GST enabled, else 1.0 (no GST to strip)
+    const srRatioMap = useMemo(() => {
+        const map: Record<string, number> = {};
+        (serviceRequests || []).forEach(sr => {
+            if (sr.name) map[sr.name] = sr.gst === "true" ? 1.18 : 1.0;
+        });
+        return map;
+    }, [serviceRequests]);
+
     // 5. Normalize and Combine Data
     const combinedData = useMemo(() => {
         const documentRatioMap: Record<string, number> = {};
@@ -149,7 +161,16 @@ export const useProjectGSTDetailsData = () => {
 
         const normalizedVendor = (vendorInvoices || []).map(vi => {
             const viAmt = parseNumber(vi.invoice_amount);
-            const ratio = vi.document_name ? (documentRatioMap[vi.document_name] || 1.18) : 1.18;
+            // PO Invoice → use computed ratio from PO.total_amount/amount.
+            // SR Invoice → use 1.18 / 1.0 from srRatioMap based on sr.gst.
+            let ratio = 1.18;
+            if (vi.document_name) {
+                if (vi.document_type === "Procurement Orders") {
+                    ratio = documentRatioMap[vi.document_name] || 1.18;
+                } else if (vi.document_type === "Service Requests") {
+                    ratio = srRatioMap[vi.document_name] || 1.18;
+                }
+            }
             const totalIncl = viAmt;
             const totalExcl = viAmt / ratio;
             const gstAmt = totalIncl - totalExcl;
@@ -204,7 +225,7 @@ export const useProjectGSTDetailsData = () => {
         });
 
         return [...normalizedVendor, ...normalizedProject].sort((a, b) => new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime());
-    }, [vendorInvoices, projectInvoices, poGstMap, srGstMap, procurementOrders, projectNameMap, gstNameMap, vendorNameMap, attachmentMap]);
+    }, [vendorInvoices, projectInvoices, poGstMap, srGstMap, srRatioMap, procurementOrders, projectNameMap, gstNameMap, vendorNameMap, attachmentMap]);
 
     return {
         combinedData,

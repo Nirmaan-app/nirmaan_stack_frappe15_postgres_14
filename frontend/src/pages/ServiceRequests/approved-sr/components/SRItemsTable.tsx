@@ -1,12 +1,12 @@
 import React from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ServiceItemType } from '@/types/NirmaanStack/ServiceRequests';
+import { WorkOrderItem } from '@/types/NirmaanStack/ServiceRequests';
 import formatToIndianRupee from '@/utils/FormatPrice';
 import { parseNumber } from '@/utils/parseNumber';
 
 interface SRItemsTableProps {
-    items?: ServiceItemType[]; // Expects already parsed list
+    items?: WorkOrderItem[]; // work_order_items child rows
     gstEnabled?: boolean; // To show GST column if applicable
 }
 
@@ -37,10 +37,10 @@ export const SRItemsTable: React.FC<SRItemsTableProps> = ({ items, gstEnabled })
                     </TableHeader>
                     <TableBody>
                         {items.map((item, index) => (
-                            <TableRow key={item.id || `sr-item-${index}`}>
+                            <TableRow key={item.name || `sr-item-${index}`}>
                                 <TableCell>{index + 1}</TableCell>
                                 <TableCell>{item.category}</TableCell>
-                                <TableCell className="whitespace-pre-wrap">{item.description}</TableCell>
+                                <TableCell className="whitespace-pre-wrap">{item.item_name}</TableCell>
                                 <TableCell className="text-center">{parseNumber(String(item.quantity))}</TableCell>
                                 <TableCell className="text-center">{item.uom}</TableCell>
                                 <TableCell className="text-right">{formatToIndianRupee(parseNumber(String(item.rate)))}</TableCell>

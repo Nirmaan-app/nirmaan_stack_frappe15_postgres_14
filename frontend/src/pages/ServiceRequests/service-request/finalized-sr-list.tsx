@@ -196,7 +196,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
       DEFAULT_SR_FIELDS_TO_FETCH.concat([
         "creation",
         "modified",
-        "service_order_list",
+        "work_order_items",
         "service_category_list",
         "total_amount",
         "amount_paid",
@@ -260,7 +260,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
                 <ItemsHoverCard
                   parentDoc={data}
                   parentDoctype="Service Requests"
-                  childTableName="service_order_list"
+                  childTableName="work_order_items"
                   isSR
                 />
               </div>

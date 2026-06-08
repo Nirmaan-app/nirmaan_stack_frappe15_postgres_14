@@ -102,7 +102,7 @@ export const SelectServiceVendorList: React.FC = () => {
       DEFAULT_SR_FIELDS_TO_FETCH.concat([
         "creation",
         "modified",
-        "service_order_list",
+        "work_order_items",
         "service_category_list",
       ]),
     []
@@ -152,7 +152,7 @@ export const SelectServiceVendorList: React.FC = () => {
                 <ItemsHoverCard
                   parentDoc={data}
                   parentDoctype="Service Requests"
-                  childTableName="service_order_list"
+                  childTableName="work_order_items"
                   isSR
                 />
               </div>

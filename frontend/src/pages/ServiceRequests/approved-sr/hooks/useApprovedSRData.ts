@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeDocumentEventListener } from 'frappe-react-sdk';
-import { ServiceRequests, ServiceItemType, ServiceCategoryType } from '@/types/NirmaanStack/ServiceRequests';
+import { ServiceRequests, ServiceCategoryType } from '@/types/NirmaanStack/ServiceRequests';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
@@ -26,9 +26,10 @@ const parseJsonField = <T, K extends keyof T>(doc: T, fieldName: K, defaultValue
 
 export interface ServiceRequestsExtended extends ServiceRequests {
     parsed_notes?: { id: string; note: string }[];
-    parsed_service_order_list?: { list: ServiceItemType[] };
     parsed_service_category_list?: { list: ServiceCategoryType[] };
-    // Note: invoice_data parsing removed - now using Vendor Invoices doctype
+    // Items now live on `work_order_items` child table — read directly from the
+    // doc, no synthesized `.list` wrapper. Notes & category list stay parsed
+    // here because they're still JSON fields.
 }
 
 
@@ -94,12 +95,13 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
 
     const serviceRequestWithParsedJSON = useMemo(() => {
         if (!srDoc) return undefined;
+       
+        // Items are on `srDoc.work_order_items` (Frappe full-doc fetch already
+        // includes child tables). Consumers read it directly — no synthesis here.
         return {
             ...srDoc,
             parsed_notes: parseJsonField(srDoc, 'notes', { list: [] }).list,
-            parsed_service_order_list: parseJsonField(srDoc, 'service_order_list'),
             parsed_service_category_list: parseJsonField(srDoc, 'service_category_list'),
-            // Note: invoice_data parsing removed - now using Vendor Invoices doctype
         };
     }, [srDoc]);
 

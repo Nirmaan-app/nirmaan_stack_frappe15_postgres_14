@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   useFrappeCreateDoc,
   useFrappeDocumentEventListener,
@@ -118,10 +119,12 @@ export const useProjectsListPOData = () => {
 };
 
 export const useProjectsListSRData = () => {
+  // Downstream consumers (getAllSRsTotal) read `total_amount` and `gst` from
+  // the parent — no item-level fetch needed.
   const response = useFrappeGetDocList<ServiceRequests>(
     "Service Requests",
     {
-      fields: ["name", "project", "status", "service_order_list", "gst"],
+      fields: ["name", "project", "status", "gst", "total_amount"],
       filters: [["status", "=", "Approved"]],
       limit: 100000,
     },
@@ -487,7 +490,7 @@ export const useProjectViewFinancialData = (projectId: string) => {
   const approvedServiceRequestsResponse = useFrappeGetDocList<ServiceRequests>(
     "Service Requests",
     {
-      fields: ["gst", "name", "service_order_list"],
+      fields: ["name", "gst", "total_amount"],
       filters: [
         ["status", "=", "Approved"],
         ["project", "=", projectId],

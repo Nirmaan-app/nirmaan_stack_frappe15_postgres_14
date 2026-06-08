@@ -6,7 +6,6 @@ import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
-import { getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
@@ -157,8 +156,9 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
         const srData: SRReportRowData[] = [];
 
         (serviceRequests || []).forEach(sr => {
-            const total = getSRTotal(sr);
-            const totalWithTax = sr.gst === "true" ? total * 1.18 : total;
+            // total_amount on parent is fresh on every save (validate) and
+            // already includes GST when sr.gst === "true".
+            const totalWithTax = parseNumber(sr.total_amount);
             if(sr.amount_paid){
                 srData.push({
                     name: sr.name,

@@ -51,10 +51,11 @@ def get_customer_financial_details(customer_id):
             order_by="modified desc"
         )
 
-        # Fetch Service Requests
+        # Fetch Service Requests — `total_amount` is computed on every save (validate)
+        # and already includes GST when sr.gst === "true".
         service_requests = frappe.get_all(
             "Service Requests",
-            fields=["service_order_list", "gst"],
+            fields=["name", "gst", "total_amount"],
             filters={"status": "Approved", "project": ("in", project_names)},
             limit=10000,
             order_by="modified desc"
@@ -90,17 +91,8 @@ def get_customer_financial_details(customer_id):
             }
 
         def get_sr_total(order):
-            if not order or not order.get("service_order_list") or not order["service_order_list"].get("list"):
-                return {"with_gst": 0, "without_gst": 0}
-
-            order_data = order["service_order_list"]["list"]
-            without_gst, with_gst = 0, 0
-
-            for item in order_data:
-                item_total = cint(item.get("rate", 0)) * cint(item.get("quantity", 0))
-                without_gst += item_total
-                with_gst += item_total * (1.18 if order.get("gst") == "true" else 1)
-
+            with_gst = cint(order.get("total_amount", 0))
+            without_gst = with_gst / 1.18 if order.get("gst") == "true" else with_gst
             return {"with_gst": with_gst, "without_gst": without_gst}
 
         total_po_amount_with_gst = sum(get_po_total(po)["total_amt"] for po in procurement_orders)
