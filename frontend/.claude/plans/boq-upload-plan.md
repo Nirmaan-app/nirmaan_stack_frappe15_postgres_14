@@ -1,6 +1,7 @@
 # BoQ Upload & Management — Implementation Plan
 
 **Status:** BoQ-list tab + B2 tendering section (Phase 6 pull-forward) COMPLETE (see slice record below).
+Slice C-classification read-only recon ran 2026-06-08; findings pasted to chat-Claude for analysis before build prompt.
 Phase 2a + Phase 2b.1a + Phase 2b.1b complete and tested (incl.
 preamble candidate scoring).
 Phase 2b.2 Part A1 (reader merged-cell propagation) complete.
