@@ -1809,6 +1809,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                     tableHeight="60vh"
                     showRowSelection={hasEditStructureAccess || role === "Nirmaan Design Lead Profile"}
                     toolbarActions={
+                        /* Bulk Assign button hidden for now.
                         selectedCount > 0 && (hasEditStructureAccess || role === "Nirmaan Design Lead Profile") ? (
                             <Button
                                 size="sm"
@@ -1820,6 +1821,8 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                 Bulk Assign ({selectedCount})
                             </Button>
                         ) : null
+                        */
+                        null
                     }
                 />
                 )}

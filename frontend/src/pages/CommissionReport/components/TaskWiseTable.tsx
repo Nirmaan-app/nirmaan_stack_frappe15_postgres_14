@@ -64,21 +64,25 @@ const getTaskWiseColumns = (
                 </Link>
             ),
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Project Name", exportValue: (row: FlattenedTask) => row.project_name || row.project || "" },
         },
         {
             accessorKey: "task_zone",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Zone" />,
             cell: ({ row }) => row.original.task_zone || "--",
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Task Zone" },
         },
         {
             accessorKey: "commission_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Task Category" },
         },
         {
             accessorKey: "task_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Report Name" />,
+            meta: { exportHeaderName: "Report Name" },
         },
         {
             accessorKey: "report_type",
@@ -94,6 +98,7 @@ const getTaskWiseColumns = (
                 );
             },
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Report Type", exportValue: (row: FlattenedTask) => row.report_type || "Field" },
         },
         {
             id: "deadline",
@@ -104,6 +109,7 @@ const getTaskWiseColumns = (
                     {row.original.deadline ? formatDeadlineShort(row.original.deadline) : "--"}
                 </div>
             ),
+            meta: { exportHeaderName: "Deadlines", exportValue: (row: FlattenedTask) => row.deadline ? formatDeadlineShort(row.deadline) : "" },
         },
         {
             accessorKey: "task_status",
@@ -120,6 +126,7 @@ const getTaskWiseColumns = (
             ),
             enableColumnFilter: true,
             size: 120, minSize: 100, maxSize: 140,
+            meta: { exportHeaderName: "Status" },
         },
         {
             id: "action",

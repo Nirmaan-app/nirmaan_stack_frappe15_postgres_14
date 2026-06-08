@@ -182,6 +182,7 @@ export const getTaskTableColumns = (
             size: 160,
             minSize: 120,
             maxSize: 220,
+            meta: { exportHeaderName: "Category" },
         },
         {
             accessorKey: "task_name",
@@ -192,6 +193,7 @@ export const getTaskTableColumns = (
             size: 190,
             minSize: 150,
             maxSize: 280,
+            meta: { exportHeaderName: "Report Name" },
         },
         {
             id: "report_type",
@@ -218,6 +220,10 @@ export const getTaskTableColumns = (
             size: 90,
             minSize: 74,
             maxSize: 110,
+            meta: {
+                exportHeaderName: "Report Type",
+                exportValue: (row: CommissionReportTask) => row.report_type || 'Field',
+            },
         },
         {
             id: "deadline",
@@ -237,6 +243,10 @@ export const getTaskTableColumns = (
             size: 110,
             minSize: 90,
             maxSize: 130,
+            meta: {
+                exportHeaderName: "Deadline",
+                exportValue: (row: CommissionReportTask) => row.deadline ? formatDeadlineShort(row.deadline) : '',
+            },
         },
         {
             accessorKey: "task_status",
@@ -260,6 +270,7 @@ export const getTaskTableColumns = (
             size: 120,
             minSize: 100,
             maxSize: 140,
+            meta: { exportHeaderName: "Status" },
         },
         {
             id: "action",
