@@ -3,7 +3,7 @@
 
 // ─── Field-level shapes (used inside header + fields + checklist items) ───────
 
-export type FieldType = 'text' | 'textarea' | 'number' | 'date' | 'select';
+export type FieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'image';
 
 export interface BaseField {
     key: string;
@@ -47,7 +47,18 @@ export interface SelectField extends BaseField {
     options: string[];
 }
 
-export type Field = TextField | TextareaField | NumberField | DateField | SelectField;
+/** Per-cell image field, used inside `trainees_data_table` columns. The cell
+ *  uploads to S3 via the same `useFrappeFileUpload` flow as `image_attachments`
+ *  and stores an `AttachmentRecord` inline in the row's column value. */
+export interface ImageField extends BaseField {
+    type: 'image';
+    /** Max upload size in MB. Default 5. */
+    maxSizeMb?: number;
+    /** MIME hint, e.g. "image/*". Default "image/*". */
+    accept?: string;
+}
+
+export type Field = TextField | TextareaField | NumberField | DateField | SelectField | ImageField;
 
 // ─── Section-level shapes ────────────────────────────────────────────────────
 
@@ -177,6 +188,39 @@ export interface MeasurementMatrixSection {
     columns: MeasurementMatrixColumn[];
 }
 
+/** Repeating-groups section. N independent cards, each with a flat set of
+ *  `groupFields` (e.g. Equipment + Area), an optional nested repeating
+ *  data-table of `rowsTable` rows, and optional `nestedSections` (e.g. a
+ *  per-group checklist or process). Used by the CFM / Air Balance Report
+ *  (rowsTable) and the DX Commission Report (nestedSections). */
+export interface RepeatingGroupsSection {
+    id: string;
+    type: 'repeating_groups';
+    title?: string;
+    /** Header-field path whose number value drives the initial group count.
+     *  Wizard auto-seeds empty groups as the count grows; reductions are
+     *  manual (mirrors the Earth Pit count behavior). */
+    countBoundTo?: string;
+    /** Flat fields shown at the top of each group (e.g. equipment, area). */
+    groupFields: Field[];
+    /** Optional nested repeating data-table inside each group (CFM uses this). */
+    rowsTable?: {
+        title?: string;
+        columns: TraineesDataTableColumn[];
+        minRows?: number;
+        maxRows?: number;
+        addRowLabel?: string;
+    };
+    /** Optional sub-sections rendered per group after the group fields (e.g.
+     *  a Physical Test checklist or a Timer process line). Each nested section's
+     *  data lives under `responses[<this.id>][<groupIdx>][<nested.id>]`. */
+    nestedSections?: Section[];
+    /** Used to label each group card, e.g. "CFM Reading 1". */
+    groupTitlePrefix?: string;
+    /** Max number of groups the wizard will allow. Default 50. */
+    maxGroups?: number;
+}
+
 export type Section =
     | ProcessSection
     | HeaderSection
@@ -185,7 +229,8 @@ export type Section =
     | FieldsSection
     | SignaturesSection
     | TraineesDataTableSection
-    | MeasurementMatrixSection;
+    | MeasurementMatrixSection
+    | RepeatingGroupsSection;
 
 export type SectionType = Section['type'];
 
@@ -209,6 +254,13 @@ export interface WizardStepDef {
     sections: string[];
     /** Optional visibility gate based on current form values. */
     visibleIf?: WizardStepVisibleIf;
+    /** Synthetic per-group step. Set by the wizard at runtime when expanding a
+     *  `repeating_groups` section into one wizard step per group. Renderers
+     *  use this to scope to a single group. */
+    groupSlice?: {
+        sectionId: string;
+        groupIndex: number;
+    };
 }
 
 export interface ReportTemplate {

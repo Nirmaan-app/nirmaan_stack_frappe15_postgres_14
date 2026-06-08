@@ -11,6 +11,7 @@ export const SECTION_TYPES: readonly SectionType[] = [
     'signatures',
     'trainees_data_table',
     'measurement_matrix',
+    'repeating_groups',
 ] as const;
 
 export const FIELD_TYPES: readonly FieldType[] = [
@@ -19,6 +20,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
     'number',
     'date',
     'select',
+    'image',
 ] as const;
 
 export const REVIEW_STEP_KEY = 'review';
@@ -31,6 +33,7 @@ export const INPUT_SECTION_TYPES: readonly SectionType[] = [
     'fields',
     'trainees_data_table',
     'measurement_matrix',
+    'repeating_groups',
 ] as const;
 
 export const isInputSection = (type: SectionType): boolean =>

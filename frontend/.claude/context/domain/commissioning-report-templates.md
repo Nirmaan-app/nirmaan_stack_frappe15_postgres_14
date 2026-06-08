@@ -2,6 +2,8 @@
 
 Reference documentation for the **template-driven commissioning report wizard**. Load when working on the wizard renderer, schema builder, master `source_format` editor, the print format Jinja, or any feature that reads/writes a commissioning task's `response_data`.
 
+> For the **status / approval / signature lifecycle**, role permissions, and the per-status action UI, jump to **[Status & Approval Workflow](#status--approval-workflow)** below. The grammar sections after it describe the template/`response_data` shape only.
+
 ---
 
 ## Overview
@@ -15,7 +17,107 @@ Each commissioning task type (e.g., "Sprinkler Pressure Test Report") declares a
 - Saves the structured response into the child row's `response_data` Long Text field.
 - Stores a **frozen snapshot** of the template used (in a content-addressed pool) so older filled reports always render correctly even after the master template changes.
 
-**Decoupling rule:** Filling/submitting the wizard does **not** mutate `task_status`. Status is managed independently via the existing TaskEditModal. The backend `validate_report_evidence_for_completed` hook accepts a meaningfully filled `response_data` as evidence on the Completed transition.
+**Decoupling rule (updated):** Filling/saving the wizard does **not** directly set `task_status` — status is driven by the per-row action buttons (Submit for Approval, Approve, Upload Signed, …; see workflow below). **One exception:** saving the wizard for a **Rejected** task resolves it back to **Pending** (`update_task_response` flips it). The backend `validate_report_evidence_for_completed` hook still accepts a meaningfully filled `response_data` as evidence on the Completed transition.
+
+---
+
+## Status & Approval Workflow
+
+> This section is the source of truth for the **lifecycle, roles, and per-status actions**. The grammar sections that follow only cover the template/`response_data` shape.
+
+### Report Type — Field vs Vendor
+Every task carries a **`report_type`** (`Field` | `Vendor`, default `Field`), stored on both the master (`Commission Report Tasks.report_type`) and the instance (`Commission Report Task Child Table.report_type`). The master value seeds new project tasks; per-project it's editable (via the row's **Configure** modal) only while the task is `Pending` or `Not Applicable`.
+
+- **Field** → internal team fills the wizard, then goes through approval + client-signature.
+- **Vendor** → external vendor; the team just **uploads a PDF**, which **completes the task directly** (no approval, no signature).
+
+Missing/empty `report_type` is treated as `Field` for back-compat.
+
+### Status set
+`task_status` is a plain `Data` field; the option list lives in frontend code (`useCommissionMasters.TASK_STATUS_OPTIONS`). Values:
+
+`Not Applicable` · `Pending` · `Pending Approval` · `Approved` · `Rejected` · `Completed`
+
+Badge colors (`utils.getUnifiedStatusStyle`): Pending=amber, Pending Approval=indigo, Approved=teal, **Rejected=red**, Completed=green, N/A=gray. ("In Progress" was removed.)
+
+### State machine
+```
+                       ┌─ Vendor: Upload PDF (approval_proof) ─────────────► Completed   (direct; last_submitted stamped)
+Pending ─ report_type? ┤
+                       └─ Field: Fill wizard (response_data)
+                                     │  Submit for Approval (needs response_data)
+                                     ▼
+                              Pending Approval
+                          ┌──────────┴──────────┐
+                   Approve (Admin/PMO)     Reject (Admin/PMO)
+                          ▼                       ▼
+                       Approved                Rejected
+                          │                       │ Resolve (edit wizard) → SAVE
+   download report (blank client-sig)            ▼
+   → client signs offline                     Pending  ─ Submit for Approval ─► Pending Approval …
+   → Upload Signed (approval_proof)
+                          ▼
+                       Completed   (last_submitted stamped)
+
+Pending / Rejected → Mark as Not Applicable → Not Applicable → Re-activate → Pending
+```
+
+Key transitions and where they fire:
+- **Submit for Approval** (Field, `response_data` present): `updateTaskChild({task_status:'Pending Approval'})`.
+- **Approve / Reject**: `ApprovalActionDialog` (confirm-only) → `Approved` / `Rejected`. Approve no longer shows a sign step — that lives on the Approved row's own actions.
+- **Resolve** (Rejected): opens the wizard in `edit` mode; **saving** flips `Rejected → Pending` server-side (`update_task_response`, see Decoupling rule). The row then shows **Submit for Approval** again.
+- **Upload Signed** (Approved, Field) / **Upload Report** (Vendor): uploads the PDF to `approval_proof`, sets `task_status:'Completed'`, stamps `last_submitted`.
+- **Send back to Pending** (Admin only): reopens a `Pending Approval` / `Approved` / `Completed` Field task to `Pending`.
+
+### Per-row action UI — `ReportActionCell`
+Each tracker/Task-Wise row renders one **primary button** per status + a **⋮ More** menu (pinned to the cell's right edge). The primary by status:
+
+| Status | Field (editor) | Vendor (editor) | View-only |
+|---|---|---|---|
+| Pending (empty) | **Fill Report** | **Upload Report** | View |
+| Pending (draft) | **Submit for Approval** (More: Edit) | — | View |
+| Pending Approval | **View Submission** | View | View |
+| Approved | **Download Report** + **Upload Signed** | — | View |
+| Rejected | **Resolve** (More: Mark N/A) | Upload Report | "Rejected" |
+| Completed | **View Signed Report** | **View Vendor Report** | View |
+| Not Applicable | muted + Re-activate (More) | — | — |
+
+More menu also offers **View Review (answers)** (filled reports), **Configure** (Report Type / Deadline / Comments), **Mark as Not Applicable** (Pending/Rejected), and **Send back to Pending** (Admin only).
+
+### Pending Approval queue — `GlobalApprovalsTable`
+- **List page** "Pending Approval" tab → cross-project queue (server-fetched via `get_task_wise_list`, filtered to `task_status='Pending Approval'`).
+- **Details page** "Pending Approval" view → scoped to the tracker; rendered from the already-loaded tasks.
+- Approve/Reject use icon-only triggers → `ApprovalActionDialog`. After any action, refresh updates **both** the table and the tracker list/doc so status-tab counts react immediately.
+
+### Roles & permissions
+| Capability | Admin | PMO | Project Manager | Design Lead | Design Exec |
+|---|:--:|:--:|:--:|:--:|:--:|
+| **Nav: Commission Report Tracker** | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Full editor (any task in project) | ✅ | ✅ | ✅ | ✅ | assigned only |
+| Approve / Reject | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Send back to Pending (reopen) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Add Category/Zone, Create Task, Rename, Bulk Assign | ✅ | ✅ | ❌ | ✅ | ❌ |
+
+- **Nav gate** (`NewSidebar.tsx`): Administrator + Admin + PMO + Project Manager only.
+- **Edit gate is role-based, not assignment-based.** Backend `update_task_response._FULL_EDIT_ROLES` = `{System Manager, Nirmaan Admin, Nirmaan PMO Executive, Nirmaan Design Lead, Nirmaan Project Manager}`; only `Nirmaan Design Executive` is in `_RESTRICTED_EDIT_ROLES` (assigned tasks only). Frontend mirrors this (`isReportEditRestricted = isDesignExecutive`).
+- **Approvers** (`isApprover`): Admin, PMO, Administrator.
+
+### Counts
+- Task Wise **status tabs** (All / Pending / Pending Approval / Approved / Rejected / Completed) show task counts summed from the tracker list's `status_counts` (excludes N/A).
+- Any approve/reject or status change refreshes **both** the table and the tracker list/doc, so the status-tab counts update immediately.
+
+### CSV Export
+Both the Task Wise table and the per-zone details table use `onExport="default"` → `exportToCsv` (`src/utils/exportToCsv.ts`).
+- **Columns:** every column except those flagged `meta.excludeFromExport` (so the Action column is skipped).
+- **Headers:** these tables use JSX headers, so each exportable column sets `meta.exportHeaderName` to match the on-screen title (else the CSV would fall back to the raw field key like `task_status`).
+- **Values:** `meta.exportValue(row)` overrides where the raw `accessorKey` is wrong/missing — Report Type (details column uses `accessorFn`, so it needs `exportValue`), Deadline (formatted `dd-MMM-yyyy`), and Project (exports `project_name`, not the `project` id).
+- **Scope (current limitation):** `onExportAll` is **not** wired, so the export only covers the **current page** of a server-paginated table; on the details page `showRowSelection` makes it export **selected rows** (or nothing if none selected). Wire `onExportAll={serverDataTable.exportAllRows}` to export the full filtered set.
+
+### Bulk Assign — currently disabled
+The "Bulk Assign" toolbar button on the details zone table is **commented out** (`toolbarActions` renders `null`). Row selection, the handler, and `BulkAssignDialog` are left intact — un-comment the block to re-enable.
+
+### Print format — client signature
+The `render_signatures` macro in `commission-printformat.html` / `ls-commission-printformat.html` renders a **blank signature line** above each role label (incl. CLIENT) so the downloaded Approved report can be physically signed before the signed copy is uploaded. (Per project memory: edit the `.html` source + deliver paste-ready HTML for the Frappe UI; do **not** edit `print_format.json`.)
 
 ---
 

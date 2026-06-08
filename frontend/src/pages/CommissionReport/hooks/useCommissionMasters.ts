@@ -7,8 +7,16 @@ import { useCommissionMasterData } from "../data/useCommissionQueries";
 export const TASK_STATUS_OPTIONS = [
     { label: "Not Applicable", value: "Not Applicable" },
     { label: "Pending", value: "Pending" },
-    { label: "In Progress", value: "In Progress" },
+    { label: "Pending Approval", value: "Pending Approval" },
+    { label: "Approved", value: "Approved" },
+    { label: "Rejected", value: "Rejected" },
     { label: "Completed", value: "Completed" },
+];
+
+// Who fills the report. Default 'Field'.
+export const REPORT_TYPE_OPTIONS = [
+    { label: "Field", value: "Field" },
+    { label: "Vendor", value: "Vendor" },
 ];
 
 export const useCommissionMasters = () => {
@@ -45,7 +53,8 @@ export const useCommissionMasters = () => {
             work_package: cat.work_package,
             tasks: cat.tasks.map((t: any) => ({
                 task_name: t.task_name,
-                deadline_offset: t.deadline_offset
+                deadline_offset: t.deadline_offset,
+                report_type: t.report_type || 'Field'
             }))
         }));
     }, [rawCategories]);

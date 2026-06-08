@@ -29,8 +29,12 @@ export interface CommissionReportTask {
     // but the field type is JSON/string on the wire.
     assigned_designers?: string;
 
+    // Who fills the report: Field (internal, wizard) vs Vendor (external, PDF upload).
+    // Missing/empty is treated as 'Field' for back-compat.
+    report_type?: 'Field' | 'Vendor';
+
     // Status & Tracking (Server Names)
-    task_status: 'Not Applicable' | 'Pending' | 'In Progress' | 'Completed';
+    task_status: 'Not Applicable' | 'Pending' | 'Pending Approval' | 'Approved' | 'Rejected' | 'Completed';
     task_sub_status?: string;
     file_link?: string;
     approval_proof?: string;
@@ -40,8 +44,8 @@ export interface CommissionReportTask {
     // a row only has them set after the wizard is submitted at least once.
     response_data?: string;            // JSON string. Parse on read.
     response_snapshot_id?: string;     // SHA-256 docname → Commission Report Template Snapshot
-    response_filled_at?: string;       // Datetime ISO
-    response_filled_by?: string;       // User id
+    response_filled_at?: string;       // Datetime ISO — stamped on first submit
+    response_filled_by?: string;       // Link to User — who first filled the report
 
     // Other fields to preserve
     sort_order: number;
@@ -84,6 +88,7 @@ export interface MasterDataResponse {
 export interface TaskTemplate {
     task_name: string;
     deadline_offset?: number;
+    report_type?: 'Field' | 'Vendor';
 }
 
 // Raw category data from API
@@ -113,6 +118,7 @@ export interface CommissionTaskMaster {
     // Template-driven wizard fields (added 2026-05)
     source_format?: string;  // JSON template (Long Text). Empty = no wizard.
     is_active?: 0 | 1;       // Soft-delete. Default 1.
+    report_type?: 'Field' | 'Vendor';  // Defaults the created task's report_type.
 }
 
 export interface WorkPackage {

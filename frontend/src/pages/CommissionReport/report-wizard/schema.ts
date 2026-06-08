@@ -11,6 +11,7 @@ import type {
     HeaderSection,
     ImageAttachmentsSection,
     MeasurementMatrixSection,
+    RepeatingGroupsSection,
     ReportTemplate,
     Section,
     WizardStepDef,
@@ -62,6 +63,18 @@ export const buildFieldSchema = (field: Field): ZodTypeAny => {
             return required
                 ? enumSchema
                 : z.union([z.literal(''), enumSchema]).optional().default('');
+        }
+        case 'image': {
+            // AttachmentRecord shape: { file_url, file_name, file_doc? }
+            // Stored inline in the row's column value (not under top-level attachments).
+            const record = z.object({
+                file_url: z.string().min(1),
+                file_name: z.string(),
+                file_doc: z.string().optional(),
+            });
+            return required
+                ? record.refine((v) => !!v.file_url, `${field.label} is required`)
+                : record.nullable().optional();
         }
         default:
             return optionalText();
@@ -120,6 +133,36 @@ const buildTraineesDataTableSchema = (section: TraineesDataTableSection): ZodTyp
         .max(maxRows, `No more than ${maxRows} rows allowed`);
 };
 
+const buildRepeatingGroupsSchema = (section: RepeatingGroupsSection): ZodTypeAny => {
+    // Per-group object schema: groupFields (flat) + optional rowsTable rows
+    // + optional nestedSections per group.
+    const groupShape: Record<string, ZodTypeAny> = {};
+    for (const f of section.groupFields) {
+        groupShape[f.key] = buildFieldSchema(f);
+    }
+    if (section.rowsTable) {
+        const rowShape: Record<string, ZodTypeAny> = {};
+        for (const col of section.rowsTable.columns) {
+            rowShape[col.key] = buildFieldSchema({ ...col, bind: undefined } as Field);
+        }
+        groupShape.rows = z
+            .array(z.object(rowShape))
+            .min(
+                Math.max(1, section.rowsTable.minRows ?? 1),
+                `At least ${Math.max(1, section.rowsTable.minRows ?? 1)} row(s) required per group`,
+            )
+            .max(section.rowsTable.maxRows ?? 100, `Too many rows in a group`);
+    }
+    if (section.nestedSections) {
+        // Each nested section's schema is attached under the section's own id.
+        const nestedShape = buildSchemaForSections(section.nestedSections);
+        for (const [k, v] of Object.entries(nestedShape.shape)) {
+            groupShape[k] = v as ZodTypeAny;
+        }
+    }
+    return z.array(z.object(groupShape)).min(1, 'At least one group required');
+};
+
 const buildMeasurementMatrixSchema = (section: MeasurementMatrixSection): ZodTypeAny => {
     const rowShape: Record<string, ZodTypeAny> = {
         id: z.string(),
@@ -168,6 +211,9 @@ export const buildSchemaForSections = (sections: Section[]): z.ZodObject<any> =>
                 break;
             case 'measurement_matrix':
                 shape[s.id] = buildMeasurementMatrixSchema(s);
+                break;
+            case 'repeating_groups':
+                shape[s.id] = buildRepeatingGroupsSchema(s);
                 break;
             case 'process':
             case 'signatures':
@@ -315,6 +361,53 @@ export const validateStep = (
                         runField(fieldDef, value, `responses.${sid}.${idx}.${col.key}`);
                     }
                 });
+
+                // Earth Pit Resistance Report: the Parameters table's row count
+                // must match `Number of Earth Pits` from the Header step. The
+                // wizard auto-seeds rows on growth; reduction is manual, so we
+                // block Next/Submit until the user deletes the extras.
+                if (
+                    template.templateId === 'earth-pit-resistance-report' &&
+                    sid === 'parameters'
+                ) {
+                    const hdrResponses = (responses['hdr'] || {}) as Record<string, unknown>;
+                    const declared = Number(hdrResponses['num_earth_pits']);
+                    if (Number.isFinite(declared) && declared > 0 && rows.length > declared) {
+                        const extra = rows.length - declared;
+                        errors.push({
+                            path: `responses.${sid}`,
+                            message: `Header says ${declared} earth pit(s) but you have ${rows.length}. Either remove ${extra} unwanted earth pit(s) here, or increase Number of Earth Pits in the Header step.`,
+                        });
+                    }
+                }
+
+                // LT Cable Megger Test Report: each row must pick a unique
+                // `cable_size`. We flag every offending row so the user can
+                // see which ones collide. Scoped to the template that needs
+                // this constraint; safely no-op elsewhere.
+                if (template.templateId === 'lt-cable-megger-test-report') {
+                    const hasCableSizeCol = section.columns.some((c) => c.key === 'cable_size');
+                    if (hasCableSizeCol) {
+                        const seenAt = new Map<string, number[]>();
+                        rows.forEach((row, idx) => {
+                            const v = (row as Record<string, unknown> | undefined)?.['cable_size'];
+                            if (typeof v !== 'string' || !v.trim()) return;
+                            const k = v.trim();
+                            const arr = seenAt.get(k) || [];
+                            arr.push(idx);
+                            seenAt.set(k, arr);
+                        });
+                        for (const [, idxs] of seenAt) {
+                            if (idxs.length <= 1) continue;
+                            for (const idx of idxs) {
+                                errors.push({
+                                    path: `responses.${sid}.${idx}.cable_size`,
+                                    message: 'Each cable can only be tested once — pick a unique cable size.',
+                                });
+                            }
+                        }
+                    }
+                }
                 break;
             }
             case 'measurement_matrix': {
@@ -332,6 +425,138 @@ export const validateStep = (
                         runField(fieldDef, row?.[col.key], `responses.${sid}.${idx}.${col.key}`);
                     }
                 });
+                break;
+            }
+            case 'repeating_groups': {
+                const groups = (responses[sid] || []) as unknown[];
+                if (!Array.isArray(groups) || groups.length === 0) {
+                    errors.push({
+                        path: `responses.${sid}`,
+                        message: 'At least one group required',
+                    });
+                    break;
+                }
+                // If the wizard step is a synthetic per-group slice, validate
+                // only that group. Otherwise validate every group (used by
+                // validateTemplate at submit time, where step.groupSlice is
+                // unset).
+                const sliceIdx =
+                    step.groupSlice && step.groupSlice.sectionId === sid
+                        ? step.groupSlice.groupIndex
+                        : null;
+                const indices: number[] =
+                    sliceIdx !== null && sliceIdx < groups.length
+                        ? [sliceIdx]
+                        : groups.map((_, i) => i);
+                indices.forEach((gIdx) => {
+                    const g = groups[gIdx];
+                    const group = (g as Record<string, unknown> | undefined) || {};
+                    // Flat groupFields
+                    for (const f of section.groupFields) {
+                        if (f.readonly) continue;
+                        runField(f, group[f.key], `responses.${sid}.${gIdx}.${f.key}`);
+                    }
+                    // Optional rowsTable
+                    if (section.rowsTable) {
+                        const rows = Array.isArray(group.rows) ? (group.rows as unknown[]) : [];
+                        const minR = Math.max(1, section.rowsTable.minRows ?? 1);
+                        const maxR = section.rowsTable.maxRows ?? 100;
+                        if (rows.length < minR) {
+                            errors.push({
+                                path: `responses.${sid}.${gIdx}.rows`,
+                                message: `Group ${gIdx + 1}: at least ${minR} row(s) required`,
+                            });
+                            return;
+                        }
+                        if (rows.length > maxR) {
+                            errors.push({
+                                path: `responses.${sid}.${gIdx}.rows`,
+                                message: `Group ${gIdx + 1}: no more than ${maxR} rows allowed`,
+                            });
+                        }
+                        rows.forEach((row, rIdx) => {
+                            for (const col of section.rowsTable!.columns) {
+                                const fieldDef = { ...col, bind: undefined } as Field;
+                                const value = (row as Record<string, unknown> | undefined)?.[col.key];
+                                runField(
+                                    fieldDef,
+                                    value,
+                                    `responses.${sid}.${gIdx}.rows.${rIdx}.${col.key}`,
+                                );
+                            }
+                        });
+                    }
+                    // Optional nestedSections — each section's data is stored
+                    // under `group[<nested.id>]`. We validate per nested section
+                    // by emitting paths under `responses.${sid}.${gIdx}.${nested.id}`.
+                    if (section.nestedSections) {
+                        for (const nested of section.nestedSections) {
+                            const nestedVals =
+                                (group[nested.id] as Record<string, unknown> | undefined) || {};
+                            if (nested.type === 'header' || nested.type === 'fields') {
+                                for (const f of nested.fields) {
+                                    if (f.readonly) continue;
+                                    runField(
+                                        f,
+                                        nestedVals[f.key],
+                                        `responses.${sid}.${gIdx}.${nested.id}.${f.key}`,
+                                    );
+                                }
+                            } else if (nested.type === 'checklist') {
+                                for (const item of nested.items) {
+                                    const itemVals =
+                                        (nestedVals[item.id] as Record<string, unknown> | undefined) || {};
+                                    runField(
+                                        {
+                                            ...item.result,
+                                            key: 'result',
+                                            label: item.result.label || item.particular,
+                                        } as Field,
+                                        itemVals.result,
+                                        `responses.${sid}.${gIdx}.${nested.id}.${item.id}.result`,
+                                    );
+                                    if (item.remarks) {
+                                        runField(
+                                            {
+                                                ...item.remarks,
+                                                key: 'remarks',
+                                                label: item.remarks.label || 'Remarks',
+                                            } as Field,
+                                            itemVals.remarks,
+                                            `responses.${sid}.${gIdx}.${nested.id}.${item.id}.remarks`,
+                                        );
+                                    }
+                                }
+                            }
+                            // process / signatures / image_attachments etc. nested
+                            // sections have no per-group inputs to validate.
+                        }
+                    }
+                });
+                // Header-driven count guard: if countBoundTo points at a numeric
+                // header field, group count must match. Mismatch blocks Next/Submit
+                // until the user adjusts (same UX as Earth Pit). Skip on synthetic
+                // per-group slices — the user's local validation shouldn't fail
+                // because of an unrelated other group; the guard re-runs at
+                // submit (validateTemplate has step.groupSlice undefined).
+                if (section.countBoundTo && sliceIdx === null) {
+                    const declaredRaw = section.countBoundTo
+                        .split('.')
+                        .reduce<unknown>((acc, k) => {
+                            if (acc && typeof acc === 'object') {
+                                return (acc as Record<string, unknown>)[k];
+                            }
+                            return undefined;
+                        }, formValues);
+                    const declared = Number(declaredRaw);
+                    if (Number.isFinite(declared) && declared > 0 && groups.length > declared) {
+                        const extra = groups.length - declared;
+                        errors.push({
+                            path: `responses.${sid}`,
+                            message: `Header says ${declared} group(s) but you have ${groups.length}. Either remove ${extra} group(s) here, or increase the header count.`,
+                        });
+                    }
+                }
                 break;
             }
             case 'process':
@@ -420,6 +645,15 @@ export const getRhfKeysForStep = (template: ReportTemplate, step: WizardStepDef)
             case 'measurement_matrix':
                 // Same array-path strategy as trainees_data_table.
                 out.push(`responses.${s.id}`);
+                break;
+            case 'repeating_groups':
+                // For a synthetic per-group step, narrow to that group's path
+                // so error-clearing on Next only touches the relevant slice.
+                if (step.groupSlice && step.groupSlice.sectionId === s.id) {
+                    out.push(`responses.${s.id}.${step.groupSlice.groupIndex}`);
+                } else {
+                    out.push(`responses.${s.id}`);
+                }
                 break;
             case 'process':
             case 'signatures':

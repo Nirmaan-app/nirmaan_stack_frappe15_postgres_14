@@ -25,7 +25,9 @@ import { TailSpin } from 'react-loader-spinner';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle, parseDesignersFromField } from './utils';
+import { REPORT_TYPE_OPTIONS } from './hooks/useCommissionMasters';
 import { TaskEditModal } from './components/ReportEditModal';
+import { GlobalApprovalsTable } from './components/GlobalApprovalsTable';
 import { BulkAssignDialog } from './components/BulkAssignDialog';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
@@ -150,6 +152,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
         commission_category: initialCategoryName,
         deadline: '',
         task_status: 'Pending',
+        report_type: 'Field',
         file_link: '',
         comments: '',
         task_zone: activeZone
@@ -180,6 +183,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                 commission_category: initialCategoryName,
                 deadline: '',
                 task_status: 'Pending',
+                report_type: 'Field',
                 task_zone: activeZone,
             });
             setSelectedDesigners([]);
@@ -307,57 +311,37 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                         />
                     </div>
 
-                    {/* Assign */}
+                    {/* Filled By */}
                     <div className="space-y-1">
-                        <Label htmlFor="designer" className="text-xs font-medium">Assign</Label>
+                        <Label htmlFor="report_type" className="text-xs font-medium">Report Type</Label>
                         <ReactSelect
-                            isMulti
-                            value={selectedDesigners}
-                            options={designerOptions}
-                            onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
-                            placeholder="Select assignees..."
+                            inputId="report_type"
+                            options={REPORT_TYPE_OPTIONS}
+                            value={REPORT_TYPE_OPTIONS.find((o) => o.value === (taskState.report_type || 'Field')) || null}
+                            onChange={(option: any) => setTaskState(prev => ({ ...prev, report_type: option ? option.value : 'Field' }))}
                             classNamePrefix="react-select"
-                            formatOptionLabel={(option) => (
-                                <div>
-                                    {option.userName}
-                                    {option.roleLabel && (
-                                        <span className="text-red-700 font-light">
-                                            {" "}({option.roleLabel})
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                            getOptionLabel={(option) => option.searchableLabel || option.userName}
                             styles={{
                                 control: (base) => ({ ...base, minHeight: '36px', fontSize: '14px' }),
                                 option: (base) => ({ ...base, fontSize: '14px' })
                             }}
                         />
+                        <p className="text-[11px] text-gray-400">
+                            {(taskState.report_type || 'Field') === 'Vendor'
+                                ? 'Vendor uploads a signed PDF from the Report column (completes directly).'
+                                : 'Field team fills the wizard, then approval + client signature.'}
+                        </p>
                     </div>
 
-                    {/* Deadline & File Link in 2 columns */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                            <Label htmlFor="deadline" className="text-xs font-medium">Deadline</Label>
-                            <Input
-                                id="deadline"
-                                type="date"
-                                value={taskState.deadline || ''}
-                                onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))}
-                                className="h-9"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <Label htmlFor="file_link" className="text-xs font-medium">File Link</Label>
-                            <Input
-                                id="file_link"
-                                type="url"
-                                value={taskState.file_link || ''}
-                                onChange={(e) => setTaskState(prev => ({ ...prev, file_link: e.target.value }))}
-                                placeholder="https://..."
-                                className="h-9"
-                            />
-                        </div>
+                    {/* Deadline */}
+                    <div className="space-y-1">
+                        <Label htmlFor="deadline" className="text-xs font-medium">Deadline</Label>
+                        <Input
+                            id="deadline"
+                            type="date"
+                            value={taskState.deadline || ''}
+                            onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))}
+                            className="h-9"
+                        />
                     </div>
                 </div>
 
@@ -441,6 +425,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                         task_name: taskDef.task_name,
                         commission_category: cat.category_name,
                         task_status: 'Pending',
+                        report_type: (taskDef as any).report_type || 'Field',
                         deadline: calculatedDeadline || handoverDeadline.toISOString().split('T')[0],
                         task_zone: zoneName,
                         task_phase: "Handover",
@@ -788,7 +773,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
     const {
         trackerDoc, categoryData, isLoading, error, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
-        handleNewTaskCreation
+        handleNewTaskCreation, refetchTracker
     } = useCommissionTrackerLogic({ trackerId: trackerId! });
 
     // CEO Hold guard - use project ID from tracker document
@@ -797,7 +782,13 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const isRestrictedAssigneeRole = isDesignExecutive || isProjectManager;
+    // Report fill/edit permission: Project Managers may fill/edit ANY task (not just
+    // their assigned ones). Only Design Executives stay limited to assigned tasks.
+    const isReportEditRestricted = isDesignExecutive;
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    // Approvers (Admin / PMO) get the Approvals queue tab + Approve/Reject actions.
+    const isApprover = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    const [viewMode, setViewMode] = useState<'zone' | 'approval'>('zone');
 
     const checkIfUserAssigned = useCallback((task: CommissionReportTask) => {
         const designers = parseDesignersFromField(task.assigned_designers);
@@ -1016,17 +1007,14 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             title: "Status",
             options: statusOptions || [],
         },
-        // Only add assigned designer filter for unrestricted users
-        ...(isRestrictedAssigneeRole ? {} : {
-            assigned_designers: {
-                title: "Assigned",
-                options: (usersList || []).map(u => ({
-                    label: u.full_name || u.name,
-                    value: u.name
-                })),
-            },
-        }),
-    }), [activeCategoriesInTracker, statusOptions, isRestrictedAssigneeRole, usersList]);
+        report_type: {
+            title: "Report Type",
+            options: [
+                { label: "Field", value: "Field" },
+                { label: "Vendor", value: "Vendor" },
+            ],
+        },
+    }), [activeCategoriesInTracker, statusOptions]);
 
     // Search field options
     const searchFieldOptions = [
@@ -1041,12 +1029,21 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const columns = useMemo(
         () => getTaskTableColumns(
             setEditingTask,
-            isRestrictedAssigneeRole,
+            isReportEditRestricted,
             checkIfUserAssigned,
             masterTaskMap,
             trackerId || '',
+            refetchTracker,
         ),
-        [isRestrictedAssigneeRole, checkIfUserAssigned, masterTaskMap, trackerId]
+        [isReportEditRestricted, checkIfUserAssigned, masterTaskMap, trackerId, refetchTracker]
+    );
+
+    // Tasks awaiting approval (across all zones) — drives the Pending Approval tab.
+    const approvalTasks = useMemo(
+        () => (trackerDoc?.commission_report_task ?? []).filter(
+            t => t.task_status === 'Pending Approval'
+        ),
+        [trackerDoc?.commission_report_task]
     );
 
     // Client-side TanStack Table instance
@@ -1118,6 +1115,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                         task_name: taskDef.task_name,
                         commission_category: cat.category_name,
                         task_status: 'Pending',
+                        report_type: (taskDef as any).report_type || 'Field',
                         deadline: calculatedDeadline || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                         task_zone: zoneName,
                         task_phase: "Handover",
@@ -1612,6 +1610,30 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
 
                         {/* Right: My Tasks Toggle + Create Task + Export Zone */}
                         <div className="flex items-center gap-2">
+                            {/* Approvals view toggle (Admin / PMO only) */}
+                            {isApprover && (
+                                <div className="flex rounded-md border border-gray-300 overflow-hidden mr-1">
+                                    <button
+                                        onClick={() => setViewMode('zone')}
+                                        className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${viewMode === 'zone' ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                                    >
+                                        Zone View
+                                    </button>
+                                    <button
+                                        onClick={() => setViewMode('approval')}
+                                        className={`px-2.5 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${viewMode === 'approval' ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-700 hover:bg-indigo-50'}`}
+                                    >
+                                        <span>Pending Approval</span>
+                                        <Badge
+                                            variant="secondary"
+                                            className={`px-1 py-0 text-[10px] min-w-[18px] justify-center rounded-full ${viewMode === 'approval' ? 'bg-white/25 text-white' : 'bg-indigo-100 text-indigo-700'}`}
+                                        >
+                                            {approvalTasks.length}
+                                        </Badge>
+                                    </button>
+                                </div>
+                            )}
+
                             {/* My Tasks Toggle - for restricted assignee roles and Design Lead */}
                             {(isRestrictedAssigneeRole || role === "Nirmaan Design Lead Profile") && (
                                 <button
@@ -1642,6 +1664,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                 </button>
                             )}
 
+                            {/* Custom task creation removed — tasks come from the master only.
                             {!isRestrictedAssigneeRole && (
                                 <Button
                                     variant="outline"
@@ -1662,6 +1685,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                     <Plus className="h-3 w-3" /> Create Task
                                 </Button>
                             )}
+                            */}
                             {activeTab && (
                                 <TooltipProvider>
                                     <Tooltip delayDuration={200}>
@@ -1722,7 +1746,11 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                 DATA TABLE
             ═══════════════════════════════════════════════════════════════ */}
             <div className="p-4 md:px-6 overflow-x-auto">
-                {/* DataTable for active zone */}
+                {isApprover && viewMode === 'approval' ? (
+                    /* Pending Approval queue (same table as the list page, scoped to this project) */
+                    <GlobalApprovalsTable trackerName={trackerId || ''} onRefresh={refetchTracker} />
+                ) : (
+                /* DataTable for active zone */
                 <DataTable<CommissionReportTask>
                     table={table}
                     columns={columns}
@@ -1742,6 +1770,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                     tableHeight="60vh"
                     showRowSelection={hasEditStructureAccess || role === "Nirmaan Design Lead Profile"}
                     toolbarActions={
+                        /* Bulk Assign button hidden for now.
                         selectedCount > 0 && (hasEditStructureAccess || role === "Nirmaan Design Lead Profile") ? (
                             <Button
                                 size="sm"
@@ -1753,8 +1782,11 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                 Bulk Assign ({selectedCount})
                             </Button>
                         ) : null
+                        */
+                        null
                     }
                 />
+                )}
             </div>
 
             {/* --- MODALS --- */}
@@ -1777,7 +1809,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
-                    isRestrictedMode={isRestrictedAssigneeRole}
+                    isRestrictedMode={isReportEditRestricted}
                 />
             )}
 

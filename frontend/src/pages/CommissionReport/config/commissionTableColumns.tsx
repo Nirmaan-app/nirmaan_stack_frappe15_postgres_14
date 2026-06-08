@@ -2,18 +2,14 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Edit } from "lucide-react";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { FillReportButton, type MasterTaskInfo } from "../components/FillReportButton";
+import { type MasterTaskInfo } from "../components/FillReportButton";
+import { ReportActionCell } from "../components/ReportActionCell";
 import { CommissionReportTask } from "../types";
 import {
-    getUnifiedStatusStyle,
     formatDeadlineShort,
-    getAssignedNameForDisplay,
-    parseDesignersFromField
+    getUnifiedStatusStyle,
 } from "../utils";
-import { FilesCell } from "../components/FilesCell";
 
 // Column IDs that support date filtering
 export const TASK_DATE_COLUMNS = ["deadline"];
@@ -23,15 +19,6 @@ const facetedFilterFn = (row: any, columnId: string, filterValue: string[]) => {
     if (!filterValue || filterValue.length === 0) return true;
     const cellValue = row.getValue(columnId);
     return filterValue.includes(cellValue);
-};
-
-// Custom filter function for assigned_designers (multi-select by userId)
-const assignedDesignersFilterFn = (row: any, _columnId: string, filterValue: string[]) => {
-    if (!filterValue || filterValue.length === 0) return true;
-    const designerField = row.original.assigned_designers;
-    const designers = parseDesignersFromField(designerField);
-    const designerIds = designers.map(d => d.userId);
-    return filterValue.some(id => designerIds.includes(id));
 };
 
 // Helper to get date range for timespan values
@@ -180,19 +167,22 @@ export const getTaskTableColumns = (
     masterMap: Map<string, MasterTaskInfo> = new Map(),
     /** Required for the "Report" column. */
     parentName: string = '',
+    /** Refresh the tracker doc after a Report-column status/file mutation. */
+    refresh?: () => void,
 ): ColumnDef<CommissionReportTask>[] => {
     return [
         {
             accessorKey: "commission_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
             cell: ({ row }) => (
-                <span className="text-xs truncate block max-w-[90px]">{row.original.commission_category || '--'}</span>
+                <span className="text-xs block whitespace-normal break-words leading-tight">{row.original.commission_category || '--'}</span>
             ),
             enableColumnFilter: true,
             filterFn: facetedFilterFn,
-            size: 140,
-            minSize: 100,
-            maxSize: 180,
+            size: 160,
+            minSize: 120,
+            maxSize: 220,
+            meta: { exportHeaderName: "Category" },
         },
         {
             accessorKey: "task_name",
@@ -203,32 +193,38 @@ export const getTaskTableColumns = (
             size: 190,
             minSize: 150,
             maxSize: 280,
+            meta: { exportHeaderName: "Report Name" },
         },
-        // Conditionally show Assigned Designer column (hidden for restricted assignee roles)
-        ...(isRestrictedUser ? [] : [{
-            id: "assigned_designers",
-            accessorKey: "assigned_designers",
-            header: ({ column }: { column: any }) => (
-                <DataTableColumnHeader column={column} title="Assigned" />
-            ),
-            cell: ({ row }: { row: any }) => (
-                <div className="py-0.5">
-                    {getAssignedNameForDisplay(row.original)}
+        {
+            id: "report_type",
+            accessorFn: (row) => row.report_type || 'Field',
+            header: ({ column }) => (
+                <div className="flex justify-center">
+                    <DataTableColumnHeader column={column} title="Report Type" />
                 </div>
             ),
+            cell: ({ row }) => {
+                const rt = row.original.report_type || 'Field';
+                return (
+                    <div className="flex justify-center">
+                        <span className={`py-0.5 px-2 text-[10px] rounded-full border ${rt === 'Vendor'
+                            ? 'bg-orange-50 text-orange-700 border-orange-200'
+                            : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                            {rt}
+                        </span>
+                    </div>
+                );
+            },
             enableColumnFilter: true,
-            filterFn: assignedDesignersFilterFn,
-            size: 160,
-            minSize: 130,
-            maxSize: 200,
+            filterFn: facetedFilterFn,
+            size: 90,
+            minSize: 74,
+            maxSize: 110,
             meta: {
-                exportHeaderName: "Assigned Designers",
-                exportValue: (row: CommissionReportTask) => {
-                    const designers = parseDesignersFromField(row.assigned_designers);
-                    return designers.map(d => `• ${d.userName || d.userId}`).join("\n");
-                }
-            }
-        }] as ColumnDef<CommissionReportTask>[]),
+                exportHeaderName: "Report Type",
+                exportValue: (row: CommissionReportTask) => row.report_type || 'Field',
+            },
+        },
         {
             id: "deadline",
             accessorKey: "deadline",
@@ -247,6 +243,10 @@ export const getTaskTableColumns = (
             size: 110,
             minSize: 90,
             maxSize: 130,
+            meta: {
+                exportHeaderName: "Deadline",
+                exportValue: (row: CommissionReportTask) => row.deadline ? formatDeadlineShort(row.deadline) : '',
+            },
         },
         {
             accessorKey: "task_status",
@@ -259,7 +259,7 @@ export const getTaskTableColumns = (
                 <div className="flex justify-center">
                     <Badge
                         variant="outline"
-                        className={`max-w-[100px] min-h-[22px] h-auto py-0.5 px-2 text-[10px] justify-center whitespace-normal break-words text-center leading-tight rounded-full ${getUnifiedStatusStyle(row.original.task_status || '...')}`}
+                        className={`max-w-[110px] min-h-[22px] h-auto py-0.5 px-2 text-[10px] justify-center whitespace-normal break-words text-center leading-tight rounded-full ${getUnifiedStatusStyle(row.original.task_status || '...')}`}
                     >
                         {row.original.task_status || '...'}
                     </Badge>
@@ -267,81 +267,35 @@ export const getTaskTableColumns = (
             ),
             enableColumnFilter: true,
             filterFn: facetedFilterFn,
-            size: 150,
-            minSize: 120,
-            maxSize: 180,
+            size: 120,
+            minSize: 100,
+            maxSize: 140,
+            meta: { exportHeaderName: "Status" },
         },
         {
-            id: "file_link",
-            accessorKey: "file_link",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Link/Files" />,
-            cell: ({ row }) => (
-                <FilesCell
-                    file_link={row.original.file_link}
-                    approval_proof={row.original.approval_proof}
-                    task_status={row.original.task_status}
-                    size="sm"
-                />
-            ),
-            size: 80,
-            minSize: 70,
-            maxSize: 100,
-            meta: { excludeFromExport: true },
-        },
-        {
-            id: "report",
+            id: "action",
             header: ({ column }: { column: any }) => (
-                <div className="flex justify-center px-2">
-                    <DataTableColumnHeader column={column} title="Report" />
+                <div className="flex justify-center w-full px-2">
+                    <DataTableColumnHeader column={column} title="Actions / Reports" />
                 </div>
             ),
             cell: ({ row }: { row: any }) => {
                 const canEdit = !isRestrictedUser ||
                     (isRestrictedUser && checkIfUserAssigned(row.original));
                 return (
-                    <div className="flex justify-center">
-                        <FillReportButton
-                            parentName={parentName}
-                            task={row.original}
-                            masterMap={masterMap}
-                            canEdit={canEdit}
-                        />
-                    </div>
+                    <ReportActionCell
+                        parentName={parentName}
+                        task={row.original}
+                        masterMap={masterMap}
+                        canEdit={canEdit}
+                        refresh={refresh}
+                        onConfigure={handleEditClick}
+                    />
                 );
             },
-            size: 90,
-            minSize: 80,
-            maxSize: 110,
-            meta: { excludeFromExport: true },
-        },
-        {
-            id: "actions",
-            header: ({ column }: { column: any }) => (
-                <div className="flex justify-center px-5">
-                    <DataTableColumnHeader column={column} title="Edit" />
-                </div>
-            ),
-            cell: ({ row }: { row: any }) => {
-                const canEdit = !isRestrictedUser ||
-                    (isRestrictedUser && checkIfUserAssigned(row.original));
-
-                return (
-                    <div className="flex justify-center">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => canEdit && handleEditClick(row.original)}
-                            className={`h-6 px-1.5 ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            disabled={!canEdit}
-                        >
-                            <Edit className="h-3 w-3" />
-                        </Button>
-                    </div>
-                );
-            },
-            size: 80,
-            minSize: 70,
-            maxSize: 100,
+            size: 200,
+            minSize: 170,
+            maxSize: 240,
             meta: { excludeFromExport: true },
         },
     ];

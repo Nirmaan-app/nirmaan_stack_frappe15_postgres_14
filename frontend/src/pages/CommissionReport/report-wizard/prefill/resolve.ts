@@ -34,6 +34,11 @@ const emptyForType = (f: Pick<Field, 'type'>): unknown => {
             return '';
         case 'date':
             return '';
+        case 'image':
+            // Per-row image cell: no value = null. Truthy `existing` check in
+            // resolveFieldValue treats null as "fall through to default", which
+            // is what we want — the cell renders its empty Upload button.
+            return null;
         case 'select':
         case 'text':
         case 'textarea':
@@ -149,6 +154,137 @@ export const resolveInitialValues = ({
                 }
                 break;
             }
+            case 'repeating_groups': {
+                // Each group = { ...groupFields, rows?: [...rowsTable], <nested.id>?: {...} }.
+                const existingArr = Array.isArray(existing)
+                    ? (existing as Array<Record<string, unknown>>)
+                    : null;
+                const buildEmptyRow = (): Record<string, unknown> => {
+                    const row: Record<string, unknown> = {};
+                    if (!section.rowsTable) return row;
+                    for (const col of section.rowsTable.columns) {
+                        row[col.key] = resolveFieldValue(
+                            { ...col, bind: undefined } as Field,
+                            undefined,
+                            prefillDict,
+                        );
+                    }
+                    return row;
+                };
+                /** Build an empty nested-section response shape, mirroring how the
+                 *  top-level resolver seeds each section type. Reuse via a small
+                 *  switch — only the input section types matter; process /
+                 *  signatures / image_attachments contribute nothing here. */
+                const buildEmptyNested = (
+                    nested: Section,
+                    savedNested: Record<string, unknown> | undefined,
+                ): unknown => {
+                    if (nested.type === 'header' || nested.type === 'fields') {
+                        const out: Record<string, unknown> = {};
+                        for (const f of nested.fields) {
+                            out[f.key] = resolveFieldValue(f, savedNested, prefillDict);
+                        }
+                        return out;
+                    }
+                    if (nested.type === 'checklist') {
+                        const out: Record<string, { result?: unknown; remarks?: unknown }> = {};
+                        for (const item of nested.items) {
+                            const savedItem =
+                                (savedNested?.[item.id] as
+                                    | { result?: unknown; remarks?: unknown }
+                                    | undefined) || undefined;
+                            const resultField = {
+                                ...item.result,
+                                key: 'result',
+                                label: item.result.label || 'Result',
+                            } as Field;
+                            const remarksField = item.remarks
+                                ? ({
+                                      ...item.remarks,
+                                      key: 'remarks',
+                                      label: item.remarks.label || 'Remarks',
+                                  } as Field)
+                                : null;
+                            out[item.id] = {
+                                result: resolveFieldValue(resultField, savedItem, prefillDict),
+                                remarks: remarksField
+                                    ? resolveFieldValue(remarksField, savedItem, prefillDict)
+                                    : '',
+                            };
+                        }
+                        return out;
+                    }
+                    // Other types (process / signatures / image_attachments / trainees_data_table /
+                    // measurement_matrix / repeating_groups) — no per-group data.
+                    return undefined;
+                };
+                const buildEmptyGroup = (): Record<string, unknown> => {
+                    const g: Record<string, unknown> = {};
+                    for (const f of section.groupFields) {
+                        g[f.key] = resolveFieldValue(f, undefined, prefillDict);
+                    }
+                    if (section.rowsTable) {
+                        const minRows = Math.max(1, section.rowsTable.minRows ?? 1);
+                        g.rows = Array.from({ length: minRows }, () => buildEmptyRow());
+                    }
+                    if (section.nestedSections) {
+                        for (const nested of section.nestedSections) {
+                            const seeded = buildEmptyNested(nested, undefined);
+                            if (seeded !== undefined) g[nested.id] = seeded;
+                        }
+                    }
+                    return g;
+                };
+                if (existingArr && existingArr.length > 0) {
+                    out[section.id] = existingArr.map((saved) => {
+                        const g: Record<string, unknown> = {};
+                        for (const f of section.groupFields) {
+                            const v = saved?.[f.key];
+                            g[f.key] =
+                                v === undefined || v === null
+                                    ? resolveFieldValue(f, undefined, prefillDict)
+                                    : v;
+                        }
+                        if (section.rowsTable) {
+                            const savedRows = Array.isArray(saved?.rows)
+                                ? (saved.rows as Array<Record<string, unknown>>)
+                                : [];
+                            g.rows = savedRows.length > 0
+                                ? savedRows.map((row) => {
+                                      const filled: Record<string, unknown> = {};
+                                      for (const col of section.rowsTable!.columns) {
+                                          const v = row?.[col.key];
+                                          filled[col.key] =
+                                              v === undefined || v === null
+                                                  ? resolveFieldValue(
+                                                        { ...col, bind: undefined } as Field,
+                                                        undefined,
+                                                        prefillDict,
+                                                    )
+                                                  : v;
+                                      }
+                                      return filled;
+                                  })
+                                : [buildEmptyRow()];
+                        }
+                        if (section.nestedSections) {
+                            for (const nested of section.nestedSections) {
+                                const savedNested = saved?.[nested.id] as
+                                    | Record<string, unknown>
+                                    | undefined;
+                                const resolved = buildEmptyNested(nested, savedNested);
+                                if (resolved !== undefined) g[nested.id] = resolved;
+                            }
+                        }
+                        return g;
+                    });
+                } else {
+                    // Fill: seed one empty group (more get auto-added by the
+                    // wizard when the user enters a count in the header).
+                    out[section.id] = [buildEmptyGroup()];
+                }
+                break;
+            }
             case 'measurement_matrix': {
                 // Fixed N rows. Each row is keyed by the declared `rows[i].id` so we can
                 // re-align saved responses to the template rows even if the user changes
@@ -226,6 +362,8 @@ export const collectUsedPrefillKeys = (template: ReportTemplate): string[] => {
             case 'image_attachments':
             case 'signatures':
             case 'trainees_data_table':
+            case 'measurement_matrix':
+            case 'repeating_groups':
                 break;
         }
     };

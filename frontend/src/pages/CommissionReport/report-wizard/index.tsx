@@ -10,6 +10,7 @@
 //   6. Optimistic-concurrency conflict UI
 
 import { useFrappeAuth, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useUserData } from '@/hooks/useUserData';
 import { ArrowLeft, ArrowRight, Loader2, Printer, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
@@ -94,6 +95,8 @@ export const CommissionReportWizard: React.FC = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { currentUser } = useFrappeAuth();
+    const { role } = useUserData();
+    const isProjectManager = role === 'Nirmaan Project Manager Profile';
     const { mutate } = useSWRConfig();
 
     // ─── Data ─────────────────────────────────────────────────────────────
@@ -162,7 +165,51 @@ export const CommissionReportWizard: React.FC = () => {
     // Filter steps by visibleIf; this drives navigation, validation, and rendering.
     const visibleStepDefs: WizardStepDef[] = useMemo(() => {
         if (!template?.wizardSteps) return [];
-        return template.wizardSteps.filter((s) => isStepVisible(s, watched));
+        const visible = template.wizardSteps.filter((s) => isStepVisible(s, watched));
+        if (!template.sections) return visible;
+        const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
+        // Expand any step whose single section is a `repeating_groups` with a
+        // `countBoundTo` header binding into N synthetic per-group steps.
+        // Count = max(declared, currentGroups) — preserves user-added extras so
+        // the user can navigate to and remove them.
+        const expanded: WizardStepDef[] = [];
+        for (const step of visible) {
+            if (step.sections.length === 1) {
+                const sec = sectionsById.get(step.sections[0]);
+                if (sec && sec.type === 'repeating_groups' && sec.countBoundTo) {
+                    const declaredRaw = sec.countBoundTo
+                        .split('.')
+                        .reduce<unknown>((acc, k) => {
+                            if (acc && typeof acc === 'object') {
+                                return (acc as Record<string, unknown>)[k];
+                            }
+                            return undefined;
+                        }, watched);
+                    const declared = Number(declaredRaw);
+                    const groupsArrRaw = (watched as { responses?: Record<string, unknown> } | undefined)
+                        ?.responses?.[sec.id];
+                    const actualLen = Array.isArray(groupsArrRaw) ? groupsArrRaw.length : 0;
+                    const n = Math.max(
+                        Number.isFinite(declared) && declared > 0 ? Math.floor(declared) : 0,
+                        actualLen,
+                    );
+                    if (n > 0) {
+                        const prefix = sec.groupTitlePrefix || step.title;
+                        for (let i = 0; i < n; i++) {
+                            expanded.push({
+                                key: `${step.key}_${i + 1}`,
+                                title: `${prefix} ${i + 1}`,
+                                sections: step.sections,
+                                groupSlice: { sectionId: sec.id, groupIndex: i },
+                            });
+                        }
+                        continue;
+                    }
+                }
+            }
+            expanded.push(step);
+        }
+        return expanded;
     }, [template, watched]);
 
     const wizardSteps: WizardStep[] = useMemo(
@@ -177,6 +224,19 @@ export const CommissionReportWizard: React.FC = () => {
             setCurrentStep(visibleStepDefs.length - 1);
         }
     }, [visibleStepDefs.length, currentStep]);
+
+    // In view mode, open straight on the single-page Review summary (the auto step
+    // with no sections), instead of paging through every step.
+    // IMPORTANT: only when the report is actually FILLED. While the parent doc is
+    // still loading, `canEdit` is false → `mode` is transiently "view"; without the
+    // isFilled guard a fresh fill would wrongly jump to Review and get stuck there.
+    const viewJumpedRef = useRef(false);
+    useEffect(() => {
+        if (mode !== 'view' || !isFilled || viewJumpedRef.current || visibleStepDefs.length === 0) return;
+        const reviewIdx = visibleStepDefs.findIndex((s) => s.sections.length === 0);
+        setCurrentStep(reviewIdx >= 0 ? reviewIdx : visibleStepDefs.length - 1);
+        viewJumpedRef.current = true;
+    }, [mode, isFilled, visibleStepDefs]);
 
     // Initialize form values once template + prefill + (optional) existing response are ready.
     // The response_data is the single source of truth for attachments — each slot value
@@ -212,6 +272,31 @@ export const CommissionReportWizard: React.FC = () => {
             }
         }
 
+        // Duct Pressure / Leak Test: detect Test Type from the task name
+        // (Smoke / Light / Pressure) and seed both header.test_type AND
+        // general_desc.test_type. Header is readonly (compliance / audit);
+        // general_desc.test_type is editable so the user can override if the
+        // task name is misleading. `Type of Duct` is a separate user-entered
+        // field. Existing saved values are preserved.
+        if (template.templateId === 'duct-pressure/smoke/light-testing-report' && childRow?.task_name) {
+            const lower = childRow.task_name.toLowerCase();
+            const detected = lower.includes('pressure')
+                ? 'Pressure'
+                : lower.includes('smoke')
+                  ? 'Smoke'
+                  : lower.includes('light')
+                    ? 'Light'
+                    : '';
+            if (detected) {
+                const hdr = (initialResponses['hdr'] || {}) as Record<string, unknown>;
+                if (!hdr.test_type) hdr.test_type = detected;
+                initialResponses['hdr'] = hdr;
+                const gd = (initialResponses['general_desc'] || {}) as Record<string, unknown>;
+                if (!gd.test_type) gd.test_type = detected;
+                initialResponses['general_desc'] = gd;
+            }
+        }
+
         const seededAttachments: Record<string, AttachmentSlotValue[]> = {};
         if (existingResponse?.attachments) {
             for (const [k, v] of Object.entries(existingResponse.attachments)) {
@@ -239,7 +324,10 @@ export const CommissionReportWizard: React.FC = () => {
     const keepNamesRef = useRef<string[]>([]);
 
     const updateKeepNames = useCallback(
-        (attachments: Record<string, AttachmentSlotValue[]>) => {
+        (
+            attachments: Record<string, AttachmentSlotValue[]>,
+            responses?: Record<string, unknown>,
+        ) => {
             const all: string[] = [];
             for (const arr of Object.values(attachments)) {
                 if (!Array.isArray(arr)) continue;
@@ -248,6 +336,26 @@ export const CommissionReportWizard: React.FC = () => {
                         all.push((v as AttachmentRecord).file_doc as string);
                     }
                 }
+            }
+            // Also walk `responses` for inline per-row AttachmentRecords (used by
+            // trainees_data_table image columns, e.g. Earth Pit per-row photos).
+            if (responses) {
+                const visit = (node: unknown): void => {
+                    if (!node) return;
+                    if (Array.isArray(node)) {
+                        for (const item of node) visit(item);
+                        return;
+                    }
+                    if (typeof node === 'object') {
+                        const obj = node as Record<string, unknown>;
+                        if (typeof obj.file_doc === 'string' && obj.file_doc) {
+                            all.push(obj.file_doc);
+                            return;
+                        }
+                        for (const v of Object.values(obj)) visit(v);
+                    }
+                };
+                visit(responses);
             }
             keepNamesRef.current = all;
         },
@@ -292,7 +400,18 @@ export const CommissionReportWizard: React.FC = () => {
                     message: err.message,
                 });
             }
-            toast({ title: 'Please fix errors before continuing', variant: 'destructive' });
+            // Surface the first 3 messages so the user sees the actual reason,
+            // not just a generic "fix errors" prompt.
+            const preview = stepErrors
+                .slice(0, 3)
+                .map((e) => `• ${e.message}`)
+                .join('\n');
+            const more = stepErrors.length > 3 ? `\n…and ${stepErrors.length - 3} more` : '';
+            toast({
+                title: 'Please fix errors before continuing',
+                description: preview + more,
+                variant: 'destructive',
+            });
             return;
         }
 
@@ -319,7 +438,16 @@ export const CommissionReportWizard: React.FC = () => {
                     message: err.message,
                 });
             }
-            toast({ title: 'Form has errors', description: 'Review previous steps.', variant: 'destructive' });
+            const preview = fullErrors
+                .slice(0, 3)
+                .map((e) => `• ${e.message}`)
+                .join('\n');
+            const more = fullErrors.length > 3 ? `\n…and ${fullErrors.length - 3} more` : '';
+            toast({
+                title: 'Form has errors',
+                description: preview + more,
+                variant: 'destructive',
+            });
             return;
         }
 
@@ -346,7 +474,7 @@ export const CommissionReportWizard: React.FC = () => {
                 expectedModified: parentDoc.modified || '',
             });
             // Refresh keep set so the cleanup-on-unmount knows what's committed.
-            updateKeepNames(values.attachments);
+            updateKeepNames(values.attachments, values.responses);
             setIsCommitted(true);
             draft.clearDraftAfterSubmit();
 
@@ -407,7 +535,7 @@ export const CommissionReportWizard: React.FC = () => {
     }
     if (isParentLoading || isTemplateLoading || isPrefillLoading) {
         return (
-            <div className="mx-auto max-w-4xl p-4">
+            <div className="mx-auto max-w-6xl p-4">
                 <FormSkeleton />
             </div>
         );
@@ -462,10 +590,12 @@ export const CommissionReportWizard: React.FC = () => {
     const step = visibleStepDefs[currentStep];
     const isReviewStep = step && step.sections.length === 0;
     const isFinalStep = step && currentStep === visibleStepDefs.length - 1;
+    // Project Managers get a locked single-page Review preview (no back/step nav).
+    const lockNav = isProjectManager && mode === 'view';
     const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
 
     return (
-        <div className="mx-auto max-w-4xl space-y-4 p-4">
+        <div className="mx-auto max-w-6xl space-y-4 p-4">
             <FormProvider {...form}>
                 <header className="flex flex-col gap-2 border-b pb-3">
                     <div className="flex items-center justify-between gap-2">
@@ -479,12 +609,22 @@ export const CommissionReportWizard: React.FC = () => {
                             Back to tracker
                         </Button>
                         <div className="flex items-center gap-2">
-                            {isFilled && (
+                            {isFilled && !isProjectManager && (
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => {
-                                        const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent('Project Commission Report')}&name=${encodeURIComponent(parentName)}&format=${encodeURIComponent('Project Commission Report - Filled Task')}&task_row=${encodeURIComponent(childRowName)}&letterhead=No+Letterhead`;
+                                        // Templates declare `printOrientation: "landscape"` in
+                                        // their source_format to opt into the LS print format
+                                        // (Orientation = Landscape on the Print Format doctype).
+                                        // Default is portrait.
+                                        const isLandscape =
+                                            (template as { printOrientation?: string } | null)
+                                                ?.printOrientation === 'landscape';
+                                        const printFormat = isLandscape
+                                            ? 'LSProject Commission Report - Filled Task'
+                                            : 'Project Commission Report - Filled Task';
+                                        const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent('Project Commission Report')}&name=${encodeURIComponent(parentName)}&format=${encodeURIComponent(printFormat)}&task_row=${encodeURIComponent(childRowName)}&letterhead=No+Letterhead`;
                                         window.open(url, '_blank', 'noopener');
                                     }}
                                 >
@@ -519,6 +659,8 @@ export const CommissionReportWizard: React.FC = () => {
                         steps={wizardSteps}
                         currentStep={currentStep}
                         onStepClick={(idx) => {
+                            // Project Managers preview is locked to the single Review page.
+                            if (lockNav) return;
                             // Allow back-nav freely; forward only if validating each gate would pass — keep simple here.
                             if (idx <= currentStep) setCurrentStep(idx);
                         }}
@@ -531,6 +673,13 @@ export const CommissionReportWizard: React.FC = () => {
                         step.sections.map((sid) => {
                             const section = sectionsById.get(sid);
                             if (!section) return null;
+                            // For synthetic per-group steps generated from a
+                            // `repeating_groups` section, pass the target group
+                            // index so the renderer shows only that group.
+                            const groupIndexFilter =
+                                step.groupSlice && step.groupSlice.sectionId === sid
+                                    ? step.groupSlice.groupIndex
+                                    : undefined;
                             return (
                                 <SectionRenderer
                                     key={sid}
@@ -542,8 +691,12 @@ export const CommissionReportWizard: React.FC = () => {
                                     forceReadonly={mode === 'view'}
                                     onAttachmentCreated={(fileDoc) => {
                                         track(fileDoc);
-                                        updateKeepNames(form.getValues('attachments'));
+                                        updateKeepNames(
+                                            form.getValues('attachments'),
+                                            form.getValues('responses'),
+                                        );
                                     }}
+                                    groupIndexFilter={groupIndexFilter}
                                 />
                             );
                         })
@@ -556,6 +709,7 @@ export const CommissionReportWizard: React.FC = () => {
                     )}
                 </main>
 
+                {!lockNav && (
                 <footer className="flex items-center justify-between gap-3 border-t pt-3">
                     <Button variant="outline" onClick={handleBack} disabled={currentStep === 0}>
                         <ArrowLeft className="mr-1 h-4 w-4" />
@@ -579,6 +733,7 @@ export const CommissionReportWizard: React.FC = () => {
                         )
                     )}
                 </footer>
+                )}
 
                 {isConflict && (
                     <ConflictBanner
@@ -924,6 +1079,20 @@ const ReviewSummary: React.FC<{
 
                 if (section.type === 'trainees_data_table') {
                     const rows = (formValues.responses?.[section.id] || []) as unknown as Array<Record<string, unknown>>;
+                    // Lux Level Report computes a LUX Average per row in the
+                    // print format (mean of lux1/lux2/lux3). Show the same
+                    // column in the review for parity. Scoped to the template
+                    // + section so other trainees tables stay unchanged.
+                    const showLuxAverage =
+                        template.templateId === 'lux-level-report' && section.id === 'readings';
+                    const luxAverageAfter = 'lux3'; // insert the column after this col.key
+                    const luxAvgFor = (row: Record<string, unknown>): string => {
+                        const v1 = Number(row?.['lux1']);
+                        const v2 = Number(row?.['lux2']);
+                        const v3 = Number(row?.['lux3']);
+                        if ([v1, v2, v3].some((n) => !Number.isFinite(n))) return '—';
+                        return ((v1 + v2 + v3) / 3).toFixed(2);
+                    };
                     return (
                         <div key={section.id} className="rounded-md border p-3">
                             <h3 className="mb-3 text-sm font-medium">{section.title || section.id}</h3>
@@ -936,12 +1105,16 @@ const ReviewSummary: React.FC<{
                                             <tr className="border-b text-xs text-muted-foreground">
                                                 <th className="w-12 py-1.5 pr-2 text-left font-medium">#</th>
                                                 {section.columns.map((c) => (
-                                                    <th
-                                                        key={c.key}
-                                                        className="py-1.5 pr-2 text-left font-medium"
-                                                    >
-                                                        {c.label}
-                                                    </th>
+                                                    <React.Fragment key={c.key}>
+                                                        <th className="py-1.5 pr-2 text-left font-medium">
+                                                            {c.label}
+                                                        </th>
+                                                        {showLuxAverage && c.key === luxAverageAfter && (
+                                                            <th className="py-1.5 pr-2 text-left font-medium">
+                                                                LUX Average
+                                                            </th>
+                                                        )}
+                                                    </React.Fragment>
                                                 ))}
                                             </tr>
                                         </thead>
@@ -955,23 +1128,79 @@ const ReviewSummary: React.FC<{
                                                         {idx + 1}
                                                     </td>
                                                     {section.columns.map((c) => {
-                                                        const display = formatReviewValue(
+                                                        const cellValue = row?.[c.key];
+                                                        // Image column: render a thumbnail
+                                                        // instead of stringifying the object.
+                                                        if (c.type === 'image') {
+                                                            const rec = cellValue as
+                                                                | AttachmentRecord
+                                                                | null
+                                                                | undefined;
+                                                            return (
+                                                                <React.Fragment key={c.key}>
+                                                                    <td className="py-2 pr-2">
+                                                                        {rec && rec.file_url ? (
+                                                                            <a
+                                                                                href={rec.file_url}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                title={rec.file_name}
+                                                                            >
+                                                                                <img
+                                                                                    src={rec.file_url}
+                                                                                    alt={rec.file_name}
+                                                                                    className="h-12 w-12 rounded border object-cover"
+                                                                                />
+                                                                            </a>
+                                                                        ) : (
+                                                                            <span className="italic text-muted-foreground">
+                                                                                —
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    {showLuxAverage && c.key === luxAverageAfter && (
+                                                                        <td className="py-2 pr-2 font-medium">
+                                                                            {luxAvgFor(row)}
+                                                                        </td>
+                                                                    )}
+                                                                </React.Fragment>
+                                                            );
+                                                        }
+                                                        let display = formatReviewValue(
                                                             { ...c, bind: undefined } as Field,
-                                                            row?.[c.key],
+                                                            cellValue,
                                                         );
+                                                        // Lux Level Report's `area` always
+                                                        // displays uppercase — matches the
+                                                        // wizard cell + the printed PDF, even
+                                                        // for older saved entries.
+                                                        if (
+                                                            template.templateId === 'lux-level-report' &&
+                                                            section.id === 'readings' &&
+                                                            c.key === 'area' &&
+                                                            display !== '—'
+                                                        ) {
+                                                            display = display.toUpperCase();
+                                                        }
                                                         const isEmpty = display === '—';
                                                         return (
-                                                            <td
-                                                                key={c.key}
-                                                                className={
-                                                                    'py-2 pr-2 ' +
-                                                                    (isEmpty
-                                                                        ? 'italic text-muted-foreground'
-                                                                        : '')
-                                                                }
-                                                            >
-                                                                {display}
-                                                            </td>
+                                                            <React.Fragment key={c.key}>
+                                                                <td
+                                                                    className={
+                                                                        'py-2 pr-2 ' +
+                                                                        (isEmpty
+                                                                            ? 'italic text-muted-foreground'
+                                                                            : '')
+                                                                    }
+                                                                >
+                                                                    {display}
+                                                                </td>
+                                                                {showLuxAverage && c.key === luxAverageAfter && (
+                                                                    <td className="py-2 pr-2 font-medium">
+                                                                        {luxAvgFor(row)}
+                                                                    </td>
+                                                                )}
+                                                            </React.Fragment>
                                                         );
                                                     })}
                                                 </tr>
@@ -1118,6 +1347,287 @@ const ReviewSummary: React.FC<{
                                     );
                                 })}
                             </div>
+                        </div>
+                    );
+                }
+
+                if (section.type === 'repeating_groups') {
+                    const groups = (formValues.responses?.[section.id] || []) as Array<
+                        Record<string, unknown>
+                    >;
+                    const titlePrefix = section.groupTitlePrefix || 'Group';
+                    return (
+                        <div key={section.id} className="rounded-md border p-3">
+                            <h3 className="mb-3 text-sm font-medium">
+                                {section.title || section.id}
+                            </h3>
+                            {groups.length === 0 ? (
+                                <p className="text-xs italic text-muted-foreground">
+                                    No groups entered.
+                                </p>
+                            ) : (
+                                <div className="space-y-4">
+                                    {groups.map((group, gIdx) => {
+                                        const rows = (Array.isArray(group?.rows)
+                                            ? (group.rows as Array<Record<string, unknown>>)
+                                            : []);
+                                        return (
+                                            <div
+                                                key={gIdx}
+                                                className="rounded-md border bg-muted/10"
+                                            >
+                                                <div className="border-b bg-muted/20 px-3 py-1.5 text-xs font-semibold text-foreground">
+                                                    {titlePrefix} {gIdx + 1}
+                                                </div>
+                                                <div className="space-y-3 p-3">
+                                                    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                                                        {section.groupFields.map((f) => {
+                                                            const display = formatReviewValue(
+                                                                f,
+                                                                group?.[f.key],
+                                                            );
+                                                            const isEmpty = display === '—';
+                                                            return (
+                                                                <div
+                                                                    key={f.key}
+                                                                    className="flex flex-col gap-0.5"
+                                                                >
+                                                                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                                        {f.label}
+                                                                    </dt>
+                                                                    <dd
+                                                                        className={
+                                                                            'text-sm ' +
+                                                                            (isEmpty
+                                                                                ? 'italic text-muted-foreground'
+                                                                                : 'text-foreground')
+                                                                        }
+                                                                    >
+                                                                        {display}
+                                                                    </dd>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </dl>
+                                                    {section.rowsTable && rows.length > 0 && (
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full border-collapse text-sm">
+                                                                <thead>
+                                                                    <tr className="border-b text-xs text-muted-foreground">
+                                                                        <th className="w-12 py-1.5 pr-2 text-left font-medium">
+                                                                            #
+                                                                        </th>
+                                                                        {section.rowsTable!.columns.map(
+                                                                            (c) => (
+                                                                                <th
+                                                                                    key={c.key}
+                                                                                    className="py-1.5 pr-2 text-left font-medium"
+                                                                                >
+                                                                                    {c.label}
+                                                                                </th>
+                                                                            ),
+                                                                        )}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {rows.map((row, rIdx) => (
+                                                                        <tr
+                                                                            key={rIdx}
+                                                                            className="border-b last:border-0 align-top"
+                                                                        >
+                                                                            <td className="py-2 pr-2 text-muted-foreground">
+                                                                                {rIdx + 1}
+                                                                            </td>
+                                                                            {section.rowsTable!.columns.map(
+                                                                                (c) => {
+                                                                                    const display = formatReviewValue(
+                                                                                        { ...c, bind: undefined } as Field,
+                                                                                        row?.[c.key],
+                                                                                    );
+                                                                                    const isEmpty =
+                                                                                        display === '—';
+                                                                                    return (
+                                                                                        <td
+                                                                                            key={c.key}
+                                                                                            className={
+                                                                                                'py-2 pr-2 ' +
+                                                                                                (isEmpty
+                                                                                                    ? 'italic text-muted-foreground'
+                                                                                                    : '')
+                                                                                            }
+                                                                                        >
+                                                                                            {display}
+                                                                                        </td>
+                                                                                    );
+                                                                                },
+                                                                            )}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    )}
+                                                    {/* Per-group nested sections (e.g. Physical
+                                                        Test checklist + Timer note for DX/VRF). */}
+                                                    {section.nestedSections &&
+                                                        section.nestedSections.length > 0 && (
+                                                            <div className="space-y-3 pt-2">
+                                                                {section.nestedSections.map((nested) => {
+                                                                    const nestedVals =
+                                                                        (group?.[nested.id] as
+                                                                            | Record<string, unknown>
+                                                                            | undefined) || {};
+                                                                    if (nested.type === 'checklist') {
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="overflow-x-auto">
+                                                                                    <table className="w-full border-collapse text-sm">
+                                                                                        <thead>
+                                                                                            <tr className="border-b text-xs text-muted-foreground">
+                                                                                                <th className="w-12 py-1.5 pl-3 pr-2 text-left font-medium">
+                                                                                                    #
+                                                                                                </th>
+                                                                                                <th className="py-1.5 pr-2 text-left font-medium">
+                                                                                                    Particulars
+                                                                                                </th>
+                                                                                                <th className="w-24 py-1.5 pr-2 text-left font-medium">
+                                                                                                    Result
+                                                                                                </th>
+                                                                                                <th className="py-1.5 pr-3 text-left font-medium">
+                                                                                                    Remarks
+                                                                                                </th>
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody>
+                                                                                            {nested.items.map(
+                                                                                                (item, iIdx) => {
+                                                                                                    const iv =
+                                                                                                        (nestedVals[item.id] as
+                                                                                                            | {
+                                                                                                                  result?: string;
+                                                                                                                  remarks?: string;
+                                                                                                              }
+                                                                                                            | undefined) || {};
+                                                                                                    return (
+                                                                                                        <tr key={item.id} className="border-b last:border-0 align-top">
+                                                                                                            <td className="py-2 pl-3 pr-2 text-muted-foreground">
+                                                                                                                {iIdx + 1}
+                                                                                                            </td>
+                                                                                                            <td className="py-2 pr-2">
+                                                                                                                {item.particular}
+                                                                                                            </td>
+                                                                                                            <td className="py-2 pr-2">
+                                                                                                                <ResultBadge value={iv.result} />
+                                                                                                            </td>
+                                                                                                            <td className="py-2 pr-3 text-muted-foreground">
+                                                                                                                {iv.remarks?.trim() ? (
+                                                                                                                    iv.remarks
+                                                                                                                ) : (
+                                                                                                                    <span className="italic">—</span>
+                                                                                                                )}
+                                                                                                            </td>
+                                                                                                        </tr>
+                                                                                                    );
+                                                                                                },
+                                                                                            )}
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (nested.type === 'process') {
+                                                                        // Process sections have no input — show the
+                                                                        // declared note text so the operator can
+                                                                        // confirm what was tested.
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="space-y-2 p-3 text-sm">
+                                                                                    {nested.blocks.map(
+                                                                                        (block, bIdx) => (
+                                                                                            <div key={bIdx} className="space-y-1">
+                                                                                                {block.subtitle && (
+                                                                                                    <div className="text-xs font-medium">
+                                                                                                        {block.subtitle}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                                {block.items.map(
+                                                                                                    (line, lIdx) => (
+                                                                                                        <div key={lIdx} className="text-muted-foreground">
+                                                                                                            {line}
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ),
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (
+                                                                        nested.type === 'header' ||
+                                                                        nested.type === 'fields'
+                                                                    ) {
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <dl className="grid grid-cols-1 gap-x-6 gap-y-2 p-3 sm:grid-cols-2">
+                                                                                    {nested.fields.map(
+                                                                                        (f) => {
+                                                                                            const display = formatReviewValue(
+                                                                                                f,
+                                                                                                (nestedVals as Record<string, unknown>)[f.key],
+                                                                                            );
+                                                                                            const isEmpty =
+                                                                                                display === '—';
+                                                                                            return (
+                                                                                                <div key={f.key} className="flex flex-col gap-0.5">
+                                                                                                    <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                                                                        {f.label}
+                                                                                                    </dt>
+                                                                                                    <dd
+                                                                                                        className={
+                                                                                                            'text-sm ' +
+                                                                                                            (isEmpty
+                                                                                                                ? 'italic text-muted-foreground'
+                                                                                                                : 'text-foreground')
+                                                                                                        }
+                                                                                                    >
+                                                                                                        {display}
+                                                                                                    </dd>
+                                                                                                </div>
+                                                                                            );
+                                                                                        },
+                                                                                    )}
+                                                                                </dl>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    return null;
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     );
                 }
