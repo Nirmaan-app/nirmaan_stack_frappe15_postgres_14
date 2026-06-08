@@ -30,12 +30,13 @@ export interface DesignTrackerTask {
     assigned_designers?: string; 
     
     // Status & Tracking (Server Names)
-    task_status: 'Not Started' | 'Not Applicable' | 'Drawings Awaiting from Client' | 'In Progress' | 'Submitted' | 'Revision Pending' | 'Clarification Awaiting' | 'Approved' | 'Todo' | 'On Hold' | 'Done' | 'Blocked';
+    task_status: 'Not Started' | 'Not Applicable' | 'Drawings Awaiting from Client' | 'In Progress' | 'Submitted' | 'Revision Pending' | 'Revision Submitted' | 'Clarification Awaiting' | 'Approved' | 'Todo' | 'On Hold' | 'Done' | 'Blocked';
     task_sub_status?: string; 
     file_link?: string;
     approval_proof?: string;
     comments?: string;
-    
+    last_submitted?: string;
+
     // Other fields to preserve
     sort_order: number;
     parent?: string;

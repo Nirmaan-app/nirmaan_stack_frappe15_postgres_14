@@ -51,24 +51,27 @@ import {
     useCategoryMutations,
     useTaskMasterMutations,
 } from "../data/useCommissionMutations";
+import { SourceFormatDialog } from "./SourceFormatDialog";
 
 // --- Types ---
-import { 
-    CommissionCategoryMaster, 
-    CommissionTaskMaster, 
-    WorkPackage 
+import {
+    CommissionCategoryMaster,
+    CommissionTaskMaster,
+    WorkPackage
 } from "../types";
 
 // --- Zod Schemas ---
 const categoryFormSchema = z.object({
-    category_name: z.string().min(1, "Category Name is required."),
+    // .trim() normalizes the value so leading/trailing spaces are never saved.
+    category_name: z.string().trim().min(1, "Category Name is required."),
     work_package_link: z.string().min(1, "Work Package is required."),
 });
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
 const taskFormSchema = z.object({
-    task_name: z.string().min(1, "Task Name is required."),
+    task_name: z.string().trim().min(1, "Task Name is required."),
     deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
+    report_type: z.enum(['Field', 'Vendor']).default('Field'),
 });
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
@@ -469,7 +472,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
 
     const form = useForm<TaskFormValues>({
         resolver: zodResolver(taskFormSchema),
-        defaultValues: { task_name: "", deadline_offset: 0 },
+        defaultValues: { task_name: "", deadline_offset: 0, report_type: 'Field' },
     });
 
     const onSubmit = async (values: TaskFormValues) => {
@@ -477,10 +480,11 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
             await createTaskMaster({
                 task_name: values.task_name,
                 deadline_offset: values.deadline_offset,
+                report_type: values.report_type,
                 category_link: categoryId, // Linking to parent category
             });
             toast({ title: "Success", description: "Task added successfully.", variant: "success" });
-            form.reset({ task_name: "", deadline_offset: undefined });
+            form.reset({ task_name: "", deadline_offset: undefined, report_type: 'Field' });
             await mutate();
             setOpen(false);
         } catch (error: any) {
@@ -554,11 +558,33 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                                 </FormItem>
                             )}
                         />
+                        <FormField
+                            control={form.control}
+                            name="report_type"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel className="text-sm font-medium text-slate-700">
+                                        Report Type
+                                    </FormLabel>
+                                    <FormControl>
+                                        <select
+                                            className="w-full h-9 rounded-md border border-slate-300 bg-white px-2 text-sm focus:border-slate-500 focus:ring-slate-500"
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                        >
+                                            <option value="Field">Field</option>
+                                            <option value="Vendor">Vendor</option>
+                                        </select>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
                         <div className="flex justify-end gap-2 pt-2">
                             <Button
                                 type="button"
                                 variant="outline"
-                                onClick={() => { setOpen(false); form.reset({ task_name: "", deadline_offset: undefined }); }}
+                                onClick={() => { setOpen(false); form.reset({ task_name: "", deadline_offset: undefined, report_type: 'Field' }); }}
                                 className="text-slate-600"
                             >
                                 Cancel
@@ -589,14 +615,15 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
     const { updateTaskMaster, loading } = useTaskMasterMutations();
     const form = useForm<TaskFormValues>({
         resolver: zodResolver(taskFormSchema),
-        defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0 },
+        defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0, report_type: (task.report_type as 'Field' | 'Vendor') || 'Field' },
     });
 
     const onSubmit = async (values: TaskFormValues) => {
         try {
             await updateTaskMaster(task.name, {
                 task_name: values.task_name,
-                deadline_offset: values.deadline_offset
+                deadline_offset: values.deadline_offset,
+                report_type: values.report_type
             });
             toast({ title: "Success", description: "Task updated.", variant: "success" });
             await mutate();
@@ -661,6 +688,28 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
                                             className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
                                             {...field}
                                         />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="report_type"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel className="text-sm font-medium text-slate-700">
+                                        Report Type
+                                    </FormLabel>
+                                    <FormControl>
+                                        <select
+                                            className="w-full h-9 rounded-md border border-slate-300 bg-white px-2 text-sm focus:border-slate-500 focus:ring-slate-500"
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                        >
+                                            <option value="Field">Field</option>
+                                            <option value="Vendor">Vendor</option>
+                                        </select>
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -808,6 +857,9 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                                 <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
                                     Task
                                 </TableHead>
+                                <TableHead className="w-28 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                                    Report Type
+                                </TableHead>
                                 <TableHead className="w-32 text-slate-500 font-medium text-xs uppercase tracking-wider">
                                     Offset
                                 </TableHead>
@@ -823,7 +875,32 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
                                 >
                                     <TableCell className="font-medium text-slate-900">
-                                        {task.task_name}
+                                        <div className="flex items-center gap-2">
+                                            <span>{task.task_name}</span>
+                                            {!!task.source_format?.trim() && (
+                                                <span
+                                                    className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0 text-[10px] font-semibold text-blue-700"
+                                                    title="Has template"
+                                                >
+                                                    Tpl
+                                                </span>
+                                            )}
+                                            {task.is_active === 0 && (
+                                                <span
+                                                    className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0 text-[10px] font-semibold text-amber-900"
+                                                    title="Inactive — Fill button hidden on new rows"
+                                                >
+                                                    Inactive
+                                                </span>
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${(task.report_type || 'Field') === 'Vendor'
+                                            ? 'bg-orange-50 text-orange-700'
+                                            : 'bg-sky-50 text-sky-700'}`}>
+                                            {task.report_type || 'Field'}
+                                        </span>
                                     </TableCell>
                                     <TableCell>
                                         {task.deadline_offset == 0 ? (
@@ -836,6 +913,7 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-1">
+                                            <SourceFormatDialog task={task} mutate={mutateTasks} />
                                             <EditTaskDialog task={task} mutate={mutateTasks} />
                                             <DeleteTaskDialog task={task} mutate={mutateTasks} />
                                         </div>

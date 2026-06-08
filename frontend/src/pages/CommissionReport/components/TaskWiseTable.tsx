@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     ColumnDef,
@@ -7,24 +7,21 @@ import {
     getFacetedUniqueValues,
     useReactTable,
 } from "@tanstack/react-table";
-import { Edit, MessageCircle } from "lucide-react";
-
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 
 import { useCommissionMasters } from "../hooks/useCommissionMasters";
 import { TaskEditModal } from "./ReportEditModal";
-import { FilesCell } from "./FilesCell";
+import { type MasterTaskInfo } from "./FillReportButton";
+import { ReportActionCell } from "./ReportActionCell";
+import { useMasterTaskMap } from "../report-wizard/data/useMasterTaskMap";
 import { CommissionReportTask } from "../types";
 import {
     formatDeadlineShort,
-    getAssignedNameForDisplay,
     getUnifiedStatusStyle,
     parseDesignersFromField,
 } from "../utils";
@@ -50,7 +47,9 @@ interface TaskWiseTableProps {
 const getTaskWiseColumns = (
     handleEditClick: (task: FlattenedTask) => void,
     isDesignExecutive: boolean,
-    checkIfUserAssigned: (task: FlattenedTask) => boolean
+    checkIfUserAssigned: (task: FlattenedTask) => boolean,
+    masterMap: Map<string, MasterTaskInfo>,
+    refresh: () => void
 ): ColumnDef<FlattenedTask>[] => {
     return [
         {
@@ -65,21 +64,41 @@ const getTaskWiseColumns = (
                 </Link>
             ),
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Project Name", exportValue: (row: FlattenedTask) => row.project_name || row.project || "" },
         },
         {
             accessorKey: "task_zone",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Zone" />,
             cell: ({ row }) => row.original.task_zone || "--",
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Task Zone" },
         },
         {
             accessorKey: "commission_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
             enableColumnFilter: true,
+            meta: { exportHeaderName: "Task Category" },
         },
         {
             accessorKey: "task_name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Report Name" />,
+            meta: { exportHeaderName: "Report Name" },
+        },
+        {
+            accessorKey: "report_type",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Report Type" />,
+            cell: ({ row }) => {
+                const rt = row.original.report_type || "Field";
+                return (
+                    <span className={`py-0.5 px-2 text-[10px] rounded-full border ${rt === "Vendor"
+                        ? "bg-orange-50 text-orange-700 border-orange-200"
+                        : "bg-sky-50 text-sky-700 border-sky-200"}`}>
+                        {rt}
+                    </span>
+                );
+            },
+            enableColumnFilter: true,
+            meta: { exportHeaderName: "Report Type", exportValue: (row: FlattenedTask) => row.report_type || "Field" },
         },
         {
             id: "deadline",
@@ -90,94 +109,42 @@ const getTaskWiseColumns = (
                     {row.original.deadline ? formatDeadlineShort(row.original.deadline) : "--"}
                 </div>
             ),
+            meta: { exportHeaderName: "Deadlines", exportValue: (row: FlattenedTask) => row.deadline ? formatDeadlineShort(row.deadline) : "" },
         },
-        ...(isDesignExecutive
-            ? []
-            : [{
-                id: "assigned_designers",
-                header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Assigned" />,
-                cell: ({ row }: { row: any }) => (
-                    <div className="text-left py-1">
-                        {getAssignedNameForDisplay(row.original)}
-                    </div>
-                ),
-                size: 220,
-                minSize: 180,
-            }]),
         {
             accessorKey: "task_status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
             cell: ({ row }) => (
-                <div className="flex justify-start">
+                <div className="flex justify-center">
                     <Badge
                         variant="outline"
-                        className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight rounded-full ${getUnifiedStatusStyle(row.original.task_status || "...")}`}
+                        className={`max-w-[120px] min-h-[22px] py-0.5 px-2 text-[10px] justify-center whitespace-normal break-words text-center leading-tight rounded-full ${getUnifiedStatusStyle(row.original.task_status || "...")}`}
                     >
                         {row.original.task_status || "..."}
                     </Badge>
                 </div>
             ),
             enableColumnFilter: true,
+            size: 120, minSize: 100, maxSize: 140,
+            meta: { exportHeaderName: "Status" },
         },
         {
-            accessorKey: "file_link",
-            header: () => <div className="text-center">Link/Files</div>,
-            cell: ({ row }) => (
-                <FilesCell
-                    file_link={row.original.file_link}
-                    approval_proof={row.original.approval_proof}
-                    task_status={row.original.task_status}
-                    size="md"
-                />
-            ),
-            size: 90,
-            maxSize: 100,
-            meta: { excludeFromExport: true },
-        },
-        {
-            accessorKey: "comments",
-            header: () => <div className="text-center">Comments</div>,
-            cell: ({ row }) => (
-                <div className="flex justify-center">
-                    <TooltipProvider>
-                        <Tooltip delayDuration={300}>
-                            <TooltipTrigger asChild>
-                                <MessageCircle
-                                    className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${row.original.comments ? "cursor-pointer text-gray-600 hover:scale-110 transition-transform" : "text-gray-300"}`}
-                                />
-                            </TooltipTrigger>
-                            {row.original.comments && (
-                                <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
-                                    <p className="text-xs">{row.original.comments}</p>
-                                </TooltipContent>
-                            )}
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
-            ),
-            size: 100,
-            maxSize: 110,
-            meta: { excludeFromExport: true },
-        },
-        {
-            id: "actions",
-            header: () => <div className="text-center">Actions</div>,
+            id: "action",
+            header: () => <div className="w-full text-center">Actions / Reports</div>,
             cell: ({ row }) => {
                 const canEdit = !isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(row.original));
                 return (
-                    <div className="flex justify-start">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className={`h-8 ${!canEdit ? "opacity-50 cursor-not-allowed" : ""}`}
-                            disabled={!canEdit}
-                            onClick={() => canEdit && handleEditClick(row.original)}
-                        >
-                            <Edit className="h-3 w-3 mr-1" /> Edit
-                        </Button>
-                    </div>
+                    <ReportActionCell
+                        parentName={row.original.prjname}
+                        task={row.original}
+                        masterMap={masterMap}
+                        canEdit={canEdit}
+                        refresh={refresh}
+                        onConfigure={(t) => handleEditClick(t as FlattenedTask)}
+                    />
                 );
             },
+            size: 210, minSize: 180, maxSize: 250,
             meta: { excludeFromExport: true },
         },
     ];
@@ -191,8 +158,13 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
 }) => {
     const { usersList, categoryData, statusOptions, FacetProjectsOptions } = useCommissionMasters();
     const { updateTaskChild } = useUpdateCommissionTaskChild();
+    const { map: masterMap } = useMasterTaskMap();
 
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
+    const refetchRef = useRef<() => void>(() => {});
+    // Refresh BOTH the task table and the tracker list so the status-tab counts
+    // update immediately after any status change (Fill/Submit/Upload/Resolve/N-A…).
+    const refresh = useCallback(() => { refetchRef.current?.(); refetchList?.(); }, [refetchList]);
 
     const checkIfUserAssigned = useCallback((task: FlattenedTask) => {
         const designers = parseDesignersFromField(task.assigned_designers);
@@ -215,22 +187,20 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
             title: "Status",
             options: [
                 { label: "Pending", value: "Pending" },
-                { label: "In Progress", value: "In Progress" },
+                { label: "Pending Approval", value: "Pending Approval" },
+                { label: "Approved", value: "Approved" },
+                { label: "Rejected", value: "Rejected" },
                 { label: "Completed", value: "Completed" },
             ],
         },
-        ...(isDesignExecutive
-            ? {}
-            : {
-                assigned_designers: {
-                    title: "Assigned Designer",
-                    options: (usersList || []).map((user) => ({
-                        label: user.full_name || user.name,
-                        value: user.name,
-                    })),
-                },
-            }),
-    }), [FacetProjectsOptions, categoryData, isDesignExecutive, usersList]);
+        report_type: {
+            title: "Report Type",
+            options: [
+                { label: "Field", value: "Field" },
+                { label: "Vendor", value: "Vendor" },
+            ],
+        },
+    }), [FacetProjectsOptions, categoryData]);
 
     const additionalFilters = useMemo(() => {
         const baseFilters: any[] = [
@@ -250,8 +220,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         apiEndpoint: "nirmaan_stack.api.commission_report.get_task_wise_list.get_task_wise_list",
         customParams: { user_id, is_design_executive: isDesignExecutive },
         columns: useMemo(
-            () => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned),
-            [isDesignExecutive, checkIfUserAssigned]
+            () => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned, masterMap, refresh),
+            [isDesignExecutive, checkIfUserAssigned, masterMap, refresh]
         ),
         fetchFields: [
             "name as prjname",
@@ -266,8 +236,10 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
             "assigned_designers",
             "task_status",
             "task_sub_status",
+            "report_type",
             "file_link",
             "approval_proof",
+            "response_data",
             "comments",
             "modified",
             "task_zone",
@@ -283,6 +255,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         urlSyncKey: "cr_task_wise",
         additionalFilters,
     });
+
+    refetchRef.current = serverDataTable.refetch;
 
     const table = useReactTable({
         data: serverDataTable.data || [],

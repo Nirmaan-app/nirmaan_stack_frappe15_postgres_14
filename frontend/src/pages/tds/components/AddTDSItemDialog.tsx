@@ -79,7 +79,7 @@ export const CustomItemDialog: React.FC<CustomItemDialogProps> = ({
     // Filter custom items by search
     const matchingCustom = useMemo(() => {
         if (!searchQuery.trim()) return allCustomItems.slice(0, 5);
-        return allCustomItems.filter(item => 
+        return allCustomItems.filter(item =>
             item.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
     }, [allCustomItems, searchQuery]);
@@ -87,7 +87,7 @@ export const CustomItemDialog: React.FC<CustomItemDialogProps> = ({
     // Filter standard items by search
     const matchingStandard = useMemo(() => {
         if (!searchQuery.trim()) return standardItems.slice(0, 5);
-        return standardItems.filter(item => 
+        return standardItems.filter(item =>
             item.label.toLowerCase().includes(searchQuery.toLowerCase())
         );
     }, [standardItems, searchQuery]);

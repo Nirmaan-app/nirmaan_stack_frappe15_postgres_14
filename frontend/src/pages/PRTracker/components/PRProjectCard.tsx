@@ -33,13 +33,16 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
 
   return (
     <Card
-      className="
+      className={`
         group h-full flex flex-col
-        border border-gray-200 bg-white
+        border
         transition-all duration-200
         hover:shadow-md hover:border-primary/40
         cursor-pointer
-      "
+        ${status_of_project === 'CEO Hold'
+          ? 'border-red-300 bg-red-50 hover:bg-red-100'
+          : 'border-gray-200 bg-white'}
+      `}
       onClick={onClick}
     >
       <CardHeader className="pb-3 space-y-0">

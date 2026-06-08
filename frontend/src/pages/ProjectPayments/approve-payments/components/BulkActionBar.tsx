@@ -116,7 +116,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
         variant="default"
         disabled={loading}
         onClick={() => openDialog("approve")}
-        className="h-8 gap-1"
+        className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
       >
         {loading && dialogAction === "approve" ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -125,8 +125,20 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
         )}
         Approve
       </Button>
-      {/* Reject button intentionally hidden — backend endpoint still accepts
-          action="reject" if we re-introduce a bulk-reject UI later. */}
+      <Button
+        size="sm"
+        variant="default"
+        disabled={loading}
+        onClick={() => openDialog("reject")}
+        className="h-8 gap-1"
+      >
+        {loading && dialogAction === "reject" ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <XCircle className="h-4 w-4" />
+        )}
+        Reject
+      </Button>
 
       {lastFailures.length > 0 && (
         <FailuresPopover failures={lastFailures} onClear={() => setLastFailures([])} />
