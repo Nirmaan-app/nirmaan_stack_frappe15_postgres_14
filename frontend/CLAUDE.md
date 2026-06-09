@@ -317,7 +317,23 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-09 -- Restructure Slice 1a LIVE-CERTIFIED):**
+**Status (2026-06-09 -- Restructure Slice 1b-alpha BACKEND COMPLETE):**
+Slice 1b-alpha (feat f7761415) is BACKEND-led; the only frontend touch is a type + one reader:
+- `human_is_root: number | null` added to the `ReviewRow` type in `boqTypes.ts` -- a SEPARATE Check
+  field (Option B), orthogonal to `human_parent` (the -1 sentinel value space is UNCHANGED). 1 => the
+  human re-rooted the row to top-level (`effective_parent_index` is null; `human_parent` is -1 by the
+  backend consistency invariant). Backend `resolve_effective` now also returns `human_is_root`.
+- `ReviewTree.tsx` `parentOverridden` now ORs in `row.human_is_root === 1` so a human-rooted row reads
+  as an override in the detail panel ("row N -> root" strikethrough). Display-only; no behaviour change.
+- The restructure MODAL (mounting `SheetSearchView` + selection UI) is Slice 1b-beta -- NOT built here.
+  It will POST to `save_review_restructure(boq_name, sheet_name, row_index, new_classification,
+  child_moves, reason)`: `child_moves` is a `{child_row_index: new_parent_index}` map where a value of
+  **`-1` = move that child to top-level/root**; assignable `new_classification` targets are
+  line_item/preamble/note/spacer (subtotal_marker/header_repeat are parser-only, rejected). One atomic
+  commit; the backend validates + writes the resolved plan (Path A -- the frontend computes placement).
+The dev route + `_DevSheetSearchHarness.tsx` STILL REMAIN (removed in Slice 1b-beta).
+
+// prior: **Status (2026-06-09 -- Restructure Slice 1a LIVE-CERTIFIED):**
 Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx` + temporary dev route)
 landed FRONTEND-ONLY (feat 5ecf1820); tsc + Vite green in-container.
 LIVE-CERTIFIED 2026-06-09: 5/5 checks PASS on BOQ-26-00145 -- columns trimmed (#, Sl.No, Description,

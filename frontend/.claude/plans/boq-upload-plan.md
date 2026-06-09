@@ -7,7 +7,10 @@ per-slice as-built detail lives in the dedicated sections below and in the hando
 Parked/deferred parser items (Bug 11/12/15, Pattern 2, working agreement #40) are tracked in the
 section-17 (decisions / open-items) blocks below.
 CURRENT arc: Restructure surface Slice 1 -- Slice 1a (searchable sheet-view, feat 5ecf1820)
-LIVE-CERTIFIED 2026-06-09; Slice 1b NOT started (see "Restructure surface (Slice 1)" section below).
+LIVE-CERTIFIED 2026-06-09; Slice 1b-alpha BACKEND COMPLETE (feat f7761415) -- transactional
+`save_review_restructure` + shared `_apply_and_save_row_edit` helper + human-root `human_is_root`
+Check field (Option B); test_review_screen 124 green. Slice 1b-beta (the restructure MODAL) NOT
+started (see "Restructure surface (Slice 1)" section below).
 
 **Phase-1 Slice 2c ✅ COMPLETE (feat b5381c0c; general-specs scalar->child table migration):**
 - **Schema change:** `BOQs.general_specs_sheet` (Data) + `BOQs.master_preamble` (Long Text) REMOVED; replaced by `BOQs.general_specs_sheets` (Table -> new child doctype `BoQ General Specs Sheet` with `source_sheet_name` + `preamble_text`). M2.16 one-per-workbook constraint DROPPED -- multiple general-specs sheets now supported.
@@ -107,13 +110,16 @@ LIVE-CERTIFIED 2026-06-09; Slice 1b NOT started (see "Restructure surface (Slice
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-09 (Restructure surface Slice 1a [feat 5ecf1820] LIVE-CERTIFIED 2026-06-09
--- 5/5 checks PASS on BOQ-26-00145; see the Slice 1a CERT STATUS below for detail + the two deferred
-findings [fuzzy-search DEFERRED; full-sheet-load perf OWED as a 1b backend follow-up].
-// prior: Slice C-v2d-fix [feat 7fee7481] per-area edit guard validates `area` against the sheet's
-defined `area_dimensions`; RE-LIVE-CERT + rate-editing live-cert still owed -- see C-values sections below.)
+**Last updated:** 2026-06-09 (Restructure Slice 1b-alpha [feat f7761415] BACKEND COMPLETE -- shared
+write helper `_apply_and_save_row_edit` extracted from save_review_edit [behaviour-preserving];
+transactional `save_review_restructure` [atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO
+assignable classes]; human-root via NEW `human_is_root` Check field [Option B, orthogonal to the -1
+sentinel which is UNCHANGED]; test_review_screen 124 green; frontend type/reader touch only [modal is
+1b-beta]. See the "Slice 1b-alpha" section below.
+// prior: Slice 1a [feat 5ecf1820] LIVE-CERTIFIED 2026-06-09 -- 5/5 PASS on BOQ-26-00145; deferred
+[fuzzy-search DEFERRED; full-sheet-load perf OWED as a 1b backend follow-up].)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 5ecf1820 (Slice 1a) + docs a78a9d53 (Slice 1a record) // prior: feat 7fee7481 (Slice C-v2d-fix)
+**Latest commit:** feat f7761415 (Slice 1b-alpha) // prior: feat 5ecf1820 + docs a78a9d53 (Slice 1a)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -6014,10 +6020,83 @@ Pill structure is identical to the green "Edited" pill; only colorway differs. G
 ## Restructure surface (Slice 1)
 
 The restructure surface lets a reviewer re-parent a row by FINDING the target row in the
-source sheet and (Slice 1b) selecting + saving a new placement. It is built in two slices:
+source sheet and selecting + saving a new placement. Built in slices:
 **1a** = the searchable sheet-view component (FIND + SHOW only, certified via a throwaway
-dev route); **1b** = the restructure modal that mounts 1a, adds selection + a transactional
-save endpoint, and REMOVES the dev route. Slice 1b is NOT started.
+dev route); **1b-alpha** = the BACKEND (transactional reclassify+reparent endpoint + the
+human-root encoding) -- DONE; **1b-beta** = the restructure MODAL that mounts 1a, adds
+selection, consumes the 1b-alpha endpoint, and REMOVES the dev route -- NOT started.
+
+### Slice 1b-alpha -- transactional restructure backend + human-root (feat f7761415, 2026-06-09)
+
+**Scope:** PURE BACKEND (+ a minimal frontend type/reader touch). No modal, no selection UI --
+that is 1b-beta. test_review_screen 110 -> 124, all green.
+
+**1. Shared write helper `_apply_and_save_row_edit` (review_screen.py).** The certified
+field-application block of `save_review_edit` (apply one field-change to a loaded doc + append
+edit_log + stamp provenance + re-serialize list-JSON siblings) was extracted verbatim into a
+module-level helper that ALSO calls `doc.save()` but does NOT commit. **Save-inside /
+commit-outside is the atomicity boundary:** under one request transaction, N per-row saves all
+roll back if a later row throws; the caller's single trailing `frappe.db.commit()` makes a batch
+all-or-nothing. `save_review_edit` was refactored to call it -- behaviour-preserving: all 110
+pre-existing tests pass UNCHANGED. Callers retain ALL per-call validation, the doc LOAD, and the
+commit; the helper assumes validated inputs. The helper takes a `set_root: bool` kwarg (below).
+
+**2. `save_review_restructure` endpoint (Path A).** `@frappe.whitelist(methods=["POST"])`. Atomically
+reclassifies one row AND reparents its children in ONE commit. `child_moves` is a dict (or JSON
+string) `{child_row_index: new_parent_index}`; `-1` = top-level/root. The caller sends a FULLY
+RESOLVED plan -- the backend validates + writes, it does NOT compute placement. Validation (all
+per-call, BEFORE any write): required args; BOQ + row exist; `new_classification` ASSIGNABLE;
+each child exists + is CURRENTLY a child of row_index (effective parent) + proposed parent is -1
+or an existing row + not self-parented; **BATCH cycle-guard** -- build the whole-sheet
+effective-parent map, apply ALL moves AT ONCE, then `_chain_has_cycle` per touched row against the
+COMBINED tree (two individually-acyclic moves can form a cycle together, so they are checked
+applied-together, never one at a time). Write: reclassify target via helper (one
+human_classification entry, carries `reason`); each child via helper (one human_parent entry,
+reason = "parent moved: row {N} reclassified to {cls}"); single commit. Returns
+`{ok, row_index, new_classification, children_moved, edited_at}`.
+
+**3. FROM-but-not-TO classification narrowing.** `_ASSIGNABLE_CLASSIFICATIONS = {line_item, preamble,
+note, spacer}` is a STRICT SUBSET of `_VALID_CLASSIFICATIONS` (all 6 RowClassification literals).
+`subtotal_marker` / `header_repeat` are parser-only DETECTIONS -- valid existing/FROM states + reads
+but never assignable as a write TARGET. Applied to BOTH `save_review_restructure` and
+`save_review_edit`'s human_classification path (the ONE intentional behaviour change to
+save_review_edit; no prior test asserted those as targets, so S2 held -- no existing test changed).
+
+**4. Human-root encoding `human_is_root` (Option B -- the recon's chosen encoding).** The recon found
+that `-1` on `human_parent` means "no override -> fall back to parser parent", NOT root, so the
+human layer could not express "make this row top-level" without overloading the -1 sentinel. Fix:
+a NEW `human_is_root` Check field on BoQ Review Row (default 0), ORTHOGONAL to `human_parent` -- the
+-1 sentinel value space (#54) is UNCHANGED. `resolve_effective` consults `human_is_root` FIRST:
+truthy -> `effective_parent_index = None` (root), skipping the human_parent_norm/parent_index_norm
+derivation; else the existing logic runs verbatim. **Consistency invariant** (root XOR row-override,
+never both) is enforced at the SINGLE `_apply_and_save_row_edit` chokepoint via `set_root`:
+set_root=True -> human_is_root=1 + human_parent=-1 (case c); value>=0 -> human_parent=value +
+human_is_root=0 (case a); value None -> human_parent=-1 + human_is_root=0 (case b). `child_moves`
+value -1 calls the helper with set_root=True; the edit_log records `to=None` for a root move (root
+reads as "no parent", not the -1 sentinel). `human_is_root` was added to every fetch field-list that
+feeds resolve_effective (get_review_rows, get_structural_breaks, mark_sheet_parsed_check_done, both
+cycle-guards) + the resolve_effective return dict. **Migration: NONE** -- purely additive; a new Check
+defaults to 0, correct for every existing row (none are human-rooted). `bench migrate` confirmed the
+column exists (`has_column` True).
+
+**5. Frontend touch (minimal, no modal).** `human_is_root: number | null` added to the `ReviewRow` type
+(`boqTypes.ts`). `ReviewTree.tsx` `parentOverridden` now ORs in `row.human_is_root === 1` so a
+human-rooted row reads as an override in the detail panel ("row N -> root"). In-container tsc: 0 errors
+in the touched wizard files. Everything else (the restructure modal + selection UI consuming
+save_review_restructure + dev-route removal) is Slice 1b-beta.
+
+**6. Tests (test_review_screen, 110 -> 124, all green).** New `TestSaveReviewRestructure` group: happy
+reclassify+reparent (children to a new parent / to root / to a shared parent / promote to old parent),
+childless reclassify, FROM-but-not-TO rejects (subtotal_marker/header_repeat), non-child-in-map reject,
+nonexistent-parent reject, the headline BATCH-cycle reject (two individually-acyclic moves -> nothing
+written), JSON-string child_moves, the human_is_root invariant (root sets is_root=1 + parent=-1; a later
+real-parent move clears is_root to 0; root move logs to=None), and a mixed batch (some children to a real
+parent, some to root, in one call). The pre-existing 110 pass unchanged (helper extraction proven
+behaviour-preserving).
+
+**OWED to 1b-beta:** the restructure modal (mount SheetSearchView + selection), wiring to
+save_review_restructure, removal of the dev route + `_DevSheetSearchHarness.tsx`; plus the still-OWED
+1a follow-ups (single-pass full-sheet-read endpoint; fuzzy search remains DEFERRED).
 
 ### Slice 1a -- searchable sheet-view component (feat 5ecf1820, 2026-06-08; LIVE-CERTIFIED 2026-06-09)
 
