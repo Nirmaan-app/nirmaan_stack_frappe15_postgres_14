@@ -208,6 +208,9 @@ const SheetReviewPage = () => {
           sheetName={sheetName}
           onSaved={handleSaved}
           onRemarkSaved={() => void mutate()}
+          // Slice 1b-beta: a restructure IS a real edit -- reuse handleSaved (advances the
+          // save anchor + mutates) via the SAME SWR revalidate path as value/text edits.
+          onRestructured={handleSaved}
         />
       )}
     </div>

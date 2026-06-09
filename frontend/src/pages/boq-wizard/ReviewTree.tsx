@@ -97,6 +97,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RestructureModal } from "./RestructureModal";
 
 // ── Depth computation (verbatim from B1) ──────────────────────────────────────
 //
@@ -275,6 +282,21 @@ const EDITABLE_AREA_FIELDS = new Set<string>(["qty_by_area", "amount_by_area", "
 // here as a live counter + Save-disable; the backend hard-guards the same value.
 const REMARK_MAX_LEN = 250;
 
+// Slice 1b-beta: the 4 classifications a human may assign as a restructure TARGET
+// (mirrors backend _ASSIGNABLE_CLASSIFICATIONS). subtotal_marker / header_repeat are
+// parser-only DETECTIONS -- valid existing/FROM states but never offered as targets.
+const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] as const;
+
+// Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
+// backend). Defined here -- boqTypes.ts is out of scope for this slice.
+interface SaveReviewRestructureResponse {
+  ok: boolean;
+  row_index: number;
+  new_classification: string;
+  children_moved: number;
+  edited_at: string;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface ReviewTreeProps {
@@ -293,9 +315,13 @@ interface ReviewTreeProps {
   // remark is not an edit, so it refreshes the grid (mutate) WITHOUT advancing the
   // sheet-level "All changes saved" edit anchor. Keeps remarks off the edit surface.
   onRemarkSaved?: () => void;
+  // Slice 1b-beta: invoked after a successful restructure (reclassify + reparent) with
+  // the returned edited_at. Wired to the SAME handler as onSaved (SheetReviewPage's
+  // handleSaved) -- a restructure IS a real edit, so it advances the save anchor + mutates.
+  onRestructured?: (editedAt: string) => void;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -348,6 +374,58 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const [pendingReason, setPendingReason] = useState("");
   // Inline save error surfaced in the still-open detail panel (no toasts -- wizard convention).
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Slice 1b-beta: restructure (reclassify + place children) surface.
+  // restructureModal -> the heavy with-children modal; childlessConfirm -> the light path.
+  const [restructureModal, setRestructureModal] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
+  const [childlessConfirm, setChildlessConfirm] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
+  // Inline error for the childless confirm dialog ONLY (the modal owns its own error state).
+  const [restructureError, setRestructureError] = useState<string | null>(null);
+  // The restructure write (reclassify one row + reparent its children in one atomic
+  // commit). Used directly by the childless light path; the with-children modal owns
+  // its OWN call to the same endpoint.
+  const { call: restructureCall, loading: isRestructuring } = useFrappePostCall<{ message: SaveReviewRestructureResponse }>(
+    "nirmaan_stack.api.boq.wizard.review_screen.save_review_restructure",
+  );
+
+  // Slice 1b-beta: a classification target was picked from the detail-panel pill menu.
+  // Childless rows take the light 1-click confirm; rows with children open the staged modal.
+  // children = review rows whose effective_parent_index === this row's row_index.
+  const onPickClass = (row: ReviewRow, newClassification: string) => {
+    setRestructureError(null);
+    const childCount = rows.filter(r => r.effective_parent_index === row.row_index).length;
+    if (childCount === 0) {
+      setChildlessConfirm({ row, newClassification });
+    } else {
+      setRestructureModal({ row, newClassification });
+    }
+  };
+
+  // Childless light path: reclassify ONLY (empty child_moves), one atomic call. On
+  // failure the dialog stays open with an inline error (no AlertDialogAction auto-close).
+  const confirmChildlessReclassify = async () => {
+    if (!childlessConfirm) return;
+    setRestructureError(null);
+    try {
+      const res = await restructureCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: childlessConfirm.row.row_index,
+        new_classification: childlessConfirm.newClassification,
+        child_moves: {},
+      });
+      onRestructured?.(res.message.edited_at);
+      setChildlessConfirm(null);
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : "Reclassify failed. Please try again.";
+      setRestructureError(msg);
+    }
+  };
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
@@ -1127,17 +1205,41 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           </div>
                           {/* Original-vs-effective: classification + parent (read-only, edit-focused panel) */}
                           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-2">
-                            <div>
-                              <span className="text-muted-foreground">Classification: </span>
-                              {clsOverridden ? (
-                                <>
-                                  <span className="line-through text-muted-foreground">{row.classification ?? "—"}</span>
-                                  {" → "}
-                                  <span className="text-foreground font-medium">{row.effective_classification ?? "—"}</span>
-                                </>
-                              ) : (
-                                <span className="text-foreground">{row.classification ?? "—"}</span>
-                              )}
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <span className="text-muted-foreground">Classification: </span>
+                                {clsOverridden ? (
+                                  <>
+                                    <span className="line-through text-muted-foreground">{row.classification ?? "—"}</span>
+                                    {" → "}
+                                    <span className="text-foreground font-medium">{row.effective_classification ?? "—"}</span>
+                                  </>
+                                ) : (
+                                  <span className="text-foreground">{row.classification ?? "—"}</span>
+                                )}
+                              </div>
+                              {/* Slice 1b-beta: reclassify trigger -- pill-styled DropdownMenu of the
+                                  4 assignable target classes. Picking one routes via onPickClass:
+                                  childless -> light confirm; has children -> the restructure modal.
+                                  Lives in the detail panel (already stopPropagation-wrapped above);
+                                  DropdownMenuContent portals to body so item clicks never dismiss it. */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                                  >
+                                    Change ▾
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                  {ASSIGNABLE_CLASSIFICATIONS.map(c => (
+                                    <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
+                                      {CLS_LABELS[c] ?? c}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                             <div>
                               <span className="text-muted-foreground">Parent: </span>
@@ -1433,6 +1535,48 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Slice 1b-beta: childless reclassify -- the LIGHT path. A leaf row has no children,
+          so changing its class reparents nothing (its own parent is untouched). A plain
+          Button (not AlertDialogAction) is used so the dialog stays open on a backend error. */}
+      <AlertDialog
+        open={childlessConfirm !== null}
+        onOpenChange={(o) => { if (!o) { setChildlessConfirm(null); setRestructureError(null); } }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change classification</AlertDialogTitle>
+            <AlertDialogDescription>
+              {childlessConfirm
+                ? `Reclassify row ${childlessConfirm.row.source_row_number} from ${CLS_LABELS[childlessConfirm.row.effective_classification ?? ""] ?? childlessConfirm.row.effective_classification ?? "—"} to ${CLS_LABELS[childlessConfirm.newClassification] ?? childlessConfirm.newClassification}. Its parent stays the same; no rows are reparented.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {restructureError && <p className="text-xs text-destructive">{restructureError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRestructuring}>Cancel</AlertDialogCancel>
+            <Button disabled={isRestructuring} onClick={() => { void confirmChildlessReclassify(); }}>
+              {isRestructuring ? "Saving…" : "Confirm"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Slice 1b-beta: with-children restructure modal -- the HEAVY staged path. Mounted
+          only while a target row+class is pending. Owns its own save_review_restructure
+          call; on success it returns edited_at, we close + forward to onRestructured. */}
+      {restructureModal && (
+        <RestructureModal
+          open={true}
+          onClose={() => setRestructureModal(null)}
+          boqName={boqName}
+          sheetName={sheetName}
+          row={restructureModal.row}
+          newClassification={restructureModal.newClassification}
+          rows={rows}
+          onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
+        />
+      )}
     </div>
   );
 }
