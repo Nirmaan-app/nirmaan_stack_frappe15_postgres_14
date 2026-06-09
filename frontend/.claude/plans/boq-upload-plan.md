@@ -7,10 +7,12 @@ per-slice as-built detail lives in the dedicated sections below and in the hando
 Parked/deferred parser items (Bug 11/12/15, Pattern 2, working agreement #40) are tracked in the
 section-17 (decisions / open-items) blocks below.
 CURRENT arc: Restructure surface Slice 1 -- Slice 1a (searchable sheet-view, feat 5ecf1820)
-LIVE-CERTIFIED 2026-06-09; Slice 1b-alpha BACKEND COMPLETE (feat f7761415) -- transactional
-`save_review_restructure` + shared `_apply_and_save_row_edit` helper + human-root `human_is_root`
-Check field (Option B); test_review_screen 124 green. Slice 1b-beta (the restructure MODAL) NOT
-started (see "Restructure surface (Slice 1)" section below).
+LIVE-CERTIFIED 2026-06-09; Slice 1b-alpha BACKEND COMPLETE (feat f7761415); Slice 1b-beta FRONTEND
+COMPLETE (feat e8eeab58) -- the restructure MODAL (RestructureModal.tsx + pill DropdownMenu trigger +
+childless light path + 5 child-placement options + SheetSearchView-as-parent-picker + onRestructured
+refresh), dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0;
+manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert; OWED next is
+a single-pass full-sheet-read endpoint (see "Restructure surface (Slice 1)" section below).
 
 **Phase-1 Slice 2c ✅ COMPLETE (feat b5381c0c; general-specs scalar->child table migration):**
 - **Schema change:** `BOQs.general_specs_sheet` (Data) + `BOQs.master_preamble` (Long Text) REMOVED; replaced by `BOQs.general_specs_sheets` (Table -> new child doctype `BoQ General Specs Sheet` with `source_sheet_name` + `preamble_text`). M2.16 one-per-workbook constraint DROPPED -- multiple general-specs sheets now supported.
@@ -110,16 +112,20 @@ started (see "Restructure surface (Slice 1)" section below).
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-09 (Restructure Slice 1b-alpha [feat f7761415] BACKEND COMPLETE -- shared
-write helper `_apply_and_save_row_edit` extracted from save_review_edit [behaviour-preserving];
-transactional `save_review_restructure` [atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO
-assignable classes]; human-root via NEW `human_is_root` Check field [Option B, orthogonal to the -1
-sentinel which is UNCHANGED]; test_review_screen 124 green; frontend type/reader touch only [modal is
-1b-beta]. See the "Slice 1b-alpha" section below.
-// prior: Slice 1a [feat 5ecf1820] LIVE-CERTIFIED 2026-06-09 -- 5/5 PASS on BOQ-26-00145; deferred
-[fuzzy-search DEFERRED; full-sheet-load perf OWED as a 1b backend follow-up].)
+**Last updated:** 2026-06-09 (Restructure Slice 1b-beta [feat e8eeab58] FRONTEND COMPLETE -- the
+restructure MODAL: detail-panel pill DropdownMenu of 4 assignable targets -> childless light
+AlertDialog confirm OR staged `RestructureModal` [5 child-placement options, no silent default, Save
+gated, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as the parent
+picker with row_number->row_index resolution + a no-match guard]; `onRestructured` reuses handleSaved;
+dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0; manual
+live-cert LC1-12 pending. Restructure-surface arc COMPLETE pending live-cert. See the "Slice 1b-beta"
+section below.
+// prior: Slice 1b-alpha [feat f7761415] BACKEND COMPLETE -- shared `_apply_and_save_row_edit` helper +
+transactional `save_review_restructure` [atomic reclassify+reparent, batch cycle-guard] + human-root
+`human_is_root` Check field [Option B]; test_review_screen 124 green.
+// prior: Slice 1a [feat 5ecf1820] LIVE-CERTIFIED 2026-06-09 -- 5/5 PASS on BOQ-26-00145.)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat f7761415 (Slice 1b-alpha) // prior: feat 5ecf1820 + docs a78a9d53 (Slice 1a)
+**Latest commit:** feat e8eeab58 (Slice 1b-beta) // prior: feat f7761415 (Slice 1b-alpha)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -6024,7 +6030,63 @@ source sheet and selecting + saving a new placement. Built in slices:
 **1a** = the searchable sheet-view component (FIND + SHOW only, certified via a throwaway
 dev route); **1b-alpha** = the BACKEND (transactional reclassify+reparent endpoint + the
 human-root encoding) -- DONE; **1b-beta** = the restructure MODAL that mounts 1a, adds
-selection, consumes the 1b-alpha endpoint, and REMOVES the dev route -- NOT started.
+selection, consumes the 1b-alpha endpoint, and REMOVES the dev route -- DONE (feat e8eeab58).
+The restructure-surface arc is now COMPLETE pending live-cert.
+
+### Slice 1b-beta -- the restructure modal (feat e8eeab58, 2026-06-09)
+
+**Scope:** FRONTEND only. The consumer of the live-certified `save_review_restructure` backend
+(1b-alpha). Adds the reclassify-and-place-children surface to the review screen and removes the
+temporary Slice 1a dev route as the final act. No backend file touched; no Frappe unit tests
+(UI slice). In-container tsc 0 errors in touched wizard files (project-wide pre-existing baseline
+3177 unchanged before/after); in-container foreground build exit 0. Manual live-cert LC1-12 pending Nitesh.
+
+**Files:** `RestructureModal.tsx` (NEW); `ReviewTree.tsx` (pill DropdownMenu trigger + childless
+light path + `onRestructured` prop + modal mount); `SheetReviewPage.tsx` (`onRestructured={handleSaved}`);
+`routesConfig.tsx` (dev route removed) + `_DevSheetSearchHarness.tsx` (deleted). `SheetSearchView.tsx`
+byte-for-byte untouched; `boqTypes.ts` untouched (the `save_review_restructure` response type is
+defined LOCALLY in the modal + ReviewTree).
+
+**1. Trigger chain.** In the row-detail panel the Classification line gains a "Change ▾" pill-styled
+`DropdownMenu` of the 4 ASSIGNABLE targets (`line_item`/`preamble`/`note`/`spacer`; subtotal_marker/
+header_repeat never offered). `onPickClass` counts children (`rows.filter(r => r.effective_parent_index
+=== row.row_index)`): childless -> a light `AlertDialog` ("Change classification"; `save_review_restructure`
+with `child_moves: {}`; plain Button so the dialog stays open + shows an inline error on a backend throw);
+has-children -> the staged `RestructureModal`.
+
+**2. The five child-placement options (no silent default).** (1) move children UP to this row's current
+parent (null/<0 -> -1); (2) keep children UNDER this row (`child_moves: {}`), OFFERED only when the new
+class is parent-capable (line_item/preamble), disabled with a reason for note/spacer; (3) move all to ONE
+new parent (picker); (4) decide EACH child individually (per-child picker; each a picked row_index or -1);
+(5) make all children top-level (-1 each). Save gated: 1/2/5 complete on selection, 3 needs the parent
+picked, 4 needs every child resolved.
+
+**3. child_moves assembly (Path A) + atomic save.** `buildChildMoves()` -> `{child_row_index:
+new_parent_index}` (-1 = top-level). ONE `save_review_restructure(boq_name, sheet_name [VERBATIM #152],
+row_index, new_classification, child_moves, reason?)`. The object passes directly to `useFrappePostCall`
+(SDK serializes; backend accepts a dict). Success -> `onRestructured(edited_at)`; Cancel/close/Escape
+writes nothing; a backend `frappe.throw` (e.g. batch cycle) surfaces inline, modal STAYS OPEN.
+
+**4. Parent picker -- mounts the certified SheetSearchView untouched.** Consumed via its existing
+`onCurrentHitChange`; the modal renders its OWN "Set as parent" button. **row_number -> row_index
+resolution:** a `SheetPreviewRow` carries only the Excel `row_number`; resolve via `rows.find(r =>
+r.source_row_number === hit.row_number)`. **No-match guard:** a hit on a header/banner/blank band row
+resolves to no review row -> "Set as parent" DISABLED with a quiet reason. Option 4 children may also be
+set top-level (-1) without picking.
+
+**5. Refresh wiring.** ReviewTree gains an OPTIONAL `onRestructured?: (editedAt) => void` (backwards-compat
+-- no existing caller breaks). SheetReviewPage wires it to the EXISTING `handleSaved` (setLastSavedAt +
+`mutate()`), so the tree reflects the moved children + reclassified row via the SAME SWR revalidate path
+the value/text edits use. No fetch/patch inside the modal.
+
+**6. Dev-route removal (gated LAST).** After tsc + build green, the `upload-boq/_dev-sheetview/...` route
+was removed from `routesConfig.tsx` and `_DevSheetSearchHarness.tsx` deleted; tsc + build re-run green
+(precache 168 -> 166 entries, harness chunk gone).
+
+**Deferred (NOT built):** batch "apply all edits at once", drag-to-reparent, fuzzy search.
+
+**OWED next:** single-pass full-sheet-read endpoint (replace SheetSearchView's windowed 200-row loop);
+plus the still-OWED C-values rate-editing live-cert against a Pattern-2-rate vehicle.
 
 ### Slice 1b-alpha -- transactional restructure backend + human-root (feat f7761415, 2026-06-09)
 

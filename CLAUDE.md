@@ -1,6 +1,22 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-09 (Restructure Slice 1b-alpha [feat f7761415] COMPLETE -- BACKEND-led: shared
+**Last updated:** 2026-06-09 (Restructure Slice 1b-beta [feat e8eeab58] COMPLETE -- FRONTEND: the
+restructure MODAL. Detail-panel classification pill -> DropdownMenu of the 4 assignable targets;
+childless rows take a light AlertDialog confirm (empty child_moves), rows WITH children open the staged
+`RestructureModal` (NEW) -- lists the row + children + FIVE child-placement options [move-up /
+keep-under-this-row (gated to parent-capable line_item/preamble) / one-new-parent / per-child /
+all-top-level], no option pre-selected, Save gated until the choice is complete, assembles a
+fully-resolved child_moves map [Path A; -1 = top-level] and fires ONE `save_review_restructure` call.
+Mounts the CERTIFIED `SheetSearchView` (byte-for-byte untouched) as the parent picker via its existing
+onCurrentHitChange; resolves the picked Excel row_number -> review-row row_index via source_row_number, with
+a no-match guard disabling Set-as-parent on header/banner rows. `onRestructured` prop wired to the existing
+`handleSaved` (a restructure IS a real edit -- same setLastSavedAt + mutate SWR refresh). The temporary
+Slice 1a dev route + `_DevSheetSearchHarness.tsx` are REMOVED (gated last, after tsc+build green).
+Verification: in-container tsc 0 errors in touched wizard files (project-wide pre-existing baseline 3177
+unchanged), in-container build exit 0; no Frappe unit tests (UI slice); manual live-cert LC1-12 pending.
+Restructure-surface arc now COMPLETE pending live-cert. OWED next: single-pass full-sheet-read endpoint
+(replace SheetSearchView's windowed 200-row loop). Full detail in frontend/CLAUDE.md + boq-upload-plan.md.
+// prior: Restructure Slice 1b-alpha [feat f7761415] COMPLETE -- BACKEND-led: shared
 write helper `_apply_and_save_row_edit` (save-inside / commit-outside) extracted from save_review_edit
 [behaviour-preserving, 110 prior tests pass unchanged]; new transactional `save_review_restructure`
 (atomic reclassify-one-row + reparent-children in ONE commit; Path A resolved `child_moves` map; whole-sheet
@@ -211,7 +227,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE. Review-screen arc COMPLETE: Slice A backend (feat fff26abd; -1 sentinel, resolve_effective / check_structural_integrity / append_edit_log_entry + 3 endpoints) -> B1/B1.1/B2a/B2b/B2c frontend (review tree + column descriptors + advisory flags + detail panel + Status column) -> C-values arc C-v1..C-v2d-fix (inline value/text/per-area editing + per-row Remarks). Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx`, FRONTEND-ONLY, feat 5ecf1820) LIVE-CERTIFIED 2026-06-09 (5/5 PASS on BOQ-26-00145). CURRENT: Slice 1b-alpha BACKEND COMPLETE (feat f7761415) -- shared write helper `_apply_and_save_row_edit` (save-inside/commit-outside) + transactional `save_review_restructure` (atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO assignable classes) + human-root via NEW `human_is_root` Check field (Option B, orthogonal to the -1 sentinel) + frontend type/reader touch only. Slice 1b-beta (the restructure MODAL mounting SheetSearchView + selection UI consuming save_review_restructure; removes the dev route) NOT started. OWED: C-values rate-editing live-cert against a Pattern-2-rate vehicle. test_review_screen 124. Full slice-by-slice history + as-built detail: see boq-upload-plan.md. Do not duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE. Review-screen arc COMPLETE: Slice A backend (feat fff26abd; -1 sentinel, resolve_effective / check_structural_integrity / append_edit_log_entry + 3 endpoints) -> B1/B1.1/B2a/B2b/B2c frontend (review tree + column descriptors + advisory flags + detail panel + Status column) -> C-values arc C-v1..C-v2d-fix (inline value/text/per-area editing + per-row Remarks). Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx`, FRONTEND-ONLY, feat 5ecf1820) LIVE-CERTIFIED 2026-06-09 (5/5 PASS on BOQ-26-00145). Slice 1b-alpha BACKEND (feat f7761415) -- shared write helper `_apply_and_save_row_edit` (save-inside/commit-outside) + transactional `save_review_restructure` (atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO assignable classes) + human-root via NEW `human_is_root` Check field (Option B, orthogonal to the -1 sentinel). CURRENT: Slice 1b-beta FRONTEND COMPLETE (feat e8eeab58) -- the restructure MODAL: detail-panel pill DropdownMenu -> childless light confirm OR staged `RestructureModal` (5 child-placement options, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as parent picker, row_number->row_index resolution + no-match guard), `onRestructured` reuses handleSaved; dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0; manual live-cert LC1-12 pending. Restructure-surface arc COMPLETE pending live-cert. OWED: single-pass full-sheet-read endpoint (next); C-values rate-editing live-cert against a Pattern-2-rate vehicle. test_review_screen 124. Full slice-by-slice history + as-built detail: see boq-upload-plan.md. Do not duplicate the changelog here. |
 
 Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
