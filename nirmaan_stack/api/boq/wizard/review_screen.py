@@ -37,6 +37,16 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import get_boq_work_package
 
 _VALID_CLASSIFICATIONS: frozenset[str] = frozenset(rc.value for rc in RowClassification)
 
+# Classes a human may ASSIGN as an edit/restructure TARGET (the "TO" of a
+# human_classification change). STRICT SUBSET of _VALID_CLASSIFICATIONS (Slice
+# 1b-alpha): subtotal_marker and header_repeat are parser-only DETECTIONS -- they
+# remain valid FROM states and reads (the full vocab above) but can never be set
+# manually. Used by BOTH save_review_edit's human_classification path and
+# save_review_restructure. Do NOT remove _VALID_CLASSIFICATIONS -- FROM/reads use it.
+_ASSIGNABLE_CLASSIFICATIONS: frozenset[str] = frozenset({
+    "line_item", "preamble", "note", "spacer",
+})
+
 _HUMAN_FIELDS: frozenset[str] = frozenset({"human_classification", "human_parent"})
 _VALUE_FIELDS: frozenset[str] = frozenset({
     "qty_total",
@@ -241,20 +251,33 @@ def resolve_effective(row: Any) -> dict:
     human_classification = _get(row, "human_classification") or None  # coerce "" -> None
     parent_index = _get(row, "parent_index")
     human_parent = _get(row, "human_parent")
-
-    # Translate -1 (and None) to Python None for tree/cycle/orphan logic.
-    parent_index_norm = None if parent_index in (None, -1) else parent_index
-    human_parent_norm = None if human_parent in (None, -1) else human_parent
+    human_is_root = _get(row, "human_is_root")
 
     effective_classification = human_classification if human_classification else classification
-    # human_parent_norm is not None covers the real-override case, including human_parent=0.
-    effective_parent_index = human_parent_norm if human_parent_norm is not None else parent_index_norm
+
+    # Human-root override (Slice 1b-alpha, Option B): human_is_root is a SEPARATE
+    # Check field, orthogonal to human_parent -- it does NOT touch the -1 sentinel
+    # value space (agreement #54). When set, the row is effective-root regardless of
+    # parser parent_index; the human_parent_norm/parent_index_norm derivation is
+    # skipped entirely. The consistency invariant (human_is_root=1 => human_parent=-1)
+    # is enforced at the write chokepoint (_apply_and_save_row_edit), so this guard
+    # never has to reconcile a contradictory row.
+    if human_is_root:
+        effective_parent_index = None
+    else:
+        # Translate -1 (and None) to Python None for tree/cycle/orphan logic.
+        # UNCHANGED -- the -1 sentinel doctrine is untouched.
+        parent_index_norm = None if parent_index in (None, -1) else parent_index
+        human_parent_norm = None if human_parent in (None, -1) else human_parent
+        # human_parent_norm is not None covers the real-override case, including human_parent=0.
+        effective_parent_index = human_parent_norm if human_parent_norm is not None else parent_index_norm
 
     return {
         "classification": classification,
         "parent_index": parent_index,
         "human_classification": human_classification,
         "human_parent": human_parent,
+        "human_is_root": 1 if human_is_root else 0,
         "effective_classification": effective_classification,
         "effective_parent_index": effective_parent_index,
     }
@@ -632,6 +655,194 @@ def _get_sheet_area_dimensions(boq_name: str, sheet_name: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Shared row-write helper (save-inside / commit-outside)
+# ---------------------------------------------------------------------------
+
+def _apply_and_save_row_edit(
+    doc,
+    boq_name: str,
+    sheet_name: str,
+    field: str,
+    value,
+    area: str = None,
+    rate_subkey: str = None,
+    reason: str = None,
+    user: str = None,
+    set_root: bool = False,
+):
+    """
+    Apply ONE field-change to an already-loaded BoQ Review Row doc, append the
+    edit-log entry, stamp provenance, re-serialize the list-JSON siblings, and
+    SAVE the doc. Does NOT commit -- the caller owns the single trailing commit.
+
+    set_root (Slice 1b-alpha, Option B) applies ONLY to field="human_parent": when
+    True it writes the human-root override (human_is_root=1 AND human_parent=-1, case
+    c) instead of a row override. human_is_root is a SEPARATE Check field orthogonal
+    to human_parent -- the -1 sentinel value space is UNCHANGED. This helper is the
+    single chokepoint that enforces the consistency invariant (root and a real parent
+    override can never coexist): every human_parent write here also sets human_is_root.
+
+    This is the shared write path for save_review_edit (single row) and
+    save_review_restructure (batch reclassify + reparent). The save-inside /
+    commit-outside split is the atomicity boundary: under one request transaction,
+    N per-row saves all roll back if a later row throws, and the caller's single
+    frappe.db.commit() makes the batch all-or-nothing.
+
+    What this helper does NOT do (callers own it, BEFORE calling): per-call argument
+    validation; the human_classification assignable-vocab check; the human_parent
+    self-parent / target-exists / cycle-guard (whole-sheet, and for the batch endpoint
+    whole-batch -- it cannot be per-row); the doc LOAD; and the commit. The helper
+    assumes its inputs are already validated.
+
+    Field application mirrors the certified save_review_edit block exactly:
+      - per-area path (area non-empty): read-modify-write the JSON dict, validate the
+        area against sheet_config.area_dimensions (C-v2d-fix), set one cell (blank ->
+        0.0, key kept); rate_by_area is the two-hop nested case (rate_subkey).
+      - flat path (area None): human_classification / human_parent (-1 sentinel for a
+        cleared parent) / text (unit, make_model, verbatim) / numeric (float()).
+
+    Returns (from_val, to_val).
+    """
+    if user is None:
+        user = frappe.session.user
+    area_provided = area is not None and area != ""
+
+    # --- Capture from-value (EFFECTIVE value before edit) + apply the edit ---
+
+    if area_provided:
+        # Per-area JSON write (Slice C-v2d): read-modify-write the dict, set ONE cell.
+        current = getattr(doc, field, None)
+        if isinstance(current, str) and current:
+            try:
+                current = json.loads(current)
+            except (ValueError, TypeError):
+                current = {}
+        if not isinstance(current, dict):
+            current = {}
+        # C-v2d-fix: validate the sent area against the SHEET'S defined areas
+        # (sheet_config.area_dimensions), NOT this row's existing dict keys. Setting a
+        # value on a defined-but-empty area is a legitimate value edit (the key is
+        # created below if absent); only an UNDEFINED area is a structure error.
+        # sheet_name passed verbatim (#152).
+        area_dimensions = _get_sheet_area_dimensions(boq_name, sheet_name)
+        if not area_dimensions:
+            frappe.throw(
+                "This sheet has no defined areas; per-area values cannot be edited.",
+                title="No defined areas",
+            )
+        if area not in area_dimensions:
+            frappe.throw(
+                f"Area '{area}' is not a defined area for this sheet.",
+                title="Unknown area",
+            )
+        # Blank value -> 0.0 (key kept); non-blank coerced to float.
+        if value is None or value == "":
+            new_val = 0.0
+        else:
+            try:
+                new_val = float(value)
+            except (ValueError, TypeError):
+                frappe.throw(
+                    f"Value for '{field}' must be a number.", title="Invalid value"
+                )
+        if field == _RATE_AREA_FIELD:
+            # Two-hop: rate_by_area[area][rate_subkey].
+            inner = current.get(area)
+            if not isinstance(inner, dict):
+                inner = {}
+            from_val = inner.get(rate_subkey)
+            inner[rate_subkey] = new_val
+            current[area] = inner
+        else:
+            # One-hop: qty_by_area / amount_by_area [area].
+            from_val = current.get(area)
+            current[area] = new_val
+        # Bare dict assign -- Frappe auto-serializes the JSON column on save (proven).
+        setattr(doc, field, current)
+        to_val = new_val
+    else:
+        # --- Flat-field path (capture from-value, then apply) ---
+        if field == "human_classification":
+            from_val = resolve_effective(doc)["effective_classification"]
+        elif field == "human_parent":
+            from_val = resolve_effective(doc)["effective_parent_index"]
+        else:
+            from_val = getattr(doc, field, None)
+
+        if field in _HUMAN_FIELDS:
+            if field == "human_parent":
+                # -1 = no override; >= 0 = real override (incl. 0 = parent is row 0).
+                # value was already validated as int or None by the caller.
+                # Slice 1b-alpha consistency invariant (THE chokepoint -- no caller can
+                # produce a contradictory row):
+                #   set_root=True -> human_is_root=1 AND human_parent=-1   (case c, root)
+                #   value >= 0    -> human_parent=value AND human_is_root=0 (case a)
+                #   value is None -> human_parent=-1 AND human_is_root=0    (case b, clear)
+                # human_is_root and a real human_parent override can NEVER coexist.
+                if set_root:
+                    doc.human_is_root = 1
+                    doc.human_parent = -1
+                else:
+                    doc.human_parent = -1 if value is None else value
+                    doc.human_is_root = 0
+            else:
+                setattr(doc, field, value)
+        elif field in _TEXT_FIELDS:
+            # Text field (unit / make_model): store the string verbatim -- NO float()
+            # coercion (the numeric path below would reject text). Blank string clears
+            # to None, matching the numeric blank-clear behaviour.
+            if value is None or value == "":
+                setattr(doc, field, None)
+            else:
+                setattr(doc, field, value)
+        else:
+            # Value field: convert to float or clear to None
+            if value is None or value == "":
+                setattr(doc, field, None)
+            else:
+                try:
+                    setattr(doc, field, float(value))
+                except (ValueError, TypeError):
+                    frappe.throw(
+                        f"Value for '{field}' must be a number.", title="Invalid value"
+                    )
+        to_val = value
+
+    # --- Append edit log entry ---
+
+    existing_log = getattr(doc, _EDIT_LOG_FIELD, None)
+    if isinstance(existing_log, str) and existing_log:
+        try:
+            existing_log = json.loads(existing_log)
+        except (ValueError, TypeError):
+            existing_log = []
+    elif not existing_log:
+        existing_log = []
+
+    new_log = append_edit_log_entry(
+        existing_log, field, from_val, to_val, user, reason,
+        area=area if area_provided else None,
+        rate_subkey=rate_subkey if area_provided else None,
+    )
+    # edit_log is a list-JSON field -- must be pre-serialized before save
+    setattr(doc, _EDIT_LOG_FIELD, json.dumps(new_log))
+
+    doc.edited_by = user
+    doc.edited_at = frappe.utils.now()
+
+    # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
+    # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
+    # Pre-serialize them (guard prevents double-encoding already-string values).
+    for _f in _RESAVE_LIST_JSON_FIELDS:
+        _v = getattr(doc, _f, None)
+        if isinstance(_v, list):
+            setattr(doc, _f, json.dumps(_v))
+
+    doc.save(ignore_permissions=True)
+    return from_val, to_val
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -687,8 +898,8 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "amount_total", "amount_supply", "amount_install", "amount_by_area",
         "row_notes", "append_notes_raw",
         "validation_warnings", "classifier_warnings", "is_synthetic",
-        # human-edit layer (Slice A)
-        "human_classification", "human_parent",
+        # human-edit layer (Slice A) + human-root override (Slice 1b-alpha)
+        "human_classification", "human_parent", "human_is_root",
         "edit_log", "edited_by", "edited_at",
         # human-only annotation (Slice C-v2c) -- NOT an edit; never sets edited_at
         "remarks",
@@ -840,10 +1051,14 @@ def save_review_edit(
     # --- Field-specific validation ---
 
     if field == "human_classification":
-        if value and value not in _VALID_CLASSIFICATIONS:
+        # FROM-but-not-TO (Slice 1b-alpha): only the 4 ASSIGNABLE classes may be set as
+        # a target. subtotal_marker / header_repeat remain valid FROM states + reads (the
+        # full vocab) but can never be assigned manually. value=None/"" clears.
+        if value and value not in _ASSIGNABLE_CLASSIFICATIONS:
             frappe.throw(
-                f"'{value}' is not a valid classification. "
-                f"Allowed: {', '.join(sorted(_VALID_CLASSIFICATIONS))}.",
+                f"'{value}' is a parser-only classification and cannot be assigned "
+                f"manually; assignable classes are: "
+                f"{', '.join(sorted(_ASSIGNABLE_CLASSIFICATIONS))}.",
                 title="Invalid classification",
             )
         # value=None or "" clears the override -- leave as-is for the write step
@@ -881,7 +1096,7 @@ def save_review_edit(
                 "BoQ Review Row",
                 filters={"boq": boq_name, "sheet_name": sheet_name},
                 fields=["row_index", "classification", "human_classification",
-                        "parent_index", "human_parent"],
+                        "parent_index", "human_parent", "human_is_root"],
             )
             rows_by_idx: dict[int, dict] = {}
             for r in sheet_rows:
@@ -921,127 +1136,17 @@ def save_review_edit(
 
     doc = frappe.get_doc("BoQ Review Row", row_name)
 
-    # --- Capture from-value (EFFECTIVE value before edit) + apply the edit ---
-
-    if area_provided:
-        # Per-area JSON write (Slice C-v2d): read-modify-write the dict, set ONE cell.
-        current = getattr(doc, field, None)
-        if isinstance(current, str) and current:
-            try:
-                current = json.loads(current)
-            except (ValueError, TypeError):
-                current = {}
-        if not isinstance(current, dict):
-            current = {}
-        # C-v2d-fix: validate the sent area against the SHEET'S defined areas
-        # (sheet_config.area_dimensions), NOT this row's existing dict keys. Setting a
-        # value on a defined-but-empty area is a legitimate value edit (the key is
-        # created below if absent); only an UNDEFINED area is a structure error.
-        # sheet_name passed verbatim (#152).
-        area_dimensions = _get_sheet_area_dimensions(boq_name, sheet_name)
-        if not area_dimensions:
-            frappe.throw(
-                "This sheet has no defined areas; per-area values cannot be edited.",
-                title="No defined areas",
-            )
-        if area not in area_dimensions:
-            frappe.throw(
-                f"Area '{area}' is not a defined area for this sheet.",
-                title="Unknown area",
-            )
-        # Blank value -> 0.0 (key kept); non-blank coerced to float.
-        if value is None or value == "":
-            new_val = 0.0
-        else:
-            try:
-                new_val = float(value)
-            except (ValueError, TypeError):
-                frappe.throw(
-                    f"Value for '{field}' must be a number.", title="Invalid value"
-                )
-        if field == _RATE_AREA_FIELD:
-            # Two-hop: rate_by_area[area][rate_subkey].
-            inner = current.get(area)
-            if not isinstance(inner, dict):
-                inner = {}
-            from_val = inner.get(rate_subkey)
-            inner[rate_subkey] = new_val
-            current[area] = inner
-        else:
-            # One-hop: qty_by_area / amount_by_area [area].
-            from_val = current.get(area)
-            current[area] = new_val
-        # Bare dict assign -- Frappe auto-serializes the JSON column on save (proven).
-        setattr(doc, field, current)
-        to_val = new_val
-    else:
-        # --- Flat-field path (capture from-value, then apply) ---
-        if field == "human_classification":
-            from_val = resolve_effective(doc)["effective_classification"]
-        elif field == "human_parent":
-            from_val = resolve_effective(doc)["effective_parent_index"]
-        else:
-            from_val = getattr(doc, field, None)
-
-        if field in _HUMAN_FIELDS:
-            if field == "human_parent":
-                # -1 = no override; >= 0 = real override (incl. 0 = parent is row 0).
-                # value was already validated as int or None in the block above.
-                doc.human_parent = -1 if value is None else value
-            else:
-                setattr(doc, field, value)
-        elif field in _TEXT_FIELDS:
-            # Text field (unit / make_model): store the string verbatim -- NO float()
-            # coercion (the numeric path below would reject text). Blank string clears
-            # to None, matching the numeric blank-clear behaviour.
-            if value is None or value == "":
-                setattr(doc, field, None)
-            else:
-                setattr(doc, field, value)
-        else:
-            # Value field: convert to float or clear to None
-            if value is None or value == "":
-                setattr(doc, field, None)
-            else:
-                try:
-                    setattr(doc, field, float(value))
-                except (ValueError, TypeError):
-                    frappe.throw(
-                        f"Value for '{field}' must be a number.", title="Invalid value"
-                    )
-        to_val = value
-
-    # --- Append edit log entry ---
-
-    existing_log = getattr(doc, _EDIT_LOG_FIELD, None)
-    if isinstance(existing_log, str) and existing_log:
-        try:
-            existing_log = json.loads(existing_log)
-        except (ValueError, TypeError):
-            existing_log = []
-    elif not existing_log:
-        existing_log = []
-
-    new_log = append_edit_log_entry(
-        existing_log, field, from_val, to_val, frappe.session.user, reason,
+    # Apply the edit + log + provenance + list-JSON re-serialize via the shared write
+    # helper (save-inside / commit-outside). ALL per-call validation above (field
+    # routing, human_classification assignable check, human_parent self-parent +
+    # cycle-guard) stays in this endpoint; the helper assumes validated inputs. The
+    # commit stays here -- the single-row endpoint commits exactly once, as before.
+    from_val, to_val = _apply_and_save_row_edit(
+        doc, boq_name, sheet_name, field, value,
         area=area if area_provided else None,
         rate_subkey=rate_subkey if area_provided else None,
+        reason=reason,
     )
-    # edit_log is a list-JSON field -- must be pre-serialized before save
-    setattr(doc, _EDIT_LOG_FIELD, json.dumps(new_log))
-
-    doc.edited_by = frappe.session.user
-    doc.edited_at = frappe.utils.now()
-
-    # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
-    # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
-    # Pre-serialize them (guard prevents double-encoding already-string values).
-    for _f in _RESAVE_LIST_JSON_FIELDS:
-        _v = getattr(doc, _f, None)
-        if isinstance(_v, list):
-            setattr(doc, _f, json.dumps(_v))
-
-    doc.save(ignore_permissions=True)
     frappe.db.commit()
 
     return {
@@ -1055,6 +1160,242 @@ def save_review_edit(
         # Slice C-v2d: echo the per-area target (None on the flat path).
         "area": area if area_provided else None,
         "rate_subkey": rate_subkey if area_provided else None,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def save_review_restructure(
+    boq_name: str = None,
+    sheet_name: str = None,
+    row_index=None,
+    new_classification: str = None,
+    child_moves=None,
+    reason: str = None,
+) -> dict:
+    """
+    Atomically reclassify ONE row AND reparent a set of its children in a single
+    commit (Slice 1b-alpha). Path A: the caller sends a FULLY-RESOLVED plan
+    (child_moves maps each affected child to its new parent); the backend VALIDATES
+    and WRITES it -- it does NOT compute placement.
+
+    Inputs:
+      row_index           -- the row being reclassified.
+      new_classification  -- the TO class; must be ASSIGNABLE (line_item, preamble,
+                             note, spacer). subtotal_marker / header_repeat are
+                             parser-only detections and are rejected as targets.
+      child_moves         -- dict (or JSON string of a dict) {child_row_index:
+                             new_parent_index}. -1 = move to top-level (root). May be
+                             empty when the reclassified row has no children to move.
+      reason              -- optional human note recorded on the reclassification's
+                             human_classification edit_log entry.
+
+    Validation (all per-call, BEFORE any write -- frappe.throw on failure, house
+    style; nothing is written until every check passes):
+      - required args; BOQ exists; row_index int + row exists on this sheet.
+      - new_classification in _ASSIGNABLE_CLASSIFICATIONS (FROM-but-not-TO).
+      - each child: exists on this sheet; its CURRENT effective parent IS row_index
+        (cannot move a non-child); proposed parent is -1 or an existing row on this
+        sheet; not self-parented.
+      - BATCH cycle-guard: build the whole-sheet effective-parent map, apply ALL
+        proposed moves AT ONCE, then run _chain_has_cycle for EACH touched row against
+        the COMBINED simulated tree (two individually-safe moves can form a cycle
+        together, so they must be checked applied-together, never one at a time).
+
+    Write (only after all validation passes -- the atomic block; the shared helper
+    saves each row, no per-row commit):
+      - reclassify the target row via _apply_and_save_row_edit (human_classification),
+        logging ONE human_classification edit_log entry (carrying reason).
+      - for each child, set human_parent via the helper (-1 sentinel for root),
+        logging ONE human_parent edit_log entry whose reason ties it to this
+        reclassification.
+      - a single frappe.db.commit() at the end. If any row throws mid-loop, the
+        uncommitted saves roll back (all-or-nothing).
+
+    Returns: {ok, row_index, new_classification, children_moved: [...], edited_at}.
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.save_review_restructure
+    """
+    # --- Per-call argument validation (nothing written until all pass) ---
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    if not new_classification:
+        frappe.throw(
+            "new_classification is required.", title="Missing field: new_classification"
+        )
+
+    # Normalize reason: blank/whitespace-only -> None (mirrors save_review_edit).
+    if isinstance(reason, str):
+        reason = reason.strip() or None
+
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    # FROM-but-not-TO: only the 4 assignable classes are valid write targets.
+    if new_classification not in _ASSIGNABLE_CLASSIFICATIONS:
+        frappe.throw(
+            f"'{new_classification}' is a parser-only classification and cannot be "
+            f"assigned manually; assignable classes are: "
+            f"{', '.join(sorted(_ASSIGNABLE_CLASSIFICATIONS))}.",
+            title="Invalid classification",
+        )
+
+    # Normalize child_moves to a dict[int, int]. Accept a dict or a JSON string.
+    if child_moves is None or child_moves == "":
+        moves_raw = {}
+    elif isinstance(child_moves, str):
+        try:
+            moves_raw = json.loads(child_moves)
+        except (ValueError, TypeError):
+            frappe.throw(
+                "child_moves must be a JSON object mapping child row_index to new parent.",
+                title="Invalid child_moves",
+            )
+    else:
+        moves_raw = child_moves
+    if not isinstance(moves_raw, dict):
+        frappe.throw(
+            "child_moves must be a mapping of child row_index to new parent index.",
+            title="Invalid child_moves",
+        )
+
+    moves: dict = {}
+    for k, v in moves_raw.items():
+        try:
+            ck = int(k)
+            cv = int(v)
+        except (ValueError, TypeError):
+            frappe.throw(
+                "child_moves keys and values must be integer row indexes.",
+                title="Invalid child_moves",
+            )
+        moves[ck] = cv
+
+    # --- Fetch the whole sheet once; build the effective-parent map (reused for both
+    #     per-child validation and the batch cycle-guard). Mirrors the single-row
+    #     cycle-guard fetch in save_review_edit. sheet_name VERBATIM (#152). ---
+    sheet_rows = frappe.db.get_all(
+        "BoQ Review Row",
+        filters={"boq": boq_name, "sheet_name": sheet_name},
+        fields=["row_index", "classification", "human_classification",
+                "parent_index", "human_parent", "human_is_root"],
+    )
+    rows_by_idx: dict = {}
+    for r in sheet_rows:
+        rows_by_idx[int(r.row_index)] = resolve_effective(r)
+
+    if row_index not in rows_by_idx:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    # --- Per-child validation (no write yet) ---
+    for child_idx, new_parent in moves.items():
+        if child_idx not in rows_by_idx:
+            frappe.throw(
+                f"Child row {child_idx} does not exist in sheet '{sheet_name}'.",
+                title="Invalid child",
+            )
+        # The child must CURRENTLY be a child of row_index (effective parent).
+        cur_parent = rows_by_idx[child_idx].get("effective_parent_index")
+        if cur_parent != row_index:
+            frappe.throw(
+                f"Row {child_idx} is not currently a child of row {row_index}; "
+                f"it cannot be moved by this reclassification.",
+                title="Not a child",
+            )
+        if child_idx == new_parent:
+            frappe.throw(
+                f"Row {child_idx} cannot be its own parent.",
+                title="Self-parent rejected",
+            )
+        if new_parent != -1 and new_parent not in rows_by_idx:
+            frappe.throw(
+                f"Proposed parent {new_parent} for child {child_idx} does not exist "
+                f"in sheet '{sheet_name}'.",
+                title="Invalid parent",
+            )
+
+    # --- BATCH cycle-guard: apply ALL moves into a simulated effective-parent map,
+    #     THEN check each touched row against the COMBINED tree. Two individually
+    #     acyclic moves can form a cycle together, so we must simulate them all
+    #     applied before checking -- never one at a time. Nothing has been written. ---
+    sim: dict = {idx: dict(entry) for idx, entry in rows_by_idx.items()}
+    for child_idx, new_parent in moves.items():
+        sim[child_idx]["effective_parent_index"] = None if new_parent == -1 else new_parent
+    for child_idx in moves:
+        if _chain_has_cycle(child_idx, sim):
+            frappe.throw(
+                f"The proposed moves would create a cycle in the hierarchy "
+                f"(row {child_idx}). No changes were made.",
+                title="Cycle detected",
+            )
+
+    # --- Write block (atomic; the shared helper saves each row, single commit at the
+    #     end). All validation above passed, so every helper call is on validated input. ---
+    user = frappe.session.user
+
+    # 1. Reclassify the target row (one human_classification edit_log entry).
+    target_name = frappe.db.get_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    target_doc = frappe.get_doc("BoQ Review Row", target_name)
+    _apply_and_save_row_edit(
+        target_doc, boq_name, sheet_name,
+        "human_classification", new_classification,
+        reason=reason, user=user,
+    )
+    edited_at = target_doc.edited_at
+
+    # 2. Reparent each child (one human_parent entry per child, tied to the reclass).
+    child_reason = f"parent moved: row {row_index} reclassified to {new_classification}"
+    children_moved: list = []
+    for child_idx in sorted(moves):
+        new_parent = moves[child_idx]
+        child_name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": boq_name, "sheet_name": sheet_name, "row_index": child_idx},
+            "name",
+        )
+        child_doc = frappe.get_doc("BoQ Review Row", child_name)
+        # -1 in child_moves = "move to top-level" -> the human-root override (case c):
+        # set_root=True writes human_is_root=1 AND human_parent=-1, and the edit_log
+        # records to=None (root reads as "no parent"). A value >= 0 is a real parent
+        # (case a): human_parent=value AND human_is_root cleared to 0. The helper is
+        # the single chokepoint enforcing the invariant.
+        if new_parent == -1:
+            _apply_and_save_row_edit(
+                child_doc, boq_name, sheet_name,
+                "human_parent", None,
+                reason=child_reason, user=user, set_root=True,
+            )
+        else:
+            _apply_and_save_row_edit(
+                child_doc, boq_name, sheet_name,
+                "human_parent", new_parent,
+                reason=child_reason, user=user,
+            )
+        children_moved.append(child_idx)
+
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "row_index": row_index,
+        "new_classification": new_classification,
+        "children_moved": children_moved,
+        "edited_at": edited_at,
     }
 
 
@@ -1172,7 +1513,7 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
         filters={"boq": boq_name, "sheet_name": sheet_name},
         fields=[
             "row_index", "source_row_number", "classification",
-            "human_classification", "parent_index", "human_parent",
+            "human_classification", "parent_index", "human_parent", "human_is_root",
             *_ADVISORY_EXTRA_FIELDS,
         ],
         order_by="row_index asc",
@@ -1234,7 +1575,7 @@ def mark_sheet_parsed_check_done(
         "BoQ Review Row",
         filters={"boq": boq_name, "sheet_name": sheet_name},
         fields=["row_index", "source_row_number", "classification",
-                "human_classification", "parent_index", "human_parent"],
+                "human_classification", "parent_index", "human_parent", "human_is_root"],
         order_by="row_index asc",
     )
     rows_as_dicts = [dict(r) for r in rows]

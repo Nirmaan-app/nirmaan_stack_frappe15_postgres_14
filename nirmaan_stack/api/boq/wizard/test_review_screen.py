@@ -27,6 +27,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     resolve_effective,
     save_review_edit,
     save_review_remark,
+    save_review_restructure,
 )
 
 
@@ -1923,3 +1924,311 @@ class TestGetStructuralBreaksB2a(FrappeTestCase):
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="CleanSheet3")
         self.assertEqual(result["flags"], [], "clean sheet must return empty flags list")
         self.assertEqual(result["breaks"], [], "clean sheet must return empty breaks list")
+
+
+# ===========================================================================
+# Group 11: save_review_restructure -- DB (Slice 1b-alpha)
+# ===========================================================================
+
+class TestSaveReviewRestructure(FrappeTestCase):
+    """
+    Slice 1b-alpha: save_review_restructure -- atomic reclassify + reparent.
+
+    Fixture rows per test (reset by setUp):
+      Row 0 -- preamble,  parent=None  (root)
+      Row 1 -- preamble,  parent=0     (reclassified in most tests; parent of 2,3)
+      Row 2 -- line_item, parent=1     (child of 1)
+      Row 3 -- line_item, parent=1     (child of 1)
+      Row 4 -- preamble,  parent=0     (sibling of 1; a candidate new parent, NOT a child of 1)
+
+    Batch-cycle case: reclassify row 1 with child_moves={2:3, 3:2}. Each move alone is
+    acyclic (2->3->1->0 / 3->2->1->0) but together they form 2<->3 -- the batch guard
+    must reject and write NOTHING (all-or-nothing).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Restructure Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "RestructureSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "RestructureSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "preamble", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=1),
+            _minimal_row(self.sheet_name, 3, "line_item", parent_index=1),
+            _minimal_row(self.sheet_name, 4, "preamble", parent_index=0),
+        ])
+
+    def _get_doc(self, row_index):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        return frappe.get_doc("BoQ Review Row", name)
+
+    @staticmethod
+    def _as_list(v):
+        if isinstance(v, str):
+            return json.loads(v) if v else []
+        return v or []
+
+    # -- HAPPY: reclassify with children moved to a new parent --
+
+    def test_reclassify_with_children_to_new_parent(self):
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            reason="row 1 is really a note",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["new_classification"], "note")
+        self.assertEqual(result["children_moved"], [2, 3])
+        self.assertTrue(result["edited_at"], "edited_at must be non-empty after a restructure")
+
+        # target reclassified, with a human_classification entry carrying the reason
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note")
+        log1 = self._as_list(r1.edit_log)
+        self.assertEqual(log1[-1]["field"], "human_classification")
+        self.assertEqual(log1[-1]["to"], "note")
+        self.assertEqual(log1[-1]["reason"], "row 1 is really a note")
+
+        # each child reparented + carries its OWN human_parent entry with the tie reason
+        tie = "parent moved: row 1 reclassified to note"
+        for ci in (2, 3):
+            c = self._get_doc(ci)
+            self.assertEqual(c.human_parent, 4, f"child {ci} reparented to 4")
+            logc = self._as_list(c.edit_log)
+            self.assertEqual(logc[-1]["field"], "human_parent")
+            self.assertEqual(logc[-1]["to"], 4)
+            self.assertEqual(logc[-1]["reason"], tie)
+
+    def test_all_children_to_root(self):
+        """Slice 1b-alpha (human_is_root, Option B): a -1 move re-roots the child via
+        the SEPARATE human_is_root flag. The consistency invariant holds (human_is_root=1
+        AND human_parent=-1), and effective_parent_index is None -- the assertion the
+        old -1-sentinel encoding could not satisfy."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="line_item",
+            child_moves={2: -1, 3: -1},
+        )
+        self.assertTrue(result["ok"])
+        for ci in (2, 3):
+            c = self._get_doc(ci)
+            self.assertEqual(c.human_is_root, 1, "a root move sets human_is_root=1")
+            self.assertEqual(c.human_parent, -1,
+                             "invariant: a rooted row keeps human_parent=-1 (no row override)")
+            self.assertIsNone(
+                resolve_effective(c)["effective_parent_index"],
+                "effective parent of a rooted child is None",
+            )
+
+    def test_all_children_to_one_new_parent(self):
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",
+            child_moves={2: 4, 3: 4},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self._get_doc(2).human_parent, 4)
+        self.assertEqual(self._get_doc(3).human_parent, 4)
+
+    def test_promote_children_to_old_parent(self):
+        # row 1's old parent is 0; promoting its children to 0 is just another map.
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 0, 3: 0},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self._get_doc(2).human_parent, 0)
+        self.assertEqual(self._get_doc(3).human_parent, 0)
+
+    # -- HAPPY: childless reclassify (leaf row, empty child_moves) --
+
+    def test_childless_reclassify_only_classification_written(self):
+        # row 2 is a leaf line_item (no children of its own). Reclassify with empty moves.
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, new_classification="note",
+            child_moves={},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["children_moved"], [])
+        r2 = self._get_doc(2)
+        self.assertEqual(r2.human_classification, "note")
+        log2 = self._as_list(r2.edit_log)
+        self.assertEqual(log2[-1]["field"], "human_classification")
+        # an unrelated row must not be touched
+        r3 = self._get_doc(3)
+        self.assertEqual(r3.human_parent, -1, "an unrelated row must not be reparented")
+        self.assertIsNone(r3.edited_at, "an unrelated row must not be stamped")
+
+    # -- REJECT: FROM-but-not-TO (parser-only classes rejected as targets) --
+
+    def test_reject_subtotal_marker_target(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="subtotal_marker",
+                child_moves={2: 4},
+            )
+        self.assertFalse(self._get_doc(1).human_classification,
+                         "a rejected reclassify must not write the target")
+        self.assertEqual(self._get_doc(2).human_parent, -1,
+                         "a rejected reclassify must not move any child")
+
+    def test_reject_header_repeat_target(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="header_repeat",
+                child_moves={},
+            )
+        self.assertFalse(self._get_doc(1).human_classification)
+
+    # -- REJECT: a non-child named in the map --
+
+    def test_reject_non_child_in_moves(self):
+        # row 4 is a child of 0, NOT of 1 -- it cannot be moved by reclassifying row 1.
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                child_moves={4: 0},
+            )
+        self.assertFalse(self._get_doc(1).human_classification,
+                         "nothing written when a non-child is in the map")
+        self.assertEqual(self._get_doc(4).human_parent, -1)
+
+    # -- REJECT: a nonexistent proposed parent --
+
+    def test_reject_nonexistent_parent(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                child_moves={2: 999},
+            )
+        self.assertFalse(self._get_doc(1).human_classification)
+        self.assertEqual(self._get_doc(2).human_parent, -1)
+
+    # -- REJECT: the headline batch-cycle case (all-or-nothing rollback) --
+
+    def test_reject_batch_cycle_nothing_written(self):
+        """Two moves each individually acyclic (2->3->1->0 / 3->2->1->0) but TOGETHER
+        a cycle (2<->3). The batch guard must reject and write NOTHING."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                child_moves={2: 3, 3: 2},
+            )
+        # target class unchanged
+        self.assertFalse(self._get_doc(1).human_classification,
+                         "batch-cycle rejection must leave the target classification unchanged")
+        # both children's parents unchanged (no human override stored)
+        self.assertEqual(self._get_doc(2).human_parent, -1,
+                         "batch-cycle rejection must not move child 2")
+        self.assertEqual(self._get_doc(3).human_parent, -1,
+                         "batch-cycle rejection must not move child 3")
+        # provenance not stamped on any of the three involved rows
+        for ri in (1, 2, 3):
+            self.assertIsNone(self._get_doc(ri).edited_at,
+                              f"row {ri} must not be stamped on a rejected restructure")
+
+    # -- child_moves accepts a JSON string (frappe may pass either) --
+
+    def test_child_moves_accepts_json_string(self):
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves=json.dumps({"2": 4, "3": 4}),
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["children_moved"], [2, 3])
+        self.assertEqual(self._get_doc(2).human_parent, 4)
+
+    # -- Slice 1b-alpha human_is_root: invariant + provenance --
+
+    def test_root_move_sets_invariant_and_logs_to_none(self):
+        """A root move sets human_is_root=1 AND human_parent=-1 (invariant), and the
+        child's human_parent edit_log entry records to=None (root reads as 'no parent',
+        Deliverable 4), from=1 (the effective parent before the move)."""
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: -1},
+        )
+        c = self._get_doc(2)
+        self.assertEqual(c.human_is_root, 1)
+        self.assertEqual(c.human_parent, -1, "invariant: rooted row keeps human_parent=-1")
+        log = self._as_list(c.edit_log)
+        self.assertEqual(log[-1]["field"], "human_parent")
+        self.assertIsNone(log[-1]["to"], "a root move logs to=None (root, not the -1 sentinel)")
+        self.assertEqual(log[-1]["from"], 1, "from is the effective parent (row 1) before the move")
+
+    def test_subsequent_real_parent_move_clears_root(self):
+        """After rooting child 2, moving it to a REAL parent (>=0) via save_review_edit
+        clears human_is_root back to 0 (case a clears rooting -- the chokepoint invariant)."""
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: -1},
+        )
+        self.assertEqual(self._get_doc(2).human_is_root, 1, "precondition: child 2 is rooted")
+        # Now give it a real parent via the single-row edit endpoint.
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, field="human_parent", value=4,
+        )
+        c = self._get_doc(2)
+        self.assertEqual(c.human_is_root, 0, "a real parent override must clear human_is_root")
+        self.assertEqual(c.human_parent, 4, "the real parent override is stored")
+        self.assertEqual(resolve_effective(c)["effective_parent_index"], 4,
+                         "effective parent follows the real override, not root")
+
+    def test_mixed_batch_some_root_some_parent(self):
+        """ONE restructure call moving some children to a real parent and others to root.
+        Each child lands in the correct state and the single commit covered all."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: -1},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["children_moved"], [2, 3])
+        # child 2 -> real parent 4 (not rooted)
+        c2 = self._get_doc(2)
+        self.assertEqual(c2.human_parent, 4)
+        self.assertEqual(c2.human_is_root, 0)
+        self.assertEqual(resolve_effective(c2)["effective_parent_index"], 4)
+        # child 3 -> root (rooted, no row override)
+        c3 = self._get_doc(3)
+        self.assertEqual(c3.human_is_root, 1)
+        self.assertEqual(c3.human_parent, -1)
+        self.assertIsNone(resolve_effective(c3)["effective_parent_index"])

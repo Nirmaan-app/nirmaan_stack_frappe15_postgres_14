@@ -56,6 +56,7 @@
   "review_edits_section",
   "human_classification",
   "human_parent",
+  "human_is_root",
   "edit_log",
   "edited_by",
   "edited_at",
@@ -321,6 +322,12 @@
    "fieldname": "human_parent",
    "fieldtype": "Int",
    "label": "Human Parent"
+  },
+  {
+   "default": "0",
+   "fieldname": "human_is_root",
+   "fieldtype": "Check",
+   "label": "Human Root Override"
   },
   {
    "fieldname": "edit_log",

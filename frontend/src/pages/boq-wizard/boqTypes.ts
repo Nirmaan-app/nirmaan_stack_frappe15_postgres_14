@@ -263,6 +263,11 @@ export interface ReviewRow {
   // human edit layer
   human_classification: string | null;
   human_parent: number | null;
+  // Slice 1b-alpha: human-root override (Option B). A SEPARATE Check field, orthogonal
+  // to human_parent (the -1 sentinel value space is unchanged). 1 => the human re-rooted
+  // this row to top-level (effective_parent_index is null); human_parent is -1 in that
+  // case (consistency invariant). 0/null => not human-rooted.
+  human_is_root: number | null;
   edit_log: EditLogEntry[] | null;
   edited_by: string | null;
   edited_at: string | null;

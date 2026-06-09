@@ -914,7 +914,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                 const n = byIdx.get(ep)?.source_row_number;
                 return n !== undefined ? `row ${n}` : `#${ep}`;
               })();
-              const parentOverridden = row.human_parent !== null && row.human_parent >= 0;
+              // Slice 1b-alpha: a human-rooted row (human_is_root=1, human_parent=-1) is
+              // ALSO a parent override -- the detail panel must show "row N -> root".
+              const parentOverridden =
+                (row.human_parent !== null && row.human_parent >= 0) || row.human_is_root === 1;
               const clsOverridden = row.human_classification !== null;
 
               return (
