@@ -287,7 +287,8 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                     "quote": sb_row.quote, "amount": base_amount, "make": sb_row.make,
                     "tax": sb_row.tax, "tax_amount": tax_amount,
                     "total_amount": base_amount + tax_amount, "comment": sb_row.comment,
-                    "procurement_request_item": sb_row.name
+                    "procurement_request_item": sb_row.name,
+                    "billing_status": sb_row.get("billing_status") or "Non-Billable",  # carry source value (Items-derived); Non-Billable fallback
                 }
                 if vendor_name not in vendor_po_items:
                     vendor_po_items[vendor_name] = []
@@ -437,6 +438,7 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "comment": item_in_source_sb.comment, # Carry over comment
                     "make": item_in_source_sb.make,
                     "vendor": item_in_source_sb.vendor, # Carry over selected vendor
+                    "billing_status": item_in_source_sb.get("billing_status"),  # hold the source SB item's billing status
                 })
 
                 # Copy RFQ details for this item to the new SB doc's RFQ data

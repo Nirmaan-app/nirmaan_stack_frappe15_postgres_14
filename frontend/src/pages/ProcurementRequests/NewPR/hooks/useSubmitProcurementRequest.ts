@@ -36,6 +36,7 @@ const transformToBackendOrderList = (frontendProcList: ProcurementRequestItem[])
         status: feItem.status,
         tax: feItem.tax, // Ensure this matches backend expectation (optional or required)
         comment: feItem.comment,
+        // billing_status is set server-side from the Items master (see procurement_requests.validate)
         // Frappe handles parent, parentfield, parenttype, name, creation, modified for child table items
     }));
 };

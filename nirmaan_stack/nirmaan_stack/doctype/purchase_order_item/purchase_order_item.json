@@ -23,7 +23,8 @@
   "tax_amount",
   "total_amount",
   "comment",
-  "procurement_request_item"
+  "procurement_request_item",
+  "billing_status"
  ],
  "fields": [
   {
@@ -136,6 +137,13 @@
    "in_list_view": 1,
    "label": "Quoted Rate",
    "reqd": 1
+  },
+  {
+   "fieldname": "billing_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Billing Status",
+   "options": "Billable\nNon-Billable"
   }
  ],
  "grid_page_length": 50,

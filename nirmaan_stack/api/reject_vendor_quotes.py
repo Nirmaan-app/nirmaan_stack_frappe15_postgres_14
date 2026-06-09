@@ -61,6 +61,7 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                         "comment": item.get("comment"),
                         "make": item.get("make"),
                         "vendor": item.get("vendor"),
+                        "billing_status": item.get("billing_status"),  # hold the PR item's billing status
                     })
 
                     if item_name in rfq_details:

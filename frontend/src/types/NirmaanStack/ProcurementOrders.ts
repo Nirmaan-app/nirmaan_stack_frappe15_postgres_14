@@ -31,6 +31,7 @@ export interface PurchaseOrderItem {
 	status: string;
 	tax: number;
 	comment?: string;
+	billing_status?: "Billable" | "Non-Billable" | "";
 	po?: string;
 	makes?: string
 }
@@ -142,6 +143,8 @@ export interface ProcurementOrder {
 	notes?: string
 	/**	Status : Data	*/
 	status: string
+	/**	Billing Status : Select (auto-calculated from item billing status)	*/
+	billing_status?: "Billable" | "Non-Billable" | ""
 	/**	Delivery Contact : Data	*/
 	delivery_contact?: string
 	custom?: string

@@ -28,8 +28,9 @@ def new_custom_pr(project_id: str, order: list, categories: list = None, comment
                 "tax": fe_item.get("tax"),
                 "vendor": fe_item.get("vendor"),
                 "quote": fe_item.get("quote")
+                # billing_status set server-side from Items master (procurement_requests.validate)
             })
-        
+
         if tags:
             if isinstance(tags, str):
                 tags = json.loads(tags)
@@ -117,6 +118,7 @@ def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list
                 "tax": fe_item.get("tax"),
                 "vendor": fe_item.get("vendor"),
                 "quote": fe_item.get("quote")
+                # billing_status set server-side from Items master (procurement_requests.validate)
             })
 
         if payment_terms:
