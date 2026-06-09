@@ -120,3 +120,4 @@ nirmaan_stack.patches.v3_0.backfill_work_order_items #2
 nirmaan_stack.patches.v3_0.purge_document_ai_credentials
 nirmaan_stack.patches.v3_0.sync_commission_master_changes
 nirmaan_stack.patches.v3_0.backfill_commission_report_type
+nirmaan_stack.patches.v3_0.backfill_billing_status
