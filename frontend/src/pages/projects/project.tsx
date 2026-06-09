@@ -1329,6 +1329,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   commissionTasks.push({
                     task_name: taskName,
                     commission_category: categoryName,
+                    report_type: taskTemplate?.report_type || "Field",
                     task_status: "Pending",
                     deadline,
                     task_zone: zoneName,

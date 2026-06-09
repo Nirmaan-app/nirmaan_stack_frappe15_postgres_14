@@ -27,7 +27,7 @@ export interface UseCommissionTrackerLogicReturn {
     setEditingTask: (task: CommissionReportTask | null) => void;
 
     usersList: User[];
-    categoryData: { category_name: string; tasks: { task_name: string; deadline_offset?: number }[] }[];
+    categoryData: { category_name: string; tasks: { task_name: string; deadline_offset?: number; report_type?: 'Field' | 'Vendor' }[] }[];
     statusOptions: { label: string; value: string }[];
 
     refetchTracker: () => void;

@@ -57,7 +57,7 @@ const DOCTYPE = 'Project Commission Report';
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
     category_name: string;
-    tasks: { task_name: string; deadline_offset?: number }[];
+    tasks: { task_name: string; deadline_offset?: number; report_type?: 'Field' | 'Vendor' }[];
 }
 
 // --- Project Overview Edit Modal ---
@@ -425,7 +425,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                         task_name: taskDef.task_name,
                         commission_category: cat.category_name,
                         task_status: 'Pending',
-                        report_type: (taskDef as any).report_type || 'Field',
+                        report_type: taskDef.report_type || 'Field',
                         deadline: calculatedDeadline || handoverDeadline.toISOString().split('T')[0],
                         task_zone: zoneName,
                         task_phase: "Handover",
@@ -1115,7 +1115,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                         task_name: taskDef.task_name,
                         commission_category: cat.category_name,
                         task_status: 'Pending',
-                        report_type: (taskDef as any).report_type || 'Field',
+                        report_type: taskDef.report_type || 'Field',
                         deadline: calculatedDeadline || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                         task_zone: zoneName,
                         task_phase: "Handover",
