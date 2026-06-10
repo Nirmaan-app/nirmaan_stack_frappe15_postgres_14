@@ -167,7 +167,8 @@ doc_events = {
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
     },
     "Items": {
-        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert"
+        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.items.on_update"
     },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",

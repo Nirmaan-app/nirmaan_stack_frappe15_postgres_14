@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     Dialog,
     DialogContent,
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import ReactSelect from "react-select";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import {
     AlertDialog,
@@ -25,9 +25,8 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
-import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
-import { CustomItemDialog } from "./AddTDSItemDialog";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { cn } from "@/lib/utils";
 
 interface TDSItem {
     name: string;
@@ -45,6 +44,21 @@ interface TDSItem {
     tds_boq_line_item?: string;
 }
 
+// search_tds_items result shape (group picker)
+interface PickerGroup {
+    tds_item: string;
+    tds_item_name: string;
+    work_package: string;
+    matched_member: { item: string; item_name: string } | null;
+    makes: { make: string; entry: string; tds_attachment?: string; status?: string }[];
+}
+interface GroupOption {
+    label: string;
+    value: string;
+    workPackage: string;
+    member: string;
+}
+
 interface EditRequestItemModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -53,6 +67,25 @@ interface EditRequestItemModalProps {
     loading?: boolean;
 }
 
+type GroupMode = "existing" | "new";
+
+/**
+ * Phase 2 (ADR-0003 P2-3) edit modal for "New" REQUEST rows (tds_status === "New").
+ *
+ * A request proposes a (group, make, datasheet). The group is EITHER an existing
+ * TDS Item (chosen via the api/tds/picker fuzzy search) OR a brand-new group
+ * (free-text label + Work Package). The make is the FULL Makelist (no "+ Others" /
+ * custom-make creation — promotion is Admin-only and curated). Datasheet is required.
+ *
+ * Keeps "New" status semantics: this edits the proposal; approval (backend) does the
+ * promotion. CUS-/category-string logic is gone — tds_category is preserved as the
+ * frozen snapshot only.
+ *
+ * Frozen onto the row:
+ *   - existing group → tds_item_id = group id, tds_item_name = group name, WP = group WP
+ *   - new group      → tds_item_id = "" (backend mints a member-less group on approval),
+ *                      tds_item_name = typed label, WP = selected WP
+ */
 export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     open,
     onOpenChange,
@@ -60,55 +93,75 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     onSave,
     loading = false,
 }) => {
-    // Selection state
-    const [selectedWP, setSelectedWP] = useState("");
-    const [selectedCategory, setSelectedCategory] = useState("");
-    const [selectedItemId, setSelectedItemId] = useState("");
-    const [selectedItemName, setSelectedItemName] = useState("");
+    const [groupMode, setGroupMode] = useState<GroupMode>("existing");
+
+    // Existing-group selection (via picker)
+    const [selectedGroupId, setSelectedGroupId] = useState("");
+    const [selectedGroupName, setSelectedGroupName] = useState("");
+    const [selectedGroupWP, setSelectedGroupWP] = useState("");
+
+    // New-group proposal
+    const [newGroupLabel, setNewGroupLabel] = useState("");
+    const [newGroupWP, setNewGroupWP] = useState("");
+
     const [selectedMake, setSelectedMake] = useState("");
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
     const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
     const [fileError, setFileError] = useState<string | null>(null);
 
-    // Custom Item state
-    const [isCustomItem, setIsCustomItem] = useState(false);
-    const [customItemName, setCustomItemName] = useState("");
-    const [customItemDialogOpen, setCustomItemDialogOpen] = useState(false);
-
-    // Custom Make state
-    const [isCustomMake, setIsCustomMake] = useState(false);
-    const [customMake, setCustomMake] = useState("");
-
     // Rejected-duplicate confirm dialog
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirmInput, setConfirmInput] = useState("");
     const [duplicateDocName, setDuplicateDocName] = useState<string | null>(null);
 
-    const {
-        wpOptions,
-        catOptions,
-        itemOptionsForWP,
-        makeOptions,
-        allCustomItems,
-        getCategoryForItem,
-        catList,
-    } = useTDSItemOptions({
-        selectedWP,
-        selectedCategory,
-        watchedTdsItemId: selectedItemId,
-        currentItem: item ? {
-            name: item.name,
-            work_package: item.tds_work_package,
-            category: item.tds_category,
-            tds_item_name: item.tds_item_name,
-            tds_item_id: item.tds_item_id,
-            description: item.tds_description,
-            make: item.tds_make,
-            tds_attachment: item.tds_attachment || "",
-            creation: "",
-        } : null,
-    });
+    // ── Reference data ─────────────────────────────────────────────────────────
+    const { data: wpList } = useFrappeGetDocList("Work Packages", {
+        fields: ["name", "work_package_name"],
+        limit: 0,
+    }, open ? undefined : null);
+    // Full Makelist — no "+ Others" / custom-make creation in Phase 2.
+    const { data: makeList } = useFrappeGetDocList("Makelist", {
+        fields: ["name", "make_name"],
+        limit: 0,
+    }, open ? undefined : null);
+
+    const wpOptions = useMemo(
+        () => (wpList || []).map((d: any) => ({ label: d.work_package_name, value: d.name })),
+        [wpList]
+    );
+    const makeOptions = useMemo(
+        () => (makeList || []).map((d: any) => ({ label: d.make_name, value: d.name })),
+        [makeList]
+    );
+
+    // ── Group picker (server-side, debounced) ───────────────────────────────────
+    const { call: searchTdsItems } = useFrappePostCall(
+        "nirmaan_stack.api.tds.picker.search_tds_items"
+    );
+    const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const runSearch = useCallback(async (query: string) => {
+        try {
+            const resp = await searchTdsItems({ query, limit: 50 });
+            const rows: PickerGroup[] = resp?.message || [];
+            setGroupOptions(rows.map(g => ({
+                label: g.tds_item_name,
+                value: g.tds_item,
+                workPackage: g.work_package,
+                member: g.matched_member?.item_name || g.matched_member?.item || "",
+            })));
+        } catch (e) {
+            console.error("TDS picker search failed", e);
+            setGroupOptions([]);
+        }
+    }, [searchTdsItems]);
+
+    const handleGroupSearchInput = useCallback((input: string) => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => runSearch(input), 300);
+    }, [runSearch]);
 
     // Siblings in the same project, for duplicate check
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
@@ -117,125 +170,87 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]]
             : [["name", "=", "NOT_FOUND"]],
         limit: 0,
-    });
+    }, (item && open) ? undefined : null);
 
-    // Hydrate from item on open
+    // Hydrate from the row on open. A row with a group id → existing mode; a row
+    // with only a name → new-group mode.
     useEffect(() => {
         if (item && open) {
-            setSelectedWP(item.tds_work_package || "");
-            setSelectedCategory(item.tds_category || "");
-            setSelectedItemId(item.tds_item_id || "");
-            setSelectedItemName(item.tds_item_name || "");
+            const hasGroupId = !!item.tds_item_id && !item.tds_item_id.startsWith("CUS-") && !item.tds_item_id.startsWith("PCUS-");
+            setGroupMode(hasGroupId ? "existing" : "new");
+
+            setSelectedGroupId(hasGroupId ? (item.tds_item_id || "") : "");
+            setSelectedGroupName(hasGroupId ? (item.tds_item_name || "") : "");
+            setSelectedGroupWP(hasGroupId ? (item.tds_work_package || "") : "");
+
+            setNewGroupLabel(hasGroupId ? "" : (item.tds_item_name || ""));
+            setNewGroupWP(hasGroupId ? "" : (item.tds_work_package || ""));
+
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
             setAttachmentFile(null);
             setFileError(null);
 
-            const isCustom = item.tds_item_id?.startsWith("CUS-") || (!item.tds_item_id && !!item.tds_item_name);
-            setIsCustomItem(!!isCustom);
-            setCustomItemName(isCustom ? (item.tds_item_name || "") : "");
-
-            setIsCustomMake(false);
-            setCustomMake("");
+            runSearch(""); // seed group dropdown
         }
-    }, [item, open]);
+    }, [item, open, runSearch]);
 
-    // Cascading field handlers — each one resets everything downstream
-    const handleWorkPackageChange = (opt: any) => {
-        setSelectedWP(opt?.value || "");
-        setSelectedCategory("");
-        setSelectedItemId("");
-        setSelectedItemName("");
-        setIsCustomItem(false);
-        setCustomItemName("");
-        setSelectedMake("");
-        setIsCustomMake(false);
-        setCustomMake("");
+    const currentGroupValue = useMemo<GroupOption | null>(() => {
+        if (groupMode !== "existing" || !selectedGroupId) return null;
+        const fromOptions = groupOptions.find(o => o.value === selectedGroupId);
+        if (fromOptions) return fromOptions;
+        return { label: selectedGroupName || selectedGroupId, value: selectedGroupId, workPackage: selectedGroupWP, member: "" };
+    }, [groupMode, selectedGroupId, selectedGroupName, selectedGroupWP, groupOptions]);
+
+    const groupOptionsWithCurrent = useMemo<GroupOption[]>(() => {
+        if (!currentGroupValue) return groupOptions;
+        if (groupOptions.some(o => o.value === currentGroupValue.value)) return groupOptions;
+        return [currentGroupValue, ...groupOptions];
+    }, [groupOptions, currentGroupValue]);
+
+    const handleGroupChange = (opt: GroupOption | null) => {
+        setSelectedGroupId(opt?.value || "");
+        setSelectedGroupName(opt?.label || "");
+        setSelectedGroupWP(opt?.workPackage || "");
     };
 
-    const handleCategoryChange = (opt: any) => {
-        setSelectedCategory(opt?.value || "");
-        setSelectedItemId("");
-        setSelectedItemName("");
-        setIsCustomItem(false);
-        setCustomItemName("");
-        setSelectedMake("");
-        setIsCustomMake(false);
-        setCustomMake("");
-    };
-
-    const handleItemChange = (opt: any) => {
-        const isCustom = !!opt?.value?.startsWith?.("CUS-");
-        const pinned = opt?.value ? getCategoryForItem(opt.value) : null;
-        // Item pins win — override WP/Category (option A, per user decision)
-        if (pinned) {
-            if (pinned.workPackage) setSelectedWP(pinned.workPackage);
-            if (pinned.category) setSelectedCategory(pinned.category);
-        }
-        setSelectedItemId(opt?.value || "");
-        setSelectedItemName(opt?.label || "");
-        setIsCustomItem(isCustom);
-        setCustomItemName(isCustom ? (opt?.label || "") : "");
-        // Clear make (downstream)
-        setSelectedMake("");
-        setIsCustomMake(false);
-        setCustomMake("");
-    };
-
-    const handleCustomItemSelect = (customItem: { id: string; name: string; category: string; workPackage: string; isNew: boolean }) => {
-        setCustomItemDialogOpen(false);
-        setIsCustomItem(true);
-        setCustomItemName(customItem.name);
-        setSelectedItemId(customItem.id || "");
-        setSelectedItemName(customItem.name);
-        if (customItem.workPackage) setSelectedWP(customItem.workPackage);
-        if (customItem.category) setSelectedCategory(customItem.category);
-        setSelectedMake("");
-        setIsCustomMake(false);
-        setCustomMake("");
-    };
-
-    const handleMakeChange = (opt: any) => {
-        if (opt?.value === "__others__") {
-            setIsCustomMake(true);
-            setCustomMake("");
-            setSelectedMake("");
+    const handleModeChange = (mode: GroupMode) => {
+        setGroupMode(mode);
+        // Reset the OTHER side so we don't carry stale group identity.
+        if (mode === "existing") {
+            setNewGroupLabel("");
+            setNewGroupWP("");
         } else {
-            setSelectedMake(opt?.value || "");
+            setSelectedGroupId("");
+            setSelectedGroupName("");
+            setSelectedGroupWP("");
         }
     };
 
-    const itemOptionsWithCustom = useMemo(() => {
-        const nameCounts = new Map<string, number>();
-        itemOptionsForWP.forEach(opt => {
-            nameCounts.set(opt.label, (nameCounts.get(opt.label) || 0) + 1);
-        });
-        return itemOptionsForWP.map(opt => ({
-            label: opt.label,
-            value: opt.value,
-            category: opt.category,
-            categoryName: opt.categoryName,
-            showCategory: (nameCounts.get(opt.label) || 0) > 1,
-        }));
-    }, [itemOptionsForWP]);
-
-    const getItemDisplayValue = () => {
-        if (isCustomItem && customItemName) {
-            return { label: customItemName, value: selectedItemId || "__new_custom__" };
+    // Derived: the proposed group identity for both validation and the payload.
+    const proposed = useMemo(() => {
+        if (groupMode === "existing") {
+            return {
+                tds_item_id: selectedGroupId,
+                tds_item_name: selectedGroupName,
+                tds_work_package: selectedGroupWP,
+            };
         }
-        if (selectedItemId || selectedItemName) {
-            return itemOptionsWithCustom.find(opt => opt.value === selectedItemId)
-                || { label: selectedItemName, value: selectedItemId };
-        }
-        return null;
-    };
+        return {
+            tds_item_id: "", // new group — backend mints a member-less TDS Item on approval
+            tds_item_name: newGroupLabel.trim(),
+            tds_work_package: newGroupWP,
+        };
+    }, [groupMode, selectedGroupId, selectedGroupName, selectedGroupWP, newGroupLabel, newGroupWP]);
 
     const buildUpdates = () => ({
-        tds_work_package: selectedWP,
-        tds_category: selectedCategory,
-        tds_item_name: selectedItemName,
-        tds_item_id: selectedItemId,
+        tds_item_id: proposed.tds_item_id,
+        tds_item_name: proposed.tds_item_name,
+        tds_work_package: proposed.tds_work_package,
+        // tds_category is no longer chosen at request time (the group model derives
+        // categories from members). Preserve the row's frozen snapshot.
+        tds_category: item?.tds_category ?? "",
         tds_make: selectedMake,
         tds_description: description,
         tds_boq_line_item: boqRef,
@@ -245,25 +260,36 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     const handleSaveAttempt = () => {
         if (!item) return;
 
-        if (!selectedWP || !selectedCategory || !selectedItemName || !selectedMake) {
-            toast({ title: "Validation Error", description: "Please fill in all required fields.", variant: "destructive" });
+        if (groupMode === "existing" && !proposed.tds_item_id) {
+            toast({ title: "Validation Error", description: "Please select an existing TDS Item.", variant: "destructive" });
             return;
         }
-
+        if (groupMode === "new" && (!proposed.tds_item_name || !proposed.tds_work_package)) {
+            toast({ title: "Validation Error", description: "Enter a new TDS Item name and Work Package.", variant: "destructive" });
+            return;
+        }
+        if (!selectedMake) {
+            toast({ title: "Validation Error", description: "Please select a Make.", variant: "destructive" });
+            return;
+        }
         if (!attachmentFile && !item.tds_attachment) {
             setFileError("Attachment is required");
             return;
         }
 
-        // Rejected-duplicate: same item name + make combo already exists as Rejected in this project
-        const duplicate = existingProjectItems?.find(i =>
-            i.tds_item_name === selectedItemName &&
-            i.tds_make === selectedMake &&
-            i.tds_status === "Rejected"
-        );
+        // Dedup on (group identity, make). For an existing group, key on the group
+        // id; for a new group, key on the proposed name (no id yet).
+        const matchesGroup = (sib: any) =>
+            groupMode === "existing"
+                ? sib.tds_item_id === proposed.tds_item_id
+                : (!sib.tds_item_id || sib.tds_item_id.startsWith("CUS-") || sib.tds_item_id.startsWith("PCUS-"))
+                    && sib.tds_item_name === proposed.tds_item_name;
 
-        if (duplicate) {
-            setDuplicateDocName(duplicate.name);
+        const dupRejected = existingProjectItems?.find((i: any) =>
+            matchesGroup(i) && i.tds_make === selectedMake && i.tds_status === "Rejected"
+        );
+        if (dupRejected) {
+            setDuplicateDocName(dupRejected.name);
             setConfirmInput("");
             setShowConfirmDialog(true);
             return;
@@ -278,11 +304,13 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             return;
         }
         if (!item || !duplicateDocName) return;
-
         onSave(item.name, buildUpdates(), [duplicateDocName]);
         setShowConfirmDialog(false);
         setDuplicateDocName(null);
     };
+
+    const menuPortalTarget = typeof document !== "undefined" ? document.body : undefined;
+    const menuPortalStyle = (base: any) => ({ ...base, zIndex: 9999, pointerEvents: "auto" as const });
 
     return (
         <>
@@ -291,187 +319,133 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                     <DialogHeader className="p-6 pb-2 border-b border-gray-50">
                         <DialogTitle className="text-xl font-bold tracking-tight">Edit Request Item</DialogTitle>
                         <DialogDescription className="text-sm text-gray-500 mt-1">
-                            Update the details of this new item request.
+                            Update this new TDS Item request (group + make + datasheet).
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
                         <div className="space-y-4">
-                            {/* Work Package */}
+                            {/* Group mode toggle */}
                             <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">
-                                    Work Package<span className="text-red-500 ml-0.5">*</span>
-                                </Label>
-                                <ReactSelect
-                                    options={wpOptions}
-                                    value={
-                                        wpOptions.find(opt => opt.value === selectedWP)
-                                        || (selectedWP ? { label: selectedWP, value: selectedWP } : null)
-                                    }
-                                    onChange={handleWorkPackageChange}
-                                    placeholder="Select Work Package"
-                                    classNamePrefix="react-select"
-                                    styles={{
-                                        control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
-                                    }}
-                                />
+                                <Label className="text-sm font-bold text-gray-700">TDS Item</Label>
+                                <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleModeChange("existing")}
+                                        className={cn(
+                                            "px-3 py-1.5 text-xs font-bold rounded-md transition-colors",
+                                            groupMode === "existing" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                                        )}
+                                    >
+                                        Existing Item
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleModeChange("new")}
+                                        className={cn(
+                                            "px-3 py-1.5 text-xs font-bold rounded-md transition-colors",
+                                            groupMode === "new" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                                        )}
+                                    >
+                                        New Item
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Category */}
-                            <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">
-                                    Category<span className="text-red-500 ml-0.5">*</span>
-                                </Label>
-                                <ReactSelect
-                                    options={catOptions}
-                                    value={
-                                        catOptions.find(opt => opt.value === selectedCategory)
-                                        || (selectedCategory ? { label: selectedCategory, value: selectedCategory } : null)
-                                    }
-                                    onChange={handleCategoryChange}
-                                    placeholder={selectedWP ? "Select Category" : "Pick a Work Package first"}
-                                    isDisabled={!selectedWP}
-                                    classNamePrefix="react-select"
-                                    styles={{
-                                        control: (base) => ({
-                                            ...base,
-                                            minHeight: "44px",
-                                            borderRadius: "8px",
-                                            borderColor: "#e5e7eb",
-                                            backgroundColor: !selectedWP ? "#f9fafb" : "white",
-                                        }),
-                                    }}
-                                />
-                            </div>
-
-                            {/* Item Name */}
-                            <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">
-                                    Item Name<span className="text-red-500 ml-0.5">*</span>
-                                </Label>
-                                {isCustomItem ? (
-                                    <div className="flex items-center justify-between p-3 border rounded-lg bg-orange-50 border-orange-200 shadow-sm transition-all hover:shadow-md">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-semibold text-orange-900 leading-tight">{customItemName}</span>
-                                            <span className="text-[10px] text-orange-600 font-black uppercase tracking-widest mt-0.5">Custom Item</span>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-orange-700 hover:text-orange-900 hover:bg-orange-100 h-8 px-3 text-xs font-bold"
-                                            onClick={() => setCustomItemDialogOpen(true)}
-                                        >
-                                            Change
-                                        </Button>
-                                    </div>
-                                ) : (
+                            {groupMode === "existing" ? (
+                                <div className="space-y-1">
+                                    <Label className="text-sm font-bold text-gray-700">
+                                        Select TDS Item<span className="text-red-500 ml-0.5">*</span>
+                                    </Label>
                                     <FuzzySearchSelect
-                                        allOptions={itemOptionsWithCustom}
+                                        allOptions={groupOptionsWithCurrent}
                                         tokenSearchConfig={{
-                                            searchFields: ['label', 'value', 'categoryName'],
+                                            searchFields: ['label', 'member'],
                                             minSearchLength: 1,
                                             partialMatch: true,
                                             minTokenLength: 1,
-                                            fieldWeights: { label: 2.0, value: 1.5, categoryName: 1.0 },
+                                            fieldWeights: { label: 2.0, member: 1.0 },
                                             minTokenMatches: 1,
                                         }}
-                                        value={getItemDisplayValue()}
-                                        onChange={handleItemChange as any}
-                                        placeholder={selectedWP ? "Search Item Name..." : "Pick a Work Package first"}
-                                        isDisabled={!selectedWP}
-                                        isClearable
+                                        value={currentGroupValue}
+                                        onChange={handleGroupChange as any}
+                                        onSearchInputChange={handleGroupSearchInput}
+                                        placeholder="Search TDS Item or member item..."
                                         classNamePrefix="react-select"
+                                        isClearable
+                                        menuPortalTarget={menuPortalTarget}
                                         formatOptionLabel={(option: any) => (
-                                            <span>
-                                                {option.label}
-                                                {option.showCategory && option.categoryName && (
-                                                    <span className="text-blue-600 ml-1">({option.categoryName})</span>
+                                            <div className="flex flex-col">
+                                                <span>{option.label}</span>
+                                                {option.member && (
+                                                    <span className="text-[11px] text-slate-500">contains {option.member}</span>
                                                 )}
-                                            </span>
+                                            </div>
                                         )}
                                         styles={{
-                                            control: (base) => ({
-                                                ...base,
-                                                minHeight: "44px",
-                                                borderRadius: "8px",
-                                                borderColor: "#e5e7eb",
-                                                backgroundColor: !selectedWP ? "#f9fafb" : "white",
-                                            }),
+                                            control: (base: any) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
+                                            menuPortal: menuPortalStyle,
                                         }}
                                     />
-                                )}
-                            </div>
+                                    {selectedGroupWP && (
+                                        <p className="text-[10px] text-slate-500 px-1">Work Package: <span className="font-medium">{selectedGroupWP}</span></p>
+                                    )}
+                                </div>
+                            ) : (
+                                <>
+                                    {/* New group label */}
+                                    <div className="space-y-1">
+                                        <Label className="text-sm font-bold text-gray-700">
+                                            New TDS Item Name<span className="text-red-500 ml-0.5">*</span>
+                                        </Label>
+                                        <Input
+                                            value={newGroupLabel}
+                                            onChange={(e) => setNewGroupLabel(e.target.value)}
+                                            placeholder="e.g. Modular Switch Plate"
+                                            className="h-11 border-gray-200 rounded-lg bg-gray-50/30 focus:bg-white transition-all font-medium"
+                                        />
+                                    </div>
+                                    {/* New group WP */}
+                                    <div className="space-y-1">
+                                        <Label className="text-sm font-bold text-gray-700">
+                                            Work Package<span className="text-red-500 ml-0.5">*</span>
+                                        </Label>
+                                        <ReactSelect
+                                            options={wpOptions}
+                                            value={wpOptions.find(o => o.value === newGroupWP) || (newGroupWP ? { label: newGroupWP, value: newGroupWP } : null)}
+                                            onChange={(opt) => setNewGroupWP(opt?.value || "")}
+                                            placeholder="Select Work Package"
+                                            classNamePrefix="react-select"
+                                            menuPortalTarget={menuPortalTarget}
+                                            styles={{
+                                                control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
+                                                menuPortal: menuPortalStyle,
+                                            }}
+                                        />
+                                    </div>
+                                </>
+                            )}
 
-                            {/* Make */}
+                            {/* Make — full Makelist (no "+ Others") */}
                             <div className="space-y-1">
                                 <Label className="text-sm font-bold text-gray-700">
                                     Make<span className="text-red-500 ml-0.5">*</span>
                                 </Label>
-                                {isCustomMake ? (
-                                    <div className="space-y-2">
-                                        <Input
-                                            placeholder="Enter custom make name"
-                                            value={customMake}
-                                            onChange={(e) => {
-                                                setCustomMake(e.target.value);
-                                                setSelectedMake(e.target.value);
-                                            }}
-                                            className="h-11 border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-100 transition-all font-medium"
-                                        />
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => {
-                                                setIsCustomMake(false);
-                                                setCustomMake("");
-                                                setSelectedMake("");
-                                            }}
-                                            className="text-xs text-blue-600 hover:text-blue-700 h-6 px-2 font-black tracking-tight"
-                                        >
-                                            ← BACK TO LIST
-                                        </Button>
-                                    </div>
-                                ) : (
-                                    <ReactSelect
-                                        options={makeOptions}
-                                        value={
-                                            makeOptions.find(opt => opt.value === selectedMake)
-                                            || (selectedMake ? { label: selectedMake, value: selectedMake } : null)
-                                        }
-                                        onChange={handleMakeChange}
-                                        placeholder={selectedCategory ? "Select Make" : "Pick a Category first"}
-                                        isDisabled={!selectedCategory}
-                                        classNamePrefix="react-select"
-                                        styles={{
-                                            control: (base) => ({
-                                                ...base,
-                                                minHeight: "44px",
-                                                borderRadius: "8px",
-                                                borderColor: "#e5e7eb",
-                                                backgroundColor: !selectedCategory ? "#f9fafb" : "white",
-                                            }),
-                                            option: (base, state: any) => ({
-                                                ...base,
-                                                ...(state.data.value === "__others__" ? {
-                                                    backgroundColor: state.isFocused ? "#eff6ff" : "#f8fafc",
-                                                    color: "#2563eb",
-                                                    fontWeight: 800,
-                                                    borderTop: "1px solid #f1f5f9",
-                                                    letterSpacing: "-0.025em",
-                                                } : {}),
-                                            }),
-                                        }}
-                                        formatOptionLabel={(option) => (
-                                            option.value === "__others__" ? (
-                                                <span className="flex items-center gap-1 uppercase text-xs font-black">
-                                                    <span>+ OTHERS</span>
-                                                </span>
-                                            ) : option.label
-                                        )}
-                                    />
-                                )}
+                                <ReactSelect
+                                    options={makeOptions}
+                                    value={
+                                        makeOptions.find(opt => opt.value === selectedMake)
+                                        || (selectedMake ? { label: selectedMake, value: selectedMake } : null)
+                                    }
+                                    onChange={(opt) => setSelectedMake(opt?.value || "")}
+                                    placeholder="Select Make"
+                                    classNamePrefix="react-select"
+                                    menuPortalTarget={menuPortalTarget}
+                                    styles={{
+                                        control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
+                                        menuPortal: menuPortalStyle,
+                                    }}
+                                />
                             </div>
 
                             {/* BOQ Line Item */}
@@ -502,7 +476,7 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                             {/* Attachment */}
                             <div className="space-y-1.5 mt-2">
                                 <Label className="text-sm font-bold text-gray-700">
-                                    Attach Document<span className="text-red-500 ml-0.5">*</span>
+                                    Attach Datasheet<span className="text-red-500 ml-0.5">*</span>
                                 </Label>
                                 <CustomAttachment
                                     selectedFile={attachmentFile}
@@ -548,21 +522,12 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                 </DialogContent>
             </Dialog>
 
-            <CustomItemDialog
-                open={customItemDialogOpen}
-                onClose={() => setCustomItemDialogOpen(false)}
-                onSelect={handleCustomItemSelect}
-                allCustomItems={allCustomItems}
-                standardItems={itemOptionsForWP}
-                catList={catList || []}
-            />
-
             <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
                 <AlertDialogContent className="rounded-xl border-none shadow-2xl">
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This item-make combination already exists as a <strong>Rejected</strong> entry in the project.
+                            This TDS Item + Make combination already exists as a <strong>Rejected</strong> entry in the project.
                             To replace it and continue, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>

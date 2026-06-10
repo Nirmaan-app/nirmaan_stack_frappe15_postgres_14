@@ -141,3 +141,11 @@ class Items(Document):
 			""",
 			(self.name,),
 		)
+	# NOTE: The former `on_update` hook synced item_name/category into TDS Repository
+	# rows (which used to denormalize those fields and link via `tds_item_id`). The
+	# TDS Repository restructure (3-level TDS Item grouping model) removed
+	# `tds_item_id`, `tds_item_name`, and `category` from TDS Repository — those
+	# values now live on `TDS Items Child Table` child rows via `fetch_from`. The old
+	# hook was therefore obsolete and would raise on the removed columns, so it was
+	# removed. Keeping `TDS Items Child Table` display fields fresh on Items rename/
+	# recategorize is a Phase 2 concern (see tds/phase-1-plan.md).
