@@ -169,13 +169,16 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     };
 
     const handleModeChange = (next: "existing" | "new") => {
+        if (next === mode) return;
         form.setValue("mode", next);
-        // Clear group-specific fields when switching mode.
+        // Drop only the PICKED-GROUP identity (the frozen group id) + picker UI
+        // state — those are meaningful only in "existing" mode. Do NOT clear
+        // tds_item_name / work_package: in "new" mode they are the user's typed
+        // custom values and must survive a tab round-trip. (They reset on dialog
+        // close via handleCancel.)
         setSelectedGroup(null);
         setSearchQuery("");
         form.setValue("tds_item_id", "");
-        form.setValue("tds_item_name", "");
-        form.setValue("work_package", "");
     };
 
     const onSubmit = (values: z.infer<typeof formSchema>) => {
