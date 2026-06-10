@@ -216,16 +216,11 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     };
 
     const handleModeChange = (mode: GroupMode) => {
+        // Just switch tabs — keep each side's state. `proposed` reads only the
+        // ACTIVE mode, so the inactive side is ignored on submit; clearing it
+        // here would wipe a typed custom name on a custom→existing→custom
+        // round-trip. Both sides reset together on dialog open/close instead.
         setGroupMode(mode);
-        // Reset the OTHER side so we don't carry stale group identity.
-        if (mode === "existing") {
-            setNewGroupLabel("");
-            setNewGroupWP("");
-        } else {
-            setSelectedGroupId("");
-            setSelectedGroupName("");
-            setSelectedGroupWP("");
-        }
     };
 
     // Derived: the proposed group identity for both validation and the payload.

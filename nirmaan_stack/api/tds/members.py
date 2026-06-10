@@ -65,3 +65,43 @@ def get_tds_item_members(tds_item: str):
 		order_by="idx asc",
 		limit_page_length=0,
 	)
+
+
+def get_group_category(tds_item: str) -> str:
+	"""Distinct member categories of a TDS Item group, joined by ", ".
+
+	The single source of the "category of a group" rule. Reused by:
+	  * the `Project TDS Item List` before_save hook — snapshots `tds_category`
+	    onto a project submittal row (origin: `Items.category` → member rows).
+	  * `api/tds/tds_report._enrich_model_no` — the PDF "Model No." cell.
+
+	Returns "" for a falsy id or a member-less (custom) group. Permission-ignoring
+	read (the child table is an `istable` with no DocPerm). Defensive: never
+	raises — on any read error it returns "" so a (possibly bulk) save/approval is
+	never broken by category derivation.
+	"""
+	if not tds_item:
+		return ""
+	try:
+		rows = frappe.get_all(
+			CHILD_DOCTYPE,
+			filters={"parent": tds_item, "parenttype": PARENT_DOCTYPE},
+			fields=["category"],
+			order_by="idx asc",
+			limit_page_length=0,
+		)
+	except Exception:
+		frappe.log_error(
+			title="get_group_category read failed",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+	seen = set()
+	cats = []
+	for r in rows:
+		c = (r.category or "").strip()
+		if c and c not in seen:
+			seen.add(c)
+			cats.append(c)
+	return ", ".join(cats)

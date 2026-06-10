@@ -170,6 +170,9 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.items.on_update"
     },
+    "Project TDS Item List": {
+        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"
+    },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.on_update",
