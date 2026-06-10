@@ -1,6 +1,26 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-11 (Restructure Slice 1b-beta2 [feat 1ed9d3b7] COMPLETE -- BACKEND + FRONTEND:
+**Last updated:** 2026-06-11 (Restructure Slice 1b-beta2b [feat 20e1f5a7] COMPLETE -- FRONTEND ONLY:
+two deliverables. D1 (finding-10/LC10 UI half): the broken inline error-extraction ladder is replaced by
+the house helper `getFrappeError()` in FIVE catch blocks (RestructureModal.handleSave + ReviewTree
+confirmChildlessReclassify / confirmValueSave / saveTextField / saveRemark), so backend `frappe.throw`
+text -- e.g. the cycle explanation, which travels in `_server_messages` (the SDK's plain-object `.message`
+is a hardcoded generic) -- reaches the user instead of "There was an error."; each site keeps its static
+string as a `|| "..."` last-resort fallback; `frappeErrors.ts` + its 4 existing call sites UNTOUCHED.
+D2 (finding-9): the row-position choice is now ALSO offered on the CHILDLESS reclassify path -- ReviewTree's
+childless AlertDialog gains two radios: (1) Keep current position [DEFAULT; Confirm reclassifies only,
+byte-for-byte as before: child_moves:{}, no row_new_parent] and (2) Move under a new parent [routes ON
+SELECT into the RestructureModal -- the AlertDialog is too small to host the picker]. RestructureModal
+adapts for zero children (ALL gated on `children.length === 0`): hides the Children box + five-options
+block, drops the option-required gate in `canSave` (row-position rule alone), adapts title/description
+(no "children" language), and `rowPosition` lazy-inits to "move" (a childless row reaches the modal only
+via the move route). WITH-children behaviour UNCHANGED (S6); `buildChildMoves` already returns {} with
+zero children. Backend UNTOUCHED -- the childless wire shape (row_new_parent + child_moves:{}) is already
+certified by backend tests T2/T4. tsc 0 errors in both touched files (baseline 3177 unchanged) + build
+exit 0; no Frappe unit tests (UI slice); manual live-cert LC-i..LC-vii pending. LC10's backend half was
+CLOSED by T1/T2; its UI-surfacing half closes at LC-i (the cycle message now surfaces inline). Full detail
+in frontend/CLAUDE.md + boq-upload-plan.md.
+// prior: Restructure Slice 1b-beta2 [feat 1ed9d3b7] COMPLETE -- BACKEND + FRONTEND:
 the restructure flow now also places the RECLASSIFIED ROW ITSELF, not just its children.
 BACKEND: `save_review_restructure` gains an OPTIONAL `row_new_parent` param (None/omitted = the
 row's parent is left untouched, byte-for-byte today's behaviour for every existing caller; -1 = move

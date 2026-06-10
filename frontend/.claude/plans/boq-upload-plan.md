@@ -13,8 +13,53 @@ childless light path + 5 child-placement options + SheetSearchView-as-parent-pic
 refresh), dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0;
 manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert. The OWED
 single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196ed765) and is now WIRED
-into the picker by SheetSearchView v2 (feat fc7147db -- block below). LATEST: Slice 1b-beta2 (feat
-1ed9d3b7) adds row-self-reparent -- block immediately below.
+into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
+row-self-reparent. LATEST: Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10 -- block
+immediately below.
+
+**Restructure Slice 1b-beta2b ✅ COMPLETE (feat 20e1f5a7; FRONTEND ONLY; finding-9 + finding-10 CLOSED):**
+The restructure-flow completeness slice -- two deliverables, backend UNTOUCHED (the childless wire shape
+is already certified by backend tests T2/T4).
+- **D1 (finding-10) -- real error messages.** The broken inline error-extraction ladder
+  (`e instanceof Error ? e.message : ...`) is replaced by the house helper `getFrappeError()` in FIVE catch
+  blocks: RestructureModal.handleSave (-> setSaveError); ReviewTree confirmChildlessReclassify
+  (-> setRestructureError), confirmValueSave (-> setSaveError, after the existing setPendingEdit(null)),
+  saveTextField (-> setSaveError), saveRemark (-> setRemarkError). **Root cause:** the frappe-react-sdk
+  rejects with a PLAIN OBJECT whose `.message` is a hardcoded `'There was an error.'`; the real
+  `frappe.throw` text travels in `_server_messages` (double-encoded JSON). `getFrappeError`
+  (`src/utils/frappeErrors.ts`) decodes `_server_messages` -> `exception` (strips the
+  `frappe.exceptions.X:` prefix) -> `message`/`toString`. Each site KEEPS its prior static string as a
+  trailing `|| "..."` fallback (guards the `_server_messages === "[]"` empty-join edge). `frappeErrors.ts`
+  + its 4 pre-existing call sites are UNTOUCHED -- it is the proven house pattern; new catch blocks should
+  consume it.
+- **D2 (finding-9, owner spec amendment) -- the childless row-position choice.** The row-position choice
+  (Keep current [DEFAULT] / Move under a new parent) is now ALSO offered on the CHILDLESS reclassify path.
+  - **D2a (ReviewTree childless AlertDialog):** two radios between the description and the error/footer.
+    (1) "Keep current position" -- rendered `checked readOnly` (always the resting selection); Confirm ->
+    `confirmChildlessReclassify` UNCHANGED (child_moves:{}, no row_new_parent, byte-for-byte, one click) [S5].
+    (2) "Move this row under a new parent" -- `onChange` routes ON SELECT into the `RestructureModal`
+    (`setRestructureModal({row, newClassification})` + clear `childlessConfirm`). Route-on-select chosen
+    because the `max-w-lg` AlertDialog cannot host the `max-w-6xl` picker -- a Confirm-to-bounce would be a
+    pointless click (matches the LC matrix: LC-iii spells out Confirm for keep, LC-iv omits it for move).
+    No choice-state needed.
+  - **D2b (RestructureModal zero-children adaptation, ALL gated on `children.length === 0`):** (1) hides the
+    "Children (N)" box + the five-options block (the option-3/4 picker sub-blocks render only when
+    `option === 3/4`, so they hide naturally with `option` null); (2) `canSave` first line becomes
+    `if (children.length > 0 && option === null) return false;` -- for a childless row the gate is the
+    row-position rule alone (`rowPosition === "move" ? rowParentIdx !== null : true`); (3) title/description
+    adapt (`Reclassify and position row {N}`, no "children" language); (4) `rowPosition` lazy-inits to
+    "move" for a childless row (it reaches the modal only via the move route) -- inline child-count recompute
+    because the `children` memo isn't defined at the state line. `buildChildMoves()` already returns {} with
+    zero children; save assembly is NOT special-cased. WITH-children behaviour UNCHANGED (S6); the childless
+    entry is a NEW entry point into the SAME modal, not a fork.
+- **finding-9 + finding-10 CLOSED.** LC10 is fully retired once **LC-i** certifies (the cycle message now
+  surfaces inline on a with-children row -- the UI-surfacing half; the backend half was closed by T1/T2).
+  Manual live-cert LC-i (the LC10 closer) / LC-ii (any other swapped site) / LC-iii (childless keep, one
+  click) / LC-iv (childless move -> slimmed modal) / LC-v (childless move -> Top level -> root) / LC-vi
+  (childless modal gating) / LC-vii (with-children regression spot-check) PENDING Nitesh.
+- tsc 0 errors in both touched files (baseline 3177 unchanged) + build exit 0; no Frappe unit tests
+  (frontend slice). Full as-built detail: this section + frontend/CLAUDE.md "Restructure surface Slice
+  1b-beta2b conventions" + root CLAUDE.md last-updated block.
 
 **Restructure Slice 1b-beta2 ✅ COMPLETE (feat 1ed9d3b7; BACKEND + FRONTEND; row places ITSELF too):**
 The restructure flow now also places the RECLASSIFIED ROW ITSELF, not just its children.
@@ -176,7 +221,19 @@ so the component re-certs ONCE:
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-11 (Restructure Slice 1b-beta2 [feat 1ed9d3b7] COMPLETE -- BACKEND + FRONTEND:
+**Last updated:** 2026-06-11 (Restructure Slice 1b-beta2b [feat 20e1f5a7] COMPLETE -- FRONTEND ONLY:
+finding-10 -- the broken inline error ladder swapped for the house helper `getFrappeError()` in FIVE catch
+blocks [RestructureModal.handleSave + ReviewTree confirmChildlessReclassify / confirmValueSave /
+saveTextField / saveRemark], so backend `frappe.throw` text [carried in `_server_messages`] reaches the
+user; static strings kept as `|| "..."` fallbacks; frappeErrors.ts + its 4 call sites untouched.
+finding-9 -- the row-position choice is now ALSO offered on the CHILDLESS path: childless AlertDialog gains
+two radios [Keep current (DEFAULT; Confirm unchanged) / Move (routes ON SELECT into RestructureModal)];
+RestructureModal adapts for zero children [hides Children box + five-options, relaxes canSave, adapts
+title/desc, lazy-inits rowPosition to "move"], all gated on children.length===0; with-children UNCHANGED.
+Backend untouched [childless wire shape certified by T2/T4]. tsc 0 in both touched files [baseline 3177
+unchanged] + build exit 0; LC10 retires once LC-i certifies; LC-i..LC-vii pending Nitesh. See the
+"Restructure Slice 1b-beta2b" block at the top.
+// prior: 2026-06-11 (Restructure Slice 1b-beta2 [feat 1ed9d3b7] COMPLETE -- BACKEND + FRONTEND:
 `save_review_restructure` gains optional `row_new_parent` [None=untouched / -1=root / int=under that row];
 cycle-guard extended [row's move into the same sim + row_index as a check start-point; `_chain_has_cycle`
 + `_apply_and_save_row_edit` UNCHANGED]; response `row_moved`. T1/T2/T7 corruption guards proven
@@ -200,7 +257,7 @@ transactional `save_review_restructure` [atomic reclassify+reparent, batch cycle
 `human_is_root` Check field [Option B]; test_review_screen 124 green.
 // prior: Slice 1a [feat 5ecf1820] LIVE-CERTIFIED 2026-06-09 -- 5/5 PASS on BOQ-26-00145.)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat 1ed9d3b7 (Slice 1b-beta2) // prior: feat fc7147db (SheetSearchView v2) // feat e8eeab58 (Slice 1b-beta) // feat f7761415 (Slice 1b-alpha)
+**Latest commit:** feat 20e1f5a7 (Slice 1b-beta2b) // prior: feat 1ed9d3b7 (Slice 1b-beta2) // feat fc7147db (SheetSearchView v2) // feat e8eeab58 (Slice 1b-beta) // feat f7761415 (Slice 1b-alpha)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -6227,9 +6284,12 @@ was removed from `routesConfig.tsx` and `_DevSheetSearchHarness.tsx` deleted; ts
 
 **OWED next:** ~~single-pass full-sheet-read endpoint~~ LANDED (`get_sheet_preview_full`, feat 196ed765;
 WIRED by SheetSearchView v2, feat fc7147db). ~~row-self-reparent~~ LANDED (Slice 1b-beta2, feat 1ed9d3b7
--- see the block at the top of this plan). Still OWED: C-values rate-editing live-cert against a
-Pattern-2-rate vehicle; the childless-row STANDALONE reparent (the locked design's standalone "Change
-parent" mock, :236) remains a SEPARATE concern -- 1b-beta2 deliberately did NOT grow the light path.
+-- see the block at the top of this plan). ~~childless-row reposition~~ LANDED (Slice 1b-beta2b, feat
+20e1f5a7 -- the childless reclassify path now offers Keep/Move; "Move" routes into RestructureModal, which
+adapts for zero children; finding-9 CLOSED). Still OWED: C-values rate-editing live-cert against a
+Pattern-2-rate vehicle. NOTE: a PURELY standalone reparent (change a row's parent WITHOUT reclassifying it
+-- the locked design's standalone "Change parent" mock, :236) remains a distinct, not-yet-built surface;
+1b-beta2b reaches the childless row-move only as part of a reclassify.
 
 ### Layout Part A -- RestructureModal sizing + child-list wrap (feat 51b3412e, 2026-06-10)
 
