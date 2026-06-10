@@ -317,7 +317,23 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-10 -- SheetSearchView v2 COMPLETE):**
+**Status (2026-06-11 -- Restructure Slice 1b-beta2 COMPLETE):**
+Slice 1b-beta2 (feat 1ed9d3b7, BACKEND + FRONTEND) lets the restructure flow place the RECLASSIFIED ROW
+ITSELF, not just its children. FRONTEND: `RestructureModal` gains a "This row's position" control with two
+options -- (1) "Keep current position" (DEFAULT, pre-selected; sends NO `row_new_parent` -> backwards-compat
+shape) and (2) "Move this row under a new parent", which reveals the SAME `SheetSearchView` mount + the SAME
+`hitRowIndex` (`currentHit` -> `rows.find(source_row_number === hit.row_number)`) resolution + the SAME
+no-match guard the child pickers use, PLUS a "Top level" button (sends -1). Save is gated until a chosen
+"move" is resolved (`rowParentIdx !== null`). The childless LIGHT path (the `ReviewTree` AlertDialog) is
+UNTOUCHED. A backend cycle throw caused by the row's own move (e.g. moving it under its own child) surfaces
+inline exactly like a child-move error; modal stays open; nothing written. tsc 0 errors in RestructureModal
+(baseline 3177 unchanged) + build exit 0; no Frappe unit tests (UI slice); manual live-cert STAGE A
+(backwards-compat) / STAGE B (the new capability) / STAGE C (LC-5 = the guard, closing LC10's UI-surfacing
+half) pending Nitesh. See the "Restructure surface Slice 1b-beta2 conventions" section below for the full
+as-built detail. BACKEND detail (the `row_new_parent` param + cycle-guard start-point extension + T1/T2/T7
+guards) in root CLAUDE.md + boq-upload-plan.md.
+
+// prior: **Status (2026-06-10 -- SheetSearchView v2 COMPLETE):**
 SheetSearchView v2 (feat fc7147db) re-certifies the 1a-certified `SheetSearchView` with THREE bundled
 changes (per the slice-composition framework, so the component re-certs ONCE): (1) FETCH SWAP -- the
 windowed `get_sheet_preview` 200-row loop is REPLACED by a single `get_sheet_preview_full` call (feat
@@ -705,6 +721,15 @@ Three changes bundled into ONE slice so the certified `SheetSearchView` is re-ce
 - **(2) Column restyle -- fixed widths + wrap.** `<Table className="table-fixed">`. Per-column width via `col.letter === descriptionLetter`: Description -> `w-[360px]`, every other column -> `w-[120px]`, applied to BOTH the header `<TableHead>` (replaces `min-w-[120px]`) and the data `<TableCell>` (replaces `max-w-[360px] truncate`). Data cells gain `whitespace-normal break-words` (WRAP, not truncate); `title`, `border-r border-border px-2 text-xs` kept. **Degraded mode** (no `column_role_map` -> `descriptionLetter === null`): no real letter matches, so every column gets the narrow width -- no crash, no Description special-case. The `#` gutter (`w-12 min-w-[48px]`) is untouched. table-fixed + sticky header/gutter + z-index stacking are in the re-cert surface (live-cert STAGE 2).
 - **(3) Click-to-select -- new optional props.** `onRowClick?: (row: SheetPreviewRow) => void` and `selectedRowNumber?: number | null` (both OPTIONAL -> backwards-compat; the modal is the only caller). The `<TableRow>` gains `onClick={() => onRowClick?.(row)}` (+ `cursor-pointer` when `onRowClick` is set); the ref-callback + existing highlight className are undisturbed. **Selected tint = a persistent inset blue ring** `ring-2 ring-inset ring-blue-500 dark:ring-blue-400`, added as ONE additive className line. CHOICE: a ring is a `box-shadow` -- a DIFFERENT CSS property than `background-color`, so it provably never collides with the certified yellow/amber hit tiers (a row that is both a search hit and selected shows the amber fill WITH a blue outline). The certified `isHit`/`isCurrent`/`isFlash` background lines are NOT touched. The component ONLY emits the click + renders the tint -- it does NOT resolve or guard the pick.
 - **RestructureModal wiring -- click-sets-hit (reuse, NO duplication).** Both pickers (option 3 single-parent, option 4 per-child) get `onRowClick={setCurrentHit}` + `selectedRowNumber={currentHit?.row_number ?? null}`. A click sets the SAME `currentHit` state the search feeds via `onCurrentHitChange`, so the existing `hitRowIndex` useMemo (`rows.find(source_row_number === hit.row_number)`) + no-match guard ("This row isn't a selectable parent") + "Set as parent" enabling all react identically. A click does NOT re-fire `onCurrentHitChange` (that effect keys on the SEARCH hit changing, not clicks), so there is no overwrite race; last action (click or search) wins. The existing search -> hit -> "Set as parent" fallback path is intact. Do NOT add a second pick mechanism or copy the resolution/guard.
+
+**Restructure surface Slice 1b-beta2 conventions (feat 1ed9d3b7 -- row-own-position control):**
+
+- **The control + placement.** `RestructureModal` gains a "This row's position" control (its own bordered box) placed BETWEEN the reclassified-row description line and the "Children (N)" box -- the heavy with-children path only. Two radio options under the heading: (1) **"Keep current position (under {oldParentLabel})"** -- DEFAULT, pre-selected; (2) **"Move this row under a new parent"**. State: `rowPosition: "keep" | "move"` (default `"keep"`) + `rowParentIdx: number | null` (resolved target: `-1` = top-level, `>=0` = picked row_index, `null` = not yet resolved). Toggling via `selectRowPosition(pos)` resets `rowParentIdx` + the shared `currentHit` (the two choices are independent; `rowParentIdx` otherwise survives child-option changes).
+- **Picker REUSE, no duplication (S5).** When `rowPosition === "move"` and `rowParentIdx === null`, the box reveals the SAME `SheetSearchView` mount + the SAME `hitRowIndex` useMemo (`currentHit` -> `rows.find(source_row_number === hit.row_number)`) + the SAME no-match guard ("This row isn't a selectable parent") the child pickers use, plus a "Set as parent" button (disabled until `hitRowIndex !== null`) AND a "Top level" button (sets `rowParentIdx = -1`, mirroring how children can be sent to root). Once resolved it collapses to a one-line summary (`targetLabel(rowParentIdx)`) with a "change" link -- mirroring option 3. There is NO second pick mechanism; the row picker shares `currentHit`/`hitRowIndex` with the child pickers (so typically only one picker is open at a time; the resolved value lives in separate state).
+- **Save assembly + gating.** `row_new_parent` is added to the `save_review_restructure` call ONLY when `rowPosition === "move" && rowParentIdx !== null` (`...(cond ? { row_new_parent: rowParentIdx } : {})`); option "keep" omits the param entirely (S4 backwards-compat shape). `canSave` extends: `if (rowPosition === "move" && rowParentIdx === null) return false;` -- a chosen "move" with nothing resolved disables Save (same no-silent-incomplete principle as the child options). `child_moves` assembly is unchanged.
+- **Light path untouched (F4).** The childless reclassify path is the `ReviewTree` AlertDialog (a DIFFERENT file, out of scope) -- it is NOT grown to support a standalone row-reparent this slice. Only rows WITH children (which open this modal) get the row-position control.
+- **Error surfacing (F5).** A backend cycle throw now possibly caused by the ROW's own move surfaces inline via the existing `saveError` catch; the modal stays open; nothing is written. No new error machinery.
+- **Response type.** The LOCAL `SaveReviewRestructureResponse` interface gains `row_moved?: boolean` (additive; boqTypes.ts remains out of scope -- the response type still lives locally in the modal). The success path still calls `onRestructured(res.message.edited_at)` unchanged (a restructure IS a real edit; the existing `handleSaved` SWR-revalidate path reflects the moved row + children).
 
 ---
 

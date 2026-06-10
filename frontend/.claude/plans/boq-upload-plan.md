@@ -13,7 +13,46 @@ childless light path + 5 child-placement options + SheetSearchView-as-parent-pic
 refresh), dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0;
 manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert. The OWED
 single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196ed765) and is now WIRED
-into the picker by SheetSearchView v2 (feat fc7147db -- block immediately below).
+into the picker by SheetSearchView v2 (feat fc7147db -- block below). LATEST: Slice 1b-beta2 (feat
+1ed9d3b7) adds row-self-reparent -- block immediately below.
+
+**Restructure Slice 1b-beta2 ✅ COMPLETE (feat 1ed9d3b7; BACKEND + FRONTEND; row places ITSELF too):**
+The restructure flow now also places the RECLASSIFIED ROW ITSELF, not just its children.
+- **BACKEND (`save_review_restructure`):** new OPTIONAL `row_new_parent` param -- None/omitted = the row's
+  own parent is left untouched (byte-for-byte today's behaviour for every existing caller); `-1` = move the
+  row to top-level/root; an int = move it under that row. Validation mirrors the child / `save_review_edit`
+  human_parent checks (int-coerce, self-parent reject, target-exists unless -1).
+- **Cycle-guard extension (THE critical change):** (a) the row's own move is written into the SAME `sim`
+  map as the child moves; (b) `row_index` is added to the `_chain_has_cycle` check START-POINTS whenever
+  `row_new_parent` is given. (b) closes a silent-corruption trap -- a pure row move with EMPTY child_moves
+  would otherwise run ZERO cycle checks (the check-loop iterates child moves only), so a row moved under
+  its own child would corrupt the tree undetected. `_chain_has_cycle` (general walk) + `_apply_and_save_row_edit`
+  (the #54-Option-B human_is_root XOR human_parent chokepoint) are UNCHANGED.
+- **Write:** ONE extra `_apply_and_save_row_edit` call on the SAME `target_doc` (after the classification
+  call, before the single commit; -1 -> `set_root=True`/edit_log to=None, int -> human_parent=that row;
+  two sequential helper calls on one in-memory doc are safe). Response gains `row_moved: bool`.
+- **Guards PROVEN genuine (fail-if-broken):** T1 keystone (row under its own child, empty moves), T2
+  zero-checks trap (explicit child_moves={}), T7 shared-sim NON-EMPTY trap (cycle via the row while an
+  innocent acyclic child move is present). Verified by temporarily reverting the start-point extension ->
+  EXACTLY T1/T2/T7 go red ("ValidationError not raised"), 128 others stay green; then restored -> all green.
+  **T7 impossibility note:** a literal "individually-acyclic joint-only" row+child cycle is mathematically
+  IMPOSSIBLE here -- every child currently has effective parent == row_index, so reverting a child edge
+  restores child->row and the row-move alone is already cyclic; the substitute (cycle-via-row + innocent
+  child move) is a strictly STRONGER guard and is documented in the test docstring. +4 happy/compat tests
+  (row->new-parent with edit_log carrying BOTH entries, row->root read-back via get_review_rows,
+  omitted-param backwards-compat with row_moved False, self-parent reject). test_review_screen 124 -> 131,
+  all green in-container.
+- **FRONTEND (`RestructureModal`):** a "This row's position" control (between the row-description line and
+  the Children box) with two options -- (1) "Keep current position" (DEFAULT, omits the param) / (2) "Move
+  this row under a new parent", reusing the SAME `SheetSearchView` picker + `hitRowIndex` resolution +
+  no-match guard the child pickers use (plus a "Top level" -1 button). Save gated until a chosen move is
+  resolved. Childless LIGHT path (ReviewTree AlertDialog) UNTOUCHED. Backend cycle throw surfaces inline,
+  modal stays open. tsc 0 errors in RestructureModal (baseline 3177 unchanged) + build exit 0.
+- **LC10 (the row-self-move cycle):** backend half CLOSED by T1/T2; UI-surfacing half closes at manual
+  LC-5 (reclassify a row with a child -> option (2) -> pick ITS OWN CHILD -> Save -> backend rejects,
+  error inline, modal stays open). Manual live-cert STAGE A (backwards-compat LC-1) / STAGE B (new
+  capability LC-2..LC-4) / STAGE C (the guard LC-5) pending Nitesh. Full as-built detail: this section +
+  root CLAUDE.md (backend) + frontend/CLAUDE.md "Restructure surface Slice 1b-beta2 conventions".
 
 **SheetSearchView v2 ✅ COMPLETE (feat fc7147db; frontend-only; re-certifies SheetSearchView once):**
 Three bundled changes to the 1a-certified `SheetSearchView`, grouped per the slice-composition framework
@@ -137,7 +176,14 @@ so the component re-certs ONCE:
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-10 (Restructure Layout Part A [feat 51b3412e] -- cosmetic display-only:
+**Last updated:** 2026-06-11 (Restructure Slice 1b-beta2 [feat 1ed9d3b7] COMPLETE -- BACKEND + FRONTEND:
+`save_review_restructure` gains optional `row_new_parent` [None=untouched / -1=root / int=under that row];
+cycle-guard extended [row's move into the same sim + row_index as a check start-point; `_chain_has_cycle`
++ `_apply_and_save_row_edit` UNCHANGED]; response `row_moved`. T1/T2/T7 corruption guards proven
+fail-if-broken; test_review_screen 124 -> 131. RestructureModal "This row's position" control [Keep
+[default] / Move under a new parent, reusing the same picker+guard]; tsc 0 + build exit 0. LC10 backend
+half closed by T1/T2, UI-surfacing half at LC-5. See the "Restructure Slice 1b-beta2" block at the top.
+// prior: 2026-06-10 (Restructure Layout Part A [feat 51b3412e] -- cosmetic display-only:
 RestructureModal widened max-w-3xl->max-w-6xl + the two children-list texts wrap [truncate ->
 whitespace-normal break-words]; picker-grid column widths/wrap still OWED as a separate
 SheetSearchView-touching slice. See the "Layout Part A" section below.
@@ -154,7 +200,7 @@ transactional `save_review_restructure` [atomic reclassify+reparent, batch cycle
 `human_is_root` Check field [Option B]; test_review_screen 124 green.
 // prior: Slice 1a [feat 5ecf1820] LIVE-CERTIFIED 2026-06-09 -- 5/5 PASS on BOQ-26-00145.)
 **Active branch:** `feature/boq-phase-3` (branched from `feature/boq-phase-2` tip 2e338b36; `feature/boq-phase-2` frozen at 2e338b36 as parser-stable tip)
-**Latest commit:** feat e8eeab58 (Slice 1b-beta) // prior: feat f7761415 (Slice 1b-alpha)
+**Latest commit:** feat 1ed9d3b7 (Slice 1b-beta2) // prior: feat fc7147db (SheetSearchView v2) // feat e8eeab58 (Slice 1b-beta) // feat f7761415 (Slice 1b-alpha)
 
 > This is the active implementation plan. Long-term domain documentation will be moved to `.claude/context/domain/boq.md` after Phase 3 stabilizes. Decisions log is at the end of this file.
 
@@ -6179,8 +6225,11 @@ was removed from `routesConfig.tsx` and `_DevSheetSearchHarness.tsx` deleted; ts
 
 **Deferred (NOT built):** batch "apply all edits at once", drag-to-reparent, fuzzy search.
 
-**OWED next:** single-pass full-sheet-read endpoint (replace SheetSearchView's windowed 200-row loop);
-plus the still-OWED C-values rate-editing live-cert against a Pattern-2-rate vehicle.
+**OWED next:** ~~single-pass full-sheet-read endpoint~~ LANDED (`get_sheet_preview_full`, feat 196ed765;
+WIRED by SheetSearchView v2, feat fc7147db). ~~row-self-reparent~~ LANDED (Slice 1b-beta2, feat 1ed9d3b7
+-- see the block at the top of this plan). Still OWED: C-values rate-editing live-cert against a
+Pattern-2-rate vehicle; the childless-row STANDALONE reparent (the locked design's standalone "Change
+parent" mock, :236) remains a SEPARATE concern -- 1b-beta2 deliberately did NOT grow the light path.
 
 ### Layout Part A -- RestructureModal sizing + child-list wrap (feat 51b3412e, 2026-06-10)
 
