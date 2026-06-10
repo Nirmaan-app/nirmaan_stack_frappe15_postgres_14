@@ -438,7 +438,10 @@ def new_handle_sent_back(sb_id: str, selected_items: list, comment: str = None):
                     "comment": item_in_source_sb.comment, # Carry over comment
                     "make": item_in_source_sb.make,
                     "vendor": item_in_source_sb.vendor, # Carry over selected vendor
-                    "billing_status": item_in_source_sb.get("billing_status"),  # hold the source SB item's billing status
+                    "billing_status": "Non-Billable" if item_in_source_sb.category == "Additional Charges"
+                        else (item_in_source_sb.get("billing_status")
+                            or frappe.db.get_value("Items", item_in_source_sb.item_id, "billing_category")
+                            or "Billable"),  # Additional Charges always Non-Billable; else carry source SB value / re-source from master
                 })
 
                 # Copy RFQ details for this item to the new SB doc's RFQ data
