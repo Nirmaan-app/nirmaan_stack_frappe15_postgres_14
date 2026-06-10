@@ -317,7 +317,22 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-09 -- Restructure Slice 1b-beta FRONTEND COMPLETE):**
+**Status (2026-06-10 -- SheetSearchView v2 COMPLETE):**
+SheetSearchView v2 (feat fc7147db) re-certifies the 1a-certified `SheetSearchView` with THREE bundled
+changes (per the slice-composition framework, so the component re-certs ONCE): (1) FETCH SWAP -- the
+windowed `get_sheet_preview` 200-row loop is REPLACED by a single `get_sheet_preview_full` call (feat
+196ed765); the perf OWED item is now WIRED (live perf proof in the v2 live-cert). (2) COLUMN RESTYLE --
+`table-fixed`, Description `w-[360px]` / others `w-[120px]` on header + data cells, cells wrap
+(`whitespace-normal break-words`). (3) CLICK-TO-SELECT -- new optional `onRowClick` + `selectedRowNumber`
+props; the modal reuses its existing row_number->row_index resolution + no-match guard (click-sets-hit).
+New additive `SheetPreviewFullResponse` type; `SheetPreviewResponse` + `get_sheet_preview` untouched.
+tsc 0 errors in the 3 touched files (baseline 3177 unchanged) + build exit 0; no Frappe unit tests (UI
+slice); manual v2 live-cert (STAGE 1 fetch swap / STAGE 2 columns / STAGE 3 click-to-select) pending
+Nitesh. SheetSearchView is now RE-CERTIFIED by the v2 live-cert (supersedes the 1a-only cert). See the
+"SheetSearchView v2 conventions" section below for the full as-built detail. The restructure-surface arc
++ the full-sheet-read OWED item are both COMPLETE.
+
+// prior: **Status (2026-06-09 -- Restructure Slice 1b-beta FRONTEND COMPLETE):**
 Slice 1b-beta (feat e8eeab58) builds the restructure MODAL -- the FRONTEND consumer of the
 live-certified `save_review_restructure` backend. tsc 0 errors in touched wizard files + in-container
 build exit 0; no Frappe unit tests (UI slice); manual live-cert LC1-12 pending Nitesh. See the
@@ -680,6 +695,16 @@ Fix (applied in fix cbb704ce): renamed loop variable `role` → `val`; added dua
 - Cosmetic, display-only follow-up to 1b-beta. RestructureModal `DialogContent` widened `max-w-3xl` -> `max-w-6xl` (keeps `w-full` + `max-h-[90vh] overflow-y-auto`); `max-w-6xl` (~1152px) is a balanced, viewport-safe cap that gives the mounted picker real room without going absurdly wide on large monitors (90vw was the alternative). The two children-list texts -- the "Children (N)" summary `<li>` and the option-4 per-child `<span>` -- switch from single-line `truncate` to `whitespace-normal break-words`, so a long child note WRAPS instead of clipping. The reclassified-row description line (`font-medium`, no truncate) was already wrap-capable and is left as-is.
 - **Picker-grid columns/wrap is STILL OWED -- a SEPARATE slice.** The `SheetSearchView` cells hardcode per-column `min-w-[120px]` + `truncate` (no-wrap), uniform across columns incl. Description, with no sizing prop. Fixing the grid's column widths + cell wrap REQUIRES editing the 1a LIVE-CERTIFIED `SheetSearchView` (cell classes + a Description-vs-others width branch), which means re-confirming its 1a display/search behaviour. Deliberately split out per the slice-composition framework, to be paired with click-to-select. Not done here.
 - No state/handler/save-path/option-logic change. In-container tsc 0 errors in RestructureModal.tsx; in-container build exit 0. Manual MA1-4 pending Nitesh.
+
+**SheetSearchView v2 conventions (feat fc7147db -- RE-CERTIFIES SheetSearchView; supersedes the 1a-only cert):**
+
+Three changes bundled into ONE slice so the certified `SheetSearchView` is re-certified ONCE (slice-composition framework). Frontend-only; no backend/doctype/schema change. Files touched: `SheetSearchView.tsx`, `RestructureModal.tsx`, `boqTypes.ts`.
+
+- **(1) Fetch swap -- single-pass full-sheet read.** The windowed `get_sheet_preview` 200-row loop (mount effect) is REPLACED by ONE `useFrappePostCall` to `get_sheet_preview_full` (feat 196ed765) with `{ boq_name, sheet_name }` (sheetName VERBATIM, #152). `setAllRows(preview.rows)` once -> `setIsFullLoading(false)`. PRESERVED unchanged: the `[boqName, sheetName]` effect trigger, the `cancelled` unmount guard, `loadError` handling, and the single `isFullLoading` true->false flip (the `initialCentreRow` centre+flash effect still fires once after the flip). REMOVED as dead: `PREVIEW_WINDOW`, `MAX_WINDOWS`, the `loadedCount` state + its ticker. **Loading text = plain "Loading sheet..."** (one batch now -- no live count; the bottom-bar "N rows loaded" using `allRows.length` is unchanged). This WIRES the perf OWED item -- previously one S3 fetch + workbook open PER 200-row window (~30s on a 1001-row sheet); now one call. Live perf proof is the v2 live-cert (STAGE 1). The hook is typed `{ message: SheetPreviewFullResponse }`.
+- **`SheetPreviewFullResponse` (boqTypes.ts, ADDITIVE):** `{ sheet_name; rows: SheetPreviewRow[]; returned_count; has_more }` (no `start_row`/`end_row_requested` -- no window; `has_more` always false, kept for shape-compat). `SheetPreviewResponse` is left byte-for-byte intact -- SheetSpokePage still consumes the windowed `get_sheet_preview` via that type. Do NOT collapse the two types.
+- **(2) Column restyle -- fixed widths + wrap.** `<Table className="table-fixed">`. Per-column width via `col.letter === descriptionLetter`: Description -> `w-[360px]`, every other column -> `w-[120px]`, applied to BOTH the header `<TableHead>` (replaces `min-w-[120px]`) and the data `<TableCell>` (replaces `max-w-[360px] truncate`). Data cells gain `whitespace-normal break-words` (WRAP, not truncate); `title`, `border-r border-border px-2 text-xs` kept. **Degraded mode** (no `column_role_map` -> `descriptionLetter === null`): no real letter matches, so every column gets the narrow width -- no crash, no Description special-case. The `#` gutter (`w-12 min-w-[48px]`) is untouched. table-fixed + sticky header/gutter + z-index stacking are in the re-cert surface (live-cert STAGE 2).
+- **(3) Click-to-select -- new optional props.** `onRowClick?: (row: SheetPreviewRow) => void` and `selectedRowNumber?: number | null` (both OPTIONAL -> backwards-compat; the modal is the only caller). The `<TableRow>` gains `onClick={() => onRowClick?.(row)}` (+ `cursor-pointer` when `onRowClick` is set); the ref-callback + existing highlight className are undisturbed. **Selected tint = a persistent inset blue ring** `ring-2 ring-inset ring-blue-500 dark:ring-blue-400`, added as ONE additive className line. CHOICE: a ring is a `box-shadow` -- a DIFFERENT CSS property than `background-color`, so it provably never collides with the certified yellow/amber hit tiers (a row that is both a search hit and selected shows the amber fill WITH a blue outline). The certified `isHit`/`isCurrent`/`isFlash` background lines are NOT touched. The component ONLY emits the click + renders the tint -- it does NOT resolve or guard the pick.
+- **RestructureModal wiring -- click-sets-hit (reuse, NO duplication).** Both pickers (option 3 single-parent, option 4 per-child) get `onRowClick={setCurrentHit}` + `selectedRowNumber={currentHit?.row_number ?? null}`. A click sets the SAME `currentHit` state the search feeds via `onCurrentHitChange`, so the existing `hitRowIndex` useMemo (`rows.find(source_row_number === hit.row_number)`) + no-match guard ("This row isn't a selectable parent") + "Set as parent" enabling all react identically. A click does NOT re-fire `onCurrentHitChange` (that effect keys on the SEARCH hit changing, not clicks), so there is no overwrite race; last action (click or search) wins. The existing search -> hit -> "Set as parent" fallback path is intact. Do NOT add a second pick mechanism or copy the resolution/guard.
 
 ---
 

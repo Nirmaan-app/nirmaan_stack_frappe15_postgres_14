@@ -1,6 +1,16 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-10 (get_sheet_preview_full [feat 196ed765] COMPLETE -- BACKEND ONLY:
+**Last updated:** 2026-06-10 (SheetSearchView v2 [feat fc7147db] COMPLETE -- FRONTEND ONLY: re-certifies
+the 1a-certified `SheetSearchView` with three bundled changes -- (1) FETCH SWAP: the windowed
+get_sheet_preview 200-row loop is replaced by a single `get_sheet_preview_full` call [the new endpoint
+below is now WIRED -- the perf OWED item lands here, live-proven in the v2 cert]; (2) COLUMN RESTYLE:
+table-fixed, Description w-[360px]/others w-[120px], cells wrap; (3) CLICK-TO-SELECT: new optional
+onRowClick + selectedRowNumber props, persistent inset blue selected ring, RestructureModal reuses its
+existing row_number->row_index resolution + no-match guard [click-sets-hit, no duplication]. New additive
+`SheetPreviewFullResponse` type; `SheetPreviewResponse` + `get_sheet_preview` untouched. tsc 0 errors in
+the 3 touched files [baseline 3177 unchanged] + build exit 0; no Frappe unit tests [UI slice]; manual v2
+live-cert pending. Frontend detail in frontend/CLAUDE.md + boq-upload-plan.md.
+// prior: get_sheet_preview_full [feat 196ed765] COMPLETE -- BACKEND ONLY:
 new additive whitelisted endpoint `get_sheet_preview_full(boq_name, sheet_name)` that fetches +
 opens the workbook ONCE and reads EVERY row in a single pass (no 200-row cap), reusing the existing
 helpers + the IDENTICAL per-row skip logic so its `rows` is BYTE-IDENTICAL to concatenating every

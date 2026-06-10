@@ -11,8 +11,33 @@ LIVE-CERTIFIED 2026-06-09; Slice 1b-alpha BACKEND COMPLETE (feat f7761415); Slic
 COMPLETE (feat e8eeab58) -- the restructure MODAL (RestructureModal.tsx + pill DropdownMenu trigger +
 childless light path + 5 child-placement options + SheetSearchView-as-parent-picker + onRestructured
 refresh), dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0;
-manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert; OWED next is
-a single-pass full-sheet-read endpoint (see "Restructure surface (Slice 1)" section below).
+manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert. The OWED
+single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196ed765) and is now WIRED
+into the picker by SheetSearchView v2 (feat fc7147db -- block immediately below).
+
+**SheetSearchView v2 ✅ COMPLETE (feat fc7147db; frontend-only; re-certifies SheetSearchView once):**
+Three bundled changes to the 1a-certified `SheetSearchView`, grouped per the slice-composition framework
+so the component re-certs ONCE:
+- **(1) Fetch swap (the OWED perf item, now WIRED + live-provable):** the windowed `get_sheet_preview`
+  200-row loop is REPLACED by a single `get_sheet_preview_full` call (feat 196ed765). One S3 fetch +
+  workbook open instead of one-per-window (~30s on a 1001-row sheet -> a single call). PRESERVED: the
+  `[boqName,sheetName]` trigger, the `cancelled` guard, `loadError`, the single `isFullLoading` flip, and
+  the `initialCentreRow` centre+flash. Loading text simplified to "Loading sheet..." (one batch; no live
+  count). Live perf proof is the v2 live-cert (STAGE 1) -- the proof the endpoint unit tests could not give.
+- **(2) Column restyle (the picker-grid fix OWED since Layout Part A):** `table-fixed`; Description
+  `w-[360px]` / others `w-[120px]` on header + data cells; cells wrap (`whitespace-normal break-words`,
+  was `truncate`). Degraded mode -> all narrow.
+- **(3) Click-to-select:** new optional `onRowClick` + `selectedRowNumber` props; row onClick emits the
+  click, selected row gets a persistent inset blue ring (box-shadow -- never collides with the yellow/amber
+  hit tiers). RestructureModal wires `onRowClick=setCurrentHit` (click-sets-hit) so the existing
+  row_number->row_index resolution + no-match guard react identically -- NO duplication; passes
+  `selectedRowNumber=currentHit.row_number`. Both props optional -> backwards-compatible.
+- New additive `SheetPreviewFullResponse` type; `SheetPreviewResponse` + `get_sheet_preview` untouched
+  (SheetSpokePage's 40-row pagination unaffected).
+- tsc 0 errors in the 3 touched files (SheetSearchView.tsx / RestructureModal.tsx / boqTypes.ts; baseline
+  3177 unchanged); build exit 0. No Frappe unit tests (UI slice). Manual v2 live-cert STAGE 1 (fetch swap,
+  riskiest) / STAGE 2 (columns) / STAGE 3 (click-to-select) pending Nitesh, on Fire Fitting (~1001 rows,
+  perf) + 'Electrical ' (#152). Full as-built detail: frontend/CLAUDE.md "SheetSearchView v2 conventions".
 
 **Phase-1 Slice 2c ✅ COMPLETE (feat b5381c0c; general-specs scalar->child table migration):**
 - **Schema change:** `BOQs.general_specs_sheet` (Data) + `BOQs.master_preamble` (Long Text) REMOVED; replaced by `BOQs.general_specs_sheets` (Table -> new child doctype `BoQ General Specs Sheet` with `source_sheet_name` + `preamble_text`). M2.16 one-per-workbook constraint DROPPED -- multiple general-specs sheets now supported.
