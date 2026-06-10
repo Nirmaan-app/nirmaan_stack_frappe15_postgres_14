@@ -308,6 +308,8 @@ export function RestructureModal({
                   boqName={boqName}
                   sheetName={sheetName}
                   onCurrentHitChange={setCurrentHit}
+                  onRowClick={setCurrentHit}
+                  selectedRowNumber={currentHit?.row_number ?? null}
                 />
                 <div className="flex items-center gap-2">
                   <Button
@@ -371,6 +373,8 @@ export function RestructureModal({
                   boqName={boqName}
                   sheetName={sheetName}
                   onCurrentHitChange={setCurrentHit}
+                  onRowClick={setCurrentHit}
+                  selectedRowNumber={currentHit?.row_number ?? null}
                 />
                 <div className="flex items-center gap-2">
                   <Button

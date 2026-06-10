@@ -126,6 +126,21 @@ export interface SheetPreviewResponse {
   has_more: boolean;
 }
 
+/**
+ * Full response shape of the get_sheet_preview_full endpoint (feat 196ed765) --
+ * a single-pass full-sheet read (no window). ADDITIVE: distinct from
+ * SheetPreviewResponse, which stays the contract for the windowed get_sheet_preview
+ * that SheetSpokePage still uses. No start_row/end_row_requested (no window).
+ * URL: /api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview_full
+ */
+export interface SheetPreviewFullResponse {
+  sheet_name: string;
+  rows: SheetPreviewRow[];
+  returned_count: number;
+  /** Always false for a full read; kept for shape-compat with SheetPreviewResponse. */
+  has_more: boolean;
+}
+
 /** One row in BoQ General Specs Sheet child table (Slice 2c). */
 export interface BoQGeneralSpecsSheetRow {
   /** Frappe child-row docname. */

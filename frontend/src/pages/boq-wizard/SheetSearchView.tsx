@@ -9,10 +9,12 @@
  * or save anything (no "set as parent", no onSelect-that-writes, no save call).
  *
  * Self-contained data (it owns its own fetches):
- *   1. Rows  -- get_sheet_preview via useFrappePostCall. The endpoint hard-caps each
- *      window at 200 rows (_PREVIEW_MAX_ROWS), so on mount this loops windows of 200,
- *      advancing by end_row_requested + 1, until has_more === false -- loading the
- *      ENTIRE sheet up front so search covers every row (not just a 40-row page).
+ *   1. Rows  -- get_sheet_preview_full via useFrappePostCall (v2 fetch swap). ONE call
+ *      reads the ENTIRE sheet in a single pass (no 200-row window, no re-open-per-window
+ *      loop) so search covers every row up front. Replaced the old windowed
+ *      get_sheet_preview loop (~30s on a 1001-row sheet -- one S3 fetch + workbook open
+ *      per 200-row window). get_sheet_preview is UNCHANGED and still serves
+ *      SheetSpokePage's 40-row pagination.
  *   2. Role->letter map -- useFrappeGetDoc("BOQs") -> draft.sheet_config.column_role_map.
  *      Preview cells are keyed by Excel COLUMN LETTER and are role-blind; the role
  *      identity (which letter is Description / Sl.No / Unit / Qty) comes from the saved
@@ -50,14 +52,11 @@ import {
 import type {
   BOQsDoc,
   ColumnRoleEntry,
-  SheetPreviewResponse,
+  SheetPreviewFullResponse,
   SheetPreviewRow,
 } from "./boqTypes";
 
 // ── Tuning ──────────────────────────────────────────────────────────────────────
-const PREVIEW_WINDOW = 200; // matches backend _PREVIEW_MAX_ROWS (one window per call)
-const MAX_WINDOWS = 500; // safety backstop: 500 * 200 = 100k rows before we bail loudly
-
 // Roles whose mapped column is shown in the trimmed view. Rate/Amount/make_model/etc.
 // are deliberately excluded. "qty" (per-area) and "qty_total" (single) are BOTH kept.
 const QTY_ROLES = new Set(["qty", "qty_total"]);
@@ -75,6 +74,18 @@ interface SheetSearchViewProps {
    * saves this slice.
    */
   onCurrentHitChange?: (row: SheetPreviewRow | null) => void;
+  /**
+   * Click-to-select (v2). Fires with the clicked row. The component itself does NOT
+   * resolve or guard the pick -- the consumer (RestructureModal) feeds this into the
+   * SAME currentHit state the search feeds, so its existing row_number->row_index
+   * resolution + no-match guard react identically. Optional (backwards-compat).
+   */
+  onRowClick?: (row: SheetPreviewRow) => void;
+  /**
+   * Excel row_number to mark with the persistent "selected" tint (v2). Distinct from
+   * the search-hit tiers + transient flash. Optional (backwards-compat).
+   */
+  selectedRowNumber?: number | null;
 }
 
 interface DisplayColumn {
@@ -155,10 +166,12 @@ export function SheetSearchView({
   sheetName,
   initialCentreRow,
   onCurrentHitChange,
+  onRowClick,
+  selectedRowNumber,
 }: SheetSearchViewProps) {
-  // ── Full-sheet load (loops 200-row windows until has_more === false) ─────────
-  const { call: fetchPreview } = useFrappePostCall<{ message: SheetPreviewResponse }>(
-    "nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview"
+  // ── Full-sheet load (single-pass get_sheet_preview_full -- v2 fetch swap) ─────
+  const { call: fetchPreview } = useFrappePostCall<{ message: SheetPreviewFullResponse }>(
+    "nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview_full"
   );
   const fetchRef = useRef(fetchPreview);
   useEffect(() => {
@@ -166,7 +179,6 @@ export function SheetSearchView({
   });
 
   const [allRows, setAllRows] = useState<SheetPreviewRow[]>([]);
-  const [loadedCount, setLoadedCount] = useState(0);
   const [isFullLoading, setIsFullLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -177,36 +189,17 @@ export function SheetSearchView({
     setIsFullLoading(true);
     setLoadError(null);
     setAllRows([]);
-    setLoadedCount(0);
 
     void (async () => {
-      const acc: SheetPreviewRow[] = [];
-      let nextStart = 1;
       try {
-        for (let w = 0; w < MAX_WINDOWS; w++) {
-          const result = await fetchRef.current({
-            boq_name: boqName,
-            sheet_name: sheetName, // VERBATIM -- backend matches with no strip (#152)
-            start_row: nextStart,
-            end_row: nextStart + PREVIEW_WINDOW - 1,
-          });
-          if (cancelled) return;
-          const preview = result?.message;
-          if (!preview) break;
-          acc.push(...preview.rows);
-          // Progressive update so the loading state can report a live row count.
-          setAllRows(acc.slice());
-          setLoadedCount(acc.length);
-          if (!preview.has_more) break;
-          // Advance by the (clamped) requested end, NOT the last returned row number:
-          // the endpoint skips empty padding rows, so advancing by the request window
-          // guarantees forward progress with no overlap and no re-scan.
-          nextStart = preview.end_row_requested + 1;
-          if (w === MAX_WINDOWS - 1) {
-            throw new Error("sheet exceeds the maximum supported size for this view");
-          }
-        }
-        if (!cancelled) setIsFullLoading(false);
+        const result = await fetchRef.current({
+          boq_name: boqName,
+          sheet_name: sheetName, // VERBATIM -- backend matches with no strip (#152)
+        });
+        if (cancelled) return;
+        const preview = result?.message;
+        setAllRows(preview?.rows ?? []);
+        setIsFullLoading(false);
       } catch {
         if (!cancelled) {
           setLoadError(
@@ -361,9 +354,7 @@ export function SheetSearchView({
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">
-          Loading sheet&hellip; {loadedCount > 0 && `(${loadedCount} rows loaded)`}
-        </p>
+        <p className="text-sm text-muted-foreground">Loading sheet&hellip;</p>
       </div>
     );
   }
@@ -449,7 +440,7 @@ export function SheetSearchView({
 
       {/* ── Trimmed sheet table ─────────────────────────────────────────────── */}
       <div className="overflow-auto max-h-[calc(100vh-16rem)] rounded-md border border-border">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="sticky top-0 left-0 z-30 w-12 min-w-[48px] h-10 text-center text-xs font-medium text-muted-foreground bg-muted border-r border-border">
@@ -458,7 +449,12 @@ export function SheetSearchView({
               {columns.map((col) => (
                 <TableHead
                   key={col.letter}
-                  className="sticky top-0 z-20 min-w-[120px] h-10 text-left text-xs font-semibold text-muted-foreground bg-muted border-r border-border px-2"
+                  className={cn(
+                    "sticky top-0 z-20 h-10 text-left text-xs font-semibold text-muted-foreground bg-muted border-r border-border px-2",
+                    // Description gets a wide fixed column; every other column is narrow-fixed.
+                    // In degraded mode descriptionLetter is null -> no match -> all narrow.
+                    col.letter === descriptionLetter ? "w-[360px]" : "w-[120px]"
+                  )}
                 >
                   {roleMapAvailable ? `${col.label} (${col.letter})` : col.letter}
                 </TableHead>
@@ -471,6 +467,10 @@ export function SheetSearchView({
               const isHit = hitSet.has(row.row_number);
               const isCurrent = row.row_number === currentHitRow;
               const isFlash = row.row_number === flashRow;
+              const isSelected =
+                selectedRowNumber !== null &&
+                selectedRowNumber !== undefined &&
+                row.row_number === selectedRowNumber;
               return (
                 <TableRow
                   key={row.row_number}
@@ -478,12 +478,18 @@ export function SheetSearchView({
                     if (el) rowRefs.current.set(row.row_number, el);
                     else rowRefs.current.delete(row.row_number);
                   }}
+                  onClick={() => onRowClick?.(row)}
                   className={cn(
                     "border-b border-border",
+                    onRowClick && "cursor-pointer",
                     // all matches: soft highlight; current hit: stronger; flash: brightest.
                     isHit && "bg-yellow-100 dark:bg-yellow-900/30",
                     isCurrent && "bg-amber-200 dark:bg-amber-800/50",
-                    isFlash && "bg-amber-300 dark:bg-amber-700/70"
+                    isFlash && "bg-amber-300 dark:bg-amber-700/70",
+                    // Persistent "selected" tint: an inset blue ring -- a box-shadow, so it
+                    // never collides with the yellow/amber background tiers above (a row that
+                    // is both a hit and selected shows the amber fill WITH a blue outline).
+                    isSelected && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400"
                   )}
                 >
                   <TableCell className="sticky left-0 z-10 w-12 min-w-[48px] text-center text-xs font-mono text-muted-foreground border-r border-border bg-background">
@@ -495,7 +501,10 @@ export function SheetSearchView({
                       <TableCell
                         key={col.letter}
                         title={text || undefined}
-                        className="max-w-[360px] truncate text-xs border-r border-border px-2"
+                        className={cn(
+                          "text-xs border-r border-border px-2 whitespace-normal break-words",
+                          col.letter === descriptionLetter ? "w-[360px]" : "w-[120px]"
+                        )}
                       >
                         {text}
                       </TableCell>
