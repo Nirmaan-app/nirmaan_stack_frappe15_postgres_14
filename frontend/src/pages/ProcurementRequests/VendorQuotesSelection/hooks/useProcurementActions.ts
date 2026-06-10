@@ -248,6 +248,7 @@ export const useProcurementActions = ({ docId, docMutate, projectId }: UseProcur
                                 item_name: charge.item_name,
                                 // ---
                                 category: 'Additional Charges',
+                                billing_status: 'Non-Billable', // Additional Charges are always Non-Billable (SB has no validate to set it)
                                 unit: 'NOS',
                                 quantity: 1,
                                 tax: charge.tax,

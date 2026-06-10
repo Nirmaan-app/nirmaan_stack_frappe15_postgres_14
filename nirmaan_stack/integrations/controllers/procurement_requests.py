@@ -578,12 +578,20 @@ def validate(doc, method):
                 billing_map[row.name] = row.billing_category
         for item in to_source:
             master_status = billing_map.get(item.item_id)
-            if master_status:
+            if item.category == "Additional Charges":
+                item.billing_status = "Non-Billable"
+            elif master_status:
                 item.billing_status = master_status
             elif is_custom_pr or item.status == "Request":
                 item.billing_status = "Billable"
             else:
                 item.billing_status = "Non-Billable"
+
+    # Additional Charges are always Non-Billable — final authority on every save,
+    # independent of master / PR type. Also self-heals legacy rows wrongly set Billable.
+    for item in items:
+        if item.category == "Additional Charges" and item.billing_status != "Non-Billable":
+            item.billing_status = "Non-Billable"
 
 
 def after_insert(doc, method):

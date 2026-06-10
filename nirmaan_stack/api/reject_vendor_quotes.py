@@ -61,7 +61,10 @@ def send_back_items(project_id: str, pr_name: str, selected_items: list, comment
                         "comment": item.get("comment"),
                         "make": item.get("make"),
                         "vendor": item.get("vendor"),
-                        "billing_status": item.get("billing_status"),  # hold the PR item's billing status
+                        "billing_status": "Non-Billable" if item.get("category") == "Additional Charges"
+                            else (item.get("billing_status")
+                                or frappe.db.get_value("Items", item.get("item_id"), "billing_category")
+                                or "Billable"),  # Additional Charges always Non-Billable; else carry PR value / re-source from master
                     })
 
                     if item_name in rfq_details:

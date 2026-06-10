@@ -84,7 +84,10 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                     "comment": item.get("comment"),
                     "procurement_package": item.get("procurement_package"),
                     "make": item.get("make"),
-                    "billing_status": item.get("billing_status"),  # hold the PR item's billing status
+                    "billing_status": "Non-Billable" if item.get("category") == "Additional Charges"
+                        else (item.get("billing_status")
+                            or frappe.db.get_value("Items", item.get("item_id"), "billing_category")
+                            or "Billable"),  # Additional Charges always Non-Billable; else carry PR value / re-source from master
                     # Add other relevant fields needed by Sent Back Category
                 })
                 # Add item details to new_rfq_details for the Sent Back doc
