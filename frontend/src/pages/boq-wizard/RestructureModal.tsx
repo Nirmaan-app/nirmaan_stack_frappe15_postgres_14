@@ -37,6 +37,7 @@
 import { useMemo, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -125,7 +126,13 @@ export function RestructureModal({
   // parent untouched -> send NO row_new_parent (backwards-compat shape). "move" =
   // reparent the row itself; rowParentIdx is the resolved target (-1 = top-level,
   // >=0 = a picked row_index, null = not yet resolved -> Save stays disabled).
-  const [rowPosition, setRowPosition] = useState<"keep" | "move">("keep");
+  // Slice 1b-beta2b: a childless row reaches this modal ONLY via the AlertDialog's
+  // "Move this row under a new parent" route, so it opens with "move" already active
+  // (the picker shows immediately). A WITH-children row opens "keep" (S6 unchanged).
+  // Lazy init computes the child count inline -- the `children` memo isn't defined yet.
+  const [rowPosition, setRowPosition] = useState<"keep" | "move">(
+    () => (rows.filter((r) => r.effective_parent_index === row.row_index).length === 0 ? "move" : "keep"),
+  );
   const [rowParentIdx, setRowParentIdx] = useState<number | null>(null);
 
   const children = useMemo(
@@ -183,7 +190,10 @@ export function RestructureModal({
   };
 
   const canSave = (() => {
-    if (option === null) return false;
+    // 1b-beta2b: a childless row has no children to place, so the child-option
+    // requirement is dropped -- the gate is the row-position rule alone. With-children
+    // gating is UNCHANGED (S6): a child option must still be actively chosen.
+    if (children.length > 0 && option === null) return false;
     // Row-own-position gate (1b-beta2): "move" selected but nothing resolved -> blocked
     // (same no-silent-incomplete principle as the child options).
     if (rowPosition === "move" && rowParentIdx === null) return false;
@@ -228,13 +238,10 @@ export function RestructureModal({
       });
       onRestructured(res.message.edited_at);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Restructure failed. Please try again.";
-      setSaveError(msg);
+      // The SDK rejects with a plain object whose .message is a hardcoded generic;
+      // the real frappe.throw text travels in _server_messages. getFrappeError
+      // decodes it (the house pattern). Static string kept as a last-resort fallback.
+      setSaveError(getFrappeError(e) || "Restructure failed. Please try again.");
     }
   };
 
@@ -259,11 +266,24 @@ export function RestructureModal({
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Reclassify row and place its children</DialogTitle>
+          <DialogTitle>
+            {children.length === 0
+              ? `Reclassify and position row ${row.source_row_number}`
+              : "Reclassify row and place its children"}
+          </DialogTitle>
           <DialogDescription>
-            Row {row.source_row_number}: {fromLabel} &rarr; {toLabel}. Choose where this
-            row&rsquo;s {children.length} {children.length === 1 ? "child" : "children"} should
-            go.
+            {children.length === 0 ? (
+              <>
+                Row {row.source_row_number}: {fromLabel} &rarr; {toLabel}. Choose where this
+                row should go.
+              </>
+            ) : (
+              <>
+                Row {row.source_row_number}: {fromLabel} &rarr; {toLabel}. Choose where this
+                row&rsquo;s {children.length} {children.length === 1 ? "child" : "children"} should
+                go.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -354,50 +374,56 @@ export function RestructureModal({
           )}
         </div>
 
-        {/* The children that need placing */}
-        <div className="rounded-md border border-border p-2">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
-            Children ({children.length})
-          </p>
-          <ul className="space-y-0.5 max-h-32 overflow-y-auto">
-            {children.map((c) => (
-              <li key={c.row_index} className="text-xs text-muted-foreground whitespace-normal break-words">
-                row {c.source_row_number}: {c.description || "(no description)"}
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* The children that need placing -- 1b-beta2b: hidden when the row is childless
+            (nothing to place); the childless modal carries only the row-position control. */}
+        {children.length > 0 && (
+          <div className="rounded-md border border-border p-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
+              Children ({children.length})
+            </p>
+            <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+              {children.map((c) => (
+                <li key={c.row_index} className="text-xs text-muted-foreground whitespace-normal break-words">
+                  row {c.source_row_number}: {c.description || "(no description)"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-        {/* The five placement options -- no option pre-selected */}
-        <div className="space-y-1.5">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Where should the children go?
-          </p>
-          {OPTIONS.map((opt) => (
-            <label
-              key={opt.n}
-              className={cn(
-                "flex items-start gap-2 text-xs cursor-pointer",
-                opt.disabled && "opacity-50 cursor-not-allowed",
-              )}
-            >
-              <input
-                type="radio"
-                name="placement-option"
-                className="mt-0.5"
-                checked={option === opt.n}
-                disabled={opt.disabled}
-                onChange={() => selectOption(opt.n)}
-              />
-              <span>
-                {opt.label}
-                {opt.disabled && opt.reason && (
-                  <span className="ml-1 text-muted-foreground italic">({opt.reason})</span>
+        {/* The five placement options -- no option pre-selected. 1b-beta2b: hidden when
+            childless (no children to route); the row-position control is the only choice. */}
+        {children.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Where should the children go?
+            </p>
+            {OPTIONS.map((opt) => (
+              <label
+                key={opt.n}
+                className={cn(
+                  "flex items-start gap-2 text-xs cursor-pointer",
+                  opt.disabled && "opacity-50 cursor-not-allowed",
                 )}
-              </span>
-            </label>
-          ))}
-        </div>
+              >
+                <input
+                  type="radio"
+                  name="placement-option"
+                  className="mt-0.5"
+                  checked={option === opt.n}
+                  disabled={opt.disabled}
+                  onChange={() => selectOption(opt.n)}
+                />
+                <span>
+                  {opt.label}
+                  {opt.disabled && opt.reason && (
+                    <span className="ml-1 text-muted-foreground italic">({opt.reason})</span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
 
         {/* Option 3: one new parent for the whole block (parent picker) */}
         {option === 3 && (

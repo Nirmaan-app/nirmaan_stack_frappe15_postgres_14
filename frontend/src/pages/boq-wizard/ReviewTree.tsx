@@ -80,6 +80,7 @@ import { useMemo, useRef, useEffect, useState, Fragment } from "react";
 import { ChevronDown, ChevronRight, SlidersHorizontal, Info, MessageSquare } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
+import { getFrappeError } from "@/utils/frappeErrors";
 import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -417,13 +418,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       onRestructured?.(res.message.edited_at);
       setChildlessConfirm(null);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Reclassify failed. Please try again.";
-      setRestructureError(msg);
+      // getFrappeError decodes the real frappe.throw text from _server_messages
+      // (the SDK's plain-object .message is a hardcoded generic). House pattern.
+      setRestructureError(getFrappeError(e) || "Reclassify failed. Please try again.");
     }
   };
 
@@ -571,13 +568,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       onSaved?.(res.message.edited_at);
     } catch (e: unknown) {
       setPendingEdit(null);
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Save failed. Please try again.";
-      setSaveError(msg);
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
     }
   };
 
@@ -597,13 +588,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       });
       onSaved?.(res.message.edited_at);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Save failed. Please try again.";
-      setSaveError(msg);
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
     }
   };
 
@@ -622,13 +607,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       });
       onRemarkSaved?.();
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Save failed. Please try again.";
-      setRemarkError(msg);
+      setRemarkError(getFrappeError(e) || "Save failed. Please try again.");
     }
   };
 
@@ -1552,6 +1531,45 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* 1b-beta2b: row-position choice. (1) Keep current position (DEFAULT) -- Confirm
+              reclassifies only, byte-for-byte as before (child_moves:{}, no row_new_parent).
+              (2) Move under a new parent -- routes ON SELECT into the RestructureModal (the
+              AlertDialog is too small to host the picker); the modal opens in "move" mode. */}
+          <div className="space-y-1.5 py-1">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              This row&rsquo;s position
+            </p>
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name="childless-row-position"
+                className="mt-0.5"
+                checked
+                readOnly
+              />
+              <span>Keep current position</span>
+            </label>
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name="childless-row-position"
+                className="mt-0.5"
+                checked={false}
+                onChange={() => {
+                  if (!childlessConfirm) return;
+                  // Hand off to the staged modal (which renders slimmed for a childless
+                  // row and opens with "move" active). Closing this dialog writes nothing.
+                  setRestructureError(null);
+                  setRestructureModal({
+                    row: childlessConfirm.row,
+                    newClassification: childlessConfirm.newClassification,
+                  });
+                  setChildlessConfirm(null);
+                }}
+              />
+              <span>Move this row under a new parent</span>
+            </label>
+          </div>
           {restructureError && <p className="text-xs text-destructive">{restructureError}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isRestructuring}>Cancel</AlertDialogCancel>
