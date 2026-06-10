@@ -7,6 +7,7 @@ interface CEOHoldGuardResult {
   isCEOHold: boolean;
   isLoading: boolean;
   projectStatus: string | undefined;
+  ceoHoldBy: string | undefined;  // Projects.ceo_hold_by — pass to <CEOHoldBanner heldBy={...} />
   showBlockedToast: () => void;
 }
 
@@ -39,6 +40,7 @@ export function useCEOHoldGuard(projectId: string | undefined): CEOHoldGuardResu
     isCEOHold,
     isLoading,
     projectStatus: project?.status,
+    ceoHoldBy: project?.ceo_hold_by,
     showBlockedToast
   };
 }

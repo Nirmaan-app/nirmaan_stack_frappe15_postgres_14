@@ -1,6 +1,6 @@
 import { Hand } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
+import { CEO_AUTHORIZED_USER, CEO_HOLD_SYSTEM_USER } from "@/constants/ceoHold";
 
 interface CEOHoldBannerProps {
   className?: string;
@@ -63,16 +63,29 @@ export function CEOHoldBanner({ className, compact = false, heldBy }: CEOHoldBan
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-amber-900 tracking-tight">
-            Project on CEO Hold
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-amber-900 tracking-tight">
+              Project on CEO Hold
+            </h3>
+            {heldBy && (
+              <span className="inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                {heldBy === CEO_HOLD_SYSTEM_USER ? "System" : "Manual"}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-amber-700 leading-relaxed">
             Some procurement, payment, and expense operations are restricted.
-            <span className="block mt-1 text-amber-600 font-medium">
-              {heldBy
-                ? `Set by ${heldBy}. Only ${CEO_HOLD_AUTHORIZED_USER} can change the CEO Hold status.`
-                : `Only Admin can change the CEO Hold status.`}
-            </span>
+            {heldBy === CEO_HOLD_SYSTEM_USER ? (
+              <span className="block mt-1 text-amber-600 font-medium">
+                This hold clears on its own once cashflow is back within the
+                limit, or {CEO_AUTHORIZED_USER} can release it.
+              </span>
+            ) : heldBy ? (
+              <span className="block mt-1 text-amber-600 font-medium">
+                This hold won&rsquo;t clear on its own — only {CEO_AUTHORIZED_USER}{" "}
+                can release it.
+              </span>
+            ) : null}
           </p>
         </div>
       </div>

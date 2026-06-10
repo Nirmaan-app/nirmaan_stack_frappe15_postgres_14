@@ -1,9 +1,11 @@
 import json
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
+from ..Notifications.pr_notifications import PrNotification
 
 EXCLUDED_STATUSES = ("CEO Hold", "Completed")
 FALLBACK_REVERT_STATUS = "WIP"
@@ -115,6 +117,13 @@ def evaluate_project_ceo_release(project_id: str) -> bool:
 	if not row or row.status != "CEO Hold":
 		return False
 	if row.ceo_hold_by != CEO_HOLD_SYSTEM_USER:
+		# Human-set hold: never auto-release. But if the cashflow gap has
+		# recovered to within the limit (an auto-hold would release here), give
+		# the holder a heads-up that it's now eligible for a manual release.
+		# The hold itself is left untouched.
+		manual_limit = flt(row.cashflow_gap_limit)
+		if manual_limit > 0 and _compute_cashflow_gap(project_id) <= manual_limit:
+			_notify_manual_hold_releasable(project_id, row.ceo_hold_by)
 		return False
 
 	limit = flt(row.cashflow_gap_limit)
@@ -150,6 +159,92 @@ def evaluate_project_ceo_release(project_id: str) -> bool:
 		% (project_id, gap, limit, revert_to)
 	)
 	return True
+
+
+def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
+	"""Heads-up to the human who manually placed a CEO Hold that the project's
+	cashflow gap has recovered to within its limit — i.e. an auto-hold would
+	release here, but we never auto-release human-set holds, so the holder must
+	release it by hand if appropriate. The hold itself is left untouched.
+
+	Deduped on an UNSEEN notification of this kind for this holder+project, so a
+	burst of payment / inflow / PO events while the project sits
+	releasable-but-held doesn't spam the holder.
+	"""
+	if not holder_user:
+		return
+
+	# Never notify during migrations / backfills / imports — the bulk evaluator
+	# calls the release path directly (bypassing trigger_check's guard), and we
+	# don't want a backfill to dump stale "ready to release" notes on the holder.
+	if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.flags.in_import:
+		return
+
+	if frappe.db.exists(
+		"Nirmaan Notifications",
+		{
+			"recipient": holder_user,
+			"project": project_id,
+			"event_id": "project:ceo_hold_releasable",
+			"seen": "false",
+		},
+	):
+		return
+
+	user = frappe.db.get_value(
+		"Nirmaan Users",
+		{"name": holder_user},
+		["fcm_token", "name", "full_name", "role_profile", "push_notification"],
+		as_dict=True,
+	)
+	if not user:
+		return
+
+	project_name = frappe.db.get_value("Projects", project_id, "project_name") or project_id
+	title = _("Project Ready to Release from CEO Hold")
+	description = _(
+		"{0}'s cashflow is now within its limit. It is on a manual CEO Hold placed by you — "
+		"please release it manually if appropriate."
+	).format(project_name)
+
+	# FCM push only if the holder opted in.
+	if user.get("push_notification") == "true":
+		PrNotification(
+			user, title, description,
+			f"{frappe.utils.get_url()}/frontend/projects/{project_id}",
+		)
+
+	# In-app Nirmaan Notification.
+	note = frappe.new_doc("Nirmaan Notifications")
+	note.update({
+		"recipient": user.get("name"),
+		"recipient_role": user.get("role_profile"),
+		"sender": frappe.session.user if frappe.session.user != "Administrator" else None,
+		"title": title,
+		"description": description,
+		"document": "Projects",
+		"docname": project_id,
+		"project": project_id,
+		"seen": "false",
+		"type": "info",
+		"event_id": "project:ceo_hold_releasable",
+		"action_url": f"projects/{project_id}",
+	})
+	note.insert(ignore_permissions=True)
+	frappe.db.commit()  # commit before realtime publish (avoids race)
+
+	frappe.publish_realtime(
+		event="project:ceo_hold_releasable",
+		message={
+			"title": title,
+			"description": description,
+			"project": project_id,
+			"sender": frappe.session.user,
+			"docname": project_id,
+			"notificationId": note.name,
+		},
+		user=user.get("name"),
+	)
 
 
 def update_projects_cashflow_hold():
