@@ -675,6 +675,12 @@ Fix (applied in fix cbb704ce): renamed loop variable `role` → `val`; added dua
 - **Titles (context-specific):** childless confirm "Change classification"; the heavy with-children modal "Reclassify row and place its children". (The design doc's standalone "Change parent" title is N/A here -- this slice's only trigger is reclassification, not a standalone reparent.)
 - **Deferred (NOT built):** the batch "apply all edits at once" model, drag-to-reparent, and fuzzy search remain deferred.
 
+**Restructure surface Layout Part A -- RestructureModal sizing + child-list wrap (feat 51b3412e):**
+
+- Cosmetic, display-only follow-up to 1b-beta. RestructureModal `DialogContent` widened `max-w-3xl` -> `max-w-6xl` (keeps `w-full` + `max-h-[90vh] overflow-y-auto`); `max-w-6xl` (~1152px) is a balanced, viewport-safe cap that gives the mounted picker real room without going absurdly wide on large monitors (90vw was the alternative). The two children-list texts -- the "Children (N)" summary `<li>` and the option-4 per-child `<span>` -- switch from single-line `truncate` to `whitespace-normal break-words`, so a long child note WRAPS instead of clipping. The reclassified-row description line (`font-medium`, no truncate) was already wrap-capable and is left as-is.
+- **Picker-grid columns/wrap is STILL OWED -- a SEPARATE slice.** The `SheetSearchView` cells hardcode per-column `min-w-[120px]` + `truncate` (no-wrap), uniform across columns incl. Description, with no sizing prop. Fixing the grid's column widths + cell wrap REQUIRES editing the 1a LIVE-CERTIFIED `SheetSearchView` (cell classes + a Description-vs-others width branch), which means re-confirming its 1a display/search behaviour. Deliberately split out per the slice-composition framework, to be paired with click-to-select. Not done here.
+- No state/handler/save-path/option-logic change. In-container tsc 0 errors in RestructureModal.tsx; in-container build exit 0. Manual MA1-4 pending Nitesh.
+
 ---
 
 ## Important Notes

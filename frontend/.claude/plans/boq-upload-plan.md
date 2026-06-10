@@ -112,7 +112,11 @@ a single-pass full-sheet-read endpoint (see "Restructure surface (Slice 1)" sect
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-09 (Restructure Slice 1b-beta [feat e8eeab58] FRONTEND COMPLETE -- the
+**Last updated:** 2026-06-10 (Restructure Layout Part A [feat 51b3412e] -- cosmetic display-only:
+RestructureModal widened max-w-3xl->max-w-6xl + the two children-list texts wrap [truncate ->
+whitespace-normal break-words]; picker-grid column widths/wrap still OWED as a separate
+SheetSearchView-touching slice. See the "Layout Part A" section below.
+// prior: 2026-06-09 (Restructure Slice 1b-beta [feat e8eeab58] FRONTEND COMPLETE -- the
 restructure MODAL: detail-panel pill DropdownMenu of 4 assignable targets -> childless light
 AlertDialog confirm OR staged `RestructureModal` [5 child-placement options, no silent default, Save
 gated, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as the parent
@@ -6087,6 +6091,31 @@ was removed from `routesConfig.tsx` and `_DevSheetSearchHarness.tsx` deleted; ts
 
 **OWED next:** single-pass full-sheet-read endpoint (replace SheetSearchView's windowed 200-row loop);
 plus the still-OWED C-values rate-editing live-cert against a Pattern-2-rate vehicle.
+
+### Layout Part A -- RestructureModal sizing + child-list wrap (feat 51b3412e, 2026-06-10)
+
+**Scope:** FRONTEND, cosmetic display-only follow-up to 1b-beta. ONLY `RestructureModal.tsx` touched
+(3-line diff). No state/handler/save-path/option-logic change; SheetSearchView NOT touched; dialog.tsx
+primitive NOT touched. In-container tsc 0 errors in RestructureModal.tsx; in-container foreground build
+exit 0. Manual MA1-4 pending Nitesh.
+
+**The two changes.** (C1) `DialogContent` widened `max-w-3xl` -> `max-w-6xl` (keeps `w-full` +
+`max-h-[90vh] overflow-y-auto`). `w-full` stays from the primitive default, so the `max-w-*` ceiling is
+the lever; `max-w-6xl` (~1152px) is a balanced, viewport-safe cap that gives the mounted SheetSearchView
+parent picker real room without going absurdly wide on large monitors (`max-w-[90vw]` was the alternative,
+rejected for over-wideness on big screens). (C2) the two children-list texts -- the "Children (N)" summary
+`<li>` and the option-4 per-child `<span>` -- switch from single-line `truncate` to `whitespace-normal
+break-words`, so a long child note WRAPS instead of clipping. The reclassified-row description line
+(`font-medium`, no truncate) was already wrap-capable and was left as-is (judgment: a title line where
+one line reads fine; wrapping it changes nothing).
+
+**STILL OWED -- the picker-grid column fix (a SEPARATE slice).** SheetSearchView's cells hardcode
+per-column `min-w-[120px]` + `truncate` (no-wrap), uniform across columns incl. Description, with no
+sizing prop to influence from outside. Fixing the grid's column widths + cell wrap REQUIRES editing the
+1a LIVE-CERTIFIED `SheetSearchView` (cell classes at its TableHead/TableCell + a Description-vs-others
+width branch), which re-opens its 1a display/search certification. Deliberately split out per the
+slice-composition framework, to be paired with click-to-select. Layout Part A widens the modal so the
+grid has more room NOW, but the grid's own columns still clip until that slice lands.
 
 ### Slice 1b-alpha -- transactional restructure backend + human-root (feat f7761415, 2026-06-09)
 
