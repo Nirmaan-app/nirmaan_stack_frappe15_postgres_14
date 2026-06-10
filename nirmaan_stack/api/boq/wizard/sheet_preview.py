@@ -218,3 +218,100 @@ def get_sheet_preview(boq_name=None, sheet_name=None, start_row=1, end_row=40):
                 os.unlink(tempfile_path)
             except OSError:
                 pass
+
+
+@frappe.whitelist()
+def get_sheet_preview_full(boq_name=None, sheet_name=None):
+    """Return EVERY raw cell-value row of one sheet in a single fetch-and-open pass.
+
+    Additive sibling of get_sheet_preview.  Where get_sheet_preview serves an
+    on-demand 40-row window (and SheetSpokePage pages it), this reads the whole
+    sheet in ONE pass -- fetch the workbook once, open it once, iterate row 1 ..
+    ws.max_row with no 200-row cap.  Purpose: replace the parent-picker's slow
+    windowed loop (one S3 fetch + workbook open PER 200-row window) with a single
+    read.  No frontend consumer yet -- the SheetSearchView switch is the later
+    "SheetSearchView v2" slice.
+
+    The per-row build logic is IDENTICAL to get_sheet_preview: padding rows of
+    EmptyCell are skipped, EmptyCells within a kept row are skipped, keys are Excel
+    column letters, values pass through _to_json_serializable.  Therefore `rows` is
+    byte-identical to concatenating every windowed get_sheet_preview call over the
+    same sheet (locked by TestGetSheetPreviewFull.test_byte_identity_to_windowed_path).
+
+    Params (Frappe passes query-string values as strings):
+      boq_name   -- required; must match an existing BOQs document name.
+      sheet_name -- required; VERBATIM match against workbook sheet names (no strip, #152).
+
+    Returns:
+      {
+        "sheet_name": str,      # echoed verbatim
+        "rows": [{"row_number": int, "cells": {col_letter: value}}, ...],
+        "returned_count": int,
+        "has_more": bool,       # always False -- a full read has nothing beyond it.
+                                # Kept so the response stays type-compatible with
+                                # get_sheet_preview for the v2 frontend.
+      }
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview_full
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    source_file_url = frappe.db.get_value("BOQs", boq_name, "source_file_url")
+    if not source_file_url:
+        frappe.throw(
+            f"BOQs '{boq_name}' has no source_file_url set.",
+            title="Missing source file",
+        )
+
+    tempfile_path = None
+    wb = None
+    try:
+        tempfile_path = _fetch_boq_file_to_tempfile(source_file_url)
+        wb = openpyxl.load_workbook(tempfile_path, data_only=True, read_only=True)
+
+        if sheet_name not in wb.sheetnames:
+            frappe.throw(
+                f"Sheet '{sheet_name}' not found in the workbook. "
+                f"Available sheets: {wb.sheetnames}",
+                title="Sheet not found",
+            )
+
+        ws = wb[sheet_name]
+
+        rows_out = []
+        # min_row=1 .. max_row=ws.max_row -- the whole sheet, no window, no cap.
+        for row_cells in ws.iter_rows(min_row=1, max_row=ws.max_row):
+            if not row_cells:
+                continue
+            # Same skip logic as get_sheet_preview: padding rows are all EmptyCell
+            # (no .row); skip them.  Within a kept row, skip EmptyCells (no .column).
+            row_num = next((c.row for c in row_cells if hasattr(c, "row")), None)
+            if row_num is None:
+                continue
+            cells = {
+                get_column_letter(cell.column): _to_json_serializable(cell.value)
+                for cell in row_cells
+                if hasattr(cell, "column")
+            }
+            rows_out.append({"row_number": row_num, "cells": cells})
+
+        return {
+            "sheet_name": sheet_name,
+            "rows": rows_out,
+            "returned_count": len(rows_out),
+            "has_more": False,
+        }
+    finally:
+        if wb is not None:
+            wb.close()
+        if tempfile_path is not None:
+            try:
+                os.unlink(tempfile_path)
+            except OSError:
+                pass

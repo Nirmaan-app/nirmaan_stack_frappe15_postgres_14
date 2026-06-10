@@ -27,6 +27,7 @@ from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _fetch_boq_file_to_tempfile,
     _to_json_serializable,
     get_sheet_preview,
+    get_sheet_preview_full,
 )
 
 # ---------------------------------------------------------------------------
@@ -403,3 +404,142 @@ class TestGetSheetPreviewNegative(FrappeTestCase):
                     boq_name=self.boq.name,
                     sheet_name=" " + _SIMPLE_SHEET,  # leading-space mismatch
                 )
+
+
+# ---------------------------------------------------------------------------
+# TestGetSheetPreviewFull  (single-pass full-sheet read; additive sibling)
+# ---------------------------------------------------------------------------
+
+def _gather_windowed_rows(boq_name: str, sheet_name: str, window: int = 200):
+    """Concatenate get_sheet_preview's rows across every 200-row window of a sheet.
+
+    Walks start=1, then start=end+1, until has_more is False.  This reproduces what
+    the parent-picker's windowed loop yields, so the result is the contract the new
+    single-pass endpoint must reproduce byte-for-byte.
+    """
+    all_rows = []
+    start = 1
+    while True:
+        end = start + window - 1
+        res = get_sheet_preview(
+            boq_name=boq_name, sheet_name=sheet_name, start_row=start, end_row=end
+        )
+        all_rows.extend(res["rows"])
+        if not res["has_more"]:
+            break
+        start = res["end_row_requested"] + 1
+    return all_rows
+
+
+class TestGetSheetPreviewFull(FrappeTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq_with_url(self.__class__.test_project.name)
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    # -- T1: every row returned, no 200-row cap --------------------------------
+    def test_all_rows_returned_no_200_cap(self):
+        with patch(_PATCH_TARGET, side_effect=_make_fixture_copy_fetcher(_LARGE_FIXTURE)):
+            result = get_sheet_preview_full(
+                boq_name=self.boq.name, sheet_name=_LARGE_SHEET
+            )
+        self.assertEqual(result["sheet_name"], _LARGE_SHEET)
+        self.assertEqual(result["returned_count"], len(result["rows"]))
+        # snitch_electrical "6. Electrical" has 200+ content rows -- proves no window cap.
+        self.assertGreater(
+            result["returned_count"], 200,
+            "Full read should return all 200+ rows, not a single 200-row window",
+        )
+        self.assertFalse(result["has_more"], "A full read never has anything 'more'")
+
+    # -- T2: byte-identity to the concatenated windowed path (correctness keystone)
+    def test_byte_identity_to_windowed_path(self):
+        with patch(_PATCH_TARGET, side_effect=_make_fixture_copy_fetcher(_LARGE_FIXTURE)):
+            windowed = _gather_windowed_rows(self.boq.name, _LARGE_SHEET)
+            full = get_sheet_preview_full(
+                boq_name=self.boq.name, sheet_name=_LARGE_SHEET
+            )["rows"]
+        # Exact equality: same order, same row_numbers, same cells dicts.
+        self.assertEqual(
+            full, windowed,
+            "Single-pass rows must be byte-identical to the concatenated windowed path",
+        )
+
+    # -- T3: blank rows skipped, not emitted (non-contiguous row_numbers) -------
+    def test_blank_rows_skipped_noncontiguous(self):
+        # synthetic_simple.xlsx has data on rows 1,2,3,5 -- row 4 is blank.
+        with patch(_PATCH_TARGET, side_effect=_make_fixture_copy_fetcher(_SIMPLE_FIXTURE)):
+            full = get_sheet_preview_full(
+                boq_name=self.boq.name, sheet_name=_SIMPLE_SHEET
+            )
+            windowed = _gather_windowed_rows(self.boq.name, _SIMPLE_SHEET)
+        row_numbers = [r["row_number"] for r in full["rows"]]
+        # Strictly ascending + the blank row 4 is absent (skipped, not emitted).
+        self.assertEqual(
+            row_numbers, sorted(set(row_numbers)),
+            "row_numbers must be strictly ascending with no duplicates",
+        )
+        self.assertNotIn(4, row_numbers, "Blank row 4 must be skipped, not emitted")
+        self.assertEqual(row_numbers, [1, 2, 3, 5])
+        # max row_number exceeds the count -> a row was genuinely skipped.
+        self.assertGreater(max(row_numbers), len(row_numbers))
+        # And the skip pattern matches the windowed path exactly.
+        self.assertEqual([r["row_number"] for r in windowed], row_numbers)
+
+    # -- T4: #152 verbatim sheet-name match ------------------------------------
+    def test_whitespace_mismatch_throws(self):
+        with patch(_PATCH_TARGET, side_effect=_make_fixture_copy_fetcher(_SIMPLE_FIXTURE)):
+            with self.assertRaises(Exception):
+                get_sheet_preview_full(
+                    boq_name=self.boq.name,
+                    sheet_name=" " + _SIMPLE_SHEET,  # leading-space mismatch
+                )
+
+    # -- T5: negatives (mirror the existing endpoint's throw behaviour) --------
+    def test_missing_boq_name_throws(self):
+        with self.assertRaises(Exception):
+            get_sheet_preview_full(boq_name=None, sheet_name=_SIMPLE_SHEET)
+
+    def test_missing_sheet_name_throws(self):
+        with self.assertRaises(Exception):
+            get_sheet_preview_full(boq_name=self.boq.name, sheet_name=None)
+
+    def test_nonexistent_boq_throws(self):
+        with self.assertRaises(Exception):
+            get_sheet_preview_full(
+                boq_name="DOES-NOT-EXIST-XYZZY-9999", sheet_name=_SIMPLE_SHEET
+            )
+
+    def test_nonexistent_sheet_name_throws(self):
+        with patch(_PATCH_TARGET, side_effect=_make_fixture_copy_fetcher(_SIMPLE_FIXTURE)):
+            with self.assertRaises(Exception):
+                get_sheet_preview_full(
+                    boq_name=self.boq.name, sheet_name="NONEXISTENT SHEET XYZ"
+                )
+
+    def test_empty_source_file_url_throws(self):
+        boq_no_url = _make_boq_with_url(
+            self.__class__.test_project.name, source_file_url=""
+        )
+        try:
+            with self.assertRaises(Exception):
+                get_sheet_preview_full(
+                    boq_name=boq_no_url.name, sheet_name=_SIMPLE_SHEET
+                )
+        finally:
+            frappe.delete_doc("BOQs", boq_no_url.name, force=True, ignore_permissions=True)
+            frappe.db.commit()
