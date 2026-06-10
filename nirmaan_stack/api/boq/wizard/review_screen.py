@@ -1171,6 +1171,7 @@ def save_review_restructure(
     new_classification: str = None,
     child_moves=None,
     reason: str = None,
+    row_new_parent=None,
 ) -> dict:
     """
     Atomically reclassify ONE row AND reparent a set of its children in a single
@@ -1188,6 +1189,11 @@ def save_review_restructure(
                              empty when the reclassified row has no children to move.
       reason              -- optional human note recorded on the reclassification's
                              human_classification edit_log entry.
+      row_new_parent      -- OPTIONAL (Slice 1b-beta2). None/omitted = the reclassified
+                             ROW's own parent is left untouched (today's behaviour for
+                             every existing caller). -1 = move the row itself to
+                             top-level/root. An int row_index = move the row under that
+                             row. Frappe passes strings -- int-coerced like the others.
 
     Validation (all per-call, BEFORE any write -- frappe.throw on failure, house
     style; nothing is written until every check passes):
@@ -1196,22 +1202,34 @@ def save_review_restructure(
       - each child: exists on this sheet; its CURRENT effective parent IS row_index
         (cannot move a non-child); proposed parent is -1 or an existing row on this
         sheet; not self-parented.
+      - row_new_parent (when not None): int-coerce or throw; reject self-parent
+        (== row_index); if != -1, the target row must exist on this sheet (mirrors
+        the child / save_review_edit human_parent checks).
       - BATCH cycle-guard: build the whole-sheet effective-parent map, apply ALL
-        proposed moves AT ONCE, then run _chain_has_cycle for EACH touched row against
-        the COMBINED simulated tree (two individually-safe moves can form a cycle
-        together, so they must be checked applied-together, never one at a time).
+        proposed moves AT ONCE -- the child moves AND, when given, the row's own move
+        into the SAME sim map -- then run _chain_has_cycle for EACH touched row against
+        the COMBINED simulated tree. Touched = the child-move keys PLUS row_index when
+        row_new_parent is given. (Two individually-safe moves can form a cycle together,
+        so they must be checked applied-together, never one at a time; and a row move
+        with EMPTY child_moves would run ZERO checks unless row_index is added as a
+        check start-point -- the silent-corruption trap this start-point closes.)
 
     Write (only after all validation passes -- the atomic block; the shared helper
     saves each row, no per-row commit):
       - reclassify the target row via _apply_and_save_row_edit (human_classification),
         logging ONE human_classification edit_log entry (carrying reason).
+      - when row_new_parent is not None: ONE more _apply_and_save_row_edit on the SAME
+        target_doc setting human_parent (-1 -> set_root=True; int -> that parent). Two
+        sequential helper calls on one doc are safe -- edit_log appends off the in-memory
+        doc and the single commit covers both; a mid-block throw rolls back everything.
       - for each child, set human_parent via the helper (-1 sentinel for root),
         logging ONE human_parent edit_log entry whose reason ties it to this
         reclassification.
       - a single frappe.db.commit() at the end. If any row throws mid-loop, the
         uncommitted saves roll back (all-or-nothing).
 
-    Returns: {ok, row_index, new_classification, children_moved: [...], edited_at}.
+    Returns: {ok, row_index, new_classification, children_moved: [...], edited_at,
+              row_moved: bool}.  row_moved is True iff row_new_parent was applied.
 
     URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.save_review_restructure
     """
@@ -1298,6 +1316,31 @@ def save_review_restructure(
             title="Row not found",
         )
 
+    # --- row_new_parent validation (Slice 1b-beta2; None = leave the row's parent
+    #     untouched, today's behaviour). Mirrors save_review_edit's human_parent
+    #     validation: int-coerce, reject self-parent, target must exist (unless -1). ---
+    row_move_requested = row_new_parent is not None and row_new_parent != ""
+    if row_move_requested:
+        try:
+            row_new_parent = int(row_new_parent)
+        except (ValueError, TypeError):
+            frappe.throw(
+                "row_new_parent must be an integer row_index (or -1 for top-level).",
+                title="Invalid row_new_parent",
+            )
+        if row_new_parent == row_index:
+            frappe.throw(
+                "A row cannot be its own parent.", title="Self-parent rejected"
+            )
+        if row_new_parent != -1 and row_new_parent not in rows_by_idx:
+            frappe.throw(
+                f"Proposed parent {row_new_parent} for row {row_index} does not exist "
+                f"in sheet '{sheet_name}'.",
+                title="Invalid parent",
+            )
+    else:
+        row_new_parent = None
+
     # --- Per-child validation (no write yet) ---
     for child_idx, new_parent in moves.items():
         if child_idx not in rows_by_idx:
@@ -1332,11 +1375,24 @@ def save_review_restructure(
     sim: dict = {idx: dict(entry) for idx, entry in rows_by_idx.items()}
     for child_idx, new_parent in moves.items():
         sim[child_idx]["effective_parent_index"] = None if new_parent == -1 else new_parent
-    for child_idx in moves:
-        if _chain_has_cycle(child_idx, sim):
+    # Slice 1b-beta2: the row's OWN move goes into the SAME sim map, so a cycle the
+    # row-move forms with any child-move is visible in the combined tree.
+    if row_new_parent is not None:
+        sim[row_index]["effective_parent_index"] = (
+            None if row_new_parent == -1 else row_new_parent
+        )
+    # Check start-points: every moved CHILD, plus row_index itself when the ROW moved.
+    # The row_index start-point is load-bearing: a row move with EMPTY child_moves would
+    # otherwise run ZERO checks (the loop iterates moves only) and silently corrupt the
+    # tree (e.g. a row moved under its own child). The set union closes that trap.
+    check_starts = set(moves)
+    if row_new_parent is not None:
+        check_starts.add(row_index)
+    for start_idx in check_starts:
+        if _chain_has_cycle(start_idx, sim):
             frappe.throw(
                 f"The proposed moves would create a cycle in the hierarchy "
-                f"(row {child_idx}). No changes were made.",
+                f"(row {start_idx}). No changes were made.",
                 title="Cycle detected",
             )
 
@@ -1356,6 +1412,28 @@ def save_review_restructure(
         "human_classification", new_classification,
         reason=reason, user=user,
     )
+
+    # 1b. Optionally move the reclassified ROW itself (Slice 1b-beta2). A SECOND helper
+    # call on the SAME in-memory doc -- edit_log appends cumulatively and the single
+    # commit below covers both writes. -1 -> human-root override (set_root=True, logs
+    # to=None); a real row_index -> human_parent=that row (clears human_is_root via the
+    # chokepoint invariant). reason ties the move to this reclassification.
+    row_moved = row_new_parent is not None
+    if row_moved:
+        row_move_reason = f"row moved: row {row_index} reclassified to {new_classification}"
+        if row_new_parent == -1:
+            _apply_and_save_row_edit(
+                target_doc, boq_name, sheet_name,
+                "human_parent", None,
+                reason=row_move_reason, user=user, set_root=True,
+            )
+        else:
+            _apply_and_save_row_edit(
+                target_doc, boq_name, sheet_name,
+                "human_parent", row_new_parent,
+                reason=row_move_reason, user=user,
+            )
+
     edited_at = target_doc.edited_at
 
     # 2. Reparent each child (one human_parent entry per child, tied to the reclass).
@@ -1396,6 +1474,7 @@ def save_review_restructure(
         "new_classification": new_classification,
         "children_moved": children_moved,
         "edited_at": edited_at,
+        "row_moved": row_moved,
     }
 
 

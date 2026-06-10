@@ -8,6 +8,14 @@
  *     childless -> light AlertDialog (handled in ReviewTree, NOT here);
  *     has children -> THIS staged modal.
  *
+ * Row-own-position (Slice 1b-beta2): a separate "This row's position" control lets the
+ * user ALSO place the reclassified ROW itself -- (1) "Keep current position" (DEFAULT,
+ * pre-selected; sends NO row_new_parent -> backwards-compat) or (2) "Move under a new
+ * parent" which reveals the SAME SheetSearchView picker + hitRowIndex resolution +
+ * no-match guard the child pickers use (a picked row_index, or "Top level" -> -1).
+ * Save is gated until a chosen "move" is resolved. A backend cycle throw caused by the
+ * row's own move (e.g. moving it under its own child) surfaces inline like any other.
+ *
  * Staged, gated, atomic:
  *   - The user actively chooses one of FIVE child-placement options (no silent default).
  *   - Save is DISABLED until the chosen option's required selections are complete.
@@ -65,6 +73,8 @@ interface SaveReviewRestructureResponse {
   new_classification: string;
   children_moved: number;
   edited_at: string;
+  // Slice 1b-beta2: true when row_new_parent was applied (the row itself moved).
+  row_moved?: boolean;
 }
 
 type PlacementOption = 1 | 2 | 3 | 4 | 5;
@@ -111,6 +121,12 @@ export function RestructureModal({
   const [currentHit, setCurrentHit] = useState<SheetPreviewRow | null>(null);
   const [reason, setReason] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  // This row's OWN position (Slice 1b-beta2). "keep" (DEFAULT) = leave the row's
+  // parent untouched -> send NO row_new_parent (backwards-compat shape). "move" =
+  // reparent the row itself; rowParentIdx is the resolved target (-1 = top-level,
+  // >=0 = a picked row_index, null = not yet resolved -> Save stays disabled).
+  const [rowPosition, setRowPosition] = useState<"keep" | "move">("keep");
+  const [rowParentIdx, setRowParentIdx] = useState<number | null>(null);
 
   const children = useMemo(
     () => rows.filter((r) => r.effective_parent_index === row.row_index),
@@ -156,8 +172,21 @@ export function RestructureModal({
     setSaveError(null);
   };
 
+  // Switching the row's-own-position choice (Slice 1b-beta2). Resets the resolved
+  // row-parent + the shared transient hit. rowParentIdx survives child-option changes
+  // (the two choices are independent) -- only an explicit toggle here clears it.
+  const selectRowPosition = (pos: "keep" | "move") => {
+    setRowPosition(pos);
+    setRowParentIdx(null);
+    setCurrentHit(null);
+    setSaveError(null);
+  };
+
   const canSave = (() => {
     if (option === null) return false;
+    // Row-own-position gate (1b-beta2): "move" selected but nothing resolved -> blocked
+    // (same no-silent-incomplete principle as the child options).
+    if (rowPosition === "move" && rowParentIdx === null) return false;
     if (option === 3) return blockParentIdx !== null;
     if (option === 4) return children.every((c) => perChild[c.row_index] !== undefined);
     return true; // options 1, 2, 5 -- complete as soon as selected
@@ -191,6 +220,11 @@ export function RestructureModal({
         new_classification: newClassification,
         child_moves,
         reason: reason.trim() || undefined, // blank -> omitted; backend normalizes to None
+        // Slice 1b-beta2: the row's OWN move -- sent ONLY when "move" is active AND
+        // resolved. "keep" omits the param entirely (backwards-compat shape S4).
+        ...(rowPosition === "move" && rowParentIdx !== null
+          ? { row_new_parent: rowParentIdx }
+          : {}),
       });
       onRestructured(res.message.edited_at);
     } catch (e: unknown) {
@@ -236,6 +270,88 @@ export function RestructureModal({
         {/* The row being reclassified */}
         <div className="text-xs text-foreground">
           <span className="font-medium">{row.description || "(no description)"}</span>
+        </div>
+
+        {/* This row's OWN position (Slice 1b-beta2) -- keep (default) or move under a
+            new parent. Reuses the SAME SheetSearchView picker + hitRowIndex resolution
+            + no-match guard as the child pickers (no duplication). */}
+        <div className="rounded-md border border-border p-2 space-y-1.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            This row&rsquo;s position
+          </p>
+          <label className="flex items-start gap-2 text-xs cursor-pointer">
+            <input
+              type="radio"
+              name="row-position"
+              className="mt-0.5"
+              checked={rowPosition === "keep"}
+              onChange={() => selectRowPosition("keep")}
+            />
+            <span>Keep current position (under {oldParentLabel})</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs cursor-pointer">
+            <input
+              type="radio"
+              name="row-position"
+              className="mt-0.5"
+              checked={rowPosition === "move"}
+              onChange={() => selectRowPosition("move")}
+            />
+            <span>Move this row under a new parent</span>
+          </label>
+
+          {rowPosition === "move" && (
+            <div className="rounded-md border border-border p-2 space-y-2">
+              {rowParentIdx !== null ? (
+                <p className="text-xs">
+                  New position for this row:{" "}
+                  <span className="font-medium">{targetLabel(rowParentIdx)}</span>{" "}
+                  <button
+                    type="button"
+                    className="text-blue-600 dark:text-blue-400 hover:underline"
+                    onClick={() => { setRowParentIdx(null); setCurrentHit(null); }}
+                  >
+                    change
+                  </button>
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Search the sheet, land on the row you want as this row&rsquo;s new
+                    parent, then Set as parent &mdash; or send this row to the top level.
+                  </p>
+                  <SheetSearchView
+                    boqName={boqName}
+                    sheetName={sheetName}
+                    onCurrentHitChange={setCurrentHit}
+                    onRowClick={setCurrentHit}
+                    selectedRowNumber={currentHit?.row_number ?? null}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      disabled={hitRowIndex === null}
+                      onClick={() => setRowParentIdx(hitRowIndex)}
+                    >
+                      Set as parent
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRowParentIdx(-1)}
+                    >
+                      Top level
+                    </Button>
+                    {currentHit !== null && hitRowIndex === null && (
+                      <span className="text-xs text-muted-foreground">
+                        This row isn&rsquo;t a selectable parent
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* The children that need placing */}

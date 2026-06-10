@@ -2232,3 +2232,176 @@ class TestSaveReviewRestructure(FrappeTestCase):
         self.assertEqual(c3.human_is_root, 1)
         self.assertEqual(c3.human_parent, -1)
         self.assertIsNone(resolve_effective(c3)["effective_parent_index"])
+
+    # ===================================================================
+    # Slice 1b-beta2: row_new_parent -- place the RECLASSIFIED ROW itself.
+    #
+    # T1 / T2 are the EMPTY-child_moves corruption guard (the check-loop
+    # iterates child moves only; without row_index as a check start-point a
+    # pure row move runs ZERO cycle checks). T7 is the NON-empty corruption
+    # guard (the check runs, but over the wrong start-points: the moved child
+    # is innocent, the cycle is via the row). Together they make the
+    # start-point extension impossible to silently regress.
+    # ===================================================================
+
+    def test_reject_row_self_move_cycle_nothing_written(self):
+        """KEYSTONE (LC10 backend half). Move row 1 UNDER its own child (row 2):
+        chain 1->2->1 is a cycle. child_moves omitted (empty) -- so the check-loop
+        iterates ZERO child moves; the throw can only happen if row_index was added
+        to the cycle-check start-points. All-or-nothing: nothing is written."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                row_new_parent=2,  # row 2 is row 1's own child -> 1->2->1
+            )
+        r1 = self._get_doc(1)
+        self.assertFalse(r1.human_classification,
+                         "a rejected row-self-move must not write the classification")
+        self.assertEqual(r1.human_parent, -1,
+                         "a rejected row-self-move must not move the row")
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertIsNone(r1.edited_at, "the target row must not be stamped")
+        # the children are untouched
+        self.assertEqual(self._get_doc(2).human_parent, -1)
+        self.assertIsNone(self._get_doc(2).edited_at)
+        self.assertEqual(self._get_doc(3).human_parent, -1)
+        self.assertIsNone(self._get_doc(3).edited_at)
+
+    def test_reject_pure_row_move_cycle_empty_child_moves(self):
+        """THE zero-checks trap, made explicit: identical cycle to the keystone but
+        with child_moves={} passed explicitly. The check-loop iterates an EMPTY moves
+        dict -- this throws ONLY because row_index is a check start-point. This is the
+        test that fails if the check-step (b) extension was forgotten."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                child_moves={},
+                row_new_parent=2,
+            )
+        r1 = self._get_doc(1)
+        self.assertFalse(r1.human_classification)
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertIsNone(r1.edited_at)
+
+    def test_row_moved_to_new_parent(self):
+        """Reclassify row 1 AND move it under sibling row 4, with children also moved
+        to 4. The row lands under 4 (human_parent=4, not rooted); edit_log on row 1
+        carries BOTH the classification entry AND the human_parent entry; response
+        row_moved is True."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+        )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["row_moved"], "row_moved must be True when the row was moved")
+        self.assertEqual(result["children_moved"], [2, 3])
+
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note", "classification applied")
+        self.assertEqual(r1.human_parent, 4, "the row landed under its new parent")
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertEqual(resolve_effective(r1)["effective_parent_index"], 4)
+        # row 1's edit_log carries BOTH a classification entry AND a human_parent entry
+        log1 = self._as_list(r1.edit_log)
+        fields = [e["field"] for e in log1]
+        self.assertIn("human_classification", fields)
+        self.assertIn("human_parent", fields)
+        # the human_parent entry records the move to 4
+        hp_entry = [e for e in log1 if e["field"] == "human_parent"][-1]
+        self.assertEqual(hp_entry["to"], 4)
+        # children landed under 4
+        self.assertEqual(self._get_doc(2).human_parent, 4)
+        self.assertEqual(self._get_doc(3).human_parent, 4)
+
+    def test_row_moved_to_root(self):
+        """row_new_parent=-1 re-roots the reclassified row via the human_is_root flag
+        (Option B invariant: human_is_root=1 AND human_parent=-1). The read-back through
+        get_review_rows reports effective_parent_index None."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={},
+            row_new_parent=-1,
+        )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["row_moved"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_is_root, 1, "a root move sets human_is_root=1")
+        self.assertEqual(r1.human_parent, -1, "invariant: a rooted row keeps human_parent=-1")
+        # read-back through the endpoint: effective parent is None (root)
+        payload = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        row1 = next(r for r in payload["rows"] if r["row_index"] == 1)
+        self.assertIsNone(row1["effective_parent_index"],
+                          "effective parent of a rooted row is None via get_review_rows")
+
+    def test_row_parent_untouched_when_param_omitted(self):
+        """Backwards-compat: the existing call shape (NO row_new_parent) must behave
+        byte-for-byte as before -- the reclassified row's own parent is left untouched
+        (human_parent stays -1, human_is_root 0), and response row_moved is False."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+        )
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["row_moved"],
+                         "row_moved must be False when row_new_parent is omitted")
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_parent, -1, "the row's own parent must be untouched")
+        self.assertEqual(r1.human_is_root, 0)
+        # row 1's edit_log carries ONLY the classification entry (no human_parent entry)
+        log1 = self._as_list(r1.edit_log)
+        self.assertEqual([e["field"] for e in log1], ["human_classification"])
+
+    def test_row_new_parent_self_rejected(self):
+        """row_new_parent == row_index is a self-parent -- rejected before any write."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                row_new_parent=1,
+            )
+        self.assertFalse(self._get_doc(1).human_classification,
+                         "a rejected self-parent must not write anything")
+
+    def test_row_move_cycle_with_nonempty_child_moves_rejected(self):
+        """T7 -- the SHARED-SIM keystone (non-empty child_moves trap).
+
+        IMPOSSIBILITY NOTE: the prompt's original T7 asked for a cycle formed ONLY by
+        the row-move + a child-move together, each INDIVIDUALLY acyclic. That is
+        mathematically impossible here: every child in child_moves is validated to
+        currently have effective parent == row_index, so any cycle using both the
+        row edge (row->X) and a child edge (C->Y) contains the path row->X->...->C->Y
+        ->...->row; reverting the child edge restores C->row, and the prefix
+        row->X->...->C still closes the loop via the row edge ALONE -- i.e. the
+        row-move alone is already cyclic, so it was never individually acyclic. QED.
+
+        This substitute is strictly stronger as a guard test: a cycle via the ROW
+        (1->2->1) is paired with a non-empty, individually-VALID child move (3->4,
+        acyclic, and row 3 is in NO cycle). The check-loop therefore RUNS (moves is
+        non-empty) but over the wrong start-points -- iterating moves={3} alone would
+        MISS the cycle. It throws ONLY because row_index was added to the start-points
+        AND the row's move shares the same sim map as the child move. All-or-nothing:
+        nothing is written, including the innocent child move."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=1, new_classification="note",
+                child_moves={3: 4},   # individually valid + acyclic; row 3 is innocent
+                row_new_parent=2,      # row 1 under its own child 2 -> 1->2->1 cycle
+            )
+        # nothing written: target row unchanged
+        r1 = self._get_doc(1)
+        self.assertFalse(r1.human_classification)
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertIsNone(r1.edited_at)
+        # the innocent child move was rolled back too (all-or-nothing)
+        r3 = self._get_doc(3)
+        self.assertEqual(r3.human_parent, -1, "the innocent child move must not persist")
+        self.assertIsNone(r3.edited_at)
