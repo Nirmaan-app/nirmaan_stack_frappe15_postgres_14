@@ -83,9 +83,12 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     return map;
   }, [itemsData]);
 
-  // Resolve billing category: Items doctype lookup → "Additional Charges" = Non-Billable → default Billable
-  const resolveBillingCategory = (itemId: string, category: string): string => {
-    return billingCategoryMap.get(itemId)
+  // Resolve billing category. Prefer the PO line item's own billing_status when present
+  // (the live, per-PO value); otherwise fall back for non-PO rows (ITM / orphan DC) and
+  // legacy-blank items: Items master lookup → "Additional Charges" = Non-Billable → Billable.
+  const resolveBillingCategory = (itemId: string, category: string, poBillingStatus?: string | null): string => {
+    return poBillingStatus
+      || billingCategoryMap.get(itemId)
       || (category === "Additional Charges" ? "Non-Billable" : "Billable");
   };
 
@@ -243,7 +246,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
       if (!currentItemUsage) {
         const estimate = estimatesMap.get(poItem.item_id);
-          const itemBillingCategory = resolveBillingCategory(poItem.item_id, poItem.category);
+          const itemBillingCategory = resolveBillingCategory(poItem.item_id, poItem.category, poItem.billing_status);
         currentItemUsage = {
           uniqueKey: itemKey + `_item_${index}`,
           itemId: poItem.item_id,
@@ -464,7 +467,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           itemName: poItem.item_name,
           categoryName: poItem.category,
           unit: poItem.unit,
-          billingCategory: resolveBillingCategory(poItem.item_id, poItem.category),
+          billingCategory: resolveBillingCategory(poItem.item_id, poItem.category, poItem.billing_status),
           orderedQuantity: qty,
           deliveredQuantity: recvQty,
           dcQuantity: delivery?.dcQty || 0,
@@ -590,11 +593,16 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     const dcItems: DCMIRWiseDisplayItem[] = [];
     const mirItems: DCMIRWiseDisplayItem[] = [];
 
-    // Build PO-item received quantity lookup: "poNumber_category_itemId" → received_quantity
+    // Build PO-item lookups keyed by "poNumber_category_itemId":
+    //   - received quantity (existing)
+    //   - billing_status (so DC/MIR-wise rows use the live per-PO billing value,
+    //     falling back to the Items master only for stub/orphan rows not on a PO)
     const poItemReceivedMap = new Map<string, number>();
+    const poItemBillingMap = new Map<string, string>();
     allPoItems.forEach(item => {
       const key = `${item.po_number}_${item.category}_${item.item_id}`;
       poItemReceivedMap.set(key, (poItemReceivedMap.get(key) || 0) + safeParseFloat(item.received_quantity));
+      if (item.billing_status) poItemBillingMap.set(key, item.billing_status);
     });
 
     for (const doc of docs) {
@@ -611,7 +619,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           receivedQuantity: poItemReceivedMap.get(recvKey) || 0,
           quantity: item.quantity || 0,
           make: item.make,
-          billingCategory: resolveBillingCategory(item.item_id, item.category || ""),
+          billingCategory: resolveBillingCategory(item.item_id, item.category || "", poItemBillingMap.get(recvKey)),
         };
       });
 
