@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     Dialog,
     DialogContent,
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import ReactSelect from "react-select";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import {
     AlertDialog,
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
+import { FileText } from "lucide-react";
 
 interface TDSItem {
     name: string;
@@ -43,15 +44,28 @@ interface TDSItem {
     tds_boq_line_item?: string;
 }
 
-interface TDSRepositoryDoc {
-    name: string;
-    tds_item_id: string;
-    tds_item_name: string;
+// Shape returned by nirmaan_stack.api.tds.picker.search_tds_items
+interface PickerMake {
     make: string;
-    work_package: string;
-    category: string;
-    description: string;
+    entry: string;
     tds_attachment?: string;
+    status?: string;
+}
+interface PickerGroup {
+    tds_item: string;          // TDS Item (group) id — frozen onto the row as tds_item_id
+    tds_item_name: string;     // group name
+    work_package: string;
+    matched_member: { item: string; item_name: string } | null;
+    makes: PickerMake[];       // makes-with-datasheet for this group
+}
+
+// react-select option for the group fuzzy picker
+interface GroupOption {
+    label: string;             // group name
+    value: string;             // tds_item id
+    workPackage: string;
+    member: string;            // matched member hint ("contains …") for the subtitle
+    makes: PickerMake[];
 }
 
 interface ProjectEditTDSItemModalProps {
@@ -63,12 +77,17 @@ interface ProjectEditTDSItemModalProps {
 }
 
 /**
- * Edit modal for repository-linked TDS items (items whose tds_status !== "New").
- * Work Package + Category are derived from the chosen repo entry and stay read-only.
- * The editable part is: Item Name → Make → BOQ Ref, Description, Attachment.
+ * Phase 2 (ADR-0003) edit modal for PICKED rows (tds_status !== "New").
  *
- * For the "New" item request flow (free-form WP/Category/Item/Make), use
- * EditRequestItemModal instead.
+ * Re-runs the group + make picker: fuzzy-search a TDS Item (group) over its name
+ * AND member item codes/names (server-side via api/tds/picker.search_tds_items),
+ * then pick a Make from the makes-with-datasheet for that group. The chosen make's
+ * Repository Entry datasheet (tds_attachment) is carried onto the row unless the
+ * user uploads a replacement. Work Package is derived from the group (read-only).
+ *
+ * The frozen snapshot written back: tds_item_id (= TDS Item group id), tds_item_name
+ * (group name), tds_make, tds_attachment, tds_work_package. Dedup key against sibling
+ * project rows = (tds_item_id, tds_make). No CUS-/category-string logic.
  */
 export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = ({
     open,
@@ -77,9 +96,11 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     onSave,
     loading = false,
 }) => {
-    // Stores tds_item_id (unique per repo item). Two repo items may share a name across
-    // different categories — keying selection by id avoids mixing their makes.
-    const [selectedItemId, setSelectedItemId] = useState("");
+    // Selected group (TDS Item) — id + the makes-with-datasheet we resolved for it.
+    const [selectedGroupId, setSelectedGroupId] = useState("");
+    const [selectedGroupName, setSelectedGroupName] = useState("");
+    const [selectedGroupWP, setSelectedGroupWP] = useState("");
+    const [selectedGroupMakes, setSelectedGroupMakes] = useState<PickerMake[]>([]);
     const [selectedMake, setSelectedMake] = useState("");
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
@@ -90,151 +111,175 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const [confirmInput, setConfirmInput] = useState("");
     const [duplicateDocName, setDuplicateDocName] = useState<string | null>(null);
 
-    // Master repository entries — source of truth for WP/Category/Item/Make
-    const { data: repoItems } = useFrappeGetDocList<TDSRepositoryDoc>("TDS Repository", {
-        fields: ["name", "tds_item_id", "tds_item_name", "make", "description", "work_package", "category", "tds_attachment"],
-        limit: 0,
-    }, open ? undefined : null);
+    // ── Server-side group search (debounced) ──────────────────────────────────
+    const { call: searchTdsItems } = useFrappePostCall(
+        "nirmaan_stack.api.tds.picker.search_tds_items"
+    );
+    const { call: getTdsItemMakes } = useFrappePostCall(
+        "nirmaan_stack.api.tds.picker.get_tds_item_makes"
+    );
+    const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Sibling project items — for avoiding duplicate (item+make) combinations
+    const toGroupOption = (g: PickerGroup): GroupOption => ({
+        label: g.tds_item_name,
+        value: g.tds_item,
+        workPackage: g.work_package,
+        member: g.matched_member?.item_name || g.matched_member?.item || "",
+        makes: g.makes || [],
+    });
+
+    const runSearch = useCallback(async (query: string) => {
+        try {
+            const resp = await searchTdsItems({ query, limit: 50 });
+            const rows: PickerGroup[] = resp?.message || [];
+            setGroupOptions(rows.map(toGroupOption));
+        } catch (e) {
+            console.error("TDS picker search failed", e);
+            setGroupOptions([]);
+        }
+    }, [searchTdsItems]);
+
+    const handleGroupSearchInput = useCallback((input: string) => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => runSearch(input), 300);
+    }, [runSearch]);
+
+    // Sibling project rows — for (tds_item_id, tds_make) dedup.
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
         fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_status", "tdsi_project_id"],
         filters: (item && open)
             ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]]
             : [["name", "=", "NOT_FOUND"]],
         limit: 0,
-    });
+    }, (item && open) ? undefined : null);
 
+    // Hydrate from the row on open, and seed the group dropdown with the row's
+    // current group + an initial unfiltered search so the picker isn't empty.
     useEffect(() => {
         if (item && open) {
-            setSelectedItemId(item.tds_item_id || "");
+            setSelectedGroupId(item.tds_item_id || "");
+            setSelectedGroupName(item.tds_item_name || "");
+            setSelectedGroupWP(item.tds_work_package || "");
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
             setAttachmentFile(null);
             setFileError(null);
-        }
-    }, [item, open]);
+            setSelectedGroupMakes([]);
 
-    // Remove repo entries already used by other pending/approved items in this project
-    const availableRepoItems = useMemo(() => {
-        if (!repoItems || !existingProjectItems) return repoItems || [];
-        const occupiedIds = new Set(
-            existingProjectItems
-                .filter((i: any) => i.tds_status === "Approved" || i.tds_status === "Pending" || !i.tds_status)
-                .map((i: any) => `${i.tds_item_id}-${i.tds_make}`)
-        );
-        return repoItems.filter(repoItem => {
-            const id = `${repoItem.tds_item_id}-${repoItem.make}`;
-            return !occupiedIds.has(id);
-        });
-    }, [repoItems, existingProjectItems]);
-
-    const itemNameOptions = useMemo(() => {
-        // Restrict candidates to the row's original Work Package + Category so the
-        // dropdown shows only items within the same domain the user is editing.
-        // (Switching to a foreign WP/category would break the read-only auto-fill labels.)
-        const wpFilter = item?.tds_work_package || "";
-        const catFilter = item?.tds_category || "";
-        const scoped = availableRepoItems.filter(i =>
-            (!wpFilter || i.work_package === wpFilter) &&
-            (!catFilter || i.category === catFilter)
-        );
-        // Group by tds_item_id — one option per unique item (multiple makes are collapsed).
-        const uniqueById = new Map<string, { tds_item_id: string; tds_item_name: string; category?: string }>();
-        scoped.forEach(i => {
-            if (i.tds_item_id && !uniqueById.has(i.tds_item_id)) {
-                uniqueById.set(i.tds_item_id, {
-                    tds_item_id: i.tds_item_id,
-                    tds_item_name: i.tds_item_name,
-                    category: i.category,
-                });
+            // Seed the dropdown with an initial slice and resolve the current
+            // group's makes so the Make dropdown + datasheet are populated.
+            runSearch("");
+            if (item.tds_item_id) {
+                getTdsItemMakes({ tds_item: item.tds_item_id })
+                    .then(resp => setSelectedGroupMakes(resp?.message || []))
+                    .catch(() => setSelectedGroupMakes([]));
             }
-        });
-        // Count name collisions so we can show category in blue only when needed.
-        const nameCounts = new Map<string, number>();
-        uniqueById.forEach(e => {
-            nameCounts.set(e.tds_item_name, (nameCounts.get(e.tds_item_name) || 0) + 1);
-        });
-        return Array.from(uniqueById.values())
-            .map(e => ({
-                label: e.tds_item_name,
-                value: e.tds_item_id,
-                category: (nameCounts.get(e.tds_item_name) || 0) > 1 ? (e.category || '') : '',
-            }))
-            .sort((a, b) => a.label.localeCompare(b.label));
-    }, [availableRepoItems, item?.tds_work_package, item?.tds_category]);
+        }
+    }, [item, open, runSearch, getTdsItemMakes]);
 
-    const makeOptions = useMemo(() => {
-        if (!selectedItemId) return [];
-        return availableRepoItems
-            .filter(i => i.tds_item_id === selectedItemId)
-            .map(i => ({ label: i.make, value: i.make }))
-            .sort((a, b) => a.label.localeCompare(b.label));
-    }, [availableRepoItems, selectedItemId]);
+    // Build the current group option (so the FuzzySearchSelect can show a value
+    // even when the row's group isn't in the latest search slice).
+    const currentGroupValue = useMemo<GroupOption | null>(() => {
+        if (!selectedGroupId) return null;
+        const fromOptions = groupOptions.find(o => o.value === selectedGroupId);
+        if (fromOptions) return fromOptions;
+        return {
+            label: selectedGroupName || selectedGroupId,
+            value: selectedGroupId,
+            workPackage: selectedGroupWP,
+            member: "",
+            makes: selectedGroupMakes,
+        };
+    }, [selectedGroupId, selectedGroupName, selectedGroupWP, selectedGroupMakes, groupOptions]);
 
-    const selectedRepoEntry = useMemo(() => {
-        if (!selectedItemId || !selectedMake) return null;
-        return availableRepoItems.find(i =>
-            i.tds_item_id === selectedItemId && i.make === selectedMake
-        ) || null;
-    }, [availableRepoItems, selectedItemId, selectedMake]);
+    // Ensure the current group is selectable in the option list.
+    const groupOptionsWithCurrent = useMemo<GroupOption[]>(() => {
+        if (!currentGroupValue) return groupOptions;
+        if (groupOptions.some(o => o.value === currentGroupValue.value)) return groupOptions;
+        return [currentGroupValue, ...groupOptions];
+    }, [groupOptions, currentGroupValue]);
 
-    // WP/Category are properties of tds_item_id (shared across makes), so resolve
-    // them from item id alone — otherwise they'd stay stale until a make is picked.
-    const selectedItemMeta = useMemo(() => {
-        if (!selectedItemId) return null;
-        return availableRepoItems.find(i => i.tds_item_id === selectedItemId) || null;
-    }, [availableRepoItems, selectedItemId]);
+    const makeOptions = useMemo(
+        () => selectedGroupMakes
+            .map(m => ({ label: m.make, value: m.make }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+        [selectedGroupMakes]
+    );
 
-    const displayedWP = selectedItemMeta?.work_package || item?.tds_work_package || "";
-    const displayedCategory = selectedItemMeta?.category || item?.tds_category || "";
+    // The Repository Entry datasheet for the picked (group, make).
+    const selectedEntry = useMemo(
+        () => selectedGroupMakes.find(m => m.make === selectedMake) || null,
+        [selectedGroupMakes, selectedMake]
+    );
 
-    const handleItemNameChange = (opt: any) => {
-        setSelectedItemId(opt?.value || "");
-        setSelectedMake(""); // clear downstream
+    const handleGroupChange = (opt: GroupOption | null) => {
+        setSelectedGroupId(opt?.value || "");
+        setSelectedGroupName(opt?.label || "");
+        setSelectedGroupWP(opt?.workPackage || "");
+        setSelectedGroupMakes(opt?.makes || []);
+        setSelectedMake(""); // clear downstream make
     };
 
     const buildUpdates = () => {
         const updates: any = {
-            tds_work_package: selectedItemMeta?.work_package ?? item?.tds_work_package ?? "",
-            tds_category: selectedItemMeta?.category ?? item?.tds_category ?? "",
-            tds_item_name: selectedItemMeta?.tds_item_name ?? item?.tds_item_name ?? "",
-            tds_item_id: selectedItemMeta?.tds_item_id ?? item?.tds_item_id ?? "",
+            tds_item_id: selectedGroupId,
+            tds_item_name: selectedGroupName,
+            tds_work_package: selectedGroupWP,
+            // tds_category is a frozen snapshot from the original row; the group
+            // model derives categories live (joined member categories) and no
+            // longer stores a single category. Preserve the row's existing value.
+            tds_category: item?.tds_category ?? "",
             tds_make: selectedMake,
             tds_description: description,
             tds_boq_line_item: boqRef,
             attachmentFile,
         };
-        // Carry forward the repo attachment only when the user didn't upload a new file
-        if (!attachmentFile && selectedRepoEntry?.tds_attachment) {
-            updates.tds_attachment = selectedRepoEntry.tds_attachment;
+        // Carry the entry datasheet forward when the user didn't upload a new file.
+        if (!attachmentFile && selectedEntry?.tds_attachment) {
+            updates.tds_attachment = selectedEntry.tds_attachment;
         }
         return updates;
     };
 
     const handleSaveAttempt = () => {
         if (!item) return;
-        if (!selectedItemId || !selectedMake) {
-            toast({ title: "Validation Error", description: "Please select an item and make.", variant: "destructive" });
+        if (!selectedGroupId || !selectedMake) {
+            toast({ title: "Validation Error", description: "Please select a TDS Item and make.", variant: "destructive" });
             return;
         }
 
-        // Require either an existing attachment on the row, a freshly picked
-        // file, or one inherited from the selected repo entry's tds_attachment.
-        if (!attachmentFile && !item.tds_attachment && !selectedRepoEntry?.tds_attachment) {
+        // Datasheet must exist: either an existing row attachment, a fresh upload,
+        // or the selected entry's datasheet.
+        if (!attachmentFile && !item.tds_attachment && !selectedEntry?.tds_attachment) {
             setFileError("Attachment is required");
             return;
         }
 
-        const duplicate = existingProjectItems?.find(i =>
-            i.tds_item_id === selectedRepoEntry?.tds_item_id &&
+        // Dedup on (tds_item_id, tds_make). A Rejected duplicate can be replaced
+        // after confirmation; an active (Pending/Approved) duplicate is blocked.
+        const dupActive = existingProjectItems?.find((i: any) =>
+            i.tds_item_id === selectedGroupId &&
+            i.tds_make === selectedMake &&
+            (i.tds_status === "Approved" || i.tds_status === "Pending" || !i.tds_status)
+        );
+        if (dupActive) {
+            toast({
+                title: "Duplicate",
+                description: "This TDS Item + Make is already selected in this project.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        const dupRejected = existingProjectItems?.find((i: any) =>
+            i.tds_item_id === selectedGroupId &&
             i.tds_make === selectedMake &&
             i.tds_status === "Rejected"
         );
-
-        if (duplicate) {
-            setDuplicateDocName(duplicate.name);
+        if (dupRejected) {
+            setDuplicateDocName(dupRejected.name);
             setConfirmInput("");
             setShowConfirmDialog(true);
             return;
@@ -249,7 +294,6 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
         if (!item || !duplicateDocName) return;
-
         onSave(item.name, buildUpdates(), [duplicateDocName]);
         setShowConfirmDialog(false);
         setDuplicateDocName(null);
@@ -265,6 +309,11 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
         }),
     };
 
+    // react-select inside a Radix dialog: the dialog sets body { pointer-events: none },
+    // so a portaled menu needs pointer-events restored to be clickable.
+    const menuPortalTarget = typeof document !== "undefined" ? document.body : undefined;
+    const menuPortalStyle = (base: any) => ({ ...base, zIndex: 9999, pointerEvents: "auto" as const });
+
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
@@ -272,76 +321,65 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                     <DialogHeader className="p-6 pb-2 border-b border-gray-50">
                         <DialogTitle className="text-xl font-bold tracking-tight">Edit TDS Item</DialogTitle>
                         <DialogDescription className="text-sm text-gray-500 mt-1">
-                            Select an item and make from the repository.
+                            Select a TDS Item and make from the repository.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
                         <div className="space-y-4">
-                            {/* Work Package (auto-fill, read-only) */}
-                            <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">Work Package (Auto-fill)</Label>
-                                <ReactSelect
-                                    options={displayedWP ? [{ label: displayedWP, value: displayedWP }] : []}
-                                    value={displayedWP ? { label: displayedWP, value: displayedWP } : null}
-                                    isDisabled
-                                    placeholder="Auto-filled from item"
-                                    classNamePrefix="react-select"
-                                    styles={readOnlyStyles}
-                                />
-                            </div>
-
-                            {/* Category (auto-fill, read-only) */}
-                            <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">Category (Auto-fill)</Label>
-                                <ReactSelect
-                                    options={displayedCategory ? [{ label: displayedCategory, value: displayedCategory }] : []}
-                                    value={displayedCategory ? { label: displayedCategory, value: displayedCategory } : null}
-                                    isDisabled
-                                    placeholder="Auto-filled from item"
-                                    classNamePrefix="react-select"
-                                    styles={readOnlyStyles}
-                                />
-                            </div>
-
-                            {/* Item Name */}
+                            {/* TDS Item (group) — fuzzy search over name + member items */}
                             <div className="space-y-1">
                                 <Label className="text-sm font-bold text-gray-700">
-                                    Item Name<span className="text-red-500 ml-0.5">*</span>
+                                    TDS Item<span className="text-red-500 ml-0.5">*</span>
                                 </Label>
                                 <FuzzySearchSelect
-                                    allOptions={itemNameOptions}
+                                    allOptions={groupOptionsWithCurrent}
                                     tokenSearchConfig={{
-                                        searchFields: ['label', 'value', 'category'],
+                                        searchFields: ['label', 'member'],
                                         minSearchLength: 1,
                                         partialMatch: true,
                                         minTokenLength: 1,
-                                        fieldWeights: { label: 2.0, value: 1.5, category: 1.0 },
+                                        fieldWeights: { label: 2.0, member: 1.0 },
                                         minTokenMatches: 1,
                                     }}
-                                    value={
-                                        itemNameOptions.find(opt => opt.value === selectedItemId)
-                                        || (selectedItemId && item ? { label: item.tds_item_name || "", value: selectedItemId, category: "" } : null)
-                                    }
-                                    onChange={handleItemNameChange as any}
-                                    placeholder="Search Item Name..."
+                                    value={currentGroupValue}
+                                    onChange={handleGroupChange as any}
+                                    onSearchInputChange={handleGroupSearchInput}
+                                    placeholder="Search TDS Item or member item..."
                                     classNamePrefix="react-select"
                                     isClearable
                                     formatOptionLabel={(option: any) => (
-                                        <span>
-                                            {option.label}
-                                            {option.category && (
-                                                <span className="text-blue-600 ml-1">({option.category})</span>
+                                        <div className="flex flex-col">
+                                            <span>{option.label}</span>
+                                            {option.member && (
+                                                <span className="text-[11px] text-slate-500">
+                                                    contains {option.member}
+                                                </span>
                                             )}
-                                        </span>
+                                        </div>
                                     )}
+                                    menuPortalTarget={menuPortalTarget}
                                     styles={{
-                                        control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
+                                        control: (base: any) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
+                                        menuPortal: menuPortalStyle,
                                     }}
                                 />
                             </div>
 
-                            {/* Make */}
+                            {/* Work Package (derived from group, read-only) */}
+                            <div className="space-y-1">
+                                <Label className="text-sm font-bold text-gray-700">Work Package (Auto-fill)</Label>
+                                <ReactSelect
+                                    options={selectedGroupWP ? [{ label: selectedGroupWP, value: selectedGroupWP }] : []}
+                                    value={selectedGroupWP ? { label: selectedGroupWP, value: selectedGroupWP } : null}
+                                    isDisabled
+                                    placeholder="Auto-filled from TDS Item"
+                                    classNamePrefix="react-select"
+                                    styles={readOnlyStyles}
+                                />
+                            </div>
+
+                            {/* Make — only makes-with-datasheet for the chosen group */}
                             <div className="space-y-1">
                                 <Label className="text-sm font-bold text-gray-700">
                                     Make<span className="text-red-500 ml-0.5">*</span>
@@ -353,8 +391,15 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                         || (selectedMake ? { label: selectedMake, value: selectedMake } : null)
                                     }
                                     onChange={(opt) => setSelectedMake(opt?.value || "")}
-                                    placeholder={selectedItemId ? "Select Make" : "Pick an Item first"}
-                                    isDisabled={!selectedItemId}
+                                    placeholder={
+                                        !selectedGroupId
+                                            ? "Pick a TDS Item first"
+                                            : makeOptions.length === 0
+                                                ? "No datasheets available for this item"
+                                                : "Select Make"
+                                    }
+                                    isDisabled={!selectedGroupId || makeOptions.length === 0}
+                                    menuPortalTarget={menuPortalTarget}
                                     classNamePrefix="react-select"
                                     styles={{
                                         control: (base) => ({
@@ -362,10 +407,19 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                             minHeight: "44px",
                                             borderRadius: "8px",
                                             borderColor: "#e5e7eb",
-                                            backgroundColor: !selectedItemId ? "#f9fafb" : "white",
+                                            backgroundColor: !selectedGroupId ? "#f9fafb" : "white",
                                         }),
+                                        menuPortal: menuPortalStyle,
                                     }}
                                 />
+                                {selectedEntry?.status && (
+                                    <p className="text-[10px] text-slate-500 px-1">
+                                        Master status:{" "}
+                                        <span className={selectedEntry.status === "Verified" ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>
+                                            {selectedEntry.status}
+                                        </span>
+                                    </p>
+                                )}
                             </div>
 
                             {/* BOQ Line Item */}
@@ -395,10 +449,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
 
                             {/* Attachment */}
                             {(() => {
-                                // Existing doc can come from the row itself OR be inherited
-                                // from the currently-selected repo entry (buildUpdates carries
-                                // selectedRepoEntry.tds_attachment over when no new file is picked).
-                                const existingDocUrl = item?.tds_attachment || selectedRepoEntry?.tds_attachment || "";
+                                const existingDocUrl = item?.tds_attachment || selectedEntry?.tds_attachment || "";
                                 const hasExistingDoc = !!existingDocUrl;
                                 const attachmentLabel = hasExistingDoc ? "Replace Document" : "Upload PDF Document";
                                 return (
@@ -420,7 +471,10 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                         {hasExistingDoc && !attachmentFile && (
                                             <p className="text-[10px] text-gray-500 flex items-center gap-1 px-1">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                                Current file: <a href={existingDocUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Document</a>
+                                                Current file:{" "}
+                                                <a href={existingDocUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
+                                                    <FileText className="h-3 w-3" /> View Document
+                                                </a>
                                             </p>
                                         )}
                                         {fileError && (
@@ -457,7 +511,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This item-make combination already exists as a <strong>Rejected</strong> entry in the project.
+                            This TDS Item + Make combination already exists as a <strong>Rejected</strong> entry in the project.
                             To replace it and continue, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>

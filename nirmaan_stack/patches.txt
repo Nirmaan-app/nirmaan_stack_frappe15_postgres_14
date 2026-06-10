@@ -87,7 +87,7 @@ nirmaan_stack.patches.v3_0.migrate_dc_mir_to_po_delivery_documents
 nirmaan_stack.patches.v3_0.backfill_ceo_hold_by
 nirmaan_stack.patches.v3_0.custom_po_migrate_payment_terms_text_to_json #v1
 nirmaan_stack.patches.v3_0.backfill_design_tracker_onboarding_phase
-nirmaan_stack.patches.v3_0.sync_items_to_tds_repository #v2
+#nirmaan_stack.patches.v3_0.sync_items_to_tds_repository #v2 # superseded by restructure_tds_repository_to_tds_items
 nirmaan_stack.patches.v3_0.backfill_handover_na_tasks
 nirmaan_stack.patches.v3_0.add_is_dispatched_field
 nirmaan_stack.patches.v3_0.migrate_delivery_data_to_delivery_notes #v6
@@ -112,7 +112,7 @@ nirmaan_stack.patches.v3_0.backfill_pdd_parent_doctype #v2
 nirmaan_stack.patches.v3_0.drop_itr_doctype
 nirmaan_stack.patches.v3_0.backfill_project_schedule #v2
 nirmaan_stack.patches.v3_0.backfill_cashflow_gap_limited #v4
-nirmaan_stack.patches.v3_0.backfill_tds_repository_status #v2
+#nirmaan_stack.patches.v3_0.backfill_tds_repository_status #v2 # superseded by restructure_tds_repository_to_tds_items
 nirmaan_stack.patches.v3_0.backfill_asset_category_type
 nirmaan_stack.patches.v3_0.backfill_blank_item_id
 nirmaan_stack.patches.v3_0.rename_cashflow_gap_limited #1
@@ -121,3 +121,4 @@ nirmaan_stack.patches.v3_0.purge_document_ai_credentials
 nirmaan_stack.patches.v3_0.sync_commission_master_changes
 nirmaan_stack.patches.v3_0.backfill_commission_report_type
 nirmaan_stack.patches.v3_0.backfill_billing_status
+nirmaan_stack.patches.v3_0.restructure_tds_repository_to_tds_items

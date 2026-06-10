@@ -64,10 +64,10 @@ export const TDSApprovalList: React.FC = () => {
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
 
-    const ALLOWED_APPROVER_ROLES = [
-        "Nirmaan Admin Profile",
-        "Nirmaan Project Lead Profile",
-    ];
+    // Phase 2 (ADR-0003 P2-5): all TDS approval is Admin-only. Project Lead lost
+    // the pre-freeze approve right. canApprove gates row navigation into the
+    // Pending detail screen (non-approvers see read-only list + info banner).
+    const ALLOWED_APPROVER_ROLES = ["Nirmaan Admin Profile"];
 
     const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
 
@@ -412,7 +412,7 @@ export const TDSApprovalList: React.FC = () => {
                 <Alert variant="default" className="border-blue-200 bg-blue-50">
                     <Info className="h-4 w-4 text-blue-600" />
                     <AlertDescription className="text-sm text-blue-800">
-                        These TDS items are pending approval from an admin or project lead. Contact them for urgent cases.
+                        These TDS items are pending approval from an admin. Contact them for urgent cases.
                     </AlertDescription>
                 </Alert>
             )}

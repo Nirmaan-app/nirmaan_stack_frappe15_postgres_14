@@ -71,6 +71,7 @@ import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
+const TDSItemDetail = lazy(() => import("@/pages/tds/TDSItemDetail"));
 // --- End component imports ---
 
 // NEW COMMISSION REPORT PAGES
@@ -690,6 +691,7 @@ export const appRoutes: RouteObject[] = [
           { path: "pmo-packages", element: <Navigate to="/packages-settings?tab=pmo-packages" replace /> },
           { path: "critical-po-categories", element: <Navigate to="/packages-settings?tab=critical-po-categories" replace /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
+          { path: "tds-repository/item/:id", element: <Suspense fallback={null}><TDSItemDetail /></Suspense> },
 
           // ======================================================
           // --- START: PMO DASHBOARD SECTION ---
