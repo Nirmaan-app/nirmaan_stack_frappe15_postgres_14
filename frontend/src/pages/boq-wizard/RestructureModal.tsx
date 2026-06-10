@@ -223,7 +223,7 @@ export function RestructureModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Reclassify row and place its children</DialogTitle>
           <DialogDescription>
@@ -245,7 +245,7 @@ export function RestructureModal({
           </p>
           <ul className="space-y-0.5 max-h-32 overflow-y-auto">
             {children.map((c) => (
-              <li key={c.row_index} className="text-xs text-muted-foreground truncate">
+              <li key={c.row_index} className="text-xs text-muted-foreground whitespace-normal break-words">
                 row {c.source_row_number}: {c.description || "(no description)"}
               </li>
             ))}
@@ -336,7 +336,7 @@ export function RestructureModal({
                 const t = perChild[c.row_index];
                 return (
                   <li key={c.row_index} className="flex items-center gap-2 text-xs">
-                    <span className="flex-1 truncate">
+                    <span className="flex-1 whitespace-normal break-words">
                       row {c.source_row_number}: {c.description || "(no description)"}
                     </span>
                     <span className="shrink-0 text-muted-foreground w-24 text-right">
