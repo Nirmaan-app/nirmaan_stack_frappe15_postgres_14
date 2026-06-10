@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import {
   useFrappeCreateDoc,
   useFrappeDocumentEventListener,
@@ -40,6 +39,7 @@ export interface ProjectPOItemDataItem {
   item_name: string;
   work_package: string;
   is_dispatched?: number;
+  billing_status?: string | null;
 }
 
 export const projectRootKeys = {

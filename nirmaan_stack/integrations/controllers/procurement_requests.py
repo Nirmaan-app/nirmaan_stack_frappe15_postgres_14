@@ -541,9 +541,49 @@ def validate_procurement_request_for_po(doc: Document) -> bool:
     # return True
 
 def validate(doc, method):
-    for item in doc.get("order_list") or []:
+    items = doc.get("order_list") or []
+    for item in items:
         if not item.item_id:
             item.item_id = item.name
+
+    # Billing status is sourced from the Items master (billing_category). Items not
+    # in the master default to Billable when they are brand-new requests (a Custom PR,
+    # or a "Request"-status item the user is asking to be created), else Non-Billable.
+    # To avoid re-querying on every save, only source rows that are new or whose item
+    # identity (item_id / item_name) changed since the last save. Routine saves
+    # (status, comments, quote, qty) touch nothing and run no query.
+    is_custom_pr = doc.work_package == "Custom"
+    old_rows = {}
+    old_doc = doc.get_doc_before_save()
+    if old_doc:
+        old_rows = {row.name: row for row in (old_doc.get("order_list") or [])}
+
+    to_source = []
+    for item in items:
+        old = old_rows.get(item.name)
+        if (old is None
+                or not item.get("billing_status")
+                or item.item_id != old.item_id
+                or item.item_name != old.item_name):
+            to_source.append(item)
+
+    if to_source:
+        item_ids = list({item.item_id for item in to_source if item.item_id})
+        billing_map = {}
+        if item_ids:
+            for row in frappe.get_all(
+                "Items", filters={"name": ["in", item_ids]},
+                fields=["name", "billing_category"]
+            ):
+                billing_map[row.name] = row.billing_category
+        for item in to_source:
+            master_status = billing_map.get(item.item_id)
+            if master_status:
+                item.billing_status = master_status
+            elif is_custom_pr or item.status == "Request":
+                item.billing_status = "Billable"
+            else:
+                item.billing_status = "Non-Billable"
 
 
 def after_insert(doc, method):

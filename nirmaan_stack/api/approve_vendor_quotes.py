@@ -60,7 +60,8 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                         "quantity": item_quantity, "category": pr_child_item.category, "procurement_package": pr_child_item.procurement_package,
                         "quote": item_quote_rate, "amount": base_amount, "make": pr_child_item.make, "tax": item_tax_percentage,
                         "tax_amount": calculated_tax_amount, "total_amount": final_total_amount, "comment": pr_child_item.comment,
-                        "procurement_request_item": pr_child_item.name
+                        "procurement_request_item": pr_child_item.name,
+                        "billing_status": pr_child_item.get("billing_status") or "Non-Billable",  # carry PR value (Items-derived); Non-Billable fallback
                     }
                     if vendor_id_from_payload not in vendor_po_items_details:
                         vendor_po_items_details[vendor_id_from_payload] = []

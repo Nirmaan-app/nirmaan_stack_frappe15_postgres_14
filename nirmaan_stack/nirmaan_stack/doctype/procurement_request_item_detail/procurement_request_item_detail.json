@@ -18,7 +18,8 @@
   "tax",
   "comment",
   "vendor",
-  "quote"
+  "quote",
+  "billing_status"
  ],
  "fields": [
   {
@@ -105,6 +106,13 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Quote"
+  },
+  {
+   "fieldname": "billing_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Billing Status",
+   "options": "Billable\nNon-Billable"
   }
  ],
  "grid_page_length": 50,

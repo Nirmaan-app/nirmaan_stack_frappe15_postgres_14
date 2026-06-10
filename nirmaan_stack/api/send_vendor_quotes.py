@@ -84,6 +84,7 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
                     "comment": item.get("comment"),
                     "procurement_package": item.get("procurement_package"),
                     "make": item.get("make"),
+                    "billing_status": item.get("billing_status"),  # hold the PR item's billing status
                     # Add other relevant fields needed by Sent Back Category
                 })
                 # Add item details to new_rfq_details for the Sent Back doc
