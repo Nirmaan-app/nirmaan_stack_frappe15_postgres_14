@@ -1,6 +1,21 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-09 (Restructure Slice 1b-beta [feat e8eeab58] COMPLETE -- FRONTEND: the
+**Last updated:** 2026-06-10 (get_sheet_preview_full [feat 196ed765] COMPLETE -- BACKEND ONLY:
+new additive whitelisted endpoint `get_sheet_preview_full(boq_name, sheet_name)` that fetches +
+opens the workbook ONCE and reads EVERY row in a single pass (no 200-row cap), reusing the existing
+helpers + the IDENTICAL per-row skip logic so its `rows` is BYTE-IDENTICAL to concatenating every
+windowed get_sheet_preview call over the same sheet. Replaces the need for SheetSearchView's slow
+windowed loop (one S3 fetch + workbook open PER 200-row window, ~30s on a 1001-row sheet). The existing
+`get_sheet_preview` is UNCHANGED -- still serves SheetSpokePage's on-demand 40-row pagination (S2;
+diff is purely additive, +237 lines, 0 deletions). Return shape `{sheet_name, rows, returned_count,
+has_more:False}` -- has_more kept (always False) for v2 type-compat; start_row/end_row_requested omitted
+(no window). NO frontend consumer yet -- the SheetSearchView switch is deferred to the "SheetSearchView
+v2" slice (bundled with column-widths/wrap + click-to-select per the slice-composition framework, so the
+certified component is re-certified ONCE). The tests ARE the cert: new TestGetSheetPreviewFull (9) incl
+the byte-identity keystone (windowed-concat == full-read, exact); 23 existing sheet_preview tests pass
+unchanged; 32 total, in-container bench run-tests OK. Live perf proof lands in v2. No frontend touched ->
+frontend/CLAUDE.md not substantively affected this slice. Full detail in boq-upload-plan.md.
+// prior: Restructure Slice 1b-beta [feat e8eeab58] COMPLETE -- FRONTEND: the
 restructure MODAL. Detail-panel classification pill -> DropdownMenu of the 4 assignable targets;
 childless rows take a light AlertDialog confirm (empty child_moves), rows WITH children open the staged
 `RestructureModal` (NEW) -- lists the row + children + FIVE child-placement options [move-up /
@@ -319,9 +334,11 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 **Read path (sheet drafts):** no custom read endpoint. `useFrappeGetDoc("BOQs", boqName)` returns full doc including all `sheet_drafts` child rows.
 
-**`sheet_preview.py`** (feat bf1a2e64, Slice 3b-i) -- 1 function:
+**`sheet_preview.py`** (feat bf1a2e64, Slice 3b-i; + get_sheet_preview_full feat 196ed765) -- 2 functions:
 
 - `get_sheet_preview(boq_name, sheet_name, start_row=1, end_row=40)` -- values-only windowed preview of raw cell data for one sheet. `@frappe.whitelist()` bare (read; callable via GET / useFrappeGetCall). Coerces start_row/end_row to int; guards start_row>=1, end_row>=start_row; clamps window silently to 200 rows max. Fetches the BoQ file from S3 via `_fetch_boq_file_to_tempfile` (URL-param key extraction + `S3Operations.read_file_from_s3`), opens with `openpyxl.load_workbook(path, data_only=True, read_only=True)` (~0.56s on a 7.65 MB file -- does NOT use BoqReader which takes ~27s due to double-open + merged-cell pre-scan), and reads the requested row window. VERBATIM sheet_name matching. Returns `{sheet_name, start_row, end_row_requested, rows: [{row_number, cells: {col_letter: value}}], returned_count, has_more}`. `has_more` derived from `ws.max_row` (dimension metadata). Tempfile always unlinked in a `finally` block. URL: `/api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview`
+
+- `get_sheet_preview_full(boq_name, sheet_name)` -- (feat 196ed765) ADDITIVE single-pass full-sheet read: fetches + opens the workbook ONCE and iterates row 1 .. `ws.max_row` (None-safe -- read_only sheets with no `<dimension>` tag still iterate to the end) with NO 200-row cap. `@frappe.whitelist()` bare. REUSES the existing helpers verbatim (`_fetch_boq_file_to_tempfile`, `_to_json_serializable`, `get_column_letter`) and the IDENTICAL per-row skip logic (skip all-EmptyCell padding rows via `next((c.row...), None)`; skip EmptyCells within a kept row via `hasattr(cell,"column")`), so `rows` is BYTE-IDENTICAL to concatenating every windowed `get_sheet_preview` call over the same sheet (locked by `test_byte_identity_to_windowed_path`). VERBATIM sheet_name (#152). Same guards as `get_sheet_preview` (missing args / BOQs-not-found / empty source_file_url / sheet-not-in-workbook). Tempfile + workbook closed in a `finally`. Returns `{sheet_name, rows: [{row_number, cells: {col_letter: value}}], returned_count, has_more: False}` -- `has_more` always False (a full read has nothing beyond), kept only so the response stays type-compatible with `get_sheet_preview` for the v2 frontend; `start_row`/`end_row_requested` omitted (no window). PURPOSE: replace SheetSearchView's slow windowed loop (one S3 fetch + workbook open PER 200-row window, ~30s on a 1001-row sheet). `get_sheet_preview` is UNCHANGED -- still serves SheetSpokePage's on-demand 40-row pagination. NO frontend consumer yet -- the SheetSearchView switch is deferred to the "SheetSearchView v2" slice (bundled with column-widths/wrap + click-to-select, so the certified component is re-certified ONCE); live perf proof lands there. URL: `/api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview_full`
 
 **`parse_run.py`** (Phase-1 Slice 1 + Slice 2) -- pure helpers + background worker + endpoint:
 

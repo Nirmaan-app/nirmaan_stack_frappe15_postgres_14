@@ -880,7 +880,72 @@ Feat: b14e9015.
 - Return shape: `{"sheet_name": str, "start_row": int, "end_row_requested": int, "rows": [{row_number, cells}], "returned_count": int, "has_more": bool}`.
 - URL: `/api/method/nirmaan_stack.api.boq.wizard.sheet_preview.get_sheet_preview`
 
-**Tests: `nirmaan_stack/api/boq/wizard/test_sheet_preview.py` (23 tests, all PASS):**
+---
+
+### Endpoint follow-up: `get_sheet_preview_full(boq_name, sheet_name)` -- single-pass full-sheet read (feat 196ed765, 2026-06-10) COMPLETE
+
+**What & why.** The Slice 1a live-cert logged that SheetSearchView's full-sheet load is ~30s on the
+1001-row Fire Fitting sheet because the frontend loops `get_sheet_preview` in 200-row windows and the
+endpoint re-fetches S3 + re-opens the workbook PER WINDOW. This backend slice pays down that OWED item
+with ONE additive endpoint that fetches + opens the workbook ONCE and reads EVERY row in a single pass.
+
+**Recon decision (option a chosen, option b rejected).** A NEW additive function -- NOT a refactor of
+`get_sheet_preview`. `get_sheet_preview` is left byte-for-byte untouched (it still serves SheetSpokePage's
+genuine on-demand 40-row pagination); refactoring it to share a core was rejected (it risked the certified
+windowed contract for no benefit). Verified additive: `git diff` shows +237 insertions, 0 deletions.
+
+**As built.**
+- `@frappe.whitelist()` bare (read). Args `boq_name`, `sheet_name` only -- no window params, no cap.
+- REUSES the existing helpers verbatim: `_fetch_boq_file_to_tempfile`, `_to_json_serializable`,
+  `get_column_letter` (no fork/duplication).
+- Same guards as `get_sheet_preview`: missing `boq_name` / missing `sheet_name` / `BOQs` not-found /
+  empty `source_file_url` / sheet-not-in-workbook all throw identically. `sheet_name` matched VERBATIM
+  (#152) -- a trailing-space mismatch throws (mirrors `test_whitespace_mismatch_throws`).
+- Fetch once -> `openpyxl.load_workbook(..., data_only=True, read_only=True)` once -> iterate
+  `min_row=1 .. max_row=ws.max_row`. NOTE: `ws.max_row` is `None` for read_only sheets with no
+  `<dimension>` tag (snitch_electrical is such a sheet); `iter_rows(max_row=None)` still iterates to the
+  end (verified -- 1011 rows returned), so this is None-safe.
+- IDENTICAL per-row build to `get_sheet_preview`: skip all-EmptyCell padding rows
+  (`next((c.row...), None) -> skip if None`); within a kept row skip EmptyCells (`hasattr(cell,"column")`);
+  keys via `get_column_letter`; values via `_to_json_serializable`. Row shape
+  `{"row_number": <absolute Excel row>, "cells": {col_letter: value}}` -- byte-identical to the windowed path.
+- Tempfile unlinked + workbook closed in a `finally` (mirrors `get_sheet_preview`).
+- **Return shape:** `{sheet_name, rows, returned_count, has_more: False}`. `has_more` kept (always
+  False -- a full read has nothing beyond) so the response stays TYPE-COMPATIBLE with
+  `get_sheet_preview` for the v2 frontend (reuses `SheetPreviewResponse` without a fork); `start_row` /
+  `end_row_requested` omitted (windowing artifacts, meaningless for a full read). Owner decision 2026-06-10.
+
+**Tests (new `TestGetSheetPreviewFull`, 9, all PASS in-container):**
+- T1 `test_all_rows_returned_no_200_cap` -- snitch fixture: `returned_count == len(rows)` and `> 200`
+  (proves no 200-row cap; the sheet has 1011 content rows).
+- T2 `test_byte_identity_to_windowed_path` (CORRECTNESS KEYSTONE) -- windows `get_sheet_preview` over the
+  same sheet (`_gather_windowed_rows`, 200-row windows until `has_more` False), concatenates, asserts it
+  EQUALS `get_sheet_preview_full`'s rows exactly (order, row_numbers, cells). Locks the new path to the
+  preserved contract.
+- T3 `test_blank_rows_skipped_noncontiguous` -- synthetic_simple has data on rows 1,2,3,5 (row 4 blank);
+  asserts row_numbers `[1,2,3,5]`, blank row 4 absent, `max(rn) > count` (a row genuinely skipped), and
+  the skip pattern matches the windowed path.
+- T4 `test_whitespace_mismatch_throws` -- leading-space sheet_name throws (#152 verbatim).
+- T5 negatives (5) -- missing boq_name / missing sheet_name / nonexistent boq / nonexistent sheet /
+  empty source_file_url all throw, mirroring the existing endpoint.
+
+**The tests ARE the cert for this slice** (no live UI consumer yet). The byte-identity test (T2)
+genuinely executed and passed in-container -- it is the proof the new single-pass path equals the
+concatenated windowed path. Live PERF proof lands when SheetSearchView v2 wires this endpoint up.
+
+**No frontend consumer yet -- deferred to "SheetSearchView v2".** The SheetSearchView switch from the
+windowed loop to this endpoint is bundled (per the slice-composition framework) with the other two
+SheetSearchView-touching changes (column-widths/wrap from Layout Part A's OWED item + click-to-select),
+so the 1a-certified component is re-certified ONCE rather than three times.
+
+**Verification:** in-container `bench --site localhost run-tests --module
+nirmaan_stack.api.boq.wizard.test_sheet_preview` -> 32 tests OK (23 pre-existing + 9 new). The 23
+existing `get_sheet_preview` tests pass unchanged (proves the existing endpoint is untouched). No
+tsc/build (no frontend touched). Two commits: feat (sheet_preview.py + test_sheet_preview.py) then docs.
+
+---
+
+**Tests: `nirmaan_stack/api/boq/wizard/test_sheet_preview.py` (23 tests as of feat bf1a2e64; +9 `TestGetSheetPreviewFull` added feat 196ed765 -> 32 total, all PASS):**
 - `TestDeriveS3Key` (3): parse key from private URL; fallback via File doc content_hash (mock); throws when no key derivable.
 - `TestToJsonSerializable` (5): primitives pass through; datetime.datetime → isoformat; datetime.date → isoformat; timedelta → str; unknown type → str.
 - `TestGetSheetPreviewShape` (4): response keys present; row_numbers sequential + in range; cells use uppercase Excel column letters; A1 value matches `synthetic_simple.xlsx` fixture ("Sl.No.").
@@ -6264,6 +6329,10 @@ decision, not owed work.
 get_sheet_preview in 200-row windows and the endpoint RE-OPENS the workbook per window. OWED as a
 Slice 1b backend follow-up: a single-pass full-sheet-read endpoint to replace the windowed loop.
 (Small/medium sheets are already fast.)
+  RESOLVED (backend) 2026-06-10, feat 196ed765: `get_sheet_preview_full(boq_name, sheet_name)` built +
+  tests-certified (byte-identical to the windowed path; see the get_sheet_preview_full endpoint section
+  above). The PERF benefit lands when SheetSearchView v2 wires the new endpoint up (deferred so the
+  1a-certified SheetSearchView is re-certified once, bundled with column-widths/wrap + click-to-select).
 
 **Files changed (feat 5ecf1820):**
 - `frontend/src/pages/boq-wizard/SheetSearchView.tsx` (new).
