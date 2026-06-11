@@ -1179,7 +1179,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                   {expandedDetailRow === row.row_index && (
                     <tr className="bg-muted/30">
                       <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
-                        <div onClick={(e) => e.stopPropagation()}>
+                        {/* Detail-panel layout pass (FINDING B): a DISTINCT nested card.
+                            bg-background (NOT the bg-muted/30 row-hover tint) + border +
+                            rounded + subtle shadow + own padding insets it from the cell,
+                            so the panel no longer reads as just another hovered row. */}
+                        <div onClick={(e) => e.stopPropagation()} className="bg-background border border-border rounded-md shadow-sm p-3">
                           {/* Header: Excel row number + provenance badge */}
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-medium text-foreground">
@@ -1190,8 +1194,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">original</span>
                             }
                           </div>
-                          {/* Original-vs-effective: classification + parent (read-only, edit-focused panel) */}
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-2">
+                          {/* Original-vs-effective: classification + parent (read-only, edit-focused panel).
+                              Obs 1: VERTICAL STACK (grid-cols-1) -- Classification row, then the
+                              Parent + "Change parent" row below it; the prior grid-cols-2 pushed
+                              Parent's right column off-screen on a wide row. */}
+                          <div className="grid grid-cols-1 gap-y-1 text-xs mb-2">
                             <div className="flex items-center gap-2">
                               <div>
                                 <span className="text-muted-foreground">Classification: </span>
@@ -1269,7 +1276,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {editableDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                              <div className="flex flex-wrap gap-2">
+                              {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                 {editableDescriptors.map(d => {
                                   const stored = (row as unknown as Record<string, unknown>)[d.value_field];
                                   const storedStr = stored === null || stored === undefined ? "" : String(stored);
@@ -1277,7 +1285,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   const dirty = current !== storedStr;
                                   const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
                                   return (
-                                    <div key={d.value_field} className="flex flex-col gap-1 w-52">
+                                    <div key={d.value_field} className="flex flex-col gap-1">
                                       <label
                                         htmlFor={`edit-${row.row_index}-${d.value_field}`}
                                         className="text-[10px] text-muted-foreground"
@@ -1318,7 +1326,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {editableTextDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                              <div className="flex flex-wrap gap-2">
+                              {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                 {editableTextDescriptors.map(d => {
                                   const stored = (row as unknown as Record<string, unknown>)[d.value_field];
                                   const storedStr = stored === null || stored === undefined ? "" : String(stored);
@@ -1326,7 +1335,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   const dirty = current !== storedStr;
                                   const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
                                   return (
-                                    <div key={d.value_field} className="flex flex-col gap-1 w-52">
+                                    <div key={d.value_field} className="flex flex-col gap-1">
                                       <label
                                         htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
                                         className="text-[10px] text-muted-foreground"
@@ -1368,7 +1377,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {editableAreaDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
-                              <div className="flex flex-wrap gap-2">
+                              {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                 {editableAreaDescriptors.map(d => {
                                   const storedVal = resolveDescriptorValue(row, d);
                                   const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
@@ -1377,7 +1387,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
                                   const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
                                   return (
-                                    <div key={d.col} className="flex flex-col gap-1 w-52">
+                                    <div key={d.col} className="flex flex-col gap-1">
                                       <label
                                         htmlFor={`edit-area-${row.row_index}-${d.col}`}
                                         className="text-[10px] text-muted-foreground"
