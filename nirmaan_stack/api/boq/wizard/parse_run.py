@@ -43,7 +43,9 @@ _LIST_JSON_FIELDS: frozenset[str] = frozenset({
 })
 
 
-def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
+def assemble_mapping_config(
+    boq_name: str, force_reparse: bool = False
+) -> tuple[MappingConfig, list[str]]:
     """
     Build a MappingConfig from the saved BOQs + BoQ Sheet Draft records.
 
@@ -55,10 +57,21 @@ def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
       1. wizard_status in {Hidden, Skip}         -> SheetConfig(skip=True)
       2. sheet_name == BOQs.general_specs_sheet  -> treat_as="master_preamble"
       3. wizard_status in {Reviewed, Parsed}     -> deserialize blob, include as data
+         (+ "Parsed Check Done" ONLY when force_reparse=True -- see below)
       4. anything else (Pending, Parse failed, blank, ...) -> not_eligible
 
     "Parsed" is treated the same as "Reviewed" because the sheet config is still
     valid and a re-run should re-parse configured sheets.
+
+    Force Re-parse (force_reparse): when True, a "Parsed Check Done" sheet (one a
+    human hand-edited on the review screen and marked checked) is ALSO admitted as
+    a data parse target, on the SAME terms as Rule 3 (valid sheet_config blob still
+    required; the empty-blob and invalid-blob sub-gates still apply). When False
+    (the default, and the normal parse path), "Parsed Check Done" stays in
+    not_eligible exactly as before -- the flag-gated branch is the ONLY way it
+    becomes eligible. A successful re-parse drops it back to "Parsed" via the
+    worker's unconditional status-set line (Option A); re-parsing DELETES the prior
+    BoQ Review Rows, discarding the human edits/remarks by design.
 
     GlobalSettings always uses defaults -- no per-BoQ override exists or is wanted.
     """
@@ -113,7 +126,13 @@ def assemble_mapping_config(boq_name: str) -> tuple[MappingConfig, list[str]]:
             continue
 
         # Rule 3: Reviewed or Parsed (next lifecycle state after Reviewed).
-        if status in {"Reviewed", "Parsed"}:
+        # Force Re-parse: when force_reparse is set, ALSO admit "Parsed Check Done"
+        # into this SAME branch -- the blob sub-gates below then apply identically
+        # (no parallel branch, no duplicated validation). Without the flag this is
+        # byte-for-byte the prior behaviour and "Parsed Check Done" falls to Rule 4.
+        if status in {"Reviewed", "Parsed"} or (
+            force_reparse and status == "Parsed Check Done"
+        ):
             blob = draft.sheet_config
             if not blob:
                 logger.warning(
@@ -261,12 +280,19 @@ def flatten_parsed_boq(parsed_boq: ParsedBoq, boq_name: str) -> list[dict[str, A
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist(methods=["POST"])
-def run_parse(boq_name: str = None, sheet_names=None):
+def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     """
     Enqueue a background parse worker.  Returns immediately.
 
     sheet_names=None  -> parse all eligible Reviewed/Parsed sheets.
     sheet_names=[...] -> parse only the named subset (per-sheet re-parse).
+
+    force_reparse=False (default) -> normal parse path; "Parsed Check Done"
+        sheets stay ineligible exactly as before.
+    force_reparse=True -> Force Re-parse; "Parsed Check Done" sheets become
+        eligible data parse targets (see assemble_mapping_config). The frontend
+        sets this only for a deliberate, warned re-parse of an already-checked
+        sheet (a later slice wires the button).
 
     URL: /api/method/nirmaan_stack.api.boq.wizard.parse_run.run_parse
     """
@@ -282,6 +308,14 @@ def run_parse(boq_name: str = None, sheet_names=None):
         except json.JSONDecodeError:
             sheet_names = [sheet_names]
 
+    # force_reparse may arrive as a string ("true"/"1") from the HTTP POST body;
+    # coerce to a real bool so the default-False normal path can never be tripped
+    # by a truthy non-empty string. Mirrors the sheet_names string-handling above.
+    if isinstance(force_reparse, str):
+        force_reparse = force_reparse.strip().lower() in ("1", "true", "yes")
+    else:
+        force_reparse = bool(force_reparse)
+
     job = frappe.enqueue(
         "nirmaan_stack.api.boq.wizard.parse_run._run_parse_worker",
         queue="long",
@@ -289,6 +323,7 @@ def run_parse(boq_name: str = None, sheet_names=None):
         user=frappe.session.user,
         boq_name=boq_name,
         sheet_names=sheet_names,
+        force_reparse=force_reparse,
     )
     # SET only after a successful enqueue so a failed enqueue doesn't leave the flag stuck.
     frappe.db.set_value("BOQs", boq_name, "parse_in_progress", 1)
@@ -296,15 +331,21 @@ def run_parse(boq_name: str = None, sheet_names=None):
     return {"status": "queued", "job_id": job.id if job else None}
 
 
-def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None:
+def _run_parse_worker(
+    boq_name: str, sheet_names=None, user: str = None, force_reparse: bool = False
+) -> None:
     """
     Background worker: fetch workbook -> assemble config -> parse -> insert BoQ Review Rows.
 
+    force_reparse is threaded straight into assemble_mapping_config (the ONLY place
+    it changes eligibility); default False keeps the normal parse path unchanged.
+
     Status lifecycle (per BoQ Sheet Draft.wizard_status):
-      Reviewed  --[success]--> Parsed
-      Reviewed  --[parse_boq failure]--> Parse failed  (global; all eligible sheets)
-      Reviewed  --[insert failure]--> Parse failed  (per-sheet; other sheets continue)
-      Parsed    --[re-parse success]--> Parsed  (rows replaced, status stays Parsed)
+      Reviewed          --[success]--> Parsed
+      Reviewed          --[parse_boq failure]--> Parse failed  (global; all eligible sheets)
+      Reviewed          --[insert failure]--> Parse failed  (per-sheet; other sheets continue)
+      Parsed            --[re-parse success]--> Parsed  (rows replaced, status stays Parsed)
+      Parsed Check Done --[force re-parse success]--> Parsed  (rows replaced; Option A)
 
     General-specs sheet (treat_as=master_preamble): never set to Parsed; produces no rows.
     Master-preamble text: extracted by parse_boq and written to BOQs.master_preamble when
@@ -337,8 +378,9 @@ def _run_parse_worker(boq_name: str, sheet_names=None, user: str = None) -> None
             return
 
         # Step 2: Assemble mapping config (applies FIX: sheet_name injection in Rule 3)
+        # force_reparse admits "Parsed Check Done" sheets here and nowhere else.
         try:
-            config, not_eligible = assemble_mapping_config(boq_name)
+            config, not_eligible = assemble_mapping_config(boq_name, force_reparse=force_reparse)
         except frappe.ValidationError as exc:
             logger.error("BoQ %s: assemble_mapping_config failed: %s", boq_name, exc)
             _publish_parse_event(boq_name, "error", user=user, error_code="no_eligible_sheets")

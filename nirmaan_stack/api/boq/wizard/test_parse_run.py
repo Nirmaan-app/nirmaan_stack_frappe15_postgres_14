@@ -436,6 +436,107 @@ class TestAssembleMappingConfig(FrappeTestCase):
         self.assertIsNotNone(gn_sc)
         self.assertEqual(gn_sc.treat_as, "master_preamble")
 
+    # -- Force Re-parse: flag-gated "Parsed Check Done" eligibility ----------
+    # Slice: Force Re-parse backend floor. assemble_mapping_config gains an
+    # optional force_reparse flag that admits a "Parsed Check Done" sheet (one a
+    # human hand-edited on the review screen and marked checked) as a data target
+    # ONLY when set. Without the flag the normal parse path is byte-for-byte
+    # unchanged -- the regression guard (T2) is the load-bearing proof of that.
+
+    def _make_boq_with_checked_sheet(self):
+        """BOQ with a 'Parsed Check Done' sheet (valid blob) PLUS a Reviewed and a
+        Parsed data sheet. The Reviewed/Parsed sheets keep assemble_mapping_config
+        from raising 'no eligible sheets' on the no-flag path, so the Checked sheet
+        can be observed landing in not_eligible (T2)."""
+        sc = SheetConfig(
+            sheet_name="Checked",
+            header_row=1,
+            column_role_map={"A": ColumnRole(role="sl_no"), "B": ColumnRole(role="description")},
+        )
+        blob = json.dumps(sc.model_dump())  # sheet_name overwritten per-draft by the Rule-3 injection
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"ForceReparse Test {frappe.generate_hash(length=4)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "Checked", "sheet_order": 1,
+            "wizard_status": "Parsed Check Done", "sheet_config": blob,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "ReviewedSheet", "sheet_order": 2,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "ParsedSheet", "sheet_order": 3,
+            "wizard_status": "Parsed", "sheet_config": blob,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def test_force_reparse_admits_parsed_check_done(self):
+        """T1: WITH force_reparse=True, a 'Parsed Check Done' sheet (valid blob) IS
+        admitted as a data parse target -- same treatment as Rule 3."""
+        boq = self._make_boq_with_checked_sheet()
+        config, not_eligible = assemble_mapping_config(boq.name, force_reparse=True)
+        checked = next((s for s in config.sheets if s.sheet_name == "Checked"), None)
+        self.assertIsNotNone(checked, "Parsed Check Done sheet not admitted under force_reparse")
+        self.assertFalse(checked.skip)
+        self.assertEqual(checked.treat_as, "data")
+        self.assertNotIn("Checked", not_eligible)
+
+    def test_normal_parse_excludes_parsed_check_done(self):
+        """T2 (regression guard -- the load-bearing proof): WITHOUT the flag, the SAME
+        'Parsed Check Done' sheet stays in not_eligible exactly as today. Force-reparse
+        eligibility must never leak into the normal parse path."""
+        boq = self._make_boq_with_checked_sheet()
+        config, not_eligible = assemble_mapping_config(boq.name)  # default force_reparse=False
+        self.assertIn("Checked", not_eligible)
+        self.assertNotIn("Checked", [s.sheet_name for s in config.sheets])
+
+    def test_force_reparse_does_not_change_reviewed_or_parsed(self):
+        """T3 (no-regression on Rule 3): Reviewed and Parsed sheets remain eligible data
+        targets identically with or without force_reparse."""
+        boq = self._make_boq_with_checked_sheet()
+        cfg_off, _ = assemble_mapping_config(boq.name)
+        cfg_on, _ = assemble_mapping_config(boq.name, force_reparse=True)
+        for label, cfg in (("force_reparse=False", cfg_off), ("force_reparse=True", cfg_on)):
+            rev = next((s for s in cfg.sheets if s.sheet_name == "ReviewedSheet"), None)
+            par = next((s for s in cfg.sheets if s.sheet_name == "ParsedSheet"), None)
+            self.assertIsNotNone(rev, f"ReviewedSheet missing under {label}")
+            self.assertEqual(rev.treat_as, "data", f"ReviewedSheet not data under {label}")
+            self.assertIsNotNone(par, f"ParsedSheet missing under {label}")
+            self.assertEqual(par.treat_as, "data", f"ParsedSheet not data under {label}")
+
+    def test_force_reparse_parsed_check_done_without_blob_still_not_eligible(self):
+        """The flag admits 'Parsed Check Done' on the SAME terms as Rule 3 -- a valid
+        sheet_config blob is still required. A blob-less Parsed Check Done sheet stays
+        not_eligible even WITH force_reparse=True (the empty-blob sub-gate still applies)."""
+        sc = SheetConfig(
+            sheet_name="Anchor", header_row=1,
+            column_role_map={"A": ColumnRole(role="sl_no")},
+        )
+        blob = json.dumps(sc.model_dump())
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"ForceReparse NoBlob {frappe.generate_hash(length=4)}"
+        boq.tax_treatment = "Pre-tax"
+        # Anchor (Reviewed) keeps assemble from raising; CheckedNoBlob has no sheet_config.
+        boq.append("sheet_drafts", {
+            "sheet_name": "Anchor", "sheet_order": 1,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "CheckedNoBlob", "sheet_order": 2,
+            "wizard_status": "Parsed Check Done",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        config, not_eligible = assemble_mapping_config(boq.name, force_reparse=True)
+        self.assertIn("CheckedNoBlob", not_eligible)
+        self.assertNotIn("CheckedNoBlob", [s.sheet_name for s in config.sheets])
+
 
 # ---------------------------------------------------------------------------
 # Group 2: flatten faithfulness (pure Python -- no DB needed)
@@ -1030,6 +1131,42 @@ class TestRunParseWorker(FrappeTestCase):
 
         self.assertEqual(count_1, count_2, "Re-parse duplicated rows instead of replacing them")
         self.assertGreater(count_2, 0)
+
+    # -- Force Re-parse (Option A confirmation at the worker level) -------
+
+    def test_force_reparse_checked_sheet_ends_parsed(self):
+        """T4 (Option A end-to-end): a flagged re-parse of a 'Parsed Check Done' sheet
+        inserts rows and ends with wizard_status 'Parsed' (the worker's unconditional
+        status-set line, verified unchanged this slice)."""
+        boq = self._make_boq(sheet_a_status="Parsed Check Done")
+        _run_parse_worker(boq.name, user="Administrator", force_reparse=True)
+        boq.reload()
+        self.assertEqual(
+            next(d for d in boq.sheet_drafts if d.sheet_name == "SheetA").wizard_status,
+            "Parsed",
+            "force re-parse of a Parsed Check Done sheet did not end at 'Parsed'",
+        )
+        self.assertGreater(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0,
+            "force re-parse inserted no rows for the Parsed Check Done sheet",
+        )
+
+    def test_normal_parse_leaves_checked_sheet_untouched(self):
+        """T4b (worker regression guard): WITHOUT force_reparse, a lone 'Parsed Check Done'
+        sheet is not eligible -- the worker inserts no rows and leaves its status unchanged
+        (assemble raises 'no eligible sheets'; worker handles it gracefully)."""
+        boq = self._make_boq(sheet_a_status="Parsed Check Done")
+        _run_parse_worker(boq.name, user="Administrator")  # default force_reparse=False
+        boq.reload()
+        self.assertEqual(
+            next(d for d in boq.sheet_drafts if d.sheet_name == "SheetA").wizard_status,
+            "Parsed Check Done",
+            "normal parse changed a Parsed Check Done sheet's status",
+        )
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0,
+            "normal parse inserted rows for an ineligible Parsed Check Done sheet",
+        )
 
     # -- subset parse ----------------------------------------------------
 
