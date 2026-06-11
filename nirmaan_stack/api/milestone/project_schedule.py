@@ -292,18 +292,9 @@ def update_milestone_dates(project_id: str, milestone_row_name: str,
 	return sched.as_dict()
 
 
-@frappe.whitelist(methods=["POST"])
-def reset_milestone_dates(project_id: str, milestone_row_name: str):
-	"""Revert a row's dates back to the formula-derived values and clear the
-	manual-override flags so future window-change recomputes will keep it in
-	sync."""
-	if not project_id or not milestone_row_name:
-		frappe.throw("project_id and milestone_row_name are required")
-
-	sched = frappe.get_doc("Project Schedule", project_id)
-	row = _find_row(sched, milestone_row_name)
-
-	project_doc = frappe.get_doc("Projects", project_id)
+def _reset_row_to_formula(row, project_doc):
+	"""Revert a single milestone row to its formula-derived dates and clear the
+	manual-override flags. Mutates `row` in place; caller owns the save/commit."""
 	master = frappe.get_all(
 		"Work Milestones",
 		filters={
@@ -323,6 +314,49 @@ def reset_milestone_dates(project_id: str, milestone_row_name: str):
 		row.end_date = None
 	row.changed_by_user = 0
 	row.edited_by_user = None
+
+
+@frappe.whitelist(methods=["POST"])
+def reset_milestone_dates(project_id: str, milestone_row_name: str):
+	"""Revert a row's dates back to the formula-derived values and clear the
+	manual-override flags so future window-change recomputes will keep it in
+	sync."""
+	if not project_id or not milestone_row_name:
+		frappe.throw("project_id and milestone_row_name are required")
+
+	sched = frappe.get_doc("Project Schedule", project_id)
+	row = _find_row(sched, milestone_row_name)
+
+	project_doc = frappe.get_doc("Projects", project_id)
+	_reset_row_to_formula(row, project_doc)
+	sched.save(ignore_permissions=False)
+	frappe.db.commit()
+	return sched.as_dict()
+
+
+@frappe.whitelist(methods=["POST"])
+def reset_milestones_to_formula(project_id: str, milestone_row_names):
+	"""Bulk-reset several manually-overridden milestone rows back to their
+	formula-derived dates in a single save. Used by the Edit Project Dates
+	dialog when the user opts to recompute selected manual overrides against the
+	new project window. Unlisted rows are left untouched.
+
+	`milestone_row_names` may be a JSON-encoded list (when posted over the wire)
+	or an already-decoded list."""
+	if not project_id:
+		frappe.throw("project_id is required")
+
+	if isinstance(milestone_row_names, str):
+		milestone_row_names = frappe.parse_json(milestone_row_names) or []
+	row_names = {n for n in (milestone_row_names or []) if n}
+	if not row_names:
+		return frappe.get_doc("Project Schedule", project_id).as_dict()
+
+	sched = frappe.get_doc("Project Schedule", project_id)
+	project_doc = frappe.get_doc("Projects", project_id)
+	for row in sched.milestones:
+		if row.name in row_names:
+			_reset_row_to_formula(row, project_doc)
 	sched.save(ignore_permissions=False)
 	frappe.db.commit()
 	return sched.as_dict()
