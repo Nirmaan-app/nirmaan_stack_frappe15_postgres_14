@@ -830,6 +830,14 @@ def _apply_and_save_row_edit(
     doc.edited_by = user
     doc.edited_at = frappe.utils.now()
 
+    # C-flag-dismissal (decision 3a): any data edit RE-OPENS the row's advisory flags.
+    # This is the single chokepoint for save_review_edit AND save_review_restructure, so
+    # clearing here covers both. A REMARK does NOT funnel through here (save_review_remark
+    # uses a direct set_value bypass) -- a remark must NOT re-open the dismissal.
+    doc.flags_dismissed = 0
+    doc.flags_dismissed_by = None
+    doc.flags_dismissed_at = None
+
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
     # Pre-serialize them (guard prevents double-encoding already-string values).
@@ -903,6 +911,10 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "edit_log", "edited_by", "edited_at",
         # human-only annotation (Slice C-v2c) -- NOT an edit; never sets edited_at
         "remarks",
+        # C-flag-dismissal: per-row "Looks OK" acknowledgment (NOT an edit; row stays
+        # "Original"). Rides the row payload so the frontend can render the dismissed
+        # marker + derive the "N total -- C cleared" summary; no new endpoint.
+        "flags_dismissed", "flags_dismissed_by", "flags_dismissed_at",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1552,6 +1564,95 @@ def save_review_remark(
     frappe.db.commit()
 
     return {"ok": True, "row_index": row_index, "remarks": remark}
+
+
+@frappe.whitelist(methods=["POST"])
+def dismiss_row_flags(
+    boq_name: str = None,
+    sheet_name: str = None,
+    row_index=None,
+    dismissed=None,
+) -> dict:
+    """
+    Per-row "Looks OK" dismissal of a row's advisory flags (C-flag-dismissal).
+
+    A dismissal is an ACKNOWLEDGMENT, not a data edit. This endpoint mirrors
+    save_review_remark's SEPARATE write path:
+      - it writes ONLY the flags_dismissed / flags_dismissed_by / flags_dismissed_at
+        fields via frappe.db.set_value (NOT doc.save, NOT the _apply_and_save_row_edit
+        chokepoint);
+      - it does NOT append to edit_log;
+      - it does NOT set edited_by or edited_at;
+      - it does NOT touch human_* fields.
+    A row that is only dismissed therefore stays "Original" (the frontend's edited
+    provenance keys off edited_at / edit_log, neither of which this touches).
+
+    Symmetry: a subsequent data edit RE-OPENS the dismissal -- that clear lives at the
+    _apply_and_save_row_edit chokepoint (covers save_review_edit + save_review_restructure),
+    NOT here. A remark does NOT re-open it (save_review_remark bypasses the chokepoint).
+    Re-parse wipes it for free (delete+recreate -> the Check defaults to 0).
+
+    `dismissed` truthy  -> flags_dismissed=1 + by/at stamped.
+    `dismissed` falsy   -> flags_dismissed=0 + by/at cleared (supports a future
+                           un-dismiss and the edit-reopen symmetry, even though no UI
+                           un-dismiss button ships).
+
+    sheet_name is matched VERBATIM (no trimming) -- the #152 trailing-space landmine.
+
+    Returns: {flags_dismissed: 0|1}
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.dismiss_row_flags
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    # HTTP sends bools as strings ("true"/"1"/"false"/"0"/""); normalize to a real bool.
+    if isinstance(dismissed, str):
+        is_dismissed = dismissed.strip().lower() in ("1", "true", "yes")
+    else:
+        is_dismissed = bool(dismissed)
+
+    # Locate the row (verbatim sheet_name match -- #152).
+    row_name = frappe.db.get_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    if not row_name:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    # Write ONLY the dismissal fields. set_value (not doc.save) so edited_at / edit_log
+    # / version side-effects never fire -- a dismissal must not flip the row to "Edited".
+    if is_dismissed:
+        frappe.db.set_value("BoQ Review Row", row_name, {
+            "flags_dismissed": 1,
+            "flags_dismissed_by": frappe.session.user,
+            "flags_dismissed_at": frappe.utils.now(),
+        })
+    else:
+        frappe.db.set_value("BoQ Review Row", row_name, {
+            "flags_dismissed": 0,
+            "flags_dismissed_by": None,
+            "flags_dismissed_at": None,
+        })
+    frappe.db.commit()
+
+    return {"flags_dismissed": 1 if is_dismissed else 0}
 
 
 @frappe.whitelist()

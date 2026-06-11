@@ -290,6 +290,13 @@ export interface ReviewRow {
   // edited_at / edit_log and never flips the row to "Edited". Born empty (the parser
   // write path leaves it unset); written only via save_review_remark.
   remarks: string | null;
+  // C-flag-dismissal: per-row "Looks OK" acknowledgment of the row's advisory flags.
+  // A dismissal is NOT an edit -- it never sets edited_at / edit_log and never flips the
+  // row to "Edited" (written only via dismiss_row_flags, the remark-pattern bypass). 1 =>
+  // dismissed; an edit re-opens it (chokepoint clear); re-parse wipes it (Check defaults 0).
+  flags_dismissed?: number;          // 0 | 1
+  flags_dismissed_by?: string | null;
+  flags_dismissed_at?: string | null;
   // effective values (computed by resolve_effective on backend)
   effective_classification: string | null;
   effective_parent_index: number | null;

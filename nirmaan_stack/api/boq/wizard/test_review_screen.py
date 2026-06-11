@@ -21,6 +21,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     _has_price_signal,
     append_edit_log_entry,
     check_structural_integrity,
+    dismiss_row_flags,
     get_review_rows,
     get_structural_breaks,
     mark_sheet_parsed_check_done,
@@ -843,6 +844,188 @@ class TestSaveReviewRemark(FrappeTestCase):
         self.assertIsNotNone(doc.edited_at,
                              "a value edit must still stamp edited_at (path is separate from remarks)")
         self.assertEqual(doc.qty_total, 7.0)
+
+
+# ===========================================================================
+# Group 5b2: dismiss_row_flags -- DB (C-flag-dismissal)
+# ===========================================================================
+
+class TestDismissRowFlags(FrappeTestCase):
+    """
+    Verifies the per-row "Looks OK" flag-dismissal path (C-flag-dismissal):
+      - dismiss sets flags_dismissed=1 + by/at, and the row STAYS "Original"
+        (edited_at None, edit_log empty -- mirrors the remark contract);
+      - un-dismiss (falsy) clears all three fields;
+      - a subsequent save_review_edit on a dismissed row CLEARS the dismissal
+        (the _apply_and_save_row_edit chokepoint -- decision 3a, edit re-opens);
+      - a save_review_restructure on a dismissed row clears it (same chokepoint);
+      - a save_review_remark on a dismissed row does NOT clear it (the bypass --
+        a remark must not re-open);
+      - get_review_rows carries the 3 fields on the row payload.
+
+    Fixture rows per test (reset by setUp):
+      Row 0 -- preamble, parent=None  (root)
+      Row 1 -- preamble, parent=0     (child of 0)
+      Row 2 -- line_item, parent=1    (child of 1)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Dismiss Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "DismissSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "DismissSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "preamble", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=1),
+        ])
+
+    def _get_doc(self, row_index: int):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        return frappe.get_doc("BoQ Review Row", name)
+
+    def _edit_log_list(self, doc):
+        log = doc.edit_log
+        if isinstance(log, str):
+            log = json.loads(log) if log else []
+        return log or []
+
+    def test_dismiss_sets_fields_and_row_stays_original(self):
+        """THE key test: dismissing stamps flags_dismissed + by/at but leaves the row
+        'Original' -- edited_at stays None and edit_log stays empty."""
+        result = dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, dismissed=True,
+        )
+        self.assertEqual(result, {"flags_dismissed": 1})
+
+        doc = self._get_doc(2)
+        self.assertEqual(doc.flags_dismissed, 1, "flags_dismissed must be set to 1")
+        self.assertTrue(doc.flags_dismissed_by, "flags_dismissed_by must be stamped")
+        self.assertTrue(doc.flags_dismissed_at, "flags_dismissed_at must be stamped")
+        self.assertIsNone(doc.edited_at,
+                          "a dismissal must NOT stamp edited_at (row stays Original)")
+        self.assertEqual(self._edit_log_list(doc), [],
+                         "a dismissal must NOT append an edit_log entry")
+
+    def test_undismiss_clears_all_three(self):
+        """Un-dismiss (dismissed falsy) clears flags_dismissed + by + at."""
+        dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, dismissed=True,
+        )
+        self.assertEqual(self._get_doc(2).flags_dismissed, 1)
+
+        result = dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, dismissed=False,
+        )
+        self.assertEqual(result, {"flags_dismissed": 0})
+        doc = self._get_doc(2)
+        self.assertEqual(doc.flags_dismissed, 0, "flags_dismissed must clear to 0")
+        self.assertIsNone(doc.flags_dismissed_by, "flags_dismissed_by must clear")
+        self.assertIsNone(doc.flags_dismissed_at, "flags_dismissed_at must clear")
+
+    def test_value_edit_reopens_dismissal(self):
+        """decision 3a: a save_review_edit on a dismissed row CLEARS flags_dismissed
+        (the shared _apply_and_save_row_edit chokepoint)."""
+        dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, dismissed=True,
+        )
+        self.assertEqual(self._get_doc(2).flags_dismissed, 1)
+
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, field="qty_total", value=9,
+        )
+        doc = self._get_doc(2)
+        self.assertEqual(doc.flags_dismissed, 0,
+                         "an edit must re-open the dismissal (chokepoint clear)")
+        self.assertIsNone(doc.flags_dismissed_by)
+        self.assertIsNone(doc.flags_dismissed_at)
+        self.assertIsNotNone(doc.edited_at, "the edit itself still stamps edited_at")
+
+    def test_restructure_reopens_dismissal(self):
+        """A save_review_restructure (reclassify) on a dismissed row clears the
+        dismissal -- it funnels through the SAME chokepoint."""
+        dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, dismissed=True,
+        )
+        self.assertEqual(self._get_doc(0).flags_dismissed, 1)
+
+        # Reclassify row 0 (assignable target); empty child_moves leaves children put.
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, new_classification="line_item", child_moves={},
+        )
+        doc = self._get_doc(0)
+        self.assertEqual(doc.flags_dismissed, 0,
+                         "a restructure must re-open the dismissal (same chokepoint)")
+        self.assertIsNone(doc.flags_dismissed_by)
+        self.assertIsNone(doc.flags_dismissed_at)
+
+    def test_remark_does_not_reopen_dismissal(self):
+        """THE bypass test: a save_review_remark on a dismissed row does NOT clear the
+        dismissal (a remark must not re-open it -- it skips the chokepoint)."""
+        dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, dismissed=True,
+        )
+        self.assertEqual(self._get_doc(2).flags_dismissed, 1)
+
+        save_review_remark(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, remark="a note that must not re-open the dismissal",
+        )
+        doc = self._get_doc(2)
+        self.assertEqual(doc.flags_dismissed, 1,
+                         "a remark must NOT re-open the dismissal (chokepoint bypassed)")
+        self.assertTrue(doc.flags_dismissed_by, "the dismissal attribution must survive a remark")
+        self.assertEqual(doc.remarks, "a note that must not re-open the dismissal")
+
+    def test_get_review_rows_carries_dismissal_fields(self):
+        """get_review_rows must return the 3 dismissal fields on each row payload."""
+        dismiss_row_flags(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, dismissed=True,
+        )
+        resp = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        rows_by_idx = {r["row_index"]: r for r in resp["rows"]}
+        for idx in (0, 1, 2):
+            self.assertIn("flags_dismissed", rows_by_idx[idx])
+            self.assertIn("flags_dismissed_by", rows_by_idx[idx])
+            self.assertIn("flags_dismissed_at", rows_by_idx[idx])
+        self.assertEqual(rows_by_idx[1]["flags_dismissed"], 1,
+                         "the dismissed row reports flags_dismissed=1 in the payload")
+        self.assertEqual(rows_by_idx[0]["flags_dismissed"], 0,
+                         "an un-dismissed row reports flags_dismissed=0")
 
 
 # ===========================================================================

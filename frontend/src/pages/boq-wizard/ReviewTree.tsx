@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2 } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -358,6 +358,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const { call: saveRemarkCall, loading: isSavingRemark } = useFrappePostCall<{
     message: { ok: boolean; row_index: number; remarks: string | null };
   }>("nirmaan_stack.api.boq.wizard.review_screen.save_review_remark");
+  // C-flag-dismissal: per-row "Looks OK" write -- a SEPARATE endpoint + loading flag.
+  // Like a remark, a dismissal never touches edited_at / edit_log / the "Edited" surface
+  // (the row stays "Original"); it acknowledges the row's advisory flags. Refresh runs
+  // through onRemarkSaved (mutate only -- a dismissal is NOT an edit, so the sheet-level
+  // save anchor is NOT advanced).
+  const { call: dismissFlagsCall, loading: isDismissingFlags } = useFrappePostCall<{
+    message: { flags_dismissed: number };
+  }>("nirmaan_stack.api.boq.wizard.review_screen.dismiss_row_flags");
+  // Dedicated inline error for the dismiss action (kept separate from saveError/remarkError).
+  const [dismissError, setDismissError] = useState<string | null>(null);
   // C-v2c: the remark Textarea input for the currently-expanded detail row.
   const [remarkInput, setRemarkInput] = useState("");
   // C-v2c: dedicated inline error for the remark Save block ONLY -- kept separate
@@ -639,6 +649,25 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       onRemarkSaved?.();
     } catch (e: unknown) {
       setRemarkError(getFrappeError(e) || "Save failed. Please try again.");
+    }
+  };
+
+  // C-flag-dismissal: per-row "Looks OK" dismissal of a row's advisory flags. Like a
+  // remark, this does NOT flip the row to "Edited" (the backend writes only the
+  // flags_dismissed fields, never edited_at / edit_log). Refresh via onRemarkSaved
+  // (mutate only -- not a real edit, so the sheet edit anchor is not advanced).
+  const dismissFlags = async (rowIndex: number, dismissed: boolean) => {
+    setDismissError(null);
+    try {
+      await dismissFlagsCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: rowIndex,
+        dismissed,
+      });
+      onRemarkSaved?.();
+    } catch (e: unknown) {
+      setDismissError(getFrappeError(e) || "Could not update. Please try again.");
     }
   };
 
@@ -1172,6 +1201,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // B2a: advisory flags for this row
               const rowFlags = flagsByRowIdx.get(row.row_index) ?? [];
               const hasFlags = rowFlags.length > 0;
+              // C-flag-dismissal: row was acknowledged via "Looks OK". The flags STILL
+              // compute (orthogonal); this only greys the marker + reads "Reviewed".
+              // A dismissal is NOT an edit -- the row stays "Original" (isEdited untouched).
+              const isDismissed = !!row.flags_dismissed;
               // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
               const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
               // C-v2c (polish): the remark marker is ALWAYS shown when the row carries a
@@ -1339,14 +1372,28 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                 className={cn(
                                   "shrink-0 h-4 w-4 flex items-center justify-center rounded",
                                   "transition-colors",
-                                  flagsExpanded
-                                    ? "text-amber-600 dark:text-amber-400"
-                                    : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
+                                  // C-flag-dismissal: a NEW greyed/checked state -- the flags
+                                  // still EXIST (acknowledged, not removed). NOT amber-active.
+                                  isDismissed
+                                    ? "text-muted-foreground/70 hover:text-muted-foreground"
+                                    : flagsExpanded
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
                                 )}
-                                aria-label={flagsExpanded ? "Hide flags" : "Show flags"}
-                                title={flagsExpanded ? "Hide flags" : "Show flags"}
+                                aria-label={
+                                  isDismissed
+                                    ? (flagsExpanded ? "Hide flags (reviewed)" : "Show flags (reviewed)")
+                                    : (flagsExpanded ? "Hide flags" : "Show flags")
+                                }
+                                title={
+                                  isDismissed
+                                    ? "Reviewed — looks OK"
+                                    : (flagsExpanded ? "Hide flags" : "Show flags")
+                                }
                               >
-                                <Info className="h-3 w-3" />
+                                {isDismissed
+                                  ? <CheckCircle2 className="h-3 w-3" />
+                                  : <Info className="h-3 w-3" />}
                               </button>
                             )}
                           </div>
@@ -1403,6 +1450,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             </li>
                           ))}
                         </ul>
+                        {/* C-flag-dismissal: when acknowledged, the reasons stay readable
+                            (the cover the flag-reason text provides) but are tagged reviewed. */}
+                        {isDismissed && (
+                          <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <CheckCircle2 className="h-3 w-3 shrink-0" />
+                            Reviewed — looks OK
+                            {row.flags_dismissed_by ? <span className="text-muted-foreground/70">· {row.flags_dismissed_by}{row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}</span> : null}
+                          </p>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -1707,12 +1763,43 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
                           {rowFlags.length > 0 && (
                             <div className="mb-2">
-                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Flags</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Flags</p>
+                                {/* C-flag-dismissal: per-row "Looks OK" -- acknowledges ALL of
+                                    this row's flags at once. NOT an edit (the row stays
+                                    "Original"). stopPropagation so the table-body click that
+                                    dismisses the detail panel doesn't fire. When already
+                                    dismissed, reads "Reviewed" (no separate un-dismiss ships;
+                                    an edit re-opens / re-parse wipes). */}
+                                {isDismissed ? (
+                                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
+                                    <CheckCircle2 className="h-3 w-3" /> Reviewed — looks OK
+                                  </span>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 px-2 text-[11px] shrink-0"
+                                    disabled={isDismissingFlags}
+                                    onClick={(e) => { e.stopPropagation(); void dismissFlags(row.row_index, true); }}
+                                  >
+                                    <CheckCircle2 className="h-3 w-3 mr-1" /> Looks OK
+                                  </Button>
+                                )}
+                              </div>
                               <ul className="mt-0.5 space-y-0.5">
                                 {rowFlags.map((f, i) => (
                                   <li key={i} className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{f.reason}</li>
                                 ))}
                               </ul>
+                              {isDismissed && row.flags_dismissed_by && (
+                                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                  Acknowledged by {row.flags_dismissed_by}
+                                  {row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}
+                                </p>
+                              )}
+                              {dismissError && <p className="text-xs text-destructive mt-1">{dismissError}</p>}
                             </div>
                           )}
                           {/* Edit history from edit_log */}

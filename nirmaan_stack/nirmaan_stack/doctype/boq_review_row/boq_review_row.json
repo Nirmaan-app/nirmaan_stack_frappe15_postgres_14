@@ -60,7 +60,10 @@
   "edit_log",
   "edited_by",
   "edited_at",
-  "remarks"
+  "remarks",
+  "flags_dismissed",
+  "flags_dismissed_by",
+  "flags_dismissed_at"
  ],
  "fields": [
   {
@@ -348,6 +351,24 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "default": "0",
+   "fieldname": "flags_dismissed",
+   "fieldtype": "Check",
+   "label": "Flags Dismissed"
+  },
+  {
+   "fieldname": "flags_dismissed_by",
+   "fieldtype": "Data",
+   "label": "Flags Dismissed By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "flags_dismissed_at",
+   "fieldtype": "Datetime",
+   "label": "Flags Dismissed At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

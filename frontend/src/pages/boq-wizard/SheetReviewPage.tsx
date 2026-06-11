@@ -121,9 +121,26 @@ const SheetReviewPage = () => {
   const FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
   const flagCounts: Record<string, number> = {};
   for (const f of flags) flagCounts[f.type] = (flagCounts[f.type] ?? 0) + 1;
+  // C-flag-dismissal: per-category "cleared" count = flags of this type whose row was
+  // dismissed ("Looks OK") AND whose flag STILL computes (it's in the live flags array,
+  // which already auto-excludes resolved conditions). Derived frontend-side from the row
+  // payload's flags_dismissed -- no new backend data.
+  const dismissedRowIdx = new Set(
+    rows.filter(r => !!r.flags_dismissed).map(r => r.row_index),
+  );
+  const clearedCounts: Record<string, number> = {};
+  for (const f of flags) {
+    if (dismissedRowIdx.has(f.row_index)) {
+      clearedCounts[f.type] = (clearedCounts[f.type] ?? 0) + 1;
+    }
+  }
   const flagSummaryParts = FLAG_ORDER
     .filter(t => (flagCounts[t] ?? 0) > 0)
-    .map(t => `${flagCounts[t]} ${FLAG_LABELS[t]}`);
+    .map(t => {
+      const cleared = clearedCounts[t] ?? 0;
+      const base = `${flagCounts[t]} ${FLAG_LABELS[t]}`;
+      return cleared > 0 ? `${base} – ${cleared} cleared` : base;
+    });
 
   // C-v2c: sheet-level remarks count -- number of rows carrying a non-empty remark.
   // Single count (remarks have no sub-types); strip omitted when zero (mirrors flags).
