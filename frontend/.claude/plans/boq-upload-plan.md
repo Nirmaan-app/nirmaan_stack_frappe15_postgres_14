@@ -14,8 +14,58 @@ refresh), dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file er
 manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert. The OWED
 single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196ed765) and is now WIRED
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
-row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. LATEST: Force Re-parse
-BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done") -- block immediately below.
+row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
+BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
+LATEST: Force Re-parse FRONTEND slice (two entry points + shared modal + rewritten destructive warning) --
+the two blocks immediately below (FRONTEND first, then the BACKEND floor it consumes).
+
+**Force Re-parse -- FRONTEND slice (two entry points + shared modal + rewritten warning) ✅ COMPLETE (FRONTEND ONLY; consumes the BACKEND floor below):**
+The UI that sets `force_reparse: true`. Files: `SheetCard.tsx`, `ParseRunDialog.tsx`, `BoqHubPage.tsx` ONLY
+(no backend, no doctype JSON, no `boqTypes.ts` -- the dialog's new props are typed locally). tsc 0 new
+wizard-file errors (project baseline unchanged) + in-container build exit 0; no Frappe unit tests
+(frontend-only; the backend floor is already test-certified). Manual live-cert LC1-LC7 (DESTRUCTIVE --
+re-parsing wipes real edits) deferred to Nitesh; briefing written into the slice report.
+- **Eligibility = `has_prior_parse === 1` AND effective status in {Parsed, Parsed Check Done, Reviewed}.**
+  **"Parse failed" is DELIBERATELY EXCLUDED** (decision recorded this slice): the locked feature shape listed
+  it, but the backend floor does NOT widen `force_reparse` to "Parse failed" (Rule 4 keeps it `not_eligible`
+  regardless of the flag) -- offering it would be a control that silently no-ops (the sheet would land in the
+  completion modal's "Not parsed" line). A never-parsed sheet (`has_prior_parse !== 1`) never shows a Re-parse
+  control. The same predicate is used by BOTH the per-card render gate (`canReparse` in `SheetCard.tsx`) and
+  the hub's `reparseEligibleDrafts` (the global-button gate + the dialog's tickable source).
+- **TWO entry points, ONE shared modal (`ParseRunDialog`).** (1) PER-CARD "Re-parse" -- an `outline` Button
+  inside the Parsed / Parsed Check Done / Reviewed action blocks (rendered only when `canReparse`); on click ->
+  `onReparse(sheet_name)` -> hub opens the dialog in reparse mode PRE-FILTERED + pre-ticked to that ONE sheet
+  (`reparseRestrictSheet`). (2) GLOBAL "Re-parse" -- an `outline` Button BESIDE the existing Parse button (both
+  now wrapped in a `flex gap-2` cluster); it does NOT replace Parse or re-enable the greyed Parse. ENABLED when
+  `reparseEligibleDrafts.length >= 1` (+ the existing `parseInFlight` guard); GREYED with a "No previously-parsed
+  sheets to re-parse" tooltip when zero. **NO blockingCount gate** (deliberate divergence from `canParse` -- a
+  Parse-failed sheet must not block re-parse of the previously-good sheets; the two concerns are independent).
+- **Dialog-mode mechanism (engineering choice).** A `mode?: "parse" | "reparse"` prop (default `"parse"`) +
+  `reparseDrafts?` (tickable source in reparse mode) + `restrictToSheetName?` (per-card pre-filter). The PARENT
+  (`BoqHubPage`) owns `parseDialogMode` state and derives `force_reparse` from it in `handleParseConfirm`, so
+  `onConfirm(sheetNames)`'s signature is UNCHANGED (smallest blast radius). `tickableDrafts` = reparse ?
+  (restrict ? filter-to-one : reparseDrafts) : reviewedDrafts; `tickedSheets` seeds from it; the seed effect
+  still keys on `[open]` (mode/restrict are set by the parent BEFORE open flips true, so the effect reads the
+  fresh tickable source). The four informational lists (General specs / Already parsed / Pending / Skipped) are
+  gated `mode === "parse"` -- hidden in reparse mode. Title / description / confirm-label / "Will (re-)parse"
+  heading all adapt by mode.
+- **B3 path taken = PROCEED (extend, NOT restructure).** Making "Parsed Check Done" tickable (it was invisible
+  in all four dialog lists before) needed only swapping the tickable-source array feeding the EXISTING
+  `tickedSheets` / `toggleSheet` / `<Checkbox>` machinery -- no rebuild of the four-list render. (The B3 risk
+  gate's STOP path was not triggered.)
+- **Rewritten + re-targeted destructive warning (step 2).** Trigger UNCHANGED in shape (`dirtyTicked.length > 0`,
+  where `dirtyTicked` = ticked sheets with `has_prior_parse === 1`) -- which now catches Parsed + Parsed Check
+  Done + dirty-Reviewed. Copy REWRITTEN to name specifically what is destroyed: the parsed output AND every
+  review-screen change -- edited values and text, REMARKS, classification changes, and any parenting /
+  restructure moves; "cannot be undone." A LOUDEST `destructive`-styled callout (`checkedDoneTicked` =
+  `dirtyTicked` filtered to `wizard_status === "Parsed Check Done"`) names the hand-reviewed+Checked sheets
+  ("Re-parsing throws away that completed review entirely"). In normal-parse mode the Checked callout never
+  appears (no Checked sheet is tickable there) and a FRESH Reviewed sheet still triggers nothing (LC7 unchanged).
+- **force_reparse wiring (B5).** `handleParseConfirm` spreads `...(parseDialogMode === "reparse" ? { force_reparse: true } : {})`
+  onto the existing `callRunParse({ boq_name, sheet_names })` payload. Normal Parse omits it (backend default
+  False). The SDK serializes the bool; the backend coerces `"true"/true`.
+- **#145 closure.** "All-Parsed workbook: Parse greyed, but Re-parse now ENABLED" -- the per-card + global
+  Re-parse controls give an all-Parsed (or all-Checked) workbook a live re-parse path it previously lacked.
 
 **Force Re-parse -- BACKEND slice (flag-gated eligibility) ✅ COMPLETE (BACKEND ONLY; no frontend this slice):**
 The receiving end for a future Force Re-parse UI: a user deliberately re-runs the parser on a sheet that is
