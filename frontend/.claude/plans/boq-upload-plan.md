@@ -16,8 +16,48 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Force Re-parse FRONTEND slice (two entry points + shared modal + rewritten destructive warning) --
-the two blocks immediately below (FRONTEND first, then the BACKEND floor it consumes).
+LATEST: §9 #162 standalone "Change parent" door (detail-panel button -> existing RestructureModal via a
+no-op reclassify) -- the block immediately below. Prior latest: Force Re-parse FRONTEND slice (two entry
+points + shared modal + rewritten destructive warning) -- the two blocks further below (FRONTEND first,
+then the BACKEND floor it consumes).
+
+**§9 #162 -- Standalone "Change parent" door ✅ COMPLETE (FRONTEND ONLY; no backend change):**
+A SECOND front door to the EXISTING `RestructureModal`, reached WITHOUT a reclassification. Today a reviewer
+can only move a row to a new parent BY changing its classification (the modal opens off the pill "Change ▾"
+DropdownMenu). This slice adds a "Change parent" button in the row-detail panel's PARENT cell (right cell of
+the detail grid), structurally MIRRORING the "Change ▾" reclassify control in the CLASSIFICATION cell (left).
+File: `ReviewTree.tsx` ONLY (no `RestructureModal.tsx`, no backend, no doctype JSON, no `boqTypes.ts`).
+tsc 0 new wizard-file errors (project baseline 3177 unchanged) + in-container build exit 0; no Frappe unit
+tests (frontend-only; the reused modal + backend are already certified). Manual live-cert LC1-LC6 deferred
+to Nitesh (briefing in the slice report).
+- **The door = `setRestructureModal({ row, newClassification: row.effective_classification })` -- a NO-OP
+  reclassify.** The button opens the modal DIRECTLY (not via `onPickClass`, which would route a childless row
+  to the light AlertDialog confirm) with `newClassification` = the row's CURRENT classification. The modal does
+  everything else UNCHANGED -- this is the POINT of reusing it. `canSave` never compares new-vs-current
+  classification (verified V2), so a same-value class is benign; the backend accepts `new_classification ==
+  current` for the 4 assignable classes (verified in the §9 #162 recon).
+- **NON-NEGOTIABLE -- no silent reparent (the reason we reuse the modal, not a lighter path):** a WITH-children
+  row opened via "Change parent" STILL surfaces the five child-placement options (the `children.length > 0` gate
+  in `RestructureModal` is left EXACTLY as is -- NOT suppressed for a parent-only open). The reviewer must decide
+  the children's fate; the modal's batch cycle-guard + single write-chokepoint (`_apply_and_save_row_edit`) come
+  along. A CHILDLESS row opens with the children block already suppressed (the existing childless adaptation;
+  `rowPosition` lazy-inits to "move") -> shows only the row's-own-position picker.
+- **Scope exclusion (owner-locked):** the button does NOT render when the row's CURRENT classification is
+  `subtotal_marker` or `header_repeat` (the two parser-only detections NOT in `_ASSIGNABLE_CLASSIFICATIONS`).
+  Gated by `canChangeParent = effective_classification != null && ASSIGNABLE_CLASSIFICATIONS.includes(it)`. A
+  no-op reclassify on those two classes would be rejected by the backend assignable-vocab gate, so the door
+  must not appear there.
+- **edit_log fidelity (the one backend question this slice had to resolve -- VERIFIED, no change needed):**
+  the standalone reparent MUST appear in the row's edit_log. The modal's no-op reclassify writes a same-value
+  `human_classification` entry (harmless), but the PARENT change is captured SEPARATELY: `save_review_restructure`'s
+  `row_new_parent` write path calls `_apply_and_save_row_edit(..., "human_parent", ...)`, and that shared helper
+  ALWAYS appends its own edit_log entry for the field it writes (`review_screen.py:811-828`) -- field
+  `human_parent`, `from` = prior effective parent, `to` = new parent (or null for root), reason
+  `"row moved: row N reclassified to <cls>"`. So the parent move is ALREADY logged as its own entry; NOTHING was
+  added backend-side (the B2 conditional + its chokepoint STOP-gate were NOT triggered).
+- **Engineering choice:** a plain `<button>` (not a single-item DropdownMenu), styled identically to the existing
+  `Change ▾` pill -- there is no list to pick; the single action is "open the modal", so a dropdown would be a
+  hollow one-item menu.
 
 **Force Re-parse -- FRONTEND slice (two entry points + shared modal + rewritten warning) ✅ COMPLETE (FRONTEND ONLY; consumes the BACKEND floor below):**
 The UI that sets `force_reparse: true`. Files: `SheetCard.tsx`, `ParseRunDialog.tsx`, `BoqHubPage.tsx` ONLY

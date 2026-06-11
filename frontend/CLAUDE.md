@@ -317,7 +317,22 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- Force Re-parse FRONTEND slice COMPLETE):**
+**Status (2026-06-11 -- §9 #162 standalone "Change parent" door COMPLETE):**
+A SECOND front door to the EXISTING `RestructureModal`, reached WITHOUT a reclassification (FRONTEND ONLY,
+`ReviewTree.tsx` only). The row-detail panel's PARENT cell gains a "Change parent" button mirroring the
+CLASSIFICATION cell's "Change ▾" reclassify control; it opens the modal via
+`setRestructureModal({ row, newClassification: row.effective_classification })` -- a NO-OP reclassify (current
+class passed as the target). The modal does everything else unchanged: a CHILDLESS row opens position-only;
+a WITH-children row STILL surfaces the five child-placement options (the `children.length > 0` gate is
+untouched -- no silent reparent; the children's fate stays explicit) plus the batch cycle-guard. The button
+is HIDDEN on `subtotal_marker` / `header_repeat` (not in `_ASSIGNABLE_CLASSIFICATIONS` -- a no-op reclassify
+there would be backend-rejected). edit_log fidelity VERIFIED with NO backend change: the parent move already
+emits its own `human_parent` edit_log entry via `_apply_and_save_row_edit` (the B2 conditional + chokepoint
+STOP-gate were never triggered). tsc 0 new wizard-file errors (baseline 3177 unchanged) + in-container build
+exit 0; no Frappe unit tests (frontend slice; reused modal + backend already certified); manual live-cert
+LC1-LC6 pending Nitesh. See the "§9 #162 standalone Change-parent door conventions" section below for detail.
+
+// prior: **Status (2026-06-11 -- Force Re-parse FRONTEND slice COMPLETE):**
 The Force Re-parse FRONTEND slice (FRONTEND ONLY) builds the UI that sets `force_reparse: true` on the
 already-certified backend floor (feat 95928637). TWO entry points (per-card "Re-parse" + a global "Re-parse"
 button beside Parse) open the SAME `ParseRunDialog` in a new `mode="reparse"`, which makes "Parsed Check Done"
@@ -763,6 +778,48 @@ Frontend-only completeness slice. Files touched: `RestructureModal.tsx`, `Review
 - **D2a -- childless AlertDialog radios + route-on-select (ReviewTree).** The childless reclassify AlertDialog gains a "This row's position" control (two radios) between the description and the error/footer: (1) **"Keep current position"** -- rendered `checked readOnly` (always the resting selection, since the dialog closes the instant "move" is picked); Confirm -> `confirmChildlessReclassify` UNCHANGED (the byte-for-byte keep path: child_moves:{}, no row_new_parent, one Confirm click) [S5]. (2) **"Move this row under a new parent"** -- its `onChange` routes ON SELECT (not on Confirm): `setRestructureModal({row, newClassification})` + `setChildlessConfirm(null)` + `setRestructureError(null)`, handing off to the SAME `setRestructureModal` state the with-children branch uses. **Why route-on-select:** the AlertDialog (`max-w-lg`) is too small to host the `max-w-6xl` picker, so "move" cannot complete in-dialog -- an extra Confirm to bounce dialogs would be a pointless click; the LC matrix reads this way too (LC-iii spells out "-> Confirm" for keep, LC-iv omits it for move). No local choice-state is needed (keep is always the displayed selection); reset-on-open is trivially satisfied.
 - **D2b -- RestructureModal zero-children adaptation (ALL gated on `children.length === 0`; with-children UNCHANGED [S6]).** (1) The "Children (N)" box and the five-options block are wrapped in `{children.length > 0 && (...)}` -- hidden for a childless row. The option-3/option-4 picker sub-blocks already render only when `option === 3/4`, so with `option` staying `null` they are naturally hidden (no gating added). (2) `canSave`'s first line `if (option === null) return false;` becomes `if (children.length > 0 && option === null) return false;` -- for a childless row the gate is the row-position rule ALONE (`rowPosition === "move" ? rowParentIdx !== null : true`); the `option === 3/4` checks stay (inert when `option` is null). (3) Title/description adapt: childless -> title `Reclassify and position row {N}`, description drops the "children" language (`...Choose where this row should go.`). (4) **`rowPosition` lazy initializer:** `useState<"keep"|"move">(() => rows.filter(r => r.effective_parent_index === row.row_index).length === 0 ? "move" : "keep")` -- a childless row reaches the modal ONLY via the move route, so it opens with "move" active + picker showing; a with-children row opens "keep" (S6). The inline child-count recompute is required because the `children` memo isn't defined yet at the state line. `buildChildMoves()` already returns {} with zero children (every branch loops over `[]`, and `option === null` falls through to `{}`) -- the save assembly is NOT special-cased. The childless entry is a NEW entry point into the SAME modal, not a fork.
 - **Verification.** tsc 0 errors in both touched files (project baseline 3177 unchanged); in-container build exit 0. No Frappe unit tests (frontend slice). Manual live-cert LC-i (the LC10 closer -- the cycle message now surfaces inline on a with-children row) .. LC-vii (with-children regression spot-check) pending Nitesh.
+
+**§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
+
+A SECOND front door to the EXISTING `RestructureModal`, reached WITHOUT a reclassification. Files touched:
+`ReviewTree.tsx` ONLY (no `RestructureModal.tsx`, no backend, no doctype JSON, no `boqTypes.ts`).
+
+- **The button + placement (mirror the reclassify control).** The row-detail panel's `grid grid-cols-2`
+  has a CLASSIFICATION cell (left, already hosts the "Change ▾" reclassify DropdownMenu) and a PARENT cell
+  (right, previously display-only). This slice wraps the PARENT cell's existing content in a
+  `flex items-center gap-2` and adds a "Change parent" `<button>` beside the current-parent display,
+  styled IDENTICALLY to the "Change ▾" pill (`rounded-full bg-blue-100 ... text-[10px]`). **Plain button,
+  NOT a single-item DropdownMenu** -- there is no list to pick; the single action is "open the modal", so a
+  dropdown would be a hollow one-item menu.
+- **The open call = a NO-OP reclassify (THE pattern).** On click:
+  `setRestructureModal({ row, newClassification: row.effective_classification as string })`. It uses the SAME
+  `setRestructureModal` state setter the childless AlertDialog's "Move under a new parent" radio already uses
+  -- and DIRECTLY, NOT via `onPickClass` (which would route a childless row to the light AlertDialog confirm
+  instead of the modal). `newClassification` = the row's CURRENT class, so the modal's reclassify write is a
+  no-op (same value) while the row-position picker drives the actual move. `canSave` in `RestructureModal`
+  never compares new-vs-current classification, so a same-value class is benign (verified).
+- **NON-NEGOTIABLE -- no silent reparent (why we reuse the modal, not a lighter path).** A WITH-children row
+  opened via "Change parent" STILL surfaces the five child-placement options: the `children.length > 0` gate
+  inside `RestructureModal` is left EXACTLY as is -- do NOT suppress it for a parent-only open. The reviewer
+  must decide the children's fate; the modal's batch cycle-guard + the single write-chokepoint come along. A
+  CHILDLESS row opens with the children block already suppressed (the existing childless adaptation;
+  `rowPosition` lazy-inits to "move") -> only the row's-own-position picker shows.
+- **Scope exclusion (owner-locked) -- `canChangeParent` gate.** The button does NOT render when the row's
+  CURRENT classification is `subtotal_marker` or `header_repeat`:
+  `const canChangeParent = row.effective_classification != null && (ASSIGNABLE_CLASSIFICATIONS as readonly string[]).includes(row.effective_classification);`
+  (the `as readonly string[]` cast is required -- the const is a `readonly [...]` tuple, so `.includes` of a
+  `string | null` otherwise fails TS2345). A no-op reclassify on those two parser-only detections would be
+  rejected by the backend `_ASSIGNABLE_CLASSIFICATIONS` gate, so the door must not appear there.
+- **edit_log fidelity (VERIFIED, no backend change).** The standalone reparent must appear in the row's
+  edit_log. The no-op reclassify writes a same-value `human_classification` entry (harmless), but the PARENT
+  change is captured SEPARATELY: `save_review_restructure`'s `row_new_parent` path calls
+  `_apply_and_save_row_edit(..., "human_parent", ...)`, which ALWAYS appends its own edit_log entry for the
+  field it writes -- field `human_parent`, `from` = prior effective parent, `to` = new parent (or null for
+  root), reason `"row moved: row N reclassified to <cls>"`. So the parent move is ALREADY logged; the B2
+  conditional (and its chokepoint STOP-gate) were NOT triggered -- backend untouched.
+- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0.
+  No Frappe unit tests (frontend slice; reused modal + backend already certified). Manual live-cert LC1-LC6
+  (LC2 children-prompt + LC6 cycle-block are the load-bearing no-silent-reparent proofs) pending Nitesh.
 
 **Force Re-parse FRONTEND slice conventions (two entry points + shared modal + rewritten warning):**
 
