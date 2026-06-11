@@ -264,7 +264,16 @@ export function RestructureModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="max-w-6xl max-h-[90vh] overflow-y-auto"
+        // Finding-2 (§9 #158, Option X): disable outside dismiss so a stray click
+        // never discards staged selections. onInteractOutside (chosen over
+        // onPointerDownOutside) covers BOTH outside pointer-down AND outside focus --
+        // the fuller guard against accidental loss. ESC still closes (onEscapeKeyDown
+        // untouched), and Cancel / Save / the close-X all close normally (they don't
+        // route through this prop).
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>
             {children.length === 0
@@ -340,13 +349,9 @@ export function RestructureModal({
                     Search the sheet, land on the row you want as this row&rsquo;s new
                     parent, then Set as parent &mdash; or send this row to the top level.
                   </p>
-                  <SheetSearchView
-                    boqName={boqName}
-                    sheetName={sheetName}
-                    onCurrentHitChange={setCurrentHit}
-                    onRowClick={setCurrentHit}
-                    selectedRowNumber={currentHit?.row_number ?? null}
-                  />
+                  {/* Finding-7 (§9 #158, Path 1): pick-action row sits ABOVE the
+                      picker grid so it's reachable without scrolling past the tall
+                      wrapping sheet. Buttons + handlers moved verbatim. */}
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
@@ -368,6 +373,13 @@ export function RestructureModal({
                       </span>
                     )}
                   </div>
+                  <SheetSearchView
+                    boqName={boqName}
+                    sheetName={sheetName}
+                    onCurrentHitChange={setCurrentHit}
+                    onRowClick={setCurrentHit}
+                    selectedRowNumber={currentHit?.row_number ?? null}
+                  />
                 </>
               )}
             </div>
@@ -446,13 +458,8 @@ export function RestructureModal({
                   Search the sheet, land on the row you want as the new parent, then Set as
                   parent.
                 </p>
-                <SheetSearchView
-                  boqName={boqName}
-                  sheetName={sheetName}
-                  onCurrentHitChange={setCurrentHit}
-                  onRowClick={setCurrentHit}
-                  selectedRowNumber={currentHit?.row_number ?? null}
-                />
+                {/* Finding-7 (§9 #158, Path 1): pick-action row ABOVE the picker grid
+                    (reachable without scrolling). Button + handler moved verbatim. */}
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
@@ -467,6 +474,13 @@ export function RestructureModal({
                     </span>
                   )}
                 </div>
+                <SheetSearchView
+                  boqName={boqName}
+                  sheetName={sheetName}
+                  onCurrentHitChange={setCurrentHit}
+                  onRowClick={setCurrentHit}
+                  selectedRowNumber={currentHit?.row_number ?? null}
+                />
               </>
             )}
           </div>
@@ -511,13 +525,8 @@ export function RestructureModal({
                 <p className="text-xs text-muted-foreground">
                   Pick a parent for row {byIdx.get(activeChildPicker)?.source_row_number}:
                 </p>
-                <SheetSearchView
-                  boqName={boqName}
-                  sheetName={sheetName}
-                  onCurrentHitChange={setCurrentHit}
-                  onRowClick={setCurrentHit}
-                  selectedRowNumber={currentHit?.row_number ?? null}
-                />
+                {/* Finding-7 (§9 #158, Path 1): pick-action row ABOVE the picker grid
+                    (reachable without scrolling). Buttons + handlers moved verbatim. */}
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
@@ -543,6 +552,13 @@ export function RestructureModal({
                     </span>
                   )}
                 </div>
+                <SheetSearchView
+                  boqName={boqName}
+                  sheetName={sheetName}
+                  onCurrentHitChange={setCurrentHit}
+                  onRowClick={setCurrentHit}
+                  selectedRowNumber={currentHit?.row_number ?? null}
+                />
               </div>
             )}
           </div>
