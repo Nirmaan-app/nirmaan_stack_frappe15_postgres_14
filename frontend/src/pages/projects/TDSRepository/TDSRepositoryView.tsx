@@ -20,6 +20,8 @@ interface TDSRepositoryViewProps {
 export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
     const { role } = useUserData();
     const canEditTDS = role !== "Nirmaan Procurement Executive Profile";
+    // Only Admins can save the generated Pending TDS PDF; everyone else previews only.
+    const isAdmin = role === "Nirmaan Admin Profile";
 
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -453,6 +455,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 blobUrl={pdfReadyBlobUrl}
                 filename={pdfReadyFilename}
                 sizeBytes={pdfReadySizeBytes}
+                canDownload={isAdmin}
             />
 
             {/* Progress Dialog */}
