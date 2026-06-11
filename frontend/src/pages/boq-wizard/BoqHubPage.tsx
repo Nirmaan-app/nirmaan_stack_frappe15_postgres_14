@@ -107,6 +107,12 @@ const BoqHubPage = () => {
 
   // Parse-run dialog + result state.
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
+  // Force Re-parse slice: the dialog is shared by the normal Parse path and the
+  // Force Re-parse path. `parseDialogMode` drives the dialog copy AND whether the
+  // confirm sends force_reparse:true. `reparseRestrictSheet` (non-null only for the
+  // per-card entry point) pre-filters the dialog to one sheet.
+  const [parseDialogMode, setParseDialogMode] = useState<"parse" | "reparse">("parse");
+  const [reparseRestrictSheet, setReparseRestrictSheet] = useState<string | null>(null);
   const [parseInFlight, setParseInFlight] = useState(false);
   const [parseResult, setParseResult] = useState<{
     parsed: string[];
@@ -375,20 +381,65 @@ const BoqHubPage = () => {
     .map((d) => d.sheet_name);
   const generalSpecsDialogList = [...generalSpecsSheetNames];
 
+  // ── Re-parse eligibility (Force Re-parse slice) ──────────────────────────
+  // A sheet is re-parse-eligible iff it has a prior parse AND its effective status
+  // is one the backend force_reparse path admits: Parsed / Parsed Check Done /
+  // dirty-Reviewed. Parse failed is DELIBERATELY excluded -- the backend does NOT
+  // widen force_reparse to it (parse_run.assemble_mapping_config Rule 4). This is the
+  // tickable source for the dialog in reparse mode AND the global-button enable gate.
+  const reparseEligibleDrafts = allDrafts.filter((d) => {
+    const eff = getEffectiveStatus(d);
+    return (
+      d.has_prior_parse === 1 &&
+      (eff === "Parsed" || eff === "Parsed Check Done" || eff === "Reviewed")
+    );
+  });
+  // ENABLED when >= 1 eligible sheet; NO blockingCount gate (deliberate divergence
+  // from canParse -- a Parse-failed sheet must not block re-parse of good sheets).
+  const canReparse = reparseEligibleDrafts.length >= 1;
+
   // ── Parse-run handlers ──────────────────────────────────────────────────────
   const handleParseClick = () => {
-    // Clear any prior result before opening the dialog.
+    // Clear any prior result before opening the dialog. Normal parse path.
     setParseResult(null);
     setParseError(null);
+    setParseDialogMode("parse");
+    setReparseRestrictSheet(null);
+    setParseDialogOpen(true);
+  };
+
+  // Global Re-parse button: open the shared dialog in reparse mode, full picker.
+  const handleReparseGlobal = () => {
+    setParseResult(null);
+    setParseError(null);
+    setParseDialogMode("reparse");
+    setReparseRestrictSheet(null);
+    setParseDialogOpen(true);
+  };
+
+  // Per-card Re-parse: open the shared dialog in reparse mode, pre-filtered to one
+  // sheet. sheetName passed VERBATIM (#152) -- it matches against draft.sheet_name.
+  const handleReparseCard = (sheetName: string) => {
+    setParseResult(null);
+    setParseError(null);
+    setParseDialogMode("reparse");
+    setReparseRestrictSheet(sheetName);
     setParseDialogOpen(true);
   };
 
   const handleParseConfirm = async (sheetNames: string[]) => {
     if (!boqId) return;
+    // Force Re-parse path adds force_reparse:true; normal Parse omits it entirely
+    // (backend default False). The SDK serializes the bool; the backend coerces it.
+    const force = parseDialogMode === "reparse";
     setParseInFlight(true);
     try {
       // Enqueue the background worker; result arrives via "boq:parse_run_done".
-      await callRunParse({ boq_name: boqId, sheet_names: sheetNames });
+      await callRunParse({
+        boq_name: boqId,
+        sheet_names: sheetNames,
+        ...(force ? { force_reparse: true } : {}),
+      });
     } catch (_e) {
       setParseInFlight(false);
       setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
@@ -596,6 +647,7 @@ const BoqHubPage = () => {
             onSaved={handleSaved}
             onOpenSpoke={handleOpenSpoke}
             onOpenReview={handleOpenReview}
+            onReparse={handleReparseCard}
             workHeaders={workPackageMap[draft.sheet_name]}
           />
         ))}
@@ -696,28 +748,51 @@ const BoqHubPage = () => {
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
         </p>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0}>
-                <Button
-                  disabled={!canParse || parseInFlight}
-                  onClick={handleParseClick}
-                >
-                  {parseInFlight ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Parsing...
-                    </>
-                  ) : (
-                    "Parse workbook"
-                  )}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{parseGateReason}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <div className="flex shrink-0 items-center gap-2">
+          <TooltipProvider>
+            {/* Global Re-parse (Force Re-parse slice) -- sits BESIDE Parse, never
+                replaces it. Enabled when >= 1 re-parse-eligible sheet; no blockingCount
+                gate. Opens the shared dialog in reparse mode (full picker). */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    disabled={!canReparse || parseInFlight}
+                    onClick={handleReparseGlobal}
+                  >
+                    Re-parse
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {canReparse
+                  ? "Re-parse already-parsed sheets (discards their parse output and review-screen work)"
+                  : "No previously-parsed sheets to re-parse"}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    disabled={!canParse || parseInFlight}
+                    onClick={handleParseClick}
+                  >
+                    {parseInFlight ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Parsing...
+                      </>
+                    ) : (
+                      "Parse workbook"
+                    )}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{parseGateReason}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
 
       {/* ── Parse-run confirm dialog (Slice 2b-frontend-i) ───────────────── */}
@@ -731,6 +806,9 @@ const BoqHubPage = () => {
         skippedSheetNames={skippedDialogSheetNames}
         generalSpecsSheetNames={generalSpecsDialogList}
         isLoading={parseInFlight}
+        mode={parseDialogMode}
+        reparseDrafts={reparseEligibleDrafts}
+        restrictToSheetName={reparseRestrictSheet}
       />
 
       {/* ── Parse completion modal (Bucket-2 Slice 2) ──────────────────────── */}

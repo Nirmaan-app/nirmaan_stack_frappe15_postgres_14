@@ -53,6 +53,13 @@ interface SheetCardProps {
    * Replaces draft.work_packages read; undefined while the map is loading.
    */
   workHeaders?: string[];
+  /**
+   * Called when the user clicks the per-card "Re-parse" control (Force Re-parse slice).
+   * Rendered ONLY on re-parse-eligible cards (has_prior_parse === 1 AND effective status
+   * in Parsed / Parsed Check Done / Reviewed). Opens the shared ParseRunDialog pre-filtered
+   * to this one sheet. Receives the VERBATIM sheet_name; hub owns the dialog + navigate.
+   */
+  onReparse?: (sheetName: string) => void;
 }
 
 export function SheetCard({
@@ -64,6 +71,7 @@ export function SheetCard({
   onOpenSpoke,
   onOpenReview,
   workHeaders,
+  onReparse,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -81,6 +89,18 @@ export function SheetCard({
   const isSaving = statusLoading || labelLoading;
 
   const pill = STATUS_PILL[effectiveStatus] ?? STATUS_PILL["Pending"];
+
+  // ── Re-parse eligibility (Force Re-parse slice) ──────────────────────────
+  // A sheet is re-parse-eligible iff it has a prior parse AND its effective status
+  // is one the backend force_reparse path admits (Parsed / Parsed Check Done / Reviewed).
+  // Parse failed is DELIBERATELY excluded -- the backend does NOT widen force_reparse to it
+  // (parse_run.assemble_mapping_config Rule 4); offering it would be a no-op control.
+  // Never-parsed sheets (has_prior_parse !== 1) never show a Re-parse control.
+  const canReparse =
+    draft.has_prior_parse === 1 &&
+    (effectiveStatus === "Parsed" ||
+      effectiveStatus === "Parsed Check Done" ||
+      effectiveStatus === "Reviewed");
 
   // One muted summary line -- priority: sheet_label > workHeaders > keyword hint.
   // workHeaders comes from get_boq_work_packages (Slice 3f-readback), not draft.work_packages
@@ -200,6 +220,13 @@ export function SheetCard({
               onClick={() => void handleStatusChange("Pending")}>
               Set pending
             </Button>
+            {/* Re-parse: only on a dirty Reviewed card (has_prior_parse === 1). */}
+            {canReparse && (
+              <Button size="sm" variant="outline" disabled={isSaving}
+                onClick={() => onReparse?.(draft.sheet_name)}>
+                Re-parse
+              </Button>
+            )}
             {/* Optional nicety: show last parse date on dirty cards. */}
             {draft.has_prior_parse === 1 && draft.last_parsed_at && (
               <span className="text-xs text-muted-foreground">
@@ -256,6 +283,13 @@ export function SheetCard({
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Edit
             </Button>
+            {/* Re-parse: discards this Parsed sheet's rows + any review-screen edits. */}
+            {canReparse && (
+              <Button size="sm" variant="outline" disabled={isSaving}
+                onClick={() => onReparse?.(draft.sheet_name)}>
+                Re-parse
+              </Button>
+            )}
             {draft.last_parsed_at && (
               <span className="text-xs text-muted-foreground">
                 &middot; Parsed {formatDate(draft.last_parsed_at)}
@@ -272,6 +306,13 @@ export function SheetCard({
               onClick={() => onOpenReview?.(draft.sheet_name)}>
               Review
             </Button>
+            {/* Re-parse: discards a hand-reviewed+checked sheet's rows + all review work. */}
+            {canReparse && (
+              <Button size="sm" variant="outline" disabled={isSaving}
+                onClick={() => onReparse?.(draft.sheet_name)}>
+                Re-parse
+              </Button>
+            )}
             {draft.last_parsed_at && (
               <span className="text-xs text-muted-foreground">
                 &middot; Parsed {formatDate(draft.last_parsed_at)}

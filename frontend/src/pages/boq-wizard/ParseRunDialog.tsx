@@ -31,6 +31,28 @@ interface ParseRunDialogProps {
   generalSpecsSheetNames: string[];
   /** True while the parse job is in flight (button shows spinner, nav blocked). */
   isLoading: boolean;
+  /**
+   * Dialog mode (Force Re-parse slice). "parse" (default) = the normal parse path:
+   * tickable source is `reviewedDrafts`, the four informational lists show, no
+   * force_reparse. "reparse" = the Force Re-parse path: tickable source is
+   * `reparseDrafts` (already-parsed sheets the backend admits under force_reparse --
+   * Parsed / Parsed Check Done / dirty-Reviewed), informational lists hidden, copy
+   * + warning re-targeted. The parent derives force_reparse from its own mode state;
+   * onConfirm's signature is unchanged.
+   */
+  mode?: "parse" | "reparse";
+  /**
+   * Re-parse-eligible drafts -- the tickable source in "reparse" mode. Each carries
+   * has_prior_parse === 1, so the destructive warning always fires on confirm. Ignored
+   * in "parse" mode.
+   */
+  reparseDrafts?: BoQSheetDraft[];
+  /**
+   * Per-card pre-filter (Force Re-parse slice). When set in "reparse" mode, the
+   * tickable list is narrowed to this ONE sheet (pre-ticked). null/undefined = the
+   * full re-parse picker (global entry point). VERBATIM sheet_name (#152).
+   */
+  restrictToSheetName?: string | null;
 }
 
 export function ParseRunDialog({
@@ -43,21 +65,36 @@ export function ParseRunDialog({
   skippedSheetNames,
   generalSpecsSheetNames,
   isLoading,
+  mode = "parse",
+  reparseDrafts = [],
+  restrictToSheetName = null,
 }: ParseRunDialogProps) {
-  // Track which reviewed sheets are ticked. All ticked by default on open.
+  const isReparse = mode === "reparse";
+
+  // The tickable source. Parse mode = Reviewed drafts (the existing behaviour).
+  // Reparse mode = the re-parse-eligible drafts, optionally narrowed to one sheet
+  // (per-card entry point). Computed before state so the seed effect reads it.
+  const tickableDrafts = isReparse
+    ? restrictToSheetName
+      ? reparseDrafts.filter((d) => d.sheet_name === restrictToSheetName)
+      : reparseDrafts
+    : reviewedDrafts;
+
+  // Track which sheets are ticked. All ticked by default on open.
   const [tickedSheets, setTickedSheets] = useState<Set<string>>(
-    () => new Set(reviewedDrafts.map((d) => d.sheet_name))
+    () => new Set(tickableDrafts.map((d) => d.sheet_name))
   );
   // step 1 = summary + checkboxes; step 2 = warn-before-reparse confirmation.
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Reset to "all ticked, step 1" each time the dialog opens.
+  // Reset to "all ticked, step 1" each time the dialog opens. Reads the current
+  // tickableDrafts (mode/restrict are set by the parent before open flips true).
   useEffect(() => {
     if (open) {
-      setTickedSheets(new Set(reviewedDrafts.map((d) => d.sheet_name)));
+      setTickedSheets(new Set(tickableDrafts.map((d) => d.sheet_name)));
       setStep(1);
     }
-    // Only reset on open/close transitions -- not on every reviewedDrafts identity change.
+    // Only reset on open/close transitions -- not on every drafts identity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -70,14 +107,21 @@ export function ParseRunDialog({
     });
   };
 
-  // Ordered list of ticked sheet names (preserves reviewedDrafts order).
-  const tickedList = reviewedDrafts
+  // Ordered list of ticked sheet names (preserves tickableDrafts order).
+  const tickedList = tickableDrafts
     .filter((d) => tickedSheets.has(d.sheet_name))
     .map((d) => d.sheet_name);
 
   // Ticked sheets that have has_prior_parse=1 (re-parsing them discards prior output).
-  const dirtyTicked = reviewedDrafts.filter(
+  // In reparse mode every tickable sheet qualifies; in parse mode only dirty-Reviewed.
+  const dirtyTicked = tickableDrafts.filter(
     (d) => tickedSheets.has(d.sheet_name) && d.has_prior_parse === 1
+  );
+
+  // Of the discarded sheets, those a human hand-reviewed and marked Checked -- the
+  // loudest loss (a completed review is thrown away). Drives the step-2 callout.
+  const checkedDoneTicked = dirtyTicked.filter(
+    (d) => d.wizard_status === "Parsed Check Done"
   );
 
   const handleParseClick = () => {
@@ -103,10 +147,11 @@ export function ParseRunDialog({
         {step === 1 ? (
           <>
             <DialogHeader>
-              <DialogTitle>Parse workbook</DialogTitle>
+              <DialogTitle>{isReparse ? "Re-parse sheets" : "Parse workbook"}</DialogTitle>
               <DialogDescription>
-                Review which sheets to parse. All reviewed sheets are selected by
-                default; untick any you want to skip this run.
+                {isReparse
+                  ? "Re-parse rebuilds these already-parsed sheets from the source file. All eligible sheets are selected by default; untick any you want to leave as-is."
+                  : "Review which sheets to parse. All reviewed sheets are selected by default; untick any you want to skip this run."}
               </DialogDescription>
             </DialogHeader>
             <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
@@ -117,18 +162,31 @@ export function ParseRunDialog({
             {/* Scrollable sheet lists */}
             <div className="space-y-4 py-1 max-h-72 overflow-y-auto pr-1">
 
-              {/* WILL PARSE -- checkboxes */}
+              {/* WILL PARSE / WILL RE-PARSE -- checkboxes */}
               <section>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                  Will parse ({reviewedDrafts.length})
+                  {isReparse ? "Will re-parse" : "Will parse"} ({tickableDrafts.length})
                 </p>
-                {reviewedDrafts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No reviewed sheets.</p>
+                {tickableDrafts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {isReparse ? "No sheets to re-parse." : "No reviewed sheets."}
+                  </p>
                 ) : (
                   <ul className="space-y-2">
-                    {reviewedDrafts.map((d) => {
+                    {tickableDrafts.map((d) => {
                       const isDirty = d.has_prior_parse === 1;
                       const isTicked = tickedSheets.has(d.sheet_name);
+                      // Per-row note: in reparse mode name what is discarded by status;
+                      // in parse mode flag only dirty-Reviewed sheets (the existing note).
+                      const note = isReparse
+                        ? d.wizard_status === "Parsed Check Done"
+                          ? "checked -- re-parsing discards the completed review"
+                          : d.wizard_status === "Parsed"
+                          ? "parsed -- current output will be discarded"
+                          : "was parsed -- config changed, will re-parse"
+                        : isDirty
+                        ? "was parsed -- config changed, will re-parse"
+                        : null;
                       return (
                         <li key={d.sheet_name} className="flex items-start gap-2.5">
                           <Checkbox
@@ -148,10 +206,10 @@ export function ParseRunDialog({
                             <span className="block truncate">
                               {d.sheet_name.trim() || d.sheet_name}
                             </span>
-                            {isDirty && (
+                            {note && (
                               <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">
                                 <AlertTriangle className="h-3 w-3 shrink-0" />
-                                was parsed -- config changed, will re-parse
+                                {note}
                               </span>
                             )}
                           </label>
@@ -163,7 +221,7 @@ export function ParseRunDialog({
               </section>
 
               {/* General specs -- informational (no checkbox, preamble-only note) */}
-              {generalSpecsSheetNames.length > 0 && (
+              {mode === "parse" && generalSpecsSheetNames.length > 0 && (
                 <section>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                     General specs -- preamble only ({generalSpecsSheetNames.length})
@@ -179,7 +237,7 @@ export function ParseRunDialog({
               )}
 
               {/* ALREADY PARSED -- read-only with last_parsed_at */}
-              {parsedDrafts.length > 0 && (
+              {mode === "parse" && parsedDrafts.length > 0 && (
                 <section>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                     Already parsed ({parsedDrafts.length})
@@ -200,7 +258,7 @@ export function ParseRunDialog({
               )}
 
               {/* PENDING -- read-only informational */}
-              {pendingSheetNames.length > 0 && (
+              {mode === "parse" && pendingSheetNames.length > 0 && (
                 <section>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                     Pending / not configured ({pendingSheetNames.length})
@@ -216,7 +274,7 @@ export function ParseRunDialog({
               )}
 
               {/* SKIPPED -- read-only informational */}
-              {skippedSheetNames.length > 0 && (
+              {mode === "parse" && skippedSheetNames.length > 0 && (
                 <section>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                     Skipped / hidden ({skippedSheetNames.length})
@@ -246,24 +304,50 @@ export function ParseRunDialog({
                     Parsing...
                   </>
                 ) : (
-                  `Parse ${tickedList.length} sheet${tickedList.length !== 1 ? "s" : ""}`
+                  `${isReparse ? "Re-parse" : "Parse"} ${tickedList.length} sheet${tickedList.length !== 1 ? "s" : ""}`
                 )}
               </Button>
             </DialogFooter>
           </>
         ) : (
-          /* Step 2: warn-before-reparse confirmation */
+          /* Step 2: warn-before-reparse confirmation (destructive safety surface) */
           <>
             <DialogHeader>
-              <DialogTitle>Re-parse previously parsed sheets?</DialogTitle>
-              <DialogDescription>
-                Re-parsing will discard the existing parse output for{" "}
+              <DialogTitle className="text-destructive">
                 {dirtyTicked.length === 1
-                  ? `"${dirtyTicked[0].sheet_name.trim() || dirtyTicked[0].sheet_name}"`
-                  : `these ${dirtyTicked.length} sheets`}
-                . Any edits already made to those parse results will be lost.
+                  ? `Discard all work on "${dirtyTicked[0].sheet_name.trim() || dirtyTicked[0].sheet_name}"?`
+                  : `Discard all work on these ${dirtyTicked.length} sheets?`}
+              </DialogTitle>
+              <DialogDescription>
+                Re-parsing rebuilds {dirtyTicked.length === 1 ? "this sheet" : "these sheets"} from the
+                source file. This permanently discards the current parsed output{" "}
+                <span className="font-semibold text-foreground">and every review-screen change</span>{" "}
+                on {dirtyTicked.length === 1 ? "it" : "them"} &mdash; edited values and text, remarks,
+                classification changes, and any parenting / restructure moves. This cannot be undone.
               </DialogDescription>
             </DialogHeader>
+
+            {/* LOUDEST callout: hand-reviewed + Checked sheets lose a completed review. */}
+            {checkedDoneTicked.length > 0 && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2">
+                <p className="flex items-start gap-1.5 text-sm font-semibold text-destructive">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    {checkedDoneTicked.length === 1
+                      ? `"${checkedDoneTicked[0].sheet_name.trim() || checkedDoneTicked[0].sheet_name}" was hand-reviewed and marked Checked.`
+                      : `${checkedDoneTicked.length} sheets were hand-reviewed and marked Checked.`}{" "}
+                    Re-parsing throws away that completed review entirely.
+                  </span>
+                </p>
+                {checkedDoneTicked.length > 1 && (
+                  <ul className="mt-1.5 space-y-0.5 pl-6 text-sm text-destructive">
+                    {checkedDoneTicked.map((d) => (
+                      <li key={d.sheet_name}>&middot; {d.sheet_name.trim() || d.sheet_name}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {dirtyTicked.length > 1 && (
               <ul className="py-1 space-y-1 text-sm text-muted-foreground">
