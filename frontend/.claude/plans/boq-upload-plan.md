@@ -16,8 +16,9 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: ReviewTree detail-panel layout pass (FINDING B card treatment; Obs 1 Classification/Parent
-vertical stack; Obs 2 per-block responsive ~4-col grid) -- the block immediately below. Prior latest:
+LATEST: ReviewTree detail-panel layout pass + brand-tint follow-up (FINDING B card treatment, now an INDIGO
+body + BRAND-RED `border-l-primary` left-accent stripe; Obs 1 Classification/Parent vertical stack; Obs 2
+per-block responsive ~4-col grid) -- the block immediately below. Prior latest:
 §9 #158 RestructureModal polish pair (finding-2 outside-click dismiss disabled; finding-7 pick buttons
 moved ABOVE the picker grid). Before that: §9 #162 standalone "Change parent" door (detail-panel button
 -> existing RestructureModal via a no-op reclassify); Force Re-parse FRONTEND slice (two entry points +
@@ -28,14 +29,21 @@ Three className-only fixes to the inline detail panel in `ReviewTree.tsx` ONLY (
 gate, save path, field-derivation, `colSpan`/`totalCols`, or `<tr>`/`<td>` structure touched; no backend,
 no doctype, no `boqTypes.ts`). tsc 0 new wizard-file errors (project baseline 3177 unchanged) + in-container
 build exit 0; no Frappe unit tests (frontend-only, pure CSS). Manual live-cert LC1-LC5 deferred to Nitesh.
-- **FINDING B -- panel reads as a DISTINCT nested card (was: blended into the row stack).** Recon root
-  cause: the panel's inner content `<div>` background `bg-muted/30` is the EXACT tint a normal data row uses
-  on hover (`hover:bg-muted/30`), and the panel had only a bottom border -- so it read as just another
-  hovered row. FIX: the inner content `<div onClick={stopPropagation}>` (inside `<td colSpan={totalCols}
-  className="px-3 py-3 border-b border-border">`) now carries `bg-background border border-border rounded-md
-  shadow-sm p-3`. Load-bearing piece = the SOLID `bg-background` (NOT the hover tint); border + radius +
-  shadow + own padding (inset inside the cell's `px-3 py-3`) complete the card read. The `<tr
-  className="bg-muted/30">` + `<td colSpan>` structure is UNCHANGED (colSpan/totalCols untouched).
+- **FINDING B -- panel reads as a DISTINCT, BRAND-TINTED nested card (was: blended into the row stack).**
+  Recon root cause: the panel's inner content `<div>` background `bg-muted/30` is the EXACT tint a normal
+  data row uses on hover (`hover:bg-muted/30`), and the panel had only a bottom border -- so it read as just
+  another hovered row. FIX (layout pass + brand-tint follow-up): the inner content `<div
+  onClick={stopPropagation}>` (inside `<td colSpan={totalCols} className="px-3 py-3 border-b border-border">`)
+  now carries `bg-indigo-50/40 dark:bg-indigo-950/20 border border-border border-l-4 border-l-primary
+  rounded-md shadow-sm p-3`. The differentiator = a distinct INDIGO body tint (NOT the hover tint) + border
+  + radius + shadow + own padding + a BRAND-RED LEFT-ACCENT STRIPE (`border-l-primary`). **Brand-red token
+  read (Phase 1):** `border-l-primary` -> the `--primary` token = `346.8 77.2% 49.8%` (a rose/crimson red,
+  defined in `frontend/src/index.css` `:root` L47 + `.dark` L79, identical both modes), DISTINCT from
+  `--destructive` (`0 84.2% 60.2%` light / `0 62.8% 30.6%` dark, pure-red hue 0). **WHY accent not full
+  surface / WHY `--primary` not `--destructive`:** a full red surface (or the destructive token) would
+  collide with the destructive/error red meaningful on this screen (re-parse warning, cycle rejection); the
+  brand red is carried as an ACCENT via `--primary`. The `<tr className="bg-muted/30">` + `<td colSpan>`
+  structure is UNCHANGED (colSpan/totalCols untouched).
 - **Obs 1 -- Classification/Parent VERTICAL STACK.** The original/effective grid `grid grid-cols-2 gap-x-4
   gap-y-1 text-xs mb-2` becomes `grid grid-cols-1 gap-y-1 text-xs mb-2` (Classification row first, then the
   Parent + §9 #162 "Change parent" row below). Reason: on a wide sheet the right grid column (Parent) was
@@ -408,9 +416,12 @@ so the component re-certs ONCE:
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-11 (ReviewTree detail-panel layout pass COMPLETE -- FRONTEND ONLY, pure CSS in
-`ReviewTree.tsx`: FINDING B inner-content `<div>` becomes a distinct nested card [`bg-background border
-border-border rounded-md shadow-sm p-3`, no longer the `bg-muted/30` row-hover tint]; Obs 1
+**Last updated:** 2026-06-11 (ReviewTree detail-panel layout pass + brand-tint follow-up COMPLETE --
+FRONTEND ONLY, pure CSS in `ReviewTree.tsx`: FINDING B inner-content `<div>` becomes a distinct nested card
+with an INDIGO body tint + BRAND-RED left-accent stripe [`bg-indigo-50/40 dark:bg-indigo-950/20 border
+border-border border-l-4 border-l-primary rounded-md shadow-sm p-3`, no longer the `bg-muted/30` row-hover
+tint; `border-l-primary` = the rose/crimson `--primary` token hue 346.8, DISTINCT from `--destructive` pure
+red -- accent not full surface, avoids the error-red collision on this screen]; Obs 1
 Classification/Parent grid `grid-cols-2` -> `grid-cols-1` vertical stack; Obs 2 each of the three edit
 blocks [numeric/text/per-area] `flex flex-wrap gap-2` -> `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3
 lg:grid-cols-4 gap-2` with `w-52` dropped; the three blocks stay SEPARATE, Remarks block untouched; tsc 0

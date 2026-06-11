@@ -321,10 +321,13 @@ store.
 Three cosmetic/layout fixes to the inline detail panel in `ReviewTree.tsx` ONLY (FRONTEND ONLY; pure
 CSS/className -- no logic, no state, no handler, no gate, no backend, no doctype, no `boqTypes.ts`).
 **FINDING B (visual separation):** the panel's inner content `<div>` (inside the `<td colSpan={totalCols}>`)
-gains `bg-background border border-border rounded-md shadow-sm p-3` so it reads as a DISTINCT nested card --
-the root cause was that its old `bg-muted/30` background is the EXACT tint a normal row uses on hover
-(`hover:bg-muted/30`), so it blended into the row stack; a solid `bg-background` (NOT the hover tint) +
-border + radius + subtle shadow + own padding (inset inside the cell's `px-3 py-3`) is the differentiator.
+gains `bg-indigo-50/40 dark:bg-indigo-950/20 border border-border border-l-4 border-l-primary rounded-md
+shadow-sm p-3` so it reads as a DISTINCT nested card -- the root cause was that its old `bg-muted/30`
+background is the EXACT tint a normal row uses on hover (`hover:bg-muted/30`), so it blended into the row
+stack; a distinct INDIGO body tint (NOT the hover tint) + border + radius + shadow + own padding (inset
+inside the cell's `px-3 py-3`) + a BRAND-RED left-accent stripe (`border-l-primary` = the rose/crimson
+`--primary` token, hue 346.8, DISTINCT from `--destructive`'s pure-red hue 0; an ACCENT not a full surface,
+to avoid colliding with the destructive/error red on this screen) is the differentiator.
 The `<tr className="bg-muted/30">` + `<td colSpan>` structure is UNCHANGED (colSpan/totalCols untouched).
 **OBS 1 (Parent below Classification):** the Classification/Parent grid `grid grid-cols-2 gap-x-4 gap-y-1`
 becomes `grid grid-cols-1 gap-y-1` -- a VERTICAL STACK (Classification row, then the Parent + §9 #162
@@ -860,14 +863,23 @@ Three className-only fixes to the inline detail panel (the `expandedDetailRow ==
 logic, state, handler, gate, save path, field-derivation (`editableDescriptors` / `editableTextDescriptors`
 / `editableAreaDescriptors`), `colSpan`, `totalCols`, or `<tr>`/`<td>` structure was touched.
 
-- **FINDING B -- the panel is a NESTED CARD, not a hovered row.** The panel's inner content `<div
-  onClick={stopPropagation}>` (inside `<td colSpan={totalCols} className="px-3 py-3 border-b border-border">`)
-  carries `bg-background border border-border rounded-md shadow-sm p-3`. **Root cause locked:** the old
-  panel background `bg-muted/30` is the EXACT tint a normal data row uses on hover (`hover:bg-muted/30`), so
-  with only a bottom border it read as just another hovered row. The fix's load-bearing piece is the SOLID
-  `bg-background` (NOT the hover tint); the border + radius + shadow + own padding (inset inside the cell's
-  existing `px-3 py-3`) complete the card read. Do NOT revert the panel to a muted tint -- that reintroduces
-  the blend. The `<tr className="bg-muted/30">` wrapper + the `<td colSpan>` are unchanged.
+- **FINDING B -- the panel is a NESTED, BRAND-TINTED CARD, not a hovered row.** The panel's inner content
+  `<div onClick={stopPropagation}>` (inside `<td colSpan={totalCols} className="px-3 py-3 border-b
+  border-border">`) carries `bg-indigo-50/40 dark:bg-indigo-950/20 border border-border border-l-4
+  border-l-primary rounded-md shadow-sm p-3`. **Root cause locked:** the original panel background
+  `bg-muted/30` is the EXACT tint a normal data row uses on hover (`hover:bg-muted/30`), so with only a
+  bottom border it read as just another hovered row. The differentiator is a distinct body tint (NOT the
+  hover tint) + border + radius + shadow + own padding (inset inside the cell's existing `px-3 py-3`).
+  **Brand-tint follow-up (owner-requested):** the body is an INDIGO tint (`bg-indigo-50/40` /
+  `dark:bg-indigo-950/20`) plus a BRAND-RED LEFT-ACCENT STRIPE `border-l-4 border-l-primary`.
+  `border-l-primary` resolves to the `--primary` token (`346.8 77.2% 49.8%` -- a rose/crimson red, defined
+  in `src/index.css`, identical in `:root` + `.dark`). **WHY an accent stripe, NOT a full red surface:** a
+  red surface would collide with the destructive/error red already meaningful on this screen (the re-parse
+  destructive warning, the cycle-rejection error). **WHY `--primary`, NOT `--destructive`:** the brand red
+  (`--primary`, hue 346.8) is DISTINCT from the error red (`--destructive`, `0 84.2% 60.2%`, pure-red hue
+  0) -- using `--destructive` would reintroduce the error association we are avoiding. Do NOT revert to a
+  muted tint (reintroduces the blend) and do NOT swap the stripe to `border-l-destructive`. The `<tr
+  className="bg-muted/30">` wrapper + the `<td colSpan>` are unchanged.
 - **OBS 1 -- Classification/Parent is a VERTICAL STACK.** The original/effective grid is
   `grid grid-cols-1 gap-y-1 text-xs mb-2` (was `grid grid-cols-2 gap-x-4 gap-y-1`). Classification row first,
   then the Parent + §9 #162 "Change parent" row below it. Reason: on a wide sheet the right grid column
