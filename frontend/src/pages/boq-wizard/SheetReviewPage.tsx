@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowLeft, Check, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Check, Download, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -36,6 +36,7 @@ import type {
   UnmarkParsedCheckDoneResponse,
 } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
+import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Slice D1: human-readable labels for structural-break types shown in the mark
 // warn-and-confirm escalation dialog.
@@ -270,6 +271,26 @@ const SheetReviewPage = () => {
             C-v2 save-status anchor. The Mark button and the read-only banner below are
             mutually exclusive by construction (status-driven). */}
         <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+          {/* Slice D2: per-sheet CSV export. STATUS-INDEPENDENT (a frozen/checked
+              sheet exports too) and VIEW-INDEPENDENT (filters/collapse/search do
+              not affect it). Disabled while loading or when there are no rows. */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() =>
+              buildAndDownloadReviewCsv({
+                boqName: boqId ?? "",
+                sheetName: sheetName ?? "", // VERBATIM -- trailing spaces intact (#152)
+                rows,
+                columnDescriptors,
+              })
+            }
+            disabled={reviewLoading || rows.length === 0}
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
           {sheetStatus === "Parsed" && (
             <Button
               size="sm"

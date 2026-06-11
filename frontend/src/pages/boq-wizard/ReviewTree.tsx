@@ -117,7 +117,9 @@ import { RestructureModal } from "./RestructureModal";
 //
 // Time: O(n) amortised -- each node is visited once via memoisation.
 
-function computeDepths(rows: ReviewRow[]): Map<number, number> {
+// Exported for reuse by exportReviewCsv (Slice D2) -- single source of truth for
+// the effective depth shown in the tree. No behaviour change.
+export function computeDepths(rows: ReviewRow[]): Map<number, number> {
   const byIdx = new Map<number, ReviewRow>(rows.map(r => [r.row_index, r]));
   const depths = new Map<number, number>();
 
@@ -171,7 +173,9 @@ function computeDepths(rows: ReviewRow[]): Map<number, number> {
 // Each entry: paired bg (light/dark) + text (light/dark) Tailwind classes.
 // Fully opaque (no /opacity suffix) so sticky-header and row backgrounds don't bleed.
 
-const CLS_LABELS: Record<string, string> = {
+// Exported for reuse by exportReviewCsv (Slice D2) -- the CSV uses the same
+// human-readable classification labels the tree renders. No behaviour change.
+export const CLS_LABELS: Record<string, string> = {
   preamble:        "Preamble",
   line_item:       "Item",
   note:            "Note",
@@ -227,7 +231,9 @@ function buildAreaColorMap(areas: string[]): Record<string, string> {
 
 // ── Descriptor value resolution ───────────────────────────────────────────────
 
-function resolveDescriptorValue(row: ReviewRow, d: ColumnDescriptor): unknown {
+// Exported for reuse by exportReviewCsv (Slice D2) -- the CSV resolves per-area /
+// singleton descriptor values via the exact same walk the tree uses. No behaviour change.
+export function resolveDescriptorValue(row: ReviewRow, d: ColumnDescriptor): unknown {
   const top = (row as unknown as Record<string, unknown>)[d.value_field];
   if (top === null || top === undefined) return undefined;
   if (d.value_key === null) return top;
@@ -252,7 +258,9 @@ const INDENT_PX = 20;
 const VISIBILITY_HOP_CAP = 60; // max ancestor chain length for isVisible check
 
 // Roles shown as fixed anchor columns; excluded from the descriptor-driven layer.
-const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
+// Exported for reuse by exportReviewCsv (Slice D2) so the CSV's data columns dedupe
+// sl_no/description identically (they are dedicated CSV columns). No behaviour change.
+export const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
 
 // C-v2: the 7 flat numeric value fields editable inline (mirrors backend
 // review_screen._VALUE_FIELDS). A descriptor is editable iff value_key === null
