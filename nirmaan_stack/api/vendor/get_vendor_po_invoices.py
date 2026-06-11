@@ -2,14 +2,14 @@
 
 import frappe
 from frappe.utils import flt, get_datetime
-import json
 
 @frappe.whitelist()
 def get_po_ledger_data(vendor_id):
     """
     Fetches all POs, Service Requests, their Invoices (from Vendor Invoices doctype),
-    and related Project Payments. It calculates the SR total by summing quantity * rate
-    from the nested 'service_order_list' JSON field.
+    and related Project Payments. SR totals come directly from `sr.total_amount`
+    (kept fresh by the SR's calculate_total_amount hook); GST is stripped for the
+    ledger row to match pre-migration behavior.
 
     Updated in v3.0 to use Vendor Invoices doctype instead of invoice_data JSON.
     """
@@ -49,11 +49,14 @@ def get_po_ledger_data(vendor_id):
         })
         log_counter += 1
 
-    # --- Step 2: Fetch Service Requests & Calculate Total from Child Table ---
+    # --- Step 2: Fetch Service Requests & Calculate Total from work_order_items child table ---
+    # Vendor ledger emits SR rows WITHOUT GST (matches pre-migration behavior).
+    # `total_amount` on the parent already includes GST when sr.gst === "true",
+    # so we strip the 18% back out below.
     vendor_srs = frappe.get_all(
         "Service Requests",
         filters={"vendor": vendor_id, "status": ["!=", "Cancelled"]},
-        fields=["name", "creation", "project", "service_order_list"]
+        fields=["name", "creation", "project", "total_amount", "gst"]
     )
     print(f"DEBUG LEDGER: Found {len(vendor_srs)} total historical Service Requests.")
 
@@ -63,7 +66,6 @@ def get_po_ledger_data(vendor_id):
         project_docs = frappe.get_all("Projects", filters={"name": ["in", list(project_ids_from_srs)]}, fields=["name", "project_name"])
         project_name_map = {p.name: p.project_name for p in project_docs}
 
-    # Process SRs
     for sr in vendor_srs:
         doc_name = sr.get("name")
         doc_names.append(doc_name)
@@ -71,23 +73,14 @@ def get_po_ledger_data(vendor_id):
         resolved_project_name = project_name_map.get(project_id, project_id or "N/A")
         doc_project_map[doc_name] = resolved_project_name
 
-        # Calculate SR total from service_order_list
-        sr_total_amount = 0.0
-        service_order_json = sr.get("service_order_list")
-
-        if isinstance(service_order_json, dict) and isinstance(service_order_json.get("list"), list):
-            service_order_list_data = service_order_json.get("list")
-            print(f"DEBUG LEDGER: Calculating total from {len(service_order_list_data)} items for SR {doc_name}")
-            for item in service_order_list_data:
-                quantity = flt(item.get('quantity', 0))
-                rate = flt(item.get('rate', 0))
-                sr_total_amount += (quantity * rate)
+        total_with_gst = flt(sr.get("total_amount", 0))
+        sr_amount_no_gst = total_with_gst / 1.18 if sr.get("gst") == "true" else total_with_gst
 
         all_transactions.append({
             "type": "SR Created",
             "date": get_datetime(sr.get("creation")),
             "details": f"SR: {doc_name}",
-            "amount": sr_total_amount,
+            "amount": sr_amount_no_gst,
             "payment": 0,
             "project": resolved_project_name
         })

@@ -143,7 +143,7 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
                     <div className={`${isRestrictedRole ? 'lg:col-span-3' : 'lg:col-span-2'} space-y-4 md:space-y-6`}>
                         <SRItemsTable
-                            items={serviceRequest.parsed_service_order_list?.list}
+                            items={serviceRequest.work_order_items}
                             gstEnabled={serviceRequest.gst === "true"}
                         />
                         <SRNotesSection

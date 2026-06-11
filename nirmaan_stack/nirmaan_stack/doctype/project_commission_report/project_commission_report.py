@@ -1,7 +1,24 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
+import json
+
 from frappe.model.document import Document
+
+
+def _is_response_data_meaningful(task) -> bool:
+    """A wizard-filled response counts as evidence only when there's a real
+    snapshot reference AND parseable, non-empty `responses`."""
+    raw = (task.response_data or "").strip()
+    if not raw or raw in ("{}", "null"):
+        return False
+    if not (task.response_snapshot_id or "").strip():
+        return False
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return False
+    return bool(data.get("responses"))
 
 
 class ProjectCommissionReport(Document):
@@ -33,10 +50,11 @@ class ProjectCommissionReport(Document):
 
             has_file_link = bool((task.file_link or "").strip())
             has_attachment = bool(task.approval_proof)
+            has_response = _is_response_data_meaningful(task)
 
-            if not (has_file_link or has_attachment):
+            if not (has_file_link or has_attachment or has_response):
                 frappe.throw(
-                    f"Task '{task.task_name}' requires either a report link or an attachment before setting status to Completed.",
+                    f"Task '{task.task_name}' requires a report link, an attachment, or a filled wizard response before setting status to Completed.",
                     title="Report Evidence Required"
                 )
 

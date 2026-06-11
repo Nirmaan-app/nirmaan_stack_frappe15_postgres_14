@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
 import { Download, Info, Edit2 } from "lucide-react";
 import memoize from 'lodash/memoize';
 
@@ -159,7 +159,9 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "total_amount", "loading_charges", "freight_charges", "po_amount_delivered"], limit: 0 }, 'POs_AllPay'
     );
     const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
-        DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "service_order_list", "gst"], limit: 0 }, 'SRs_AllPay'
+        DOC_TYPES.SERVICE_REQUESTS,
+        { fields: ["name", "total_amount", "gst"], limit: 0 },
+        'SRs_AllPay'
     );
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
 
@@ -181,9 +183,9 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             return order?.total_amount || 0;
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
             const order = serviceOrders?.find(sr => sr.name === docName);
-            if (!order || !order.service_order_list?.list) return 0;
-            const srTotal = order.service_order_list.list.reduce((acc, item) => acc + (parseNumber(item.rate) * parseNumber(item.quantity)), 0);
-            return order.gst === "true" ? srTotal * 1.18 : srTotal;
+            // `total_amount` is computed on every save (validate) and already
+            // includes GST when sr.gst === "true". Read it directly.
+            return parseNumber(order?.total_amount);
         }
         return 0;
     }), [purchaseOrders, serviceOrders]);

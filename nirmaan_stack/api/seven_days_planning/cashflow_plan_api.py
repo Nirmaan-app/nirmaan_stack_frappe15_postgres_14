@@ -1,5 +1,4 @@
 import frappe
-import json
 
 @frappe.whitelist()
 def get_active_vendors():
@@ -27,7 +26,7 @@ def get_all_project_wos(project):
     
     wo_list = frappe.get_all("Service Requests",
         filters=filters,
-        fields=["name", "vendor", "creation", "status", "total_amount", "amount_paid", "service_order_list"],
+        fields=["name", "vendor", "creation", "status", "total_amount", "amount_paid"],
         order_by="creation desc"
     )
 
@@ -39,37 +38,25 @@ def get_all_project_wos(project):
         for v in vendors:
             vendor_map[v.name] = v.vendor_name
 
+    # Batch-fetch child rows for all SRs in one query
+    sr_names = [w["name"] for w in wo_list]
+    items_rows = frappe.get_all(
+        "Work Order Items",
+        fields=["parent", "item_name", "category"],
+        filters={"parent": ("in", sr_names), "parenttype": "Service Requests"} if sr_names else {"parent": ("in", [""])},
+    )
+    items_by_parent = {}
+    for row in items_rows:
+        items_by_parent.setdefault(row["parent"], []).append({
+            "description": row.get("item_name"),
+            "category": row.get("category"),
+        })
+
     for w in wo_list:
         w["vendor_name"] = vendor_map.get(w.vendor, w.vendor)
         w["grand_total"] = w.get("total_amount") or 0
         w["total_paid"] = w.get("amount_paid") or 0
-        
-        # Parse service_order_list
-        raw_list = w.get("service_order_list")
-        parsed_items = []
-        if raw_list:
-            try:
-                if isinstance(raw_list, str):
-                    data = json.loads(raw_list)
-                else:
-                    data = raw_list
-                
-                if isinstance(data, dict):
-                    raw_items = data.get("list", [])
-                elif isinstance(data, list):
-                    raw_items = data
-                else:
-                    raw_items = []
-                    
-                # Filter specific fields
-                for item in raw_items:
-                    parsed_items.append({
-                        "description": item.get("description") or item.get("item_name"),
-                        "category": item.get("category")
-                    })
-            except:
-                parsed_items = []
-        w["items"] = parsed_items
-    
+        w["items"] = items_by_parent.get(w["name"], [])
+
     return {"wos": wo_list}
 

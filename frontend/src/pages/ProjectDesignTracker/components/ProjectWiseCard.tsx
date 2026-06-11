@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowUpRight, CheckCircle2, ChevronDown, ChevronRight, Eye, EyeOff, User } from "lucide-react";
 import { getUnifiedStatusStyle, parseDesignersFromField } from "../utils";
-import { PROJECT_STATUS_BADGE_CLASSES } from "@/components/common/projectStatus";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 // --- Phase Status Section (compact, left-border accent) ---
 const PhaseStatusSection: React.FC<{
@@ -71,6 +71,7 @@ interface ProjectWiseCardProps {
 export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick, showHiddenBadge, onHideToggle, currentUserId, isDesigner }) => {
     const isHidden = tracker.hide_design_tracker === 1;
     const hasHandover = tracker.handover_generated === 1;
+    const isCEOHold = tracker.status_of_project === 'CEO Hold';
 
     // Collapse state for Onboarding when Handover exists (closed by default per spec).
     const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -138,11 +139,15 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
         <Card
             className={`
                 group h-full flex flex-col
-                border bg-white
+                border
                 transition-all duration-200
                 hover:shadow-md hover:border-primary/40
                 cursor-pointer
-                ${isHidden && showHiddenBadge ? 'border-orange-300 bg-orange-50/30' : 'border-gray-200'}
+                ${isCEOHold
+                    ? 'border-red-300 bg-red-50 hover:bg-red-100'
+                    : isHidden && showHiddenBadge
+                        ? 'border-orange-300 bg-orange-50/30'
+                        : 'border-gray-200 bg-white'}
             `}
             onClick={onClick}
         >
@@ -166,15 +171,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                             >
                                 {tracker.project_name}
                             </CardTitle>
-                            {tracker.status_of_project && (
-                                <Badge
-                                    variant="outline"
-                                    className={`text-[10px] px-1.5 py-0 shrink-0 font-medium ${PROJECT_STATUS_BADGE_CLASSES[tracker.status_of_project] || 'bg-gray-100 text-gray-700 border-gray-300'}`}
-                                    title="Project status"
-                                >
-                                    {tracker.status_of_project}
-                                </Badge>
-                            )}
+                            <ProjectStatusBadge status={tracker.status_of_project} />
                             {hasHandover && tracker.status_of_project !== 'Handover' && (
                                 <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] shrink-0">
                                     Handover

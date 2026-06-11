@@ -1,0 +1,385 @@
+// Pure resolver: given a parsed template + a prefill dict + (optionally) any
+// existing response, returns the initial form values keyed by section.id.
+//
+// Resolution order for each field:
+//   1. Existing response value (edit/view mode)
+//   2. `bind` → prefillDict[bind]
+//   3. `default` (static)
+//   4. type-appropriate empty (text → "", number → "", date → "")
+//
+// Snapshot semantics (Decision E): bindings are read once at fill time.
+// Once a value lands in `response_data.responses`, future renders use it as-is
+// even if the project (and therefore the underlying prefill dict) changes.
+
+import type {
+    Field,
+    PrefillSnapshot,
+    ReportTemplate,
+    ResponseData,
+    Section,
+} from '../types';
+import { isAllowedBinding } from './bindings';
+
+export type FormValues = Record<string, unknown>;
+
+interface ResolveOpts {
+    template: ReportTemplate;
+    prefillDict: PrefillSnapshot;
+    existingResponse?: ResponseData | null;
+}
+
+const emptyForType = (f: Pick<Field, 'type'>): unknown => {
+    switch (f.type) {
+        case 'number':
+            return '';
+        case 'date':
+            return '';
+        case 'image':
+            // Per-row image cell: no value = null. Truthy `existing` check in
+            // resolveFieldValue treats null as "fall through to default", which
+            // is what we want — the cell renders its empty Upload button.
+            return null;
+        case 'select':
+        case 'text':
+        case 'textarea':
+        default:
+            return '';
+    }
+};
+
+const resolveFieldValue = (
+    field: Field,
+    sectionResponses: Record<string, unknown> | undefined,
+    prefillDict: PrefillSnapshot,
+): unknown => {
+    // 1. Existing response wins.
+    const existing = sectionResponses?.[field.key];
+    if (existing !== undefined && existing !== null && existing !== '') {
+        return existing;
+    }
+    // 2. Bind from project prefill.
+    if (field.bind && isAllowedBinding(field.bind)) {
+        const v = prefillDict[field.bind];
+        if (v !== undefined && v !== null && v !== '') return v;
+    }
+    // 3. Static default.
+    if (field.default !== undefined && field.default !== null && field.default !== '') {
+        return field.default;
+    }
+    // 4. Empty.
+    return emptyForType(field);
+};
+
+export const resolveInitialValues = ({
+    template,
+    prefillDict,
+    existingResponse,
+}: ResolveOpts): FormValues => {
+    const out: FormValues = {};
+    const existingResponses = existingResponse?.responses || {};
+
+    for (const section of template.sections) {
+        const existing = existingResponses[section.id] as Record<string, unknown> | undefined;
+        switch (section.type) {
+            case 'header':
+            case 'fields': {
+                const sectionOut: Record<string, unknown> = {};
+                for (const field of section.fields) {
+                    sectionOut[field.key] = resolveFieldValue(field, existing, prefillDict);
+                }
+                out[section.id] = sectionOut;
+                break;
+            }
+            case 'checklist': {
+                const sectionOut: Record<string, { result?: unknown; remarks?: unknown }> = {};
+                for (const item of section.items) {
+                    const existingItem =
+                        (existing?.[item.id] as { result?: unknown; remarks?: unknown }) || undefined;
+                    // Build pseudo-fields with synthetic keys to reuse resolver.
+                    const resultField = {
+                        ...item.result,
+                        key: 'result',
+                        label: item.result.label || 'Result',
+                    } as Field;
+                    const remarksField = item.remarks
+                        ? ({ ...item.remarks, key: 'remarks', label: item.remarks.label || 'Remarks' } as Field)
+                        : null;
+                    sectionOut[item.id] = {
+                        result: resolveFieldValue(resultField, existingItem, prefillDict),
+                        remarks: remarksField
+                            ? resolveFieldValue(remarksField, existingItem, prefillDict)
+                            : '',
+                    };
+                }
+                out[section.id] = sectionOut;
+                break;
+            }
+            case 'trainees_data_table': {
+                const minRows = Math.max(1, section.minRows ?? 1);
+                const existingRows = (existing as unknown as Array<Record<string, unknown>>) || null;
+
+                const buildEmptyRow = (): Record<string, unknown> => {
+                    const row: Record<string, unknown> = {};
+                    for (const col of section.columns) {
+                        // Reuse field resolver with no existing value → falls through to default → empty.
+                        row[col.key] = resolveFieldValue(
+                            { ...col, bind: undefined } as Field,
+                            undefined,
+                            prefillDict,
+                        );
+                    }
+                    return row;
+                };
+
+                if (existingRows && Array.isArray(existingRows) && existingRows.length > 0) {
+                    // Edit/view: keep saved rows; ensure each row has every current column.
+                    out[section.id] = existingRows.map((row) => {
+                        const filled: Record<string, unknown> = {};
+                        for (const col of section.columns) {
+                            const v = row?.[col.key];
+                            filled[col.key] =
+                                v === undefined || v === null
+                                    ? resolveFieldValue(
+                                          { ...col, bind: undefined } as Field,
+                                          undefined,
+                                          prefillDict,
+                                      )
+                                    : v;
+                        }
+                        return filled;
+                    });
+                } else {
+                    // Fill: seed minRows empty rows.
+                    out[section.id] = Array.from({ length: minRows }, () => buildEmptyRow());
+                }
+                break;
+            }
+            case 'repeating_groups': {
+                // Each group = { ...groupFields, rows?: [...rowsTable], <nested.id>?: {...} }.
+                const existingArr = Array.isArray(existing)
+                    ? (existing as Array<Record<string, unknown>>)
+                    : null;
+                const buildEmptyRow = (): Record<string, unknown> => {
+                    const row: Record<string, unknown> = {};
+                    if (!section.rowsTable) return row;
+                    for (const col of section.rowsTable.columns) {
+                        row[col.key] = resolveFieldValue(
+                            { ...col, bind: undefined } as Field,
+                            undefined,
+                            prefillDict,
+                        );
+                    }
+                    return row;
+                };
+                /** Build an empty nested-section response shape, mirroring how the
+                 *  top-level resolver seeds each section type. Reuse via a small
+                 *  switch — only the input section types matter; process /
+                 *  signatures / image_attachments contribute nothing here. */
+                const buildEmptyNested = (
+                    nested: Section,
+                    savedNested: Record<string, unknown> | undefined,
+                ): unknown => {
+                    if (nested.type === 'header' || nested.type === 'fields') {
+                        const out: Record<string, unknown> = {};
+                        for (const f of nested.fields) {
+                            out[f.key] = resolveFieldValue(f, savedNested, prefillDict);
+                        }
+                        return out;
+                    }
+                    if (nested.type === 'checklist') {
+                        const out: Record<string, { result?: unknown; remarks?: unknown }> = {};
+                        for (const item of nested.items) {
+                            const savedItem =
+                                (savedNested?.[item.id] as
+                                    | { result?: unknown; remarks?: unknown }
+                                    | undefined) || undefined;
+                            const resultField = {
+                                ...item.result,
+                                key: 'result',
+                                label: item.result.label || 'Result',
+                            } as Field;
+                            const remarksField = item.remarks
+                                ? ({
+                                      ...item.remarks,
+                                      key: 'remarks',
+                                      label: item.remarks.label || 'Remarks',
+                                  } as Field)
+                                : null;
+                            out[item.id] = {
+                                result: resolveFieldValue(resultField, savedItem, prefillDict),
+                                remarks: remarksField
+                                    ? resolveFieldValue(remarksField, savedItem, prefillDict)
+                                    : '',
+                            };
+                        }
+                        return out;
+                    }
+                    // Other types (process / signatures / image_attachments / trainees_data_table /
+                    // measurement_matrix / repeating_groups) — no per-group data.
+                    return undefined;
+                };
+                const buildEmptyGroup = (): Record<string, unknown> => {
+                    const g: Record<string, unknown> = {};
+                    for (const f of section.groupFields) {
+                        g[f.key] = resolveFieldValue(f, undefined, prefillDict);
+                    }
+                    if (section.rowsTable) {
+                        const minRows = Math.max(1, section.rowsTable.minRows ?? 1);
+                        g.rows = Array.from({ length: minRows }, () => buildEmptyRow());
+                    }
+                    if (section.nestedSections) {
+                        for (const nested of section.nestedSections) {
+                            const seeded = buildEmptyNested(nested, undefined);
+                            if (seeded !== undefined) g[nested.id] = seeded;
+                        }
+                    }
+                    return g;
+                };
+                if (existingArr && existingArr.length > 0) {
+                    out[section.id] = existingArr.map((saved) => {
+                        const g: Record<string, unknown> = {};
+                        for (const f of section.groupFields) {
+                            const v = saved?.[f.key];
+                            g[f.key] =
+                                v === undefined || v === null
+                                    ? resolveFieldValue(f, undefined, prefillDict)
+                                    : v;
+                        }
+                        if (section.rowsTable) {
+                            const savedRows = Array.isArray(saved?.rows)
+                                ? (saved.rows as Array<Record<string, unknown>>)
+                                : [];
+                            g.rows = savedRows.length > 0
+                                ? savedRows.map((row) => {
+                                      const filled: Record<string, unknown> = {};
+                                      for (const col of section.rowsTable!.columns) {
+                                          const v = row?.[col.key];
+                                          filled[col.key] =
+                                              v === undefined || v === null
+                                                  ? resolveFieldValue(
+                                                        { ...col, bind: undefined } as Field,
+                                                        undefined,
+                                                        prefillDict,
+                                                    )
+                                                  : v;
+                                      }
+                                      return filled;
+                                  })
+                                : [buildEmptyRow()];
+                        }
+                        if (section.nestedSections) {
+                            for (const nested of section.nestedSections) {
+                                const savedNested = saved?.[nested.id] as
+                                    | Record<string, unknown>
+                                    | undefined;
+                                const resolved = buildEmptyNested(nested, savedNested);
+                                if (resolved !== undefined) g[nested.id] = resolved;
+                            }
+                        }
+                        return g;
+                    });
+                } else {
+                    // Fill: seed one empty group (more get auto-added by the
+                    // wizard when the user enters a count in the header).
+                    out[section.id] = [buildEmptyGroup()];
+                }
+                break;
+            }
+            case 'measurement_matrix': {
+                // Fixed N rows. Each row is keyed by the declared `rows[i].id` so we can
+                // re-align saved responses to the template rows even if the user changes
+                // row order in the master template later.
+                const existingArr = Array.isArray(existing)
+                    ? (existing as Array<Record<string, unknown>>)
+                    : null;
+                const existingById = new Map<string, Record<string, unknown>>();
+                if (existingArr) {
+                    for (const r of existingArr) {
+                        if (r && typeof r.id === 'string') existingById.set(r.id, r);
+                    }
+                }
+                out[section.id] = section.rows.map((rowDef) => {
+                    const saved = existingById.get(rowDef.id);
+                    const row: Record<string, unknown> = { id: rowDef.id };
+                    for (const col of section.columns) {
+                        const v = saved?.[col.key];
+                        row[col.key] =
+                            v === undefined || v === null
+                                ? resolveFieldValue(
+                                      { ...col, bind: undefined } as Field,
+                                      undefined,
+                                      prefillDict,
+                                  )
+                                : v;
+                    }
+                    return row;
+                });
+                break;
+            }
+            case 'signatures': {
+                // Pass through the saved `{ disabled: [...] }` shape so the picker
+                // restores the user's previous toggle state. Roles newly enabled in
+                // Project TDS Setting since save will appear automatically (the picker
+                // builds its row list from LIVE TDS, not from snapshot).
+                if (existing && typeof existing === 'object') {
+                    out[section.id] = existing;
+                }
+                break;
+            }
+            case 'process':
+            case 'image_attachments':
+                // No form values for these.
+                break;
+            default: {
+                const _exhaustive: never = section;
+                void _exhaustive;
+            }
+        }
+    }
+    return out;
+};
+
+/** Returns only the prefill keys actually consumed by `template.bind` declarations.
+ *  This is what gets frozen into `response_data.prefillSnapshot`. */
+export const collectUsedPrefillKeys = (template: ReportTemplate): string[] => {
+    const seen = new Set<string>();
+    const visitField = (f: Pick<Field, 'bind'>) => {
+        if (f.bind && isAllowedBinding(f.bind)) seen.add(f.bind);
+    };
+    const visitSection = (section: Section) => {
+        switch (section.type) {
+            case 'header':
+            case 'fields':
+                section.fields.forEach(visitField);
+                break;
+            case 'checklist':
+                section.items.forEach((item) => {
+                    visitField(item.result as Pick<Field, 'bind'>);
+                    if (item.remarks) visitField(item.remarks as Pick<Field, 'bind'>);
+                });
+                break;
+            case 'process':
+            case 'image_attachments':
+            case 'signatures':
+            case 'trainees_data_table':
+            case 'measurement_matrix':
+            case 'repeating_groups':
+                break;
+        }
+    };
+    template.sections.forEach(visitSection);
+    return Array.from(seen);
+};
+
+/** Subset of `prefillDict` containing only keys used by `template`. */
+export const buildPrefillSnapshot = (
+    template: ReportTemplate,
+    prefillDict: PrefillSnapshot,
+): PrefillSnapshot => {
+    const used = collectUsedPrefillKeys(template);
+    const out: PrefillSnapshot = {};
+    for (const key of used) {
+        if (prefillDict[key] !== undefined) out[key] = prefillDict[key];
+    }
+    return out;
+};

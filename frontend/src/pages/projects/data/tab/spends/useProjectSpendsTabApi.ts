@@ -1,4 +1,5 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useMemo } from "react";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { ProjectEstimates } from "@/types/NirmaanStack/ProjectEstimates";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
@@ -30,7 +31,7 @@ export const useProjectSpendsTabData = (projectId: string) => {
   const approvedServiceRequestsResponse = useFrappeGetDocList<ServiceRequests>(
     "Service Requests",
     {
-      fields: ["service_order_list", "name"],
+      fields: ["name"],
       filters: [
         ["status", "=", "Approved"],
         ["project", "=", projectId],
@@ -39,6 +40,25 @@ export const useProjectSpendsTabData = (projectId: string) => {
     },
     projectId ? spendsTabKeys.serviceRequests(projectId) : null
   );
+
+  const srNames = useMemo(
+    () => (approvedServiceRequestsResponse.data || []).map((s) => s.name).filter(Boolean),
+    [approvedServiceRequestsResponse.data]
+  );
+  const { data: itemsResp } = useFrappeGetCall(
+    "nirmaan_stack.api.sr_items.get_sr_items_for_parents",
+    { sr_names: srNames },
+    srNames.length ? `sr_items_spends_${projectId}_${srNames.length}` : null
+  );
+  const itemsByParent: Record<string, any[]> = (itemsResp as any)?.message || {};
+
+  const enrichedSRs = useMemo(() => {
+    if (!approvedServiceRequestsResponse.data) return approvedServiceRequestsResponse.data;
+    return approvedServiceRequestsResponse.data.map((sr) => ({
+      ...sr,
+      work_order_items: itemsByParent[sr.name] || [],
+    }));
+  }, [approvedServiceRequestsResponse.data, itemsByParent]);
 
   useApiErrorLogger(projectEstimatesResponse.error, {
     hook: "useProjectSpendsTabData",
@@ -56,6 +76,9 @@ export const useProjectSpendsTabData = (projectId: string) => {
 
   return {
     projectEstimatesResponse,
-    approvedServiceRequestsResponse,
+    approvedServiceRequestsResponse: {
+      ...approvedServiceRequestsResponse,
+      data: enrichedSRs,
+    },
   };
 };

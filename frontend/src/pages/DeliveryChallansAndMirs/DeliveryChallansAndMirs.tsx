@@ -253,6 +253,7 @@ export const DeliveryChallansAndMirs = () => {
           unit: item.unit,
           category: item.category,
           make: item.make,
+          billing_status: item.billing_status,
         })),
         parentDoctype: "Procurement Orders",
       });

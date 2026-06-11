@@ -5,7 +5,6 @@ import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
-import {  getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import { isWithinInterval, parseISO, isBefore } from 'date-fns';
 import { Vendors } from '@/types/NirmaanStack/Vendors'; 
@@ -72,7 +71,8 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     }, 'all-pos-for-vendor-ledger');
 
     const { data: serviceRequests, isLoading: isLoadingSRs, error: errorSRs } = useFrappeGetDocList<ServiceRequests>('Service Requests', {
-        fields: ['name', 'vendor', 'gst', 'service_order_list', 'invoice_data', 'creation'],
+        // total_amount is fresh on every save (incl. GST when sr.gst === "true").
+        fields: ['name', 'vendor', 'gst', 'total_amount', 'invoice_data', 'creation'],
         limit: 0
     }, 'all-srs-for-vendor-ledger');
 
@@ -163,14 +163,11 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
                 return shouldInclude ? sum + parseNumber(po.total_amount) : sum;
             }, 0);
 
-            // totalSR: Filtered by SR Creation Date
+            // totalSR: Filtered by SR Creation Date. total_amount on parent
+            // already includes GST when sr.gst === "true".
             const totalSR = relatedSRs.reduce((sum, sr) => {
                 const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(sr.creation, startDate, endDate);
-                if (shouldInclude) {
-                    const amount = getSRTotal(sr) || 0;
-                    return sum + (sr?.gst === "true" ? amount * 1.18 : amount);
-                }
-                return sum;
+                return shouldInclude ? sum + parseNumber(sr.total_amount) : sum;
             }, 0);
 
             // totalInvoiced: Filtered by INVOICE DATE within the range - using Vendor Invoices

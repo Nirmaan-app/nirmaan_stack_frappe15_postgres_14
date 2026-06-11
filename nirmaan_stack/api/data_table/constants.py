@@ -5,9 +5,7 @@ MAX_PAGE_LENGTH = 10000
 EXPORT_MAX_PAGE_LENGTH = 100_000
 CACHE_EXPIRY = 300 # 5 minutes
 
-JSON_ITEM_SEARCH_DOCTYPE_MAP = {
-    "Service Requests": {"json_field": "service_order_list", "item_path_parts": ["list", "*", "item"], "item_name_key_in_json": "description"},
-}
+JSON_ITEM_SEARCH_DOCTYPE_MAP = {}
 
 CHILD_TABLE_ITEM_SEARCH_MAP = {
     "Procurement Requests": {
@@ -36,6 +34,13 @@ CHILD_TABLE_ITEM_SEARCH_MAP = {
             "child_doctype": "Purchase Order Item",
             "link_field_to_parent": "parent",
             "searchable_child_fields": ["item_name", "item_id"],
+        }
+    },
+    "Service Requests": {
+        "work_order_items": {
+            "child_doctype": "Work Order Items",
+            "link_field_to_parent": "parent",
+            "searchable_child_fields": ["item_name"],
         }
     }
 }

@@ -5,28 +5,51 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "task_name",
-  "category_link",
-  "deadline_offset"
- ],
- "fields": [
-  {
-   "fieldname": "task_name",
-   "fieldtype": "Data",
-   "label": "Task name"
-  },
-  {
-   "fieldname": "category_link",
-   "fieldtype": "Link",
-   "label": "Category Link",
-   "options": "Commission Report Category"
-  },
-  {
-   "fieldname": "deadline_offset",
-   "fieldtype": "Int",
-   "label": "Deadline Offset"
-  }
- ],
+        "task_name",
+        "category_link",
+        "report_type",
+        "deadline_offset",
+        "is_active",
+        "source_format"
+    ],
+    "fields": [
+        {
+            "fieldname": "task_name",
+            "fieldtype": "Data",
+            "label": "Task name"
+        },
+        {
+            "default": "Field",
+            "fieldname": "report_type",
+            "fieldtype": "Select",
+            "label": "Report Type",
+            "options": "Field\nVendor"
+        },
+        {
+            "fieldname": "category_link",
+            "fieldtype": "Link",
+            "label": "Category Link",
+            "options": "Commission Report Category"
+        },
+        {
+            "fieldname": "deadline_offset",
+            "fieldtype": "Int",
+            "label": "Deadline Offset"
+        },
+        {
+            "default": "1",
+            "description": "Soft-delete flag. When 0, the Fill Report button is hidden on new task rows. Existing filled responses keep rendering via snapshot.",
+            "fieldname": "is_active",
+            "fieldtype": "Check",
+            "label": "Is Active"
+        },
+        {
+            "description": "JSON template defining the report wizard. See frontend/.claude/context/domain/commissioning-report-templates.md.",
+            "fieldname": "source_format",
+            "fieldtype": "Long Text",
+            "label": "Source Format (JSON)"
+        }
+    ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],

@@ -1,6 +1,15 @@
 import frappe
 from frappe.utils import today, add_days, getdate
 
+
+def _to_float(value):
+    """Safely coerce a stored amount to float (None / '' / bad data → 0.0)."""
+    try:
+        return float(value) if value else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
 @frappe.whitelist(allow_guest=False)
 def get_payment_dashboard_stats():
     """
@@ -16,6 +25,7 @@ def get_payment_dashboard_stats():
     # Date calculations (All converted to datetime.date objects for reliable comparison)
     today_date = getdate(today())
     seven_days_ago = getdate(add_days(today_date, -6))
+    thirty_days_ago = getdate(add_days(today_date, -29))   # inclusive 30-day window
 
     # --- DEBUGGING PRINT STATEMENTS ---
     # Keeping top-level date information for context
@@ -51,6 +61,17 @@ def get_payment_dashboard_stats():
         'payment_done_today_amount': 0.0,
         'payment_done_7_days': 0,
         'payment_done_7_days_amount': 0.0,
+
+        # --- Cash flow (last 30 days) ---
+        # Inflow: money received (Project Inflows)
+        'total_inflow_30_days_count': 0,
+        'total_inflow_30_days_amount': 0.0,
+        # Project outflow: PO + WO Paid payments + Project Expenses
+        'total_project_outflow_30_days_count': 0,
+        'total_project_outflow_30_days_amount': 0.0,
+        # Non-project outflow: Non Project Expenses
+        'total_non_project_expense_30_days_count': 0,
+        'total_non_project_expense_30_days_amount': 0.0,
     }
 
     try:
@@ -122,7 +143,49 @@ def get_payment_dashboard_stats():
                 if payment_date >= seven_days_ago and payment_date <= today_date:
                     stats['payment_done_7_days'] += 1
                     stats['payment_done_7_days_amount'] += amount
-        
+
+                # Project outflow — Paid payments (PO + WO) in the last 30 days.
+                # payment_date is only stamped on fulfilment, so this is cash actually out.
+                if payment_date >= thirty_days_ago and payment_date <= today_date:
+                    stats['total_project_outflow_30_days_count'] += 1
+                    stats['total_project_outflow_30_days_amount'] += amount
+
+        # --- 2e2. Project Expenses → also project outflow (last 30 days) ---
+        # Folded into the same bucket as PO + WO payments so "Project Outflow"
+        # means PO + WO + Project Expenses (matches the Cash Sheet report).
+        project_expenses = frappe.get_all(
+            "Project Expenses",
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            fields=["amount"],
+            limit_page_length=None,
+        )
+        stats['total_project_outflow_30_days_count'] += len(project_expenses)
+        stats['total_project_outflow_30_days_amount'] += sum(
+            _to_float(r.amount) for r in project_expenses
+        )
+
+        # --- 2f. Inflow (Project Inflows) — last 30 days ---
+        inflows = frappe.get_all(
+            "Project Inflows",
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            fields=["amount"],
+            limit_page_length=None,
+        )
+        stats['total_inflow_30_days_count'] = len(inflows)
+        stats['total_inflow_30_days_amount'] = sum(_to_float(r.amount) for r in inflows)
+
+        # --- 2g. Non-project outflow (Non Project Expenses) — last 30 days ---
+        non_project_expenses = frappe.get_all(
+            "Non Project Expenses",
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            fields=["amount"],
+            limit_page_length=None,
+        )
+        stats['total_non_project_expense_30_days_count'] = len(non_project_expenses)
+        stats['total_non_project_expense_30_days_amount'] = sum(
+            _to_float(r.amount) for r in non_project_expenses
+        )
+
         # 3. Return the dictionary of statistics
         # --- DEBUGGING PRINT STATEMENT ---
         print(f"--- Finished Processing. Returning Stats: {stats}")

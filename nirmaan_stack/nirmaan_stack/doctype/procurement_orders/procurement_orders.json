@@ -38,6 +38,7 @@
   "amount_paid",
   "tracking_details_section",
   "status",
+  "billing_status",
   "delivery_contact",
   "delivery_data",
   "invoice_data",
@@ -169,6 +170,16 @@
    "in_standard_filter": 1,
    "label": "Status",
    "search_index": 1
+  },
+  {
+   "description": "Auto-calculated from item billing status: Billable if any item is Billable, else Non-Billable.",
+   "fieldname": "billing_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Billing Status",
+   "options": "\nBillable\nNon-Billable",
+   "read_only": 1
   },
   {
    "fieldname": "category_list",

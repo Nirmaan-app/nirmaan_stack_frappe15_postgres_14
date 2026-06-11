@@ -72,7 +72,7 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
     );
 
     approvedServiceRequestsData?.forEach((serviceRequest) => {
-      serviceRequest.service_order_list.list?.forEach((item) => {
+      (serviceRequest as any).work_order_items?.forEach((item: any) => {
         const { category, uom, quantity, rate } = item;
         const amount = (parseNumber(quantity) || 1) * parseNumber(rate);
 

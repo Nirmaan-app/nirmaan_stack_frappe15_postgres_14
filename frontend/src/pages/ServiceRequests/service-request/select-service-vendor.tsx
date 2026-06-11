@@ -174,8 +174,15 @@ export const SelectServiceVendorPage: React.FC<SelectServiceVendorPageProps> = (
   const [vendorOptions, setVendorOptions] = useState<Vendor[] | undefined>([]);
   const [selectedVendor, setSelectedvendor] = useState<Vendor | null>(null);
   const [amounts, setAmounts] = useState<{ [key: string]: number }>({}); // New state for amounts
-  const [order, setOrder] = useState<ServiceItemType[]>(
-    sr_data && JSON.parse(sr_data?.service_order_list)?.list
+  const [order, setOrder] = useState<ServiceItemType[]>(() =>
+    (sr_data?.work_order_items || []).map((item: any) => ({
+      id: item.name || uuidv4(),
+      category: item.category,
+      description: item.item_name || "",
+      uom: item.uom || "",
+      quantity: item.quantity || 0,
+      rate: item.rate || 0,
+    }))
   );
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [categories, setCategories] = useState<{ list: { name: string }[] }>({ list: [] });
@@ -377,8 +384,8 @@ export const SelectServiceVendorPage: React.FC<SelectServiceVendorPageProps> = (
     }
     if (["Rejected", "Vendor Selected"].includes(sr_data?.status) || amend) {
       let amounts = {};
-      JSON.parse(sr_data?.service_order_list)?.list?.forEach((item) => {
-        amounts = { ...amounts, [item.id]: item?.rate };
+      (sr_data?.work_order_items || []).forEach((item: any) => {
+        amounts = { ...amounts, [item.name]: item?.rate || 0 };
       });
       setAmounts(amounts);
     }
@@ -399,7 +406,14 @@ export const SelectServiceVendorPage: React.FC<SelectServiceVendorPageProps> = (
       console.log("list", order)
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
-        service_order_list: { list: order },
+        work_order_items: order.map((item: any) => ({
+          name: item.id.length === 36 ? undefined : item.id,
+          category: item.category,
+          item_name: item.description,
+          uom: item.uom,
+          quantity: parseFloat(item.quantity) || 0,
+          rate: parseFloat(item.rate) || 0
+        })),
         service_category_list: categories,
         status: "Vendor Selected",
       });
@@ -442,7 +456,14 @@ export const SelectServiceVendorPage: React.FC<SelectServiceVendorPageProps> = (
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
         service_category_list: categories,
-        service_order_list: { list: order },
+        work_order_items: order.map((item: any) => ({
+          name: item.id.length === 36 ? undefined : item.id,
+          category: item.category,
+          item_name: item.description,
+          uom: item.uom,
+          quantity: parseFloat(item.quantity) || 0,
+          rate: parseFloat(item.rate) || 0
+        })),
         status: "Vendor Selected",
       });
 
@@ -476,7 +497,14 @@ export const SelectServiceVendorPage: React.FC<SelectServiceVendorPageProps> = (
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
         service_category_list: categories,
-        service_order_list: { list: order },
+        work_order_items: order.map((item: any) => ({
+          name: item.id.length === 36 ? undefined : item.id,
+          category: item.category,
+          item_name: item.description,
+          uom: item.uom,
+          quantity: parseFloat(item.quantity) || 0,
+          rate: parseFloat(item.rate) || 0
+        })),
         status: "Amendment"
       });
 

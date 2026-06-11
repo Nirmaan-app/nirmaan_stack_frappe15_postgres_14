@@ -35,6 +35,10 @@ def create_po_delivery_documents(
     # Fetch parent for project/vendor denormalization
     if parent_doctype == "Procurement Orders":
         parent_doc = frappe.get_doc("Procurement Orders", parent_docname)
+        # Billing guard: DC/MIR may only be filed against a Billable PO. A PO whose
+        # rollup is Non-Billable has no billable items at all.
+        if (parent_doc.billing_status or "") == "Non-Billable":
+            frappe.throw(_("Cannot file a Delivery Challan / MIR for a Non-Billable PO."))
         project = parent_doc.project
         vendor = parent_doc.vendor
     elif parent_doctype == "Internal Transfer Memo":
@@ -54,6 +58,13 @@ def create_po_delivery_documents(
     # Parse items if JSON string
     if isinstance(items, str):
         items = json.loads(items)
+
+    # Item-level billing guard (PO only): a DC/MIR must not include Non-Billable items,
+    # even on a Billable PO that has a mix of billable and non-billable lines.
+    if parent_doctype == "Procurement Orders" and items:
+        po_item_billing = {it.item_id: (it.billing_status or "") for it in parent_doc.items}
+        if any(po_item_billing.get(i.get("item_id")) == "Non-Billable" for i in items):
+            frappe.throw(_("Cannot include Non-Billable items in a Delivery Challan / MIR."))
 
     # Note: legacy `procurement_order` Link field is deprecated. We no longer
     # populate it on new rows — `parent_docname` is the single source of truth.

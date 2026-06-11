@@ -39,7 +39,6 @@ import {
   getTotalInflowAmount,
   // getPOSTotals,
   // getPOTotal,
-  getSRTotal,
   getTotalAmountPaid,
   getTotalExpensePaid,
 } from "@/utils/getAmounts";
@@ -429,14 +428,12 @@ export const Projects: React.FC<ProjectsProps> = ({
         .filter((cr) => cr.term_status === "Paid")
         .reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
-      // let totalInvoiced = 0;
-      // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
-      let totalInvoiced = relatedPOs.reduce((sum, term) => sum + parseNumber(term.total_amount), 0);
-      // let totalInvoiced = getPOSTotals(relatedPOs as any)?.totalWithTax || 0;
-
+      // Both PO.total_amount and SR.total_amount are kept fresh by their
+      // doctype hooks and already include GST when applicable. No client-side
+      // GST math required — sum the parent values directly.
+      let totalInvoiced = relatedPOs.reduce((sum, po) => sum + parseNumber(po.total_amount), 0);
       relatedSRs.forEach((sr) => {
-        const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
-        totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;
+        totalInvoiced += parseNumber(sr.total_amount);
       });
 
       const ClientInvoices = invoicesByProject(projectId);

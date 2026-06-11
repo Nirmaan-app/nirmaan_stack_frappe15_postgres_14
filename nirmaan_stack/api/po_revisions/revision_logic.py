@@ -421,6 +421,9 @@ def sync_original_po_items(revision_doc):
             new_row.tax_amount = (new_row.amount * new_row.tax) / 100
             new_row.total_amount = new_row.amount + new_row.tax_amount
             new_row.received_quantity = 0.0
+            # New item → source billing status from the Items master; Non-Billable if not found.
+            new_row.billing_status = frappe.db.get_value(
+                "Items", new_row.item_id, "billing_category") or "Non-Billable"
 
             if original_po.status in ("Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"):
                 new_row.is_dispatched = 1
@@ -473,6 +476,9 @@ def sync_original_po_items(revision_doc):
 
                 orig_row.item_id = rev_item.revision_item_id
                 orig_row.item_name = rev_item.revision_item_name
+                # Item changed → re-source billing status from the Items master; Non-Billable if not found.
+                orig_row.billing_status = frappe.db.get_value(
+                    "Items", orig_row.item_id, "billing_category") or "Non-Billable"
 
                 orig_row.quantity = flt(rev_item.revision_qty)
                 orig_row.unit = rev_item.revision_unit
