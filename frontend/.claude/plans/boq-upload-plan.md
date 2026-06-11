@@ -16,7 +16,20 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: §9 #159 find & filter on the ReviewTree (FRONTEND ONLY, ReviewTree.tsx) -- strict-hide Status
+LATEST: C-flag-dismissal (per-row "Looks OK", BACKEND + FRONTEND) -- a per-row dismissal of advisory flags
+on the review screen; PER-ROW (one gesture clears ALL of a row's currently-computing flags) and STAYS
+"Original" (an acknowledgment, not an edit). Backend: 3 additive `BoQ Review Row` fields (`flags_dismissed`
+Check + `flags_dismissed_by` Data + `flags_dismissed_at` Datetime), a new `dismiss_row_flags` endpoint
+mirroring `save_review_remark` (direct set_value, no edit_log/edited_at, stays Original), a ONE-LINE
+chokepoint clear-on-edit in `_apply_and_save_row_edit` (any edit RE-OPENS; covers save_review_edit +
+save_review_restructure), the 3 fields wired into `get_review_rows`; re-parse wipes free (delete+recreate);
+test_review_screen 131 -> 137 (TestDismissRowFlags +6, green); bench migrate landed the columns. Frontend:
+`boqTypes.ts` ReviewRow +3 optional fields; `ReviewTree` "Looks OK" button (detail-panel Flags block,
+refresh via onRemarkSaved) + greyed/checked `CheckCircle2` Info-marker dismissed state + "Reviewed -- looks
+OK" tag (isEdited/Edited-pill/green-tint UNTOUCHED); `SheetReviewPage` "N <label> -- C cleared" summary
+strip (cleared derived frontend-side, no new endpoint). tsc 0 new wizard-file errors + build exit 0
+(`✓ built in 6m 46s`). Live-cert LC1-LC6 pending. The block immediately below. Prior latest:
+§9 #159 find & filter on the ReviewTree (FRONTEND ONLY, ReviewTree.tsx) -- strict-hide Status
 (Edited/Original/All) + Classification (6-value checklist) AND-filter via column-header Popovers;
 description-only case-insensitive search with soft/strong blue RING tiers (box-shadow, NOT backgrounds --
 the collision rule) + prev/next modulo cycling that reuses the existing revealAndScrollToRow for auto-expand;
@@ -28,6 +41,46 @@ vertical stack; Obs 2 per-block responsive ~4-col grid). Before that:
 moved ABOVE the picker grid); §9 #162 standalone "Change parent" door (detail-panel button
 -> existing RestructureModal via a no-op reclassify); Force Re-parse FRONTEND slice (two entry points +
 shared modal + rewritten destructive warning) -- the blocks further below.
+
+**C-flag-dismissal (per-row "Looks OK") ✅ COMPLETE (BACKEND + FRONTEND):**
+A per-row dismissal of advisory flags on the review screen. Owner-LOCKED model: PER-ROW (one gesture clears
+ALL of a row's currently-computing flags, NOT per-flag); a dismissal is an ACKNOWLEDGMENT, not an edit -- it
+MUST NOT flip the row to "Edited", MUST NOT stamp edited_at, MUST NOT touch edit_log, MUST NOT alter the
+`isEdited` predicate; it follows the `save_review_remark` pattern (direct set_value, bypassing the provenance
+chokepoint). Files in scope: `boq_review_row.json`, `review_screen.py`, `test_review_screen.py`,
+`boqTypes.ts`, `ReviewTree.tsx`, `SheetReviewPage.tsx` (+ the 3 docs). NO parse_run.py change; NO
+`_compute_advisory_flags` change; NO `save_review_remark` change.
+- **Storage (B1):** 3 additive `BoQ Review Row` fields after `remarks` -- `flags_dismissed` (Check, default
+  "0"), `flags_dismissed_by` (Data, read_only), `flags_dismissed_at` (Datetime, read_only). Mirrors the
+  `human_is_root` field-shape idiom. `bench migrate` landed all three (`has_column` verified).
+- **Endpoint (B2):** `dismiss_row_flags(boq_name, sheet_name, row_index, dismissed)` -- `@frappe.whitelist
+  (methods=["POST"])`, resolves the row the SAME way `save_review_remark` does (verbatim sheet_name #152),
+  writes ONLY the 3 fields via `frappe.db.set_value` (NOT doc.save, NOT the chokepoint). dismissed truthy ->
+  1 + by(`frappe.session.user`)/at(`frappe.utils.now()`); falsy -> all three cleared. Returns
+  `{flags_dismissed: 0|1}`. HTTP-string bool coercion (`"1"/"true"/"yes"`).
+- **Clear-on-edit (B3, decision 3a):** ONE insertion in `_apply_and_save_row_edit` at the provenance stamp
+  block -- `doc.flags_dismissed=0` + by/at=None. Covers save_review_edit AND save_review_restructure (both
+  funnel through the helper). A remark does NOT re-open (save_review_remark bypasses the helper -- correct).
+  Re-parse wipes free (delete+recreate -> the Check defaults 0; NO parse-worker edit).
+- **Read wiring (B4):** the 3 fields added to `get_review_rows` `all_fields` so they ride the row payload
+  (exactly how `remarks` was added). No other get_review_rows change.
+- **Tests:** `TestDismissRowFlags` +6 in test_review_screen.py -- dismiss-stays-Original (edited_at None +
+  edit_log empty), un-dismiss-clears-all-three, edit-reopens (chokepoint), restructure-reopens (same
+  chokepoint), remark-does-NOT-reopen (the bypass), get_review_rows-carries-the-3-fields. 131 -> 137, all
+  green in-container.
+- **Frontend (F1-F3):** `boqTypes.ts` ReviewRow gains `flags_dismissed?: number` / `_by?: string|null` /
+  `_at?: string|null` (additive). `ReviewTree`: a "Looks OK" `Button` in the detail-panel Flags block header
+  (calls `useFrappePostCall("...dismiss_row_flags")` with dismissed:true + stopPropagation; refresh via the
+  existing `onRemarkSaved` mutate -- a dismissal is NOT an edit); a NEW dismissed Info-marker state
+  (`CheckCircle2`, muted/grey, title "Reviewed — looks OK"; flags still EXIST, NOT amber-active, NOT removed)
+  computed from `isDismissed = !!row.flags_dismissed`; a "Reviewed — looks OK" tag in the flag-reveal row;
+  the `isEdited` predicate / Edited pill / green tint are UNTOUCHED; already-dismissed reads "Reviewed" (no
+  un-dismiss button ships). `SheetReviewPage`: the flag summary strip now renders "N <label> – C cleared"
+  per category, where cleared = flags of that type whose `row_index` is in `dismissedRowIdx` (the
+  `flags_dismissed` rows from the payload) -- derived frontend-side, NO new endpoint.
+- **Verification:** tsc 0 new wizard-file errors (project baseline 3177 unchanged) + in-container build exit
+  0 (`✓ built in 6m 46s`, PWA 166 entries). Manual live-cert LC1-LC6 (LC3 = edit re-opens, LC4 = remark does
+  NOT re-open, LC5 = re-parse wipes) DEFERRED to Nitesh. Two commits (feat, docs); NOT pushed.
 
 **§9 #159 ReviewTree find & filter ✅ COMPLETE (FRONTEND ONLY, `ReviewTree.tsx`; no backend change):**
 A FILTER surface + a SEARCH surface on the main review tree (the owner-LOCKED interaction model from

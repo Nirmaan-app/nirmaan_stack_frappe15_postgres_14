@@ -317,7 +317,18 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- §9 #159 ReviewTree find & filter COMPLETE):**
+**Status (2026-06-11 -- C-flag-dismissal [per-row "Looks OK"] COMPLETE -- BACKEND + FRONTEND):**
+A per-row dismissal of advisory flags on the review screen. PER-ROW (one gesture clears ALL of a row's
+currently-computing flags); STAYS "Original" (a dismissal is an ACKNOWLEDGMENT, not an edit -- it does NOT
+touch `isEdited`, the Edited pill, or the green tint). Files touched (frontend): `boqTypes.ts` (ReviewRow
+gains `flags_dismissed?` / `_by?` / `_at?`, additive), `ReviewTree.tsx` (the "Looks OK" button + dismissed
+marker), `SheetReviewPage.tsx` (the "N -- C cleared" summary strip). Backend: new `dismiss_row_flags`
+endpoint + 3 `BoQ Review Row` fields + chokepoint clear-on-edit (see root CLAUDE.md). tsc 0 new wizard-file
+errors (baseline 3177 unchanged) + in-container build exit 0 (`✓ built in 6m 46s`, PWA 166 entries); no
+Frappe unit tests on the frontend (backend has TestDismissRowFlags +6 -> 137 green). Manual live-cert
+LC1-LC6 pending Nitesh. See the "C-flag-dismissal conventions" section below for the full as-built detail.
+
+// prior: **Status (2026-06-11 -- §9 #159 ReviewTree find & filter COMPLETE):**
 A FILTER surface + a SEARCH surface on the main review tree (`ReviewTree.tsx` ONLY; FRONTEND ONLY -- no
 backend, no doctype, no `boqTypes.ts`, no `SheetSearchView` edit/import, no `SheetReviewPage`). FILTER
 (finding-6): a Status filter (Edited/Original/All) + a Classification filter (6-value `CLS_LABELS`
@@ -871,6 +882,45 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**C-flag-dismissal conventions (per-row "Looks OK" -- `boqTypes.ts` + `ReviewTree.tsx` + `SheetReviewPage.tsx`):**
+
+The per-row advisory-flag dismissal surface. Owner-LOCKED model: PER-ROW (one gesture clears ALL of a row's
+currently-computing flags, NOT per-flag); a dismissal is an ACKNOWLEDGMENT, NOT an edit. Backend detail
+(the `dismiss_row_flags` endpoint, the 3 `BoQ Review Row` fields, the `_apply_and_save_row_edit` chokepoint
+clear-on-edit) is in root CLAUDE.md.
+
+- **`flags_dismissed` is NOT an edit (THE invariant).** A dismissal must NEVER flip the row to "Edited" --
+  the `isEdited` predicate (`row.edited_at !== null || edit_log.length > 0`), the Edited/Original pill, and
+  the green tint are ALL left UNTOUCHED. The dismissal write path (`dismiss_row_flags`) mirrors
+  `save_review_remark`'s bypass: it never stamps `edited_at` / `edit_log`. The frontend refreshes via the
+  EXISTING `onRemarkSaved` (mutate only -- a dismissal, like a remark, does NOT advance the sheet-level
+  "All changes saved" edit anchor); do NOT wire it to `onSaved`/`onRestructured`.
+- **The "Looks OK" button (ReviewTree detail-panel Flags block).** Rendered in the detail panel's "Flags"
+  block header (the natural "I've reviewed this row's flags" spot), beside the "Flags" label. It calls
+  `useFrappePostCall("...dismiss_row_flags")` with `row_index` + `sheet_name` VERBATIM (#152) +
+  `dismissed: true`; `onClick` does `e.stopPropagation()` (the table-body click dismisses the detail panel).
+  When the row is ALREADY dismissed it reads "Reviewed — looks OK" (a span, not a button) -- NO separate
+  un-dismiss button ships (edit re-opens / re-parse wipes / the flag reason stays readable cover the cases).
+  A dedicated `dismissError` state (separate from `saveError` / `remarkError`) surfaces failures inline.
+- **The dismissed visual = a NEW greyed/checked Info-marker state.** When `row.flags_dismissed` is truthy
+  the table-body Info marker switches icon to `CheckCircle2` and colour to muted/grey (NOT amber-active,
+  NOT removed -- the flags still EXIST, they're acknowledged); title "Reviewed — looks OK". The flag-reveal
+  row appends a muted "Reviewed — looks OK" line (with who/when from `flags_dismissed_by`/`_at`). `isDismissed
+  = !!row.flags_dismissed` is computed once per row alongside `hasFlags`/`flagsExpanded`.
+- **The summary strip "N <label> – C cleared" (SheetReviewPage).** The existing per-type total (over the
+  live `flags` array, which already auto-excludes resolved conditions) is kept; a per-type "cleared" count
+  is ADDED = flags of that type whose `row_index` is in `dismissedRowIdx` (= the set of `flags_dismissed`
+  rows from the row payload). Rendered as `N <label> – C cleared` when `C > 0`, else `N <label>`. Derived
+  FRONTEND-side from the row payload + the flags array -- NO new endpoint, NO new backend data (mirrors the
+  C-v2c remark-count strip's per-row-field derivation).
+- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0
+  (`✓ built in 6m 46s`). No Frappe unit tests on the frontend (backend TestDismissRowFlags +6 -> 137 green).
+  Manual live-cert LC1 (dismiss -> greyed/checked + stays Original + reload persists) / LC2 (summary "N – C
+  cleared" rose) / LC3 (edit the dismissed row -> flips Edited AND re-opens) / LC4 (remark on a dismissed row
+  -> dismissal STAYS, stays Original) / LC5 (re-parse -> dismissals gone) / LC6 (regression: #159 filter/
+  search + Edited/Original pills + green tint + detail panel + restructure modal + remarks all intact)
+  pending Nitesh.
 
 **§9 #159 ReviewTree find-&-filter conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
 
