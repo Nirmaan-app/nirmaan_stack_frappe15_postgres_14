@@ -13,7 +13,7 @@ ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 # Payments strictly below this auto-approve straight to "Approved",
 # bypassing the Requested → CEO Pending → Approved gates.
 # Separate from PO_REVISION_AUTO_APPROVAL_THRESHOLD so the two can diverge.
-PAYMENT_AUTO_APPROVAL_THRESHOLD = 5000.0
+PAYMENT_AUTO_APPROVAL_THRESHOLD = 10000.0
 
 @frappe.whitelist()
 def create_payment_request_for_service(data: str) -> str:
