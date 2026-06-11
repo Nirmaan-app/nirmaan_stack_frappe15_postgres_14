@@ -976,6 +976,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               const parentOverridden =
                 (row.human_parent !== null && row.human_parent >= 0) || row.human_is_root === 1;
               const clsOverridden = row.human_classification !== null;
+              // Slice §9 #162: the standalone "Change parent" door is offered ONLY when the
+              // row's CURRENT classification is one of the 4 assignable classes. The button
+              // opens the modal via a no-op reclassify (newClassification = current class);
+              // for subtotal_marker / header_repeat that no-op would be rejected by the
+              // backend _ASSIGNABLE_CLASSIFICATIONS gate, so the door must not appear there.
+              const canChangeParent =
+                row.effective_classification != null &&
+                (ASSIGNABLE_CLASSIFICATIONS as readonly string[]).includes(row.effective_classification);
 
               return (
                 // Fragment lets us emit optional sibling <tr>s (flag-reasons, detail panel).
@@ -1220,16 +1228,38 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </div>
-                            <div>
-                              <span className="text-muted-foreground">Parent: </span>
-                              {parentOverridden ? (
-                                <>
-                                  <span className="line-through text-muted-foreground">{origParentLabel}</span>
-                                  {" → "}
-                                  <span className="text-foreground font-medium">{effParentLabel}</span>
-                                </>
-                              ) : (
-                                <span className="text-foreground">{origParentLabel}</span>
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <span className="text-muted-foreground">Parent: </span>
+                                {parentOverridden ? (
+                                  <>
+                                    <span className="line-through text-muted-foreground">{origParentLabel}</span>
+                                    {" → "}
+                                    <span className="text-foreground font-medium">{effParentLabel}</span>
+                                  </>
+                                ) : (
+                                  <span className="text-foreground">{origParentLabel}</span>
+                                )}
+                              </div>
+                              {/* Slice §9 #162: standalone "Change parent" door -- a SECOND front
+                                  door to the SAME RestructureModal, reached WITHOUT a reclassify.
+                                  Mirrors the Classification cell's "Change ▾" control (left). Opens
+                                  the modal via setRestructureModal DIRECTLY (not onPickClass) with
+                                  newClassification = the row's CURRENT class (a no-op reclassify), so
+                                  a childless row opens position-only and a with-children row STILL
+                                  surfaces the five child-placement options (the children.length > 0
+                                  gate is untouched -- the children's fate stays explicit, no silent
+                                  reparent). A plain button, not a dropdown: there is no list to pick;
+                                  the single action is "open the modal". Hidden on subtotal_marker /
+                                  header_repeat via canChangeParent. */}
+                              {canChangeParent && (
+                                <button
+                                  type="button"
+                                  onClick={() => setRestructureModal({ row, newClassification: row.effective_classification as string })}
+                                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                                >
+                                  Change parent
+                                </button>
                               )}
                             </div>
                           </div>
