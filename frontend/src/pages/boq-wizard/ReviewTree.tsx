@@ -1763,7 +1763,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
                           {rowFlags.length > 0 && (
                             <div className="mb-2">
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
                                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Flags</p>
                                 {/* C-flag-dismissal: per-row "Looks OK" -- acknowledges ALL of
                                     this row's flags at once. NOT an edit (the row stays
