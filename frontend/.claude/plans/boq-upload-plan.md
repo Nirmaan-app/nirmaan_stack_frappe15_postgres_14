@@ -16,10 +16,41 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: §9 #162 standalone "Change parent" door (detail-panel button -> existing RestructureModal via a
-no-op reclassify) -- the block immediately below. Prior latest: Force Re-parse FRONTEND slice (two entry
-points + shared modal + rewritten destructive warning) -- the two blocks further below (FRONTEND first,
-then the BACKEND floor it consumes).
+LATEST: §9 #158 RestructureModal polish pair (finding-2 outside-click dismiss disabled; finding-7 pick
+buttons moved ABOVE the picker grid) -- the block immediately below. Prior latest: §9 #162 standalone
+"Change parent" door (detail-panel button -> existing RestructureModal via a no-op reclassify). Before
+that: Force Re-parse FRONTEND slice (two entry points + shared modal + rewritten destructive warning) --
+the blocks further below (FRONTEND first, then the BACKEND floor it consumes).
+
+**§9 #158 -- RestructureModal polish pair ✅ COMPLETE (FRONTEND ONLY; no backend change):**
+Two cosmetic/ergonomic fixes to `RestructureModal.tsx` ONLY (no backend, no doctype, no `SheetSearchView`
+edit, no `dialog.tsx` edit). tsc 0 new wizard-file errors (project baseline 3177 unchanged) + in-container
+build exit 0; no Frappe unit tests (frontend-only; the modal + backend are already certified). Manual
+live-cert LC1-LC5 deferred to Nitesh (briefing in the slice report).
+- **Finding-2 -- accidental outside-click dismiss DISABLED (Option X, owner-locked).** A stray click OUTSIDE
+  the modal previously dismissed it and lost the user's staged selections (chosen option, picked parent).
+  FIX: `onInteractOutside={(e) => e.preventDefault()}` added DIRECTLY to `<DialogContent>` -- the shadcn
+  `DialogContent` spreads `{...props}` onto `DialogPrimitive.Content` (recon-confirmed `dialog.tsx:36-43`),
+  so the Radix dismiss prop is passed modal-side with NO edit to the `dialog.tsx` primitive. **`onInteractOutside`
+  chosen over `onPointerDownOutside`** because it covers BOTH outside pointer-down AND outside focus -- the
+  fuller guard against accidental loss. `onOpenChange` is UNTOUCHED (it is SHARED by ESC + the close-X +
+  Cancel/Save -- touching it would have killed ESC, which we KEEP). Net: outside-click does nothing; ESC,
+  Cancel, Save, and the close-X all still close normally.
+- **Finding-7 -- pick buttons moved ABOVE the picker grid (Path 1, owner-locked).** The "Set as parent" /
+  "Top level" / "Cancel pick" button row sat BELOW the `<SheetSearchView>` grid in all three picker sites
+  (row-position move, option-3 one-new-parent, option-4 per-child), so reaching the pick action meant
+  scrolling past the now-tall wrapping sheet grid (SheetSearchView v2 made cells wrap). FIX: the EXISTING
+  button row is relocated VERBATIM to BEFORE the `<SheetSearchView>` mount in EACH of the three sites (order
+  becomes `[helper <p>] -> [button row] -> [<SheetSearchView>]`). Pure relocation -- buttons, handlers,
+  labels, disabled logic, and the `rowParentIdx`/`blockParentIdx`/`perChild` wiring are unchanged; the
+  wrapping `rounded-md border ... space-y-2` container is kept, only its children reorder.
+- **REFRAME (record so a future reader doesn't re-chase the dead idea):** the handover's literal #158
+  finding-7 wording preferred aligning the buttons INSIDE the picker's search-bar row (top band). The §9 #158
+  recon PROVED this unreachable WITHOUT editing `SheetSearchView`: its search-bar band is the first child of
+  the component's own root `space-y-3` div and the component exposes NO slot/render-prop for injecting content
+  there -- the modal can only place content as a sibling ABOVE or BELOW the whole component. Owner chose Path 1
+  (above-the-picker), which delivers the intent (no scroll-to-pick) modal-side only. Do NOT re-attempt the
+  in-search-bar alignment; it requires a SheetSearchView edit that was deliberately avoided.
 
 **§9 #162 -- Standalone "Change parent" door ✅ COMPLETE (FRONTEND ONLY; no backend change):**
 A SECOND front door to the EXISTING `RestructureModal`, reached WITHOUT a reclassification. Today a reviewer

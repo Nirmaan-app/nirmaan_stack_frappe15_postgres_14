@@ -317,7 +317,24 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- §9 #162 standalone "Change parent" door COMPLETE):**
+**Status (2026-06-11 -- §9 #158 RestructureModal polish pair COMPLETE):**
+Two cosmetic/ergonomic fixes to `RestructureModal.tsx` ONLY (FRONTEND ONLY; no backend, no doctype, no
+`SheetSearchView` edit, no `dialog.tsx` edit). **Finding-2:** accidental outside-click dismiss DISABLED via
+`onInteractOutside={(e) => e.preventDefault()}` added directly to `<DialogContent>` (the shadcn primitive
+spreads `{...props}` to `DialogPrimitive.Content`, so the Radix prop passes modal-side with no `dialog.tsx`
+edit); `onInteractOutside` chosen over `onPointerDownOutside` to cover BOTH outside pointer-down AND outside
+focus. `onOpenChange` is UNTOUCHED so ESC + Cancel + Save + the close-X all still close. **Finding-7:** the
+"Set as parent" / "Top level" / "Cancel pick" button row is relocated VERBATIM to ABOVE the `<SheetSearchView>`
+mount in all THREE picker sites (row-position move, option-3 one-new-parent, option-4 per-child), so the pick
+action is reachable without scrolling past the tall wrapping grid; handlers/labels/disabled-logic/wiring
+unchanged. **REFRAME recorded:** the literal "align inside the search-bar row" was recon-proven unreachable
+without editing `SheetSearchView` (its search bar is internally enclosed, no slot/render-prop), so Path 1
+(above-the-picker) was chosen modal-side; do NOT re-chase the in-search-bar idea. tsc 0 new wizard-file errors
+(baseline 3177 unchanged) + in-container build exit 0; no Frappe unit tests (frontend slice; modal + backend
+already certified); manual live-cert LC1-LC5 pending Nitesh. See the "§9 #158 RestructureModal polish
+conventions" section below for detail.
+
+// prior: **Status (2026-06-11 -- §9 #162 standalone "Change parent" door COMPLETE):**
 A SECOND front door to the EXISTING `RestructureModal`, reached WITHOUT a reclassification (FRONTEND ONLY,
 `ReviewTree.tsx` only). The row-detail panel's PARENT cell gains a "Change parent" button mirroring the
 CLASSIFICATION cell's "Change ▾" reclassify control; it opens the modal via
@@ -778,6 +795,41 @@ Frontend-only completeness slice. Files touched: `RestructureModal.tsx`, `Review
 - **D2a -- childless AlertDialog radios + route-on-select (ReviewTree).** The childless reclassify AlertDialog gains a "This row's position" control (two radios) between the description and the error/footer: (1) **"Keep current position"** -- rendered `checked readOnly` (always the resting selection, since the dialog closes the instant "move" is picked); Confirm -> `confirmChildlessReclassify` UNCHANGED (the byte-for-byte keep path: child_moves:{}, no row_new_parent, one Confirm click) [S5]. (2) **"Move this row under a new parent"** -- its `onChange` routes ON SELECT (not on Confirm): `setRestructureModal({row, newClassification})` + `setChildlessConfirm(null)` + `setRestructureError(null)`, handing off to the SAME `setRestructureModal` state the with-children branch uses. **Why route-on-select:** the AlertDialog (`max-w-lg`) is too small to host the `max-w-6xl` picker, so "move" cannot complete in-dialog -- an extra Confirm to bounce dialogs would be a pointless click; the LC matrix reads this way too (LC-iii spells out "-> Confirm" for keep, LC-iv omits it for move). No local choice-state is needed (keep is always the displayed selection); reset-on-open is trivially satisfied.
 - **D2b -- RestructureModal zero-children adaptation (ALL gated on `children.length === 0`; with-children UNCHANGED [S6]).** (1) The "Children (N)" box and the five-options block are wrapped in `{children.length > 0 && (...)}` -- hidden for a childless row. The option-3/option-4 picker sub-blocks already render only when `option === 3/4`, so with `option` staying `null` they are naturally hidden (no gating added). (2) `canSave`'s first line `if (option === null) return false;` becomes `if (children.length > 0 && option === null) return false;` -- for a childless row the gate is the row-position rule ALONE (`rowPosition === "move" ? rowParentIdx !== null : true`); the `option === 3/4` checks stay (inert when `option` is null). (3) Title/description adapt: childless -> title `Reclassify and position row {N}`, description drops the "children" language (`...Choose where this row should go.`). (4) **`rowPosition` lazy initializer:** `useState<"keep"|"move">(() => rows.filter(r => r.effective_parent_index === row.row_index).length === 0 ? "move" : "keep")` -- a childless row reaches the modal ONLY via the move route, so it opens with "move" active + picker showing; a with-children row opens "keep" (S6). The inline child-count recompute is required because the `children` memo isn't defined yet at the state line. `buildChildMoves()` already returns {} with zero children (every branch loops over `[]`, and `option === null` falls through to `{}`) -- the save assembly is NOT special-cased. The childless entry is a NEW entry point into the SAME modal, not a fork.
 - **Verification.** tsc 0 errors in both touched files (project baseline 3177 unchanged); in-container build exit 0. No Frappe unit tests (frontend slice). Manual live-cert LC-i (the LC10 closer -- the cycle message now surfaces inline on a with-children row) .. LC-vii (with-children regression spot-check) pending Nitesh.
+
+**§9 #158 RestructureModal polish conventions (FRONTEND ONLY, `RestructureModal.tsx` only):**
+
+Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSearchView.tsx`, no
+`dialog.tsx`, no backend, no doctype, no `boqTypes.ts`).
+
+- **Finding-2 -- outside-click dismiss disabled, ESC kept (THE convention).** The modal's `<DialogContent>`
+  carries `onInteractOutside={(e) => e.preventDefault()}`. This is the shadcn `Dialog` (Radix) -- `DialogContent`
+  forwards `{...props}` to `DialogPrimitive.Content`, so the Radix dismiss prop is set MODAL-SIDE with NO edit to
+  the `dialog.tsx` primitive. **Use `onInteractOutside`, NOT `onPointerDownOutside`** -- it intercepts both
+  outside pointer-down AND outside focus, the fuller guard against losing staged work. **Do NOT route this
+  through `onOpenChange`** -- that handler (`(o) => { if (!o) onClose(); }`) is SHARED by ESC, the close-X, and
+  the programmatic Cancel/Save closes; intercepting there would kill ESC. Net behaviour: a stray outside click
+  is inert; ESC, Cancel, Save, and the close-X all close the modal normally. Apply this exact pattern (dedicated
+  `onInteractOutside` on `DialogContent`, leave `onOpenChange` alone) to any future wizard modal that must not
+  dismiss-on-outside-click while keeping ESC.
+- **Finding-7 -- pick buttons ABOVE the picker (Path 1).** In EACH of the three picker sites the pick-action
+  button row is a sibling rendered BEFORE the `<SheetSearchView>` mount: order is `[helper <p>] -> [button row]
+  -> [<SheetSearchView>]`, all inside the existing `rounded-md border ... space-y-2` container. The three sites:
+  (1) row-own-position move (`rowParentIdx`-driven: Set as parent + Top level), (2) option-3 one-new-parent
+  (`blockParentIdx`-driven: Set as parent), (3) option-4 per-child (`perChild`-driven: Set as parent + Cancel
+  pick). The relocation is PURE -- buttons, handlers, labels, `disabled` logic, and the no-match guard span are
+  byte-for-byte the prior JSX, only reordered above the picker. Rationale: SheetSearchView v2's wrapping cells
+  made the grid tall, pushing the pick action below the fold.
+- **REFRAME (do NOT re-chase).** The handover's literal #158 finding-7 wording wanted the buttons aligned INSIDE
+  SheetSearchView's search-bar row (top band). The §9 #158 recon PROVED that unreachable without editing
+  `SheetSearchView`: its search-bar band is the first child of the component's own root `space-y-3` div, and the
+  component exposes no slot/render-prop for injecting content there -- a consumer can only place siblings ABOVE
+  or BELOW the whole component. Path 1 (above-the-picker) was the owner-chosen, modal-side-only delivery of the
+  intent (no scroll-to-pick). Any future "align in the search bar" attempt REQUIRES a SheetSearchView edit (and
+  re-cert) that this slice deliberately avoided.
+- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0.
+  No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
+  (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
+  three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
 
 **§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
 
