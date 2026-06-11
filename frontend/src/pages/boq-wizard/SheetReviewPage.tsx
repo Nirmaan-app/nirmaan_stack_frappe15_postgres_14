@@ -15,11 +15,35 @@
  */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft, Check, Loader2 } from "lucide-react";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { ArrowLeft, Check, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { BOQsDoc, GetReviewRowsResponse } from "./boqTypes";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { getFrappeError } from "@/utils/frappeErrors";
+import type {
+  BOQsDoc,
+  GetReviewRowsResponse,
+  MarkParsedCheckDoneResponse,
+  StructuralBreak,
+  UnmarkParsedCheckDoneResponse,
+} from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
+
+// Slice D1: human-readable labels for structural-break types shown in the mark
+// warn-and-confirm escalation dialog.
+const BREAK_TYPE_LABELS: Record<string, string> = {
+  orphan: "Orphan line item",
+  line_item_as_parent: "Line item used as a parent",
+  cycle: "Parent cycle",
+};
 
 // C-v2: format the save-anchor timestamp. edited_at is the server-local naive
 // string from frappe.utils.now() ("YYYY-MM-DD HH:MM:SS.ffffff"); parse as local.
@@ -39,7 +63,7 @@ const SheetReviewPage = () => {
 
   // BOQs doc: header info (boq_name, version). Same pattern as SheetSpokePage.
   // Third arg null disables until boqId is present (useFrappeGetDoc swrKey gotcha).
-  const { data: boq, isLoading } = useFrappeGetDoc<BOQsDoc>(
+  const { data: boq, isLoading, mutate: boqMutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqId ?? "",
     boqId ? undefined : null,
@@ -72,6 +96,76 @@ const SheetReviewPage = () => {
 
   // Back nav: semantic entity-id route -- never navigate(-1) (survives hard refresh).
   const handleBack = () => navigate(`/upload-boq/hub/${boqId ?? ""}`);
+
+  // ── Slice D1: Parsed Check Done marking + read-only freeze ──────────────────
+  // Sheet status rides the BOQs doc payload (boq.sheet_drafts is a one-level child
+  // table -> serializes). sheetName is VERBATIM (no trim -- #152 trailing-space guard).
+  const sheetStatus = boq?.sheet_drafts?.find(
+    (d) => d.sheet_name === (sheetName ?? ""),
+  )?.wizard_status;
+  const isChecked = sheetStatus === "Parsed Check Done";
+
+  const { call: markCall, loading: markLoading } = useFrappePostCall<{
+    message: MarkParsedCheckDoneResponse;
+  }>("nirmaan_stack.api.boq.wizard.review_screen.mark_sheet_parsed_check_done");
+  const { call: unmarkCall, loading: unmarkLoading } = useFrappePostCall<{
+    message: UnmarkParsedCheckDoneResponse;
+  }>("nirmaan_stack.api.boq.wizard.review_screen.unmark_sheet_parsed_check_done");
+
+  // Mark dialog: markBreaks === null -> light confirm; non-null -> breaks escalation.
+  const [markDialogOpen, setMarkDialogOpen] = useState(false);
+  const [markBreaks, setMarkBreaks] = useState<StructuralBreak[] | null>(null);
+  const [markError, setMarkError] = useState<string | null>(null);
+  const [unmarkDialogOpen, setUnmarkDialogOpen] = useState(false);
+  const [unmarkError, setUnmarkError] = useState<string | null>(null);
+
+  const openMarkDialog = () => {
+    setMarkBreaks(null);
+    setMarkError(null);
+    setMarkDialogOpen(true);
+  };
+  const closeMarkDialog = () => {
+    setMarkDialogOpen(false);
+    setMarkBreaks(null);
+    setMarkError(null);
+  };
+
+  // POST mark; confirm=false on the first pass (light confirm), confirm=true to
+  // override structural breaks (escalation "Mark anyway"). ok:false+breaks -> escalate.
+  const confirmMark = async (override: boolean) => {
+    setMarkError(null);
+    try {
+      const res = await markCall({
+        boq_name: boqId ?? "",
+        sheet_name: sheetName ?? "", // VERBATIM #152
+        confirm: override,
+      });
+      const msg = res.message;
+      if (msg.ok) {
+        closeMarkDialog();
+        void boqMutate();
+      } else {
+        // Structural issues -> switch the same dialog to the escalation view.
+        setMarkBreaks(msg.breaks ?? []);
+      }
+    } catch (e: unknown) {
+      setMarkError(getFrappeError(e) || "Could not mark the sheet. Please try again.");
+    }
+  };
+
+  const handleUnmark = async () => {
+    setUnmarkError(null);
+    try {
+      await unmarkCall({
+        boq_name: boqId ?? "",
+        sheet_name: sheetName ?? "", // VERBATIM #152
+      });
+      setUnmarkDialogOpen(false);
+      void boqMutate();
+    } catch (e: unknown) {
+      setUnmarkError(getFrappeError(e) || "Could not un-mark the sheet. Please try again.");
+    }
+  };
 
   // ── Full-page spinner while BOQs doc loads ──────────────────────────────────
   if (isLoading) {
@@ -172,19 +266,60 @@ const SheetReviewPage = () => {
           </h1>
         </div>
 
-        {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
-            Every confirmed edit already saved (one call = one commit); this is a
-            status indicator, not a batch-save trigger. Shown once a save has landed. */}
-        {lastSavedAt && (
-          <div className="ml-auto shrink-0 flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
-            <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-            <span>
-              All changes saved
-              <span className="text-muted-foreground/70"> &middot; {fmtSavedTime(lastSavedAt)}</span>
-            </span>
-          </div>
-        )}
+        {/* Right cluster: the Mark-checked action (only on a "Parsed" sheet) + the
+            C-v2 save-status anchor. The Mark button and the read-only banner below are
+            mutually exclusive by construction (status-driven). */}
+        <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+          {sheetStatus === "Parsed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={openMarkDialog}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Mark Parsed Check Done
+            </Button>
+          )}
+          {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
+              Every confirmed edit already saved (one call = one commit); this is a
+              status indicator, not a batch-save trigger. Shown once a save has landed. */}
+          {lastSavedAt && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+              <span>
+                All changes saved
+                <span className="text-muted-foreground/70"> &middot; {fmtSavedTime(lastSavedAt)}</span>
+              </span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── Slice D1: read-only banner (shown only when the sheet is checked) ──── */}
+      {isChecked && (
+        <div className="flex flex-col gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
+          <div className="flex items-start gap-2">
+            <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-teal-700 dark:text-teal-300" />
+            <p className="text-teal-900 dark:text-teal-100">
+              This sheet is marked <span className="font-medium">&lsquo;Parsed Check Done&rsquo;</span> and is
+              read-only. Un-mark it to make changes, or re-parse / edit config from the hub.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 pl-6">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setUnmarkError(null); setUnmarkDialogOpen(true); }}
+            >
+              Un-mark
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleBack}>
+              Go to hub
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
       {!reviewLoading && !reviewError && flagSummaryParts.length > 0 && (
@@ -228,8 +363,68 @@ const SheetReviewPage = () => {
           // Slice 1b-beta: a restructure IS a real edit -- reuse handleSaved (advances the
           // save anchor + mutates) via the SAME SWR revalidate path as value/text edits.
           onRestructured={handleSaved}
+          // Slice D1: a checked sheet freezes ALL write affordances in the tree.
+          readOnly={isChecked}
         />
       )}
+
+      {/* ── Slice D1: Mark dialog -- light confirm, escalates to breaks warn ──── */}
+      <AlertDialog open={markDialogOpen} onOpenChange={(o) => { if (!o) closeMarkDialog(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {markBreaks ? "Structural issues found" : "Mark this sheet as checked?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {markBreaks
+                ? "These structural issues may corrupt downstream pricing. You can mark the sheet anyway, or cancel and fix them first."
+                : "This marks the sheet's parsed data as review-complete. The sheet becomes read-only until un-marked."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {markBreaks && markBreaks.length > 0 && (
+            <ul className="max-h-48 overflow-y-auto space-y-1 rounded-md border border-border bg-muted/30 p-2 text-xs">
+              {markBreaks.map((b, i) => (
+                <li key={i} className="text-foreground leading-snug">
+                  <span className="font-medium">{BREAK_TYPE_LABELS[b.type] ?? b.type}</span>
+                  <span className="text-muted-foreground"> &middot; Excel row {b.source_row_number}</span>
+                  {": "}{b.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+          {markError && <p className="text-sm text-destructive">{markError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={markLoading}>Cancel</AlertDialogCancel>
+            {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend
+                error or to switch to the escalation view. */}
+            <Button
+              disabled={markLoading}
+              onClick={() => { void confirmMark(markBreaks !== null); }}
+            >
+              {markBreaks ? "Mark anyway" : "Mark as checked"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Slice D1: Un-mark dialog -- light confirm back to "Parsed" ────────── */}
+      <AlertDialog open={unmarkDialogOpen} onOpenChange={(o) => { if (!o) { setUnmarkDialogOpen(false); setUnmarkError(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Un-mark this sheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It returns to &lsquo;Parsed&rsquo; and becomes editable again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {unmarkError && <p className="text-sm text-destructive">{unmarkError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unmarkLoading}>Cancel</AlertDialogCancel>
+            <Button disabled={unmarkLoading} onClick={() => { void handleUnmark(); }}>
+              Un-mark
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

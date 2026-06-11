@@ -655,6 +655,50 @@ def _get_sheet_area_dimensions(boq_name: str, sheet_name: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Read-only freeze (Slice D1): a sheet at "Parsed Check Done" rejects all writes
+# ---------------------------------------------------------------------------
+
+# The frozen status + the single read-only message surfaced by every write endpoint.
+# One constant so the four guards (and any future write path) throw an IDENTICAL
+# message -- the frontend surfaces it verbatim via getFrappeError.
+_PARSED_CHECK_DONE = "Parsed Check Done"
+_FROZEN_WRITE_MESSAGE = (
+    "This sheet is marked 'Parsed Check Done' and is read-only. "
+    "Un-mark it to make changes."
+)
+
+
+def _get_sheet_wizard_status(boq_name: str, sheet_name: str) -> str | None:
+    """
+    Return the wizard_status of the BoQ Sheet Draft child row for
+    (boq_name, sheet_name), or None when no such row exists.
+
+    Same filter pattern mark_sheet_parsed_check_done / _get_sheet_area_dimensions
+    use (parent / parenttype / sheet_name). sheet_name is matched VERBATIM
+    (the #152 trailing-space landmine -- never strip).
+    """
+    return frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "wizard_status",
+    )
+
+
+def _guard_sheet_not_frozen(boq_name: str, sheet_name: str) -> None:
+    """
+    Block any write to a sheet marked "Parsed Check Done" (Slice D1 read-only freeze).
+
+    Called in every BoQ Review Row write endpoint (save_review_edit,
+    save_review_restructure, save_review_remark, dismiss_row_flags) immediately
+    after the BOQs-exists guard and BEFORE any doc-locate / validation / write,
+    so a frozen sheet short-circuits before doing any work. The freeze is additive:
+    a sheet NOT at "Parsed Check Done" passes through unchanged (backwards-compat).
+    """
+    if _get_sheet_wizard_status(boq_name, sheet_name) == _PARSED_CHECK_DONE:
+        frappe.throw(_FROZEN_WRITE_MESSAGE, title="Sheet is read-only")
+
+
+# ---------------------------------------------------------------------------
 # Shared row-write helper (save-inside / commit-outside)
 # ---------------------------------------------------------------------------
 
@@ -1021,6 +1065,10 @@ def save_review_edit(
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
+    # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the per-area
+    # routing, field validation, and the expensive human_parent cycle-guard below.
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+
     # Slice C-v2d: a non-empty `area` routes to the per-area JSON write path; otherwise
     # this is exactly the flat-field path. An empty-string area is treated as no area.
     area_provided = area is not None and area != ""
@@ -1263,6 +1311,10 @@ def save_review_restructure(
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the batch
+    # cycle-guard and any write.
+    _guard_sheet_not_frozen(boq_name, sheet_name)
 
     try:
         row_index = int(row_index)
@@ -1530,6 +1582,10 @@ def save_review_remark(
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
+    # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the row-locate
+    # and write.
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+
     try:
         row_index = int(row_index)
     except (ValueError, TypeError):
@@ -1612,6 +1668,10 @@ def dismiss_row_flags(
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the row-locate
+    # and write.
+    _guard_sheet_not_frozen(boq_name, sheet_name)
 
     try:
         row_index = int(row_index)
@@ -1750,6 +1810,23 @@ def mark_sheet_parsed_check_done(
             title="Sheet not found",
         )
 
+    # Slice D1 precondition: ONLY a sheet currently at "Parsed" may be marked checked.
+    # Before D1 this endpoint stamped unconditionally (recon-verified); the tightening is
+    # additive -- its existing tests seed "Parsed" sheets so they stay green. Existing
+    # response shapes (ok:false+breaks / ok:true+overridden) are unchanged.
+    current_status = frappe.db.get_value("BoQ Sheet Draft", child_name, "wizard_status")
+    if current_status == "Parsed Check Done":
+        frappe.throw(
+            "This sheet is already marked 'Parsed Check Done'.",
+            title="Already checked",
+        )
+    if current_status != "Parsed":
+        frappe.throw(
+            f"Only a sheet with status 'Parsed' can be marked 'Parsed Check Done'. "
+            f"Current status: {current_status}.",
+            title="Cannot mark checked",
+        )
+
     # Fetch rows for integrity check (minimal fields only)
     rows = frappe.db.get_all(
         "BoQ Review Row",
@@ -1777,3 +1854,62 @@ def mark_sheet_parsed_check_done(
         "status": "Parsed Check Done",
         "overridden": has_breaks,
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def unmark_sheet_parsed_check_done(
+    boq_name: str = None,
+    sheet_name: str = None,
+) -> dict:
+    """
+    Revert a "Parsed Check Done" sheet back to "Parsed" (Slice D1 Un-mark).
+
+    The inverse of mark_sheet_parsed_check_done: it lifts the read-only freeze so the
+    review screen becomes editable again. There is NO integrity check -- moving a sheet
+    BACKWARD is always allowed.
+
+    Precondition: the sheet must currently be at "Parsed Check Done" (else frappe.throw).
+
+    Writing directly (NOT via set_sheet_status): set_sheet_status only allows the 5
+    direct-set statuses (Pending, Hidden, Reviewed, Skip, Parse failed) -- "Parsed" is
+    NOT in that set (_DIRECT_SET_STATUSES) and would be rejected. This endpoint writes
+    directly with the same locate-child-row + frappe.db.set_value pattern the mark
+    endpoint documents.
+
+    Returns: {ok: True, status: "Parsed"}
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.unmark_sheet_parsed_check_done
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # Locate the sheet draft child row (verbatim sheet_name match -- #152).
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if not child_name:
+        frappe.throw(
+            f"Sheet '{sheet_name}' not found in BOQs '{boq_name}'.",
+            title="Sheet not found",
+        )
+
+    # Precondition: only a CHECKED sheet may be un-marked.
+    current_status = frappe.db.get_value("BoQ Sheet Draft", child_name, "wizard_status")
+    if current_status != "Parsed Check Done":
+        frappe.throw(
+            f"Only a sheet marked 'Parsed Check Done' can be un-marked. "
+            f"Current status: {current_status}.",
+            title="Cannot un-mark",
+        )
+
+    # Write "Parsed" directly -- bypasses set_sheet_status which rejects "Parsed".
+    frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", "Parsed")
+    frappe.db.commit()
+
+    return {"ok": True, "status": "Parsed"}

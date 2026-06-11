@@ -393,3 +393,25 @@ export type StructuralBreak =
 export interface GetStructuralBreaksResponse {
   breaks: StructuralBreak[];
 }
+
+// ── Parsed Check Done marking (Slice D1) ──────────────────────────────────────
+
+/**
+ * Response shape of mark_sheet_parsed_check_done.
+ *  - ok:false + breaks  -> structural issues found; caller escalates to a warn dialog
+ *    and may re-POST with confirm:true.
+ *  - ok:true + status + overridden -> the sheet is now "Parsed Check Done"
+ *    (overridden true iff breaks existed but were confirmed past).
+ */
+export interface MarkParsedCheckDoneResponse {
+  ok: boolean;
+  breaks?: StructuralBreak[];
+  status?: string;
+  overridden?: boolean;
+}
+
+/** Response shape of unmark_sheet_parsed_check_done (reverts to "Parsed"). */
+export interface UnmarkParsedCheckDoneResponse {
+  ok: boolean;
+  status: string;
+}

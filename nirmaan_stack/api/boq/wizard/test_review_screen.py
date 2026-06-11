@@ -29,6 +29,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     save_review_edit,
     save_review_remark,
     save_review_restructure,
+    unmark_sheet_parsed_check_done,
 )
 
 
@@ -1457,6 +1458,35 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed Check Done",
                          "wizard_status must be written to 'Parsed Check Done' when confirmed")
 
+    # -- Slice D1 mark precondition (M1/M2) ----------------------------------
+
+    def test_mark_already_checked_rejected_status_unchanged(self):
+        """M1: marking an already-'Parsed Check Done' sheet throws; status stays checked."""
+        mark_sheet_parsed_check_done(boq_name=self.boq_name, sheet_name="CleanSheet")
+        self.assertEqual(self._get_wizard_status("CleanSheet"), "Parsed Check Done")
+        with self.assertRaises(frappe.ValidationError):
+            mark_sheet_parsed_check_done(boq_name=self.boq_name, sheet_name="CleanSheet")
+        self.assertEqual(
+            self._get_wizard_status("CleanSheet"), "Parsed Check Done",
+            "status must remain 'Parsed Check Done' after a rejected re-mark",
+        )
+
+    def test_mark_non_parsed_status_rejected(self):
+        """M2: marking a 'Reviewed' (non-Parsed) sheet throws; status unchanged."""
+        child = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": "CleanSheet"},
+            "name",
+        )
+        frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", "Reviewed")
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            mark_sheet_parsed_check_done(boq_name=self.boq_name, sheet_name="CleanSheet")
+        self.assertEqual(
+            self._get_wizard_status("CleanSheet"), "Reviewed",
+            "status must remain 'Reviewed' after a rejected mark",
+        )
+
 
 # ===========================================================================
 # Group 7: get_structural_breaks -- DB (Slice B1)
@@ -2588,3 +2618,260 @@ class TestSaveReviewRestructure(FrappeTestCase):
         r3 = self._get_doc(3)
         self.assertEqual(r3.human_parent, -1, "the innocent child move must not persist")
         self.assertIsNone(r3.edited_at)
+
+
+# ===========================================================================
+# Group 12: Parsed Check Done read-only freeze (Slice D1)
+# ===========================================================================
+
+class TestParsedCheckDoneFreeze(FrappeTestCase):
+    """
+    Verifies the Slice D1 read-only freeze: a sheet at "Parsed Check Done" rejects
+    ALL FOUR write endpoints (save_review_edit, save_review_restructure,
+    save_review_remark, dismiss_row_flags) before any write, and the freeze lifts
+    once the status is restored to "Parsed".
+
+    Fixture (reset per test, then restored to "Parsed"):
+      Row 0 -- preamble,  parent=None  (root)
+      Row 1 -- preamble,  parent=0     (child of 0)
+      Row 2 -- line_item, parent=1     (leaf)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Freeze Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "FreezeSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "FreezeSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "preamble", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=1),
+        ])
+        # Start every test from "Parsed" (a prior test may have frozen the sheet).
+        self._set_status("Parsed")
+
+    def _draft_name(self):
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": self.sheet_name},
+            "name",
+        )
+
+    def _set_status(self, status):
+        frappe.db.set_value("BoQ Sheet Draft", self._draft_name(), "wizard_status", status)
+        frappe.db.commit()
+
+    def _get_doc(self, row_index):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        return frappe.get_doc("BoQ Review Row", name)
+
+    def _edit_log(self, doc):
+        if isinstance(doc.edit_log, str):
+            return json.loads(doc.edit_log) if doc.edit_log else []
+        return doc.edit_log or []
+
+    def test_F1_edit_frozen_rejected_no_change(self):
+        """F1: save_review_edit on a checked sheet throws; value + edit_log unchanged."""
+        self._set_status("Parsed Check Done")
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=2, field="qty_total", value="99",
+            )
+        doc = self._get_doc(2)
+        self.assertIn(doc.qty_total, (None, 0, 0.0), "value must be unchanged")
+        self.assertEqual(len(self._edit_log(doc)), 0, "no edit_log entry on a frozen edit")
+        self.assertIsNone(doc.edited_at, "edited_at must not be stamped on a frozen edit")
+
+    def test_F2_restructure_frozen_rejected_no_change(self):
+        """F2: save_review_restructure on a checked sheet throws; classification unchanged."""
+        self._set_status("Parsed Check Done")
+        before = self._get_doc(2).classification
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=2, new_classification="note", child_moves={},
+            )
+        doc = self._get_doc(2)
+        self.assertEqual(doc.classification, before, "classification must be unchanged")
+        self.assertFalse(doc.human_classification, "no human override may be written")
+        self.assertIsNone(doc.edited_at)
+
+    def test_F3_remark_frozen_rejected_no_change(self):
+        """F3: save_review_remark on a checked sheet throws; remarks unchanged."""
+        self._set_status("Parsed Check Done")
+        with self.assertRaises(frappe.ValidationError):
+            save_review_remark(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, remark="frozen remark",
+            )
+        self.assertFalse(self._get_doc(0).remarks, "remarks must be unchanged (empty)")
+
+    def test_F4_dismiss_frozen_rejected_no_change(self):
+        """F4: dismiss_row_flags on a checked sheet throws; flags_dismissed unchanged."""
+        self._set_status("Parsed Check Done")
+        with self.assertRaises(frappe.ValidationError):
+            dismiss_row_flags(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, dismissed=True,
+            )
+        self.assertIn(self._get_doc(0).flags_dismissed, (0, None, False),
+                      "flags_dismissed must be unchanged")
+
+    def test_F5_edit_succeeds_after_status_restored(self):
+        """F5: the SAME endpoint succeeds again once status is restored to 'Parsed'."""
+        self._set_status("Parsed Check Done")
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=2, field="qty_total", value="50",
+            )
+        # Lift the freeze.
+        self._set_status("Parsed")
+        result = save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=2, field="qty_total", value="50",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self._get_doc(2).qty_total, 50.0, "the write must land after unfreeze")
+
+
+# ===========================================================================
+# Group 13: unmark_sheet_parsed_check_done (Slice D1)
+# ===========================================================================
+
+class TestUnmarkSheetParsedCheckDone(FrappeTestCase):
+    """
+    Verifies unmark_sheet_parsed_check_done (Slice D1 Un-mark):
+      U1 -- a checked sheet reverts to "Parsed";
+      U2 -- a non-checked ("Parsed") sheet is rejected; status unchanged;
+      U3 -- round-trip: mark (clean) -> a write is freeze-blocked -> unmark ->
+            the same write now succeeds.
+
+    Fixture (CleanSheet-shaped so mark produces no breaks):
+      Row 0 -- preamble,  parent=None
+      Row 1 -- line_item, parent=0
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Unmark Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "UnmarkSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "UnmarkSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "line_item", parent_index=0),
+        ])
+        self._set_status("Parsed")
+
+    def _draft_name(self):
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": self.sheet_name},
+            "name",
+        )
+
+    def _set_status(self, status):
+        frappe.db.set_value("BoQ Sheet Draft", self._draft_name(), "wizard_status", status)
+        frappe.db.commit()
+
+    def _get_status(self):
+        return frappe.db.get_value("BoQ Sheet Draft", self._draft_name(), "wizard_status") or ""
+
+    def _get_remark(self, row_index):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        return frappe.db.get_value("BoQ Review Row", name, "remarks")
+
+    def test_U1_unmark_checked_reverts_to_parsed(self):
+        """U1: un-marking a checked sheet returns ok:True + status 'Parsed'."""
+        self._set_status("Parsed Check Done")
+        result = unmark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "Parsed")
+        self.assertEqual(self._get_status(), "Parsed")
+
+    def test_U2_unmark_non_checked_rejected(self):
+        """U2: un-marking a 'Parsed' (not checked) sheet throws; status unchanged."""
+        with self.assertRaises(frappe.ValidationError):
+            unmark_sheet_parsed_check_done(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+            )
+        self.assertEqual(self._get_status(), "Parsed", "status must be unchanged")
+
+    def test_U3_round_trip_mark_freeze_unmark_unfreezes(self):
+        """U3: mark (clean) -> a write is blocked -> unmark -> the write succeeds."""
+        mark_res = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+        )
+        self.assertTrue(mark_res["ok"])
+        self.assertEqual(self._get_status(), "Parsed Check Done")
+        # Freeze: a remark write is blocked.
+        with self.assertRaises(frappe.ValidationError):
+            save_review_remark(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, remark="should be blocked",
+            )
+        # Un-mark -> back to "Parsed".
+        unmark_res = unmark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+        )
+        self.assertEqual(unmark_res["status"], "Parsed")
+        # The same write now succeeds.
+        ok = save_review_remark(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=0, remark="now allowed",
+        )
+        self.assertTrue(ok["ok"])
+        self.assertEqual(self._get_remark(0), "now allowed", "the write must land after unmark")

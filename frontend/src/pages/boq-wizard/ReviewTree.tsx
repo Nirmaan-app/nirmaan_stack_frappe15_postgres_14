@@ -332,9 +332,15 @@ interface ReviewTreeProps {
   // the returned edited_at. Wired to the SAME handler as onSaved (SheetReviewPage's
   // handleSaved) -- a restructure IS a real edit, so it advances the save anchor + mutates.
   onRestructured?: (editedAt: string) => void;
+  // Slice D1: when true the sheet is "Parsed Check Done" (read-only freeze). ALL write
+  // affordances (value/text/area edits, reclassify, change-parent, remarks, "Looks OK")
+  // are gated OUT at their render sites; every view affordance (expand/collapse, detail
+  // panel display, search, filters, column selector, scroll-to-parent) stays live. The
+  // backend enforces the same freeze, so this is the UI line of defence, not the only one.
+  readOnly?: boolean;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -1509,24 +1515,27 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   4 assignable target classes. Picking one routes via onPickClass:
                                   childless -> light confirm; has children -> the restructure modal.
                                   Lives in the detail panel (already stopPropagation-wrapped above);
-                                  DropdownMenuContent portals to body so item clicks never dismiss it. */}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                                  >
-                                    Change ▾
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start">
-                                  {ASSIGNABLE_CLASSIFICATIONS.map(c => (
-                                    <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
-                                      {CLS_LABELS[c] ?? c}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                                  DropdownMenuContent portals to body so item clicks never dismiss it.
+                                  Slice D1: hidden when readOnly (the classification text above stays). */}
+                              {!readOnly && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                                    >
+                                      Change ▾
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="start">
+                                    {ASSIGNABLE_CLASSIFICATIONS.map(c => (
+                                      <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
+                                        {CLS_LABELS[c] ?? c}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <div>
@@ -1551,8 +1560,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   gate is untouched -- the children's fate stays explicit, no silent
                                   reparent). A plain button, not a dropdown: there is no list to pick;
                                   the single action is "open the modal". Hidden on subtotal_marker /
-                                  header_repeat via canChangeParent. */}
-                              {canChangeParent && (
+                                  header_repeat via canChangeParent. Slice D1: also hidden when readOnly. */}
+                              {canChangeParent && !readOnly && (
                                 <button
                                   type="button"
                                   onClick={() => setRestructureModal({ row, newClassification: row.effective_classification as string })}
@@ -1565,8 +1574,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           </div>
                           {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                               surfaces (per-area cells + text fields stay read-only here). Each
-                              commits via an explicit Apply button that opens the confirm dialog. */}
-                          {editableDescriptors.length > 0 && (
+                              commits via an explicit Apply button that opens the confirm dialog.
+                              Slice D1: the whole block is gated OUT when readOnly. */}
+                          {!readOnly && editableDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
                               {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
@@ -1615,8 +1625,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
                               block from the numeric one. Apply saves DIRECTLY (no confirm
                               dialog); the value is a string. Shown only when the sheet maps
-                              the column (editableTextDescriptors gating). */}
-                          {editableTextDescriptors.length > 0 && (
+                              the column (editableTextDescriptors gating). Slice D1: gated OUT when readOnly. */}
+                          {!readOnly && editableTextDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
                               {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
@@ -1666,8 +1676,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               the sheet maps (qty/amount/rate by area). Each commits via
                               the SAME confirm dialog as flat numeric edits (openAreaConfirm).
                               Blank -> 0.0 (the area key stays). Shown only when the sheet
-                              maps per-area columns (editableAreaDescriptors gating). */}
-                          {editableAreaDescriptors.length > 0 && (
+                              maps per-area columns (editableAreaDescriptors gating). Slice D1: gated OUT when readOnly. */}
+                          {!readOnly && editableAreaDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
                               {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
@@ -1723,6 +1733,17 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               surfaces from cross-displaying. */}
                           {(() => {
                             const storedRemark = row.remarks ?? "";
+                            // Slice D1: a frozen sheet shows the stored remark read-only (or nothing
+                            // when there is none) -- the Textarea + Save are gated out.
+                            if (readOnly) {
+                              if (!storedRemark) return null;
+                              return (
+                                <div className="mb-2 max-w-md">
+                                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Remarks</p>
+                                  <p className="text-xs text-foreground whitespace-pre-wrap">{storedRemark}</p>
+                                </div>
+                              );
+                            }
                             const remarkOverCap = remarkInput.length > REMARK_MAX_LEN;
                             const remarkDirty = remarkInput !== storedRemark;
                             return (
@@ -1775,7 +1796,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
                                     <CheckCircle2 className="h-3 w-3" /> Reviewed — looks OK
                                   </span>
-                                ) : (
+                                ) : !readOnly ? (
                                   <Button
                                     type="button"
                                     size="sm"
@@ -1786,7 +1807,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   >
                                     <CheckCircle2 className="h-3 w-3 mr-1" /> Looks OK
                                   </Button>
-                                )}
+                                ) : null}
                               </div>
                               <ul className="mt-0.5 space-y-0.5">
                                 {rowFlags.map((f, i) => (
