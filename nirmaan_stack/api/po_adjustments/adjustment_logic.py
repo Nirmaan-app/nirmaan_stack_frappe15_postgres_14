@@ -22,7 +22,14 @@ def get_po_adjustment(po_id):
     adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
     if not adj_name:
         return None
-    return frappe.get_doc("PO Adjustments", adj_name).as_dict()
+    doc = frappe.get_doc("PO Adjustments", adj_name).as_dict()
+    # Each child row carries Frappe's standard `owner` audit field (the session
+    # user who created it). Resolve it to a full name so the UI can attribute the
+    # entry — "Triggered by X" for system entries, "by X" for manual ones.
+    for item in doc.get("adjustment_items", []):
+        owner = item.get("owner")
+        item["created_by"] = frappe.utils.get_fullname(owner) if owner else None
+    return doc
 
 
 @frappe.whitelist()

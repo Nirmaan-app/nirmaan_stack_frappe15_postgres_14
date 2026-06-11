@@ -14,6 +14,8 @@ interface AdjustmentItem {
   expense_type?: string;
   refund_date?: string;
   refund_attachment?: string;
+  owner?: string;
+  created_by?: string;
 }
 
 export interface POAdjustmentDoc {

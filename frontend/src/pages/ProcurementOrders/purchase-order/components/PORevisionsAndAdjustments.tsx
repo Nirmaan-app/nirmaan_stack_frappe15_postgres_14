@@ -78,6 +78,15 @@ const ENTRY_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
   "Vendor Refund": { bg: "bg-rose-50", text: "text-rose-700" },
 };
 
+// Auto-created during revision approval — attributed as "Triggered by {user}".
+// Everything else (Against PO, Adhoc, Vendor Refund) is a manual user action.
+const SYSTEM_ENTRY_TYPES = new Set([
+  "Revision Impact",
+  "Auto Absorb",
+  "Term Addition",
+  "Term Rebalance",
+]);
+
 export const PORevisionsAndAdjustments: React.FC<
   PORevisionsAndAdjustmentsProps
 > = ({ poId }) => {
@@ -224,16 +233,26 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
                   </Badge>
                   {revision.approved_by && revision.status === "Approved" && (
                     <span className="text-[10px] font-medium">
-                      {revision.approved_by === "System"
-                        ? <span className="text-teal-600">Auto-Approved</span>
-                        : <span className="text-slate-400">by {revision.approved_by}</span>}
+                      {revision.approved_by === "System" ? (
+                        <span className="text-teal-600">Auto-Approved</span>
+                      ) : (
+                        <span className="text-slate-400">
+                          by {revision.approved_by}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  {revision.creation
-                    ? formatDate(revision.creation)
-                    : "N/A"}
+                  {revision.creation ? formatDate(revision.creation) : "N/A"}
+                  {revision.created_by && (
+                    <>
+                      {" · "}Created by{" "}
+                      <span className="font-medium text-slate-600">
+                        {revision.created_by}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -565,9 +584,20 @@ const AdjustmentsList: React.FC<{ adjustment: POAdjustmentDoc }> = ({
                     Target: {item.target_po}
                   </p>
                 )}
-                {item.timestamp && (
+                {(item.timestamp || item.created_by) && (
                   <p className="text-[10px] text-slate-400">
-                    {formatDate(item.timestamp)}
+                    {item.timestamp && formatDate(item.timestamp)}
+                    {item.created_by && (
+                      <>
+                        {item.timestamp ? " · " : ""}
+                        {SYSTEM_ENTRY_TYPES.has(item.entry_type)
+                          ? "Triggered by "
+                          : "by "}
+                        <span className="font-medium text-slate-600">
+                          {item.created_by}
+                        </span>
+                      </>
+                    )}
                   </p>
                 )}
               </div>
