@@ -16,11 +16,48 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: §9 #158 RestructureModal polish pair (finding-2 outside-click dismiss disabled; finding-7 pick
-buttons moved ABOVE the picker grid) -- the block immediately below. Prior latest: §9 #162 standalone
-"Change parent" door (detail-panel button -> existing RestructureModal via a no-op reclassify). Before
-that: Force Re-parse FRONTEND slice (two entry points + shared modal + rewritten destructive warning) --
-the blocks further below (FRONTEND first, then the BACKEND floor it consumes).
+LATEST: ReviewTree detail-panel layout pass (FINDING B card treatment; Obs 1 Classification/Parent
+vertical stack; Obs 2 per-block responsive ~4-col grid) -- the block immediately below. Prior latest:
+§9 #158 RestructureModal polish pair (finding-2 outside-click dismiss disabled; finding-7 pick buttons
+moved ABOVE the picker grid). Before that: §9 #162 standalone "Change parent" door (detail-panel button
+-> existing RestructureModal via a no-op reclassify); Force Re-parse FRONTEND slice (two entry points +
+shared modal + rewritten destructive warning) -- the blocks further below.
+
+**ReviewTree detail-panel layout pass ✅ COMPLETE (FRONTEND ONLY; pure CSS; no backend change):**
+Three className-only fixes to the inline detail panel in `ReviewTree.tsx` ONLY (no logic, state, handler,
+gate, save path, field-derivation, `colSpan`/`totalCols`, or `<tr>`/`<td>` structure touched; no backend,
+no doctype, no `boqTypes.ts`). tsc 0 new wizard-file errors (project baseline 3177 unchanged) + in-container
+build exit 0; no Frappe unit tests (frontend-only, pure CSS). Manual live-cert LC1-LC5 deferred to Nitesh.
+- **FINDING B -- panel reads as a DISTINCT nested card (was: blended into the row stack).** Recon root
+  cause: the panel's inner content `<div>` background `bg-muted/30` is the EXACT tint a normal data row uses
+  on hover (`hover:bg-muted/30`), and the panel had only a bottom border -- so it read as just another
+  hovered row. FIX: the inner content `<div onClick={stopPropagation}>` (inside `<td colSpan={totalCols}
+  className="px-3 py-3 border-b border-border">`) now carries `bg-background border border-border rounded-md
+  shadow-sm p-3`. Load-bearing piece = the SOLID `bg-background` (NOT the hover tint); border + radius +
+  shadow + own padding (inset inside the cell's `px-3 py-3`) complete the card read. The `<tr
+  className="bg-muted/30">` + `<td colSpan>` structure is UNCHANGED (colSpan/totalCols untouched).
+- **Obs 1 -- Classification/Parent VERTICAL STACK.** The original/effective grid `grid grid-cols-2 gap-x-4
+  gap-y-1 text-xs mb-2` becomes `grid grid-cols-1 gap-y-1 text-xs mb-2` (Classification row first, then the
+  Parent + §9 #162 "Change parent" row below). Reason: on a wide sheet the right grid column (Parent) was
+  off-screen-right and needed horizontal scroll. The two flex cells' internal content (labels, "Change ▾"
+  dropdown, "Change parent" button) is byte-for-byte unchanged -- only side-by-side -> stacked.
+- **Obs 2 -- the three edit blocks become responsive ~4-col grids, INDEPENDENTLY (option A, owner-locked).**
+  EACH of the three edit-block containers (numeric "Edit values" / text "Edit text" / per-area "Edit per-area
+  values") converts from `flex flex-wrap gap-2` to `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3
+  lg:grid-cols-4 gap-2` (caps ~4 wide on lg, fewer when narrow -- no heavy left-right spread). The per-field
+  items DROP `w-52` (now `flex flex-col gap-1`): in a grid the column governs width; a fixed width would
+  block cell-fill / overflow a narrow column. The item's internal `flex flex-col` (label + `flex
+  items-center gap-1` Input/Apply row) is unchanged. **The three blocks stay SEPARATE -- NOT merged** (each
+  has its own save path: numeric openValueConfirm, text saveTextField direct, per-area openAreaConfirm). The
+  Remarks block (`mb-2 max-w-md` Textarea, separate `saveRemark` path) is OUT OF SCOPE and untouched.
+- **Manual live-cert (deferred to Nitesh).** LC1 panel reads as a distinct card + stays distinct when an
+  adjacent row is hovered; LC2 Parent + "Change parent" stack below Classification, no horizontal scroll;
+  LC3 fields wrap ~4-per-row, fewer when narrow (responsive); LC4 numeric/text/per-area Apply each still save
+  + flip the row to Edited, Remarks unchanged; LC5 "Change ▾" + "Change parent" still open the modal.
+- **Engineering-latitude choices.** B1 card treatment = `bg-background` solid card + full border + rounded +
+  `shadow-sm` (reason: a solid non-hover-tint background is the differentiator). B2 stack = keep grid with
+  `grid-cols-1` (reason: minimal diff, retains the vertical gap). B3 `w-52` = DROPPED (reason: in a grid the
+  column governs width; a fixed width fights cell-fill and overflows narrow columns).
 
 **§9 #158 -- RestructureModal polish pair ✅ COMPLETE (FRONTEND ONLY; no backend change):**
 Two cosmetic/ergonomic fixes to `RestructureModal.tsx` ONLY (no backend, no doctype, no `SheetSearchView`
@@ -371,7 +408,14 @@ so the component re-certs ONCE:
 - **Build:** pre-change build clean (exit 0, build-out.txt). Changes are trivially TypeScript-valid (no new imports, no type changes). 0 tests added (parser 588 / wizard 168 unchanged -- frontend-only slice).
 
 **Owner:** Internal team.
-**Last updated:** 2026-06-11 (Restructure Slice 1b-beta2b [feat 20e1f5a7] COMPLETE -- FRONTEND ONLY:
+**Last updated:** 2026-06-11 (ReviewTree detail-panel layout pass COMPLETE -- FRONTEND ONLY, pure CSS in
+`ReviewTree.tsx`: FINDING B inner-content `<div>` becomes a distinct nested card [`bg-background border
+border-border rounded-md shadow-sm p-3`, no longer the `bg-muted/30` row-hover tint]; Obs 1
+Classification/Parent grid `grid-cols-2` -> `grid-cols-1` vertical stack; Obs 2 each of the three edit
+blocks [numeric/text/per-area] `flex flex-wrap gap-2` -> `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3
+lg:grid-cols-4 gap-2` with `w-52` dropped; the three blocks stay SEPARATE, Remarks block untouched; tsc 0
+new wizard errors + build exit 0; LC1-LC5 deferred to Nitesh. Block + conventions in the LATEST section
+above + frontend/CLAUDE.md. // prior: Restructure Slice 1b-beta2b [feat 20e1f5a7] COMPLETE -- FRONTEND ONLY:
 finding-10 -- the broken inline error ladder swapped for the house helper `getFrappeError()` in FIVE catch
 blocks [RestructureModal.handleSave + ReviewTree confirmChildlessReclassify / confirmValueSave /
 saveTextField / saveRemark], so backend `frappe.throw` text [carried in `_server_messages`] reaches the

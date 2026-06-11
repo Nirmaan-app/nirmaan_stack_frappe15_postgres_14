@@ -317,7 +317,30 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- §9 #158 RestructureModal polish pair COMPLETE):**
+**Status (2026-06-11 -- ReviewTree detail-panel layout pass COMPLETE):**
+Three cosmetic/layout fixes to the inline detail panel in `ReviewTree.tsx` ONLY (FRONTEND ONLY; pure
+CSS/className -- no logic, no state, no handler, no gate, no backend, no doctype, no `boqTypes.ts`).
+**FINDING B (visual separation):** the panel's inner content `<div>` (inside the `<td colSpan={totalCols}>`)
+gains `bg-background border border-border rounded-md shadow-sm p-3` so it reads as a DISTINCT nested card --
+the root cause was that its old `bg-muted/30` background is the EXACT tint a normal row uses on hover
+(`hover:bg-muted/30`), so it blended into the row stack; a solid `bg-background` (NOT the hover tint) +
+border + radius + subtle shadow + own padding (inset inside the cell's `px-3 py-3`) is the differentiator.
+The `<tr className="bg-muted/30">` + `<td colSpan>` structure is UNCHANGED (colSpan/totalCols untouched).
+**OBS 1 (Parent below Classification):** the Classification/Parent grid `grid grid-cols-2 gap-x-4 gap-y-1`
+becomes `grid grid-cols-1 gap-y-1` -- a VERTICAL STACK (Classification row, then the Parent + §9 #162
+"Change parent" row below it), so Parent is no longer pushed off-screen-right on a wide sheet. The two
+flex cells' internal content (labels, "Change ▾" dropdown, "Change parent" button) is UNCHANGED.
+**OBS 2 (editable fields ~4-per-row, option A per-block):** EACH of the three edit-block containers
+(numeric "Edit values" / text "Edit text" / per-area "Edit per-area values") converts from
+`flex flex-wrap gap-2` to `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2` (caps at
+~4 wide on lg, fewer when narrow -- no heavy horizontal spread); the field items DROP `w-52` (the grid
+column governs width now -- a fixed width would block cell-fill / overflow a narrow column). The three
+blocks stay SEPARATE (different save paths); they are NOT merged. The Remarks block (`max-w-md` Textarea)
+is UNTOUCHED. tsc 0 new wizard-file errors (baseline 3177 unchanged) + in-container build exit 0; no Frappe
+unit tests (frontend slice, pure CSS); manual live-cert LC1-LC5 pending Nitesh. See the "ReviewTree
+detail-panel layout pass conventions" section below for detail.
+
+// prior: **Status (2026-06-11 -- §9 #158 RestructureModal polish pair COMPLETE):**
 Two cosmetic/ergonomic fixes to `RestructureModal.tsx` ONLY (FRONTEND ONLY; no backend, no doctype, no
 `SheetSearchView` edit, no `dialog.tsx` edit). **Finding-2:** accidental outside-click dismiss DISABLED via
 `onInteractOutside={(e) => e.preventDefault()}` added directly to `<DialogContent>` (the shadcn primitive
@@ -830,6 +853,43 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**ReviewTree detail-panel layout pass conventions (FRONTEND ONLY, `ReviewTree.tsx` only; pure CSS):**
+
+Three className-only fixes to the inline detail panel (the `expandedDetailRow === row.row_index` block). No
+logic, state, handler, gate, save path, field-derivation (`editableDescriptors` / `editableTextDescriptors`
+/ `editableAreaDescriptors`), `colSpan`, `totalCols`, or `<tr>`/`<td>` structure was touched.
+
+- **FINDING B -- the panel is a NESTED CARD, not a hovered row.** The panel's inner content `<div
+  onClick={stopPropagation}>` (inside `<td colSpan={totalCols} className="px-3 py-3 border-b border-border">`)
+  carries `bg-background border border-border rounded-md shadow-sm p-3`. **Root cause locked:** the old
+  panel background `bg-muted/30` is the EXACT tint a normal data row uses on hover (`hover:bg-muted/30`), so
+  with only a bottom border it read as just another hovered row. The fix's load-bearing piece is the SOLID
+  `bg-background` (NOT the hover tint); the border + radius + shadow + own padding (inset inside the cell's
+  existing `px-3 py-3`) complete the card read. Do NOT revert the panel to a muted tint -- that reintroduces
+  the blend. The `<tr className="bg-muted/30">` wrapper + the `<td colSpan>` are unchanged.
+- **OBS 1 -- Classification/Parent is a VERTICAL STACK.** The original/effective grid is
+  `grid grid-cols-1 gap-y-1 text-xs mb-2` (was `grid grid-cols-2 gap-x-4 gap-y-1`). Classification row first,
+  then the Parent + §9 #162 "Change parent" row below it. Reason: on a wide sheet the right grid column
+  (Parent) was off-screen and needed horizontal scroll. The two flex cells' INTERNAL content (labels, the
+  "Change ▾" reclassify DropdownMenu, the "Change parent" button) is byte-for-byte unchanged -- only the
+  side-by-side -> stacked arrangement changed.
+- **OBS 2 -- the three edit blocks are responsive ~4-col grids, INDEPENDENTLY.** Each of the three
+  edit-block containers -- numeric ("Edit values"), text ("Edit text"), per-area ("Edit per-area values") --
+  is `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2` (was `flex flex-wrap gap-2`),
+  capping at ~4 wide on lg and fewer when narrow so there is no heavy left-right spread. The per-field items
+  DROPPED their fixed `w-52` (now `flex flex-col gap-1`): in a grid the column governs width, and a fixed
+  width would block cell-fill / overflow a narrow column; the item's internal `flex flex-col` (label +
+  `flex items-center gap-1` Input/Apply row) is unchanged. **The three blocks stay SEPARATE -- they are NOT
+  merged into one grid** (deliberate: each has its own save path -- numeric via openValueConfirm, text via
+  saveTextField direct, per-area via openAreaConfirm). The Remarks block (`mb-2 max-w-md` Textarea, separate
+  write path `saveRemark`) is OUT OF SCOPE and untouched.
+- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0.
+  No Frappe unit tests (frontend slice; pure CSS). Manual live-cert LC1 (panel reads as a distinct card,
+  stays distinct when an adjacent row is hovered) / LC2 (Parent + "Change parent" stack below Classification,
+  no horizontal scroll) / LC3 (fields wrap ~4-per-row, fewer when narrow) / LC4 (numeric/text/per-area Apply
+  each still save + flip to Edited; Remarks unchanged) / LC5 ("Change ▾" + "Change parent" still open the
+  modal) pending Nitesh.
 
 **§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
 
