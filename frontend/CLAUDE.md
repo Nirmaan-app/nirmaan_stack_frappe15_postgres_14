@@ -317,7 +317,22 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- ReviewTree detail-panel layout pass COMPLETE):**
+**Status (2026-06-11 -- §9 #159 ReviewTree find & filter COMPLETE):**
+A FILTER surface + a SEARCH surface on the main review tree (`ReviewTree.tsx` ONLY; FRONTEND ONLY -- no
+backend, no doctype, no `boqTypes.ts`, no `SheetSearchView` edit/import, no `SheetReviewPage`). FILTER
+(finding-6): a Status filter (Edited/Original/All) + a Classification filter (6-value `CLS_LABELS`
+checklist) in column-header `Popover`s, AND-combined, STRICT-HIDE (a new `if (!passesFilter(row)) return
+null;` gate joins the existing `isVisible`/`classificationVisible` gates). SEARCH (finding-8):
+description-only case-insensitive search in the controls bar with two-tier blue RING highlight (soft = all
+hits, strong = current hit -- box-shadow, NOT backgrounds, so they never mask the edited-green/preamble
+tints) + prev/next modulo cycling that reuses the existing `revealAndScrollToRow` for auto-expand + an
+`N of M` counter. COMPOSE: `searchHits` is computed over the SAME shown-predicate the render gate uses
+(`classificationVisible + passesFilter`) so a hit is never a filtered-out row. tsc 0 new wizard-file errors
+(baseline 3177 unchanged) + in-container build exit 0 (`✓ built in 10m 54s`); no Frappe unit tests
+(frontend-only); manual live-cert LC1-LC7 pending Nitesh. See the "§9 #159 ReviewTree find-&-filter
+conventions" section below for the full as-built detail.
+
+// prior: **Status (2026-06-11 -- ReviewTree detail-panel layout pass COMPLETE):**
 Three cosmetic/layout fixes to the inline detail panel in `ReviewTree.tsx` ONLY (FRONTEND ONLY; pure
 CSS/className -- no logic, no state, no handler, no gate, no backend, no doctype, no `boqTypes.ts`).
 **FINDING B (visual separation):** the panel's inner content `<div>` (inside the `<td colSpan={totalCols}>`)
@@ -856,6 +871,75 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**§9 #159 ReviewTree find-&-filter conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
+
+A find & filter surface on the main review tree. Files touched: `ReviewTree.tsx` ONLY (no SheetSearchView
+edit/import -- its hit-stepper PATTERN is MIRRORED, not imported; no backend, no doctype, no `boqTypes.ts`,
+no `SheetReviewPage.tsx`). The owner-LOCKED interaction model (findings 6 + 8) -- not open to redesign.
+
+- **CLS_LABELS-6 for the filter, NOT the 4 write-targets (THE convention).** The Classification filter's
+  option source is `CLASS_FILTER_VALUES` (a module const = the 6 `CLS_LABELS` keys: `preamble, line_item,
+  note, spacer, subtotal_marker, header_repeat`), NOT `ASSIGNABLE_CLASSIFICATIONS` (the 4 restructure
+  write-targets). A FILTER reads all 6 existing classification states a row can carry; the 4-value set is
+  exclusively for restructure write-targets. Do not conflate them.
+- **Status filter predicate = the existing `isEdited` expression.** `statusFilter: "all" | "edited" |
+  "original"` (default `"all"`). `passesFilter` re-states `row.edited_at !== null || (Array.isArray(edit_log)
+  && edit_log.length > 0)` (the SAME expression as the inline `isEdited` at the render row, which is left
+  UNTOUCHED). A remark-only row is Original -- `save_review_remark` never stamps `edited_at`/`edit_log`, so
+  the predicate already encodes it; do not special-case remarks.
+- **classFilter SHOW-set semantics (stated choice).** `classFilter: Set<string>` is seeded with ALL 6 values
+  (`useState(() => new Set(CLASS_FILTER_VALUES))`). `allClassesShown = classFilter.size === 6` => no
+  narrowing (everything shows, incl. null-classification rows via short-circuit); unchecking a type hides it;
+  empty set => show none. This is "seeded-full, size-6-means-all", NOT "empty-means-all". A null
+  `effective_classification` passes only when `allClassesShown` (never matches an explicit subset).
+- **STRICT HIDE via a third return-null gate (THE compose-safe pattern).** A new
+  `if (!passesFilter(row)) return null;` joins the existing `if (!isVisible(row)) return null;` +
+  `if (!classificationVisible(row)) return null;` at the top of `rows.map`. The two filters AND-combine
+  inside `passesFilter`. This is SAFE against the render pipeline because `byIdx`/`depths`/`hasChildrenSet`
+  derive from the FULL `rows` prop in `useMemo([rows])` -- strict-hide narrows only the rendered subset,
+  never the depth/parent-resolution maps. Parent context for a hidden ancestor stays readable via the
+  Parent column (owner-accepted flat-list-of-matches).
+- **Search highlight = RINGS, never backgrounds (THE collision rule -- recon Q4c; do NOT violate).** The
+  row `cn()` block already stacks BACKGROUND tiers (`hover:bg-muted/30`, preamble `bg-muted/20`, edited
+  `bg-green-50`, the `highlightedIdx` amber scroll-flash). A search highlight added there MUST use
+  `ring-inset` (box-shadow -- a DIFFERENT CSS property), placed AFTER the background tiers, so it layers
+  OVER them without masking edit-state. As-built: all hits = `ring-1 ring-inset ring-blue-300
+  dark:ring-blue-700`; current hit = `ring-2 ring-inset ring-blue-500 dark:ring-blue-400`. The soft tier is
+  gated `searchHitSet.has(idx) && currentHitRowIdx !== idx` so the two ring WIDTHS are mutually exclusive
+  (Tailwind would otherwise have two `--tw-ring-*` widths fight). The existing single `highlightedIdx` amber
+  flash is UNTOUCHED (separate concern). **`border-collapse` caveat:** ReviewTree's `<table>` is
+  `border-collapse`; `ring-inset` is the more reliably-painted box-shadow variant on table rows -- if a
+  live-cert shows no ring, the fallback (a follow-up) is moving the ring to an inner cell, NOT switching to
+  a background.
+- **Cycling reuses `revealAndScrollToRow` (do NOT reimplement auto-expand).** `stepSearchPrev`/
+  `stepSearchNext` modulo-wrap `searchCurrentIdx` over `searchHits.length` (both directions), mirroring
+  SheetSearchView's `stepPrev`/`stepNext` (`:343-350`) PATTERN -- NOT imported. On each step they call the
+  EXISTING `revealAndScrollToRow(searchHits[ni])` (`:696-717`), which already expands collapsed ancestors +
+  scrolls + sets the amber flash. `searchCurrentIdx` resets to 0 on hit-set change (`useEffect([searchHits])`,
+  mirror of SheetSearchView `:288-290`). Prev/next disabled at 0 hits; counter `0 of 0` else
+  `${safeSearchIdx + 1} of ${searchHits.length}`.
+- **The shown-predicate compose interlock (THE resolved ambiguity).** `searchHits` (a `useMemo` over `rows`)
+  keeps a row iff `classificationVisible(row) && passesFilter(row)` AND `description` matches the query ->
+  ordered `number[]` of `row_index` (+ `searchHitSet`). It uses the SAME filter predicates the render gate
+  uses, so a hit can NEVER be a filtered-out row; clearing a filter widens the hit set. **RESOLVED:** the
+  build prompt's B3 literally listed `isVisible` in the hit predicate, but B5/LC5 require stepping to a hit
+  under a COLLAPSED parent to auto-expand it -- which is impossible if hits gate on `isVisible` (collapse).
+  So hits gate on the FILTER axis but DELIBERATELY NOT on `isVisible` (the collapse axis, which is reversible
+  and is exactly what `revealAndScrollToRow` undoes). Render and hits agree on the filter axis; they differ
+  only on collapse, by design. Any future change MUST keep the hit predicate's filter axis identical to the
+  render gate's filter axis.
+- **Filter Popovers live INSIDE the `<table>` `<th>` cells -> `stopPropagation`.** Each header `Filter`
+  trigger button calls `e.stopPropagation()` (the `<table>` body-onClick dismisses the detail/flag panels;
+  the column-selector Popover is OUTSIDE the table so it never needed this). The trigger icon turns
+  `text-blue-600 dark:text-blue-400` when its filter is narrowing (`statusFilterActive` /
+  `classFilterActive`). Popovers + Checkbox reuse the SAME primitives as the existing column-subset selector.
+- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0
+  (`✓ built in 10m 54s`, PWA 166 entries). No Frappe unit tests (frontend-only). Manual live-cert LC1 (Status
+  filter) / LC2 (Classification filter, all 6) / LC3 (AND-combine) / LC4 (search ring tiers, edited-green
+  shows THROUGH the ring) / LC5 (cycling + auto-expand of a collapsed-parent hit) / LC6 (compose: filter
+  then search, no hit on a filtered-out row) / LC7 (regression: edits still flip to Edited, detail panel +
+  #162 door + #-pill modal + column-selector/flag-toggle/annotation checkboxes all still work) pending Nitesh.
 
 **ReviewTree detail-panel layout pass conventions (FRONTEND ONLY, `ReviewTree.tsx` only; pure CSS):**
 
