@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Download, Loader2 } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getFrappeError } from "@/utils/frappeErrors";
 import type { BoQSheetDraft } from "./boqTypes";
 
 // ── Status pill definitions ──────────────────────────────────────────────────
@@ -60,6 +61,14 @@ interface SheetCardProps {
    * to this one sheet. Receives the VERBATIM sheet_name; hub owns the dialog + navigate.
    */
   onReparse?: (sheetName: string) => void;
+  /**
+   * Called when the user clicks the per-card "Export CSV" control (Slice D2b),
+   * rendered ONLY on a "Parsed Check Done" card. The HUB owns the fetch + the CSV
+   * writer; this card awaits the returned promise to drive its own busy state and
+   * surfaces any rejection via its inline cardError. Receives the VERBATIM
+   * sheet_name (#152). Mirrors the onOpenReview / onReparse callback convention.
+   */
+  onExportCsv?: (sheetName: string) => Promise<void>;
 }
 
 export function SheetCard({
@@ -72,10 +81,14 @@ export function SheetCard({
   onOpenReview,
   workHeaders,
   onReparse,
+  onExportCsv,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
   const [cardError, setCardError] = useState<string | null>(null);
+  // Per-card CSV export busy state (Slice D2b) -- disables the button while the
+  // hub fetches this sheet's rows; failure shows via the shared cardError line.
+  const [exporting, setExporting] = useState(false);
 
   const { call: callStatus, loading: statusLoading } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_status"
@@ -145,6 +158,21 @@ export function SheetCard({
       onSaved();
     } catch (_e) {
       setCardError("Label save failed. Please try again.");
+    }
+  };
+
+  // ── Per-card CSV export (Slice D2b) ──────────────────────────────────────
+  // Hub owns the fetch + writer; the card just drives busy + error locally.
+  const handleExportCsv = async () => {
+    if (!onExportCsv) return;
+    setCardError(null);
+    setExporting(true);
+    try {
+      await onExportCsv(draft.sheet_name); // VERBATIM #152
+    } catch (e) {
+      setCardError(getFrappeError(e) || "Could not export this sheet. Please try again.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -306,6 +334,18 @@ export function SheetCard({
               onClick={() => onOpenReview?.(draft.sheet_name)}>
               Review
             </Button>
+            {/* Export CSV (Slice D2b): single-sheet .csv via the hub-owned fetch. */}
+            {onExportCsv && (
+              <Button size="sm" variant="outline" disabled={isSaving || exporting}
+                onClick={() => void handleExportCsv()}>
+                {exporting ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="mr-1 h-3.5 w-3.5" />
+                )}
+                Export CSV
+              </Button>
+            )}
             {/* Re-parse: discards a hand-reviewed+checked sheet's rows + all review work. */}
             {canReparse && (
               <Button size="sm" variant="outline" disabled={isSaving}

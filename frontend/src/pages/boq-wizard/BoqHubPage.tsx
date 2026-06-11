@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
   Loader2,
   MoreHorizontal,
 } from "lucide-react";
@@ -34,9 +35,11 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, GetReviewRowsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
+import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
+import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Keyword list for presentation-only "likely non-data" hint.
 const LIKELY_SKIP_KEYWORDS = [
@@ -121,6 +124,9 @@ const BoqHubPage = () => {
   } | null>(null);
   const [parseError, setParseError] = useState<{ message: string; severity: "destructive" | "neutral" } | null>(null);
 
+  // Hub-level XLSX export dialog (Slice D2b).
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
@@ -147,6 +153,12 @@ const BoqHubPage = () => {
   // Parse-run endpoint (Slice 2b-frontend-i).
   const { call: callRunParse } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.parse_run.run_parse"
+  );
+
+  // get_review_rows imperative call (Slice D2b) -- per-card CSV export fetch.
+  // GET-capable endpoint (whitelist bare); useFrappePostCall gives the .call() form.
+  const { call: callGetReviewRows } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.review_screen.get_review_rows"
   );
 
   // Socket for "boq:parse_run_done" (mirrors BoqUploadScreen.tsx pattern).
@@ -272,6 +284,22 @@ const BoqHubPage = () => {
     navigate(`/upload-boq/hub/${boqId}/review/${encodeURIComponent(sheetName)}`);
   };
 
+  // ── Per-card CSV export (Slice D2b) ───────────────────────────────────────
+  // Fetch THIS sheet's review rows, then the EXISTING D2 CSV writer (.csv, NOT
+  // xlsx). The hub owns the fetch; the card awaits this promise and shows its own
+  // busy state + inline error. sheet_name VERBATIM (#152). Re-throws so the card
+  // surfaces the failure via its existing cardError convention.
+  const handleExportCsv = async (sheetName: string) => {
+    const res = await callGetReviewRows({ boq_name: boqId ?? "", sheet_name: sheetName });
+    const msg = res.message as GetReviewRowsResponse;
+    buildAndDownloadReviewCsv({
+      boqName: boqId ?? "",
+      sheetName,
+      rows: msg?.rows ?? [],
+      columnDescriptors: msg?.column_descriptors ?? [],
+    });
+  };
+
   // ── Effective-status derivation (M2.16) ───────────────────────────────────
   // "General specs" is DERIVED from child-table set membership, never from wizard_status.
   // EXACT: sheet_name compared verbatim against source_sheet_name (no trimming).
@@ -346,6 +374,13 @@ const BoqHubPage = () => {
   const parsedCheckDoneCount = dataSheets.filter(
     (s) => getEffectiveStatus(s) === "Parsed Check Done"
   ).length;
+
+  // ── Export eligibility (Slice D2b) ────────────────────────────────────────
+  // The global "Export reviewed" button + the dialog checklist operate on every
+  // "Parsed Check Done" sheet (VERBATIM names, #152). Empty => button disabled.
+  const exportEligibleSheetNames = allDrafts
+    .filter((s) => getEffectiveStatus(s) === "Parsed Check Done")
+    .map((s) => s.sheet_name);
 
   const parseGateReason = (() => {
     if (canParse) return "Workbook is ready to parse";
@@ -648,6 +683,7 @@ const BoqHubPage = () => {
             onOpenSpoke={handleOpenSpoke}
             onOpenReview={handleOpenReview}
             onReparse={handleReparseCard}
+            onExportCsv={handleExportCsv}
             workHeaders={workPackageMap[draft.sheet_name]}
           />
         ))}
@@ -750,6 +786,28 @@ const BoqHubPage = () => {
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <TooltipProvider>
+            {/* Export reviewed (Slice D2b) -- one .xlsx workbook of the checked
+                sheets (one tab each). Enabled when >= 1 "Parsed Check Done" sheet
+                exists; opens the selection dialog. Status- and view-independent. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    disabled={exportEligibleSheetNames.length === 0}
+                    onClick={() => setExportDialogOpen(true)}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export reviewed
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {exportEligibleSheetNames.length > 0
+                  ? "Export checked sheets to Excel (one workbook, a tab per sheet)"
+                  : "No checked sheets to export"}
+              </TooltipContent>
+            </Tooltip>
             {/* Global Re-parse (Force Re-parse slice) -- sits BESIDE Parse, never
                 replaces it. Enabled when >= 1 re-parse-eligible sheet; no blockingCount
                 gate. Opens the shared dialog in reparse mode (full picker). */}
@@ -809,6 +867,14 @@ const BoqHubPage = () => {
         mode={parseDialogMode}
         reparseDrafts={reparseEligibleDrafts}
         restrictToSheetName={reparseRestrictSheet}
+      />
+
+      {/* ── Hub XLSX export dialog (Slice D2b) ────────────────────────────── */}
+      <ExportWorkbookDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        boqName={boq.name}
+        eligibleSheets={exportEligibleSheetNames}
       />
 
       {/* ── Parse completion modal (Bucket-2 Slice 2) ──────────────────────── */}
