@@ -16,7 +16,23 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice D2 -- per-sheet CSV export on the review screen (FRONTEND ONLY, feat 27866a2e). A new
+LATEST: Slice D2b -- hub-level XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat
+91bf255d). A global "Export reviewed" button in the hub footer opens a selection modal of every "Parsed
+Check Done" sheet (all pre-ticked); confirming fetches each ticked sheet's rows SEQUENTIALLY via
+`get_review_rows` and builds ONE .xlsx workbook -- one TAB per sheet, always .xlsx even for one sheet,
+numbers as real Excel numbers, bold header row -- ABORTING the whole export if any single fetch fails (no
+partial file, the failed sheet named inline). Each "Parsed Check Done" SheetCard also gains an "Export CSV"
+button -> the EXISTING D2 .csv for that one sheet (hub owns the fetch; the card drives its own busy/error).
+NEW dep `exceljs` (owner-approved), DYNAMICALLY imported so it lands in its OWN lazy chunk (942 kB, ABSENT
+from the hub chunk [32.59 kB] + the entry chunk -- verified in the build asset list); the npm `xlsx` package
+is FORBIDDEN (abandoned on npm, two unpatched high-severity CVEs). The D2 CSV writer is refactored:
+`buildReviewSheet` (NEW export) returns `{headers, typed cells}` -- the SINGLE source of truth for BOTH
+writers; the CSV path maps cells through `csvCell` so its output stays BYTE-IDENTICAL to D2. Excel TAB names
+are sanitized + de-duplicated (tab title ONLY -- the Sheet Name column inside stays VERBATIM #152). tsc 0 new
+wizard-file errors (baseline 3177 unchanged) + in-container build exit 0 (`✓ built in 6m 54s`, PWA 168
+entries; exceljs in its own lazy chunk). Live-cert LC1-LC8 pending. The "Slice D2b ..." block immediately
+below. Prior latest:
+Slice D2 -- per-sheet CSV export on the review screen (FRONTEND ONLY, feat 27866a2e). A new
 wizard-local writer `exportReviewCsv.ts` builds a flat per-sheet CSV (parsed values + human corrections +
 provenance, no JSON blobs) and downloads it; an "Export CSV" button sits in the header right cluster,
 STATUS-INDEPENDENT (a frozen/checked sheet exports too -- the prime use) and VIEW-INDEPENDENT (filters/
@@ -58,6 +74,79 @@ vertical stack; Obs 2 per-block responsive ~4-col grid). Before that:
 moved ABOVE the picker grid); §9 #162 standalone "Change parent" door (detail-panel button
 -> existing RestructureModal via a no-op reclassify); Force Re-parse FRONTEND slice (two entry points +
 shared modal + rewritten destructive warning) -- the blocks further below.
+
+**Slice D2b -- hub XLSX workbook export + per-card CSV export ✅ COMPLETE (FRONTEND + dependency, feat 91bf255d):**
+Two hub entry points for exporting reviewed data: a GLOBAL multi-sheet .xlsx workbook (a footer button + a
+selection modal) and a PER-CARD single-sheet .csv (the existing D2 writer). Files in scope (exclusive): NEW
+`exportReviewXlsx.ts` (workbook writer) + NEW `ExportWorkbookDialog.tsx` (selection modal);
+`exportReviewCsv.ts` (builder extraction), `BoqHubPage.tsx` (global button + wiring), `SheetCard.tsx`
+(per-card button + prop); `package.json` + `yarn.lock` (the exceljs dep) (+ the 3 docs). `boqTypes.ts` NOT
+needed (the consumed `GetReviewRowsResponse` was already exported). OUT of scope: `SheetReviewPage.tsx` (its
+D2 button keeps working via the refactored writer -- the `buildAndDownloadReviewCsv` signature is unchanged),
+`src/utils/exportToCsv.ts`, all backend, `ParseRunDialog.tsx` (pattern reference only).
+- **Dependency (owner-approved): `exceljs`, DYNAMICALLY imported.** `const ExcelJS = (await import("exceljs")).default;`
+  -- NEVER a static import, so exceljs lands in its OWN lazy chunk (`exceljs.min-*.js`, 942 kB / gzip 272 kB),
+  ABSENT from the hub chunk (`BoqHubPage-*.js`, 32.59 kB) and the entry chunk -- the hub's first paint never
+  pays for it; the chunk is fetched only when an export actually runs. The npm `xlsx` (SheetJS) package is
+  FORBIDDEN: abandoned on the public registry with two unpatched high-severity CVEs (prototype pollution +
+  ReDoS). Installed IN-CONTAINER (`yarn add exceljs` inside the frappe container -- host-side installs corrupt
+  the Linux-native node_modules, the rollup lesson).
+- **Builder extraction (the no-drift core).** `exportReviewCsv.ts` gains `buildReviewSheet({ sheetName, rows,
+  columnDescriptors }) -> { headers: string[], cells: SheetCell[][] }` (exported) -- the column set + value
+  resolution lifted verbatim out of `buildAndDownloadReviewCsv`. **Cells are RAW TYPED** (`SheetCell = string |
+  number | null`): numeric descriptor values, the Excel-row number, the parent Excel-row numbers, and the depth
+  stay JS numbers; text stays string; empty -> null. The CSV path now does
+  `buildReviewSheet(...).cells.map(row => row.map(csvCell))` -- `csvCell(null)=""` and `csvCell(n)=String(n)`
+  reproduce the prior per-cell strings EXACTLY, so the .csv is **BYTE-IDENTICAL to D2** (verified column-by-column:
+  source_row_number via `?? null` keeps 0; clsLabel/append-notes ""→null both render ""; depth/Level via
+  String(n); parent-row "" for root). The xlsx path consumes the SAME typed cells so numbers land as real Excel
+  numbers. `sanitizeFilename` is also exported (reused by the workbook filename). The literal U+FEFF BOM glyph at
+  the CSV Blob stays a glyph (the edit tooling re-normalizes the `"﻿"` escape to the glyph, same as D2 --
+  left as-is per plan; the byte is identical either way).
+- **Workbook writer `exportReviewXlsx.ts` (NEW).** `buildAndDownloadReviewWorkbook({ boqName, sheets })` where
+  `sheets = Array<{ sheetName, rows, columnDescriptors }>` (the fetch happens in the dialog, NOT here -- this
+  module does zero network I/O). One worksheet per entry in order: `buildReviewSheet` -> `addRow(headers)` with
+  `headerRow.font = { bold: true }` -> `addRows(cells)` (numbers numeric, null blank). Download via
+  `workbook.xlsx.writeBuffer()` -> Blob (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) ->
+  anchor-click + revokeObjectURL (NO BOM -- xlsx never needs one). Filename
+  `${sanitizeFilename(boqName)}_review_${yyyyMMdd_HHmmss}.xlsx` (bare basename, `.xlsx` once).
+- **Tab-name sanitize + dedupe (tab title ONLY -- data stays verbatim #152).** `sanitizeSheetTabName(name)`
+  (exported): replace each of `: \ / ? * [ ]` with `_`, trim leading/trailing whitespace (the trailing-space
+  corpus cases "Electrical " / "HVAC " make this load-bearing -- Excel REJECTS them as tab titles), truncate to
+  31 chars, fall back to "Sheet" if blank. `dedupeTabName(base, used)`: on collision append " (2)", " (3)", ...
+  truncating the base so the suffixed title still fits 31. The Sheet Name COLUMN inside each tab is the verbatim
+  name (untouched).
+- **Selection modal `ExportWorkbookDialog.tsx` (NEW), mirroring ParseRunDialog.** Props `{ open, onOpenChange,
+  boqName, eligibleSheets }`. Checklist of eligible sheets, ALL PRE-TICKED (the `[open]`-effect seed + functional
+  `toggleSheet` + Checkbox/`<label htmlFor>` rows). On confirm: a SEQUENTIAL `for` loop -- one imperative
+  `get_review_rows` `.call()` per ticked sheet (GET-capable endpoint via `useFrappePostCall`; sheet_name VERBATIM
+  #152) with a progress line ("Fetching {sheet} ({i}/{n})..."), controls disabled + the dialog NOT dismissible
+  mid-flight. ANY fetch (or the build step) throwing -> ABORT the whole export, NO file, an inline
+  `text-destructive` error naming the failed sheet (`getFrappeError(e)` + fallback). All fetched ->
+  `buildAndDownloadReviewWorkbook` -> close. Confirm label "Export N sheets", disabled at zero ticked.
+- **Hub wiring (`BoqHubPage.tsx`).** A new `exportEligibleSheetNames = allDrafts where getEffectiveStatus ===
+  "Parsed Check Done"`. Global "Export reviewed" button in the footer action cluster (a Tooltip + `<span
+  tabIndex={0}>` sibling of Re-parse/Parse, `variant="outline"`, Download icon), `disabled` when the eligible
+  set is empty (tooltip "No checked sheets to export"); opens `ExportWorkbookDialog`. A `handleExportCsv` that
+  imperatively fetches one sheet's rows (its own `useFrappePostCall("...get_review_rows")`) then the EXISTING
+  `buildAndDownloadReviewCsv` -- passed to each SheetCard as `onExportCsv`.
+- **Per-card button (`SheetCard.tsx`).** New optional `onExportCsv?: (sheetName: string) => Promise<void>` prop
+  (the onOpenReview/onReparse convention). An "Export CSV" Button (`size="sm" variant="outline"`, Download icon)
+  in the "Parsed Check Done" branch, after Review. A local `exporting` busy state disables it + swaps the icon
+  for a spinner while the hub's promise is in flight; a rejection sets the card's existing inline `cardError`
+  (via `getFrappeError`). The hub owns the fetch; the card stays fetch/router-free.
+- **Per-card = .csv, global = .xlsx (the format split).** The single-sheet card path deliberately reuses the D2
+  CSV writer (a quick one-sheet grab); the multi-sheet global path is always a workbook (.xlsx even for one
+  ticked sheet, per the locked design).
+- **Verification:** tsc 0 new wizard-file errors (filtered `boq-wizard|exportReview|ExportWorkbook|BoqHubPage|
+  SheetCard|boqTypes` -- empty; baseline 3177 unchanged); in-container Vite build exit 0 (`✓ built in 6m 54s`,
+  PWA 168 entries); exceljs confirmed in its own lazy chunk, absent from the hub + entry chunks. No Frappe unit
+  tests (frontend-only). Manual live-cert LC1-LC8 pending Nitesh: (LC1) D2 CSV regression -- the review-screen
+  Export CSV is unchanged; (LC2) global modal eligibility gating + pre-ticked list; (LC3) progress +
+  abort-on-failure (no partial file, failed sheet named); (LC4) a multi-sheet workbook with trailing-space names
+  -> tabs sanitized + de-duplicated, Sheet Name column verbatim; (LC5) numbers land AS numbers in the workbook;
+  (LC6) the per-card .csv matches the review-screen .csv; (LC7) the lazy exceljs chunk -- hub load unaffected,
+  exceljs fetched only on export; (LC8) one-sheet global export still produces .xlsx.
 
 **Slice D2 -- per-sheet review CSV export ✅ COMPLETE (FRONTEND ONLY, feat 27866a2e):**
 A per-sheet CSV export of the review screen's data: parsed values + human corrections + provenance, flat

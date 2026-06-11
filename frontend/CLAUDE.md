@@ -317,7 +317,23 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-12 -- Slice D2 per-sheet review CSV export COMPLETE -- FRONTEND ONLY, feat 27866a2e):**
+**Status (2026-06-12 -- Slice D2b hub XLSX workbook export + per-card CSV export COMPLETE -- FRONTEND + dep, feat 91bf255d):**
+Two hub export entry points: a GLOBAL multi-sheet .xlsx workbook (footer "Export reviewed" button -> a selection
+modal of every "Parsed Check Done" sheet, all pre-ticked -> ONE .xlsx, one tab per sheet) and a PER-CARD
+single-sheet .csv (the EXISTING D2 writer, on each "Parsed Check Done" SheetCard). The global path fetches each
+ticked sheet's rows SEQUENTIALLY via `get_review_rows` and ABORTS the whole export on any single fetch failure
+(no partial file, the failed sheet named inline). NEW dep `exceljs`, DYNAMICALLY imported -> its own lazy chunk
+(942 kB, absent from the hub + entry chunks); npm `xlsx` FORBIDDEN (abandoned, two unpatched high-severity CVEs).
+The D2 CSV writer is refactored to share a `buildReviewSheet` core (typed cells) with the xlsx writer -- the .csv
+output stays BYTE-IDENTICAL. Excel tab names sanitized + de-duplicated (tab title ONLY; the Sheet Name column
+stays verbatim #152). Files (frontend): NEW `exportReviewXlsx.ts` + `ExportWorkbookDialog.tsx`; `exportReviewCsv.ts`
+(builder extraction), `BoqHubPage.tsx` (global button + wiring + per-card handler), `SheetCard.tsx` (per-card
+button + `onExportCsv` prop); `package.json`/`yarn.lock` (exceljs). `SheetReviewPage.tsx` UNTOUCHED (its D2 button
+rides the refactored writer -- signature unchanged); `boqTypes.ts` NOT needed. tsc 0 new wizard-file errors
+(baseline 3177 unchanged) + in-container build exit 0 (`✓ built in 6m 54s`, PWA 168 entries; exceljs in its own
+lazy chunk). Live-cert LC1-LC8 pending Nitesh. See the "Slice D2b hub export conventions" section below for full detail.
+
+// prior: **Status (2026-06-12 -- Slice D2 per-sheet review CSV export COMPLETE -- FRONTEND ONLY, feat 27866a2e):**
 A per-sheet CSV export of the review screen's data (parsed values + human corrections + provenance, flat
 columns, opens clean in Excel). NEW wizard-local writer `exportReviewCsv.ts`; an "Export CSV" button in the
 header right cluster, STATUS-INDEPENDENT (a frozen/checked sheet exports too) and VIEW-INDEPENDENT
@@ -907,6 +923,63 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**Slice D2b hub export conventions (`exportReviewXlsx.ts` NEW + `ExportWorkbookDialog.tsx` NEW + `exportReviewCsv.ts` + `BoqHubPage.tsx` + `SheetCard.tsx`):**
+
+Hub-level export of reviewed sheets: a GLOBAL multi-sheet .xlsx workbook + a PER-CARD single-sheet .csv. FRONTEND
++ one dependency; no backend, no doctype, no `boqTypes.ts`.
+
+- **`exceljs`, dynamically imported -- the dependency rule.** `const ExcelJS = (await import("exceljs")).default;`
+  in `exportReviewXlsx.ts` -- NEVER a static import. The dynamic import keeps exceljs in its OWN lazy chunk
+  (`exceljs.min-*.js`, ~942 kB) so it is ABSENT from the hub chunk + the entry chunk and fetched only when an
+  export runs. The npm `xlsx` (SheetJS) package is FORBIDDEN -- abandoned on the public registry, two unpatched
+  high-severity CVEs (prototype pollution + ReDoS). **Install deps IN-CONTAINER** (`yarn add ... ` inside the
+  frappe container) -- host-side installs corrupt the Linux-native node_modules (the rollup lesson). This is the
+  precedent for any future heavy wizard dep: dynamic-import + in-container install + reject abandoned/CVE'd libs.
+- **`buildReviewSheet` is the shared core (no drift between .csv and .xlsx).** `exportReviewCsv.ts` exports
+  `buildReviewSheet({ sheetName, rows, columnDescriptors }) -> { headers: string[], cells: SheetCell[][] }`
+  (`SheetCell = string | number | null`). It holds the column set + value resolution; BOTH writers consume it, so
+  the workbook and the CSV can never diverge in columns/order/values. **Cells are RAW TYPED:** numbers stay JS
+  numbers (Excel-row, parent-rows, depth, numeric descriptor values), text stays string, empty -> null. The CSV
+  writer does `cells.map(r => r.map(csvCell))` (csvCell(null)="" , csvCell(n)=String(n)) so the .csv stays
+  BYTE-IDENTICAL to D2; the xlsx writer feeds the typed cells straight to exceljs so numbers land as real numbers.
+  When extending the export, change `buildReviewSheet` -- never one writer alone.
+- **`exportReviewXlsx.ts` (workbook writer).** `buildAndDownloadReviewWorkbook({ boqName, sheets })`,
+  `sheets = Array<{ sheetName, rows, columnDescriptors }>` -- the FETCH happens in the dialog, this module does
+  zero network I/O. One worksheet per entry in order: `buildReviewSheet` -> `ws.addRow(headers)` with
+  `headerRow.font = { bold: true }` -> `ws.addRows(cells)`. Download: `workbook.xlsx.writeBuffer()` -> Blob
+  (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) -> anchor-click + revokeObjectURL, NO BOM
+  (xlsx never needs one). Filename `${sanitizeFilename(boqName)}_review_${yyyyMMdd_HHmmss}.xlsx` (the D2
+  `sanitizeFilename`, now exported; bare basename, `.xlsx` once).
+- **Tab-name sanitize + dedupe -- TAB TITLE ONLY, data verbatim (#152).** `sanitizeSheetTabName(name)` (exported):
+  replace `: \ / ? * [ ]` -> `_`, trim leading/trailing whitespace (the trailing-space corpus names "Electrical "
+  / "HVAC " are real -- Excel REJECTS them as tab titles, so the trim is load-bearing), truncate to 31, fall back
+  "Sheet". `dedupeTabName(base, used)`: on collision append " (2)"/" (3)"... truncating the base to keep <=31. The
+  Sheet Name COLUMN inside each tab stays the verbatim name. This is the FIRST tab-name guard in the codebase --
+  there was none before.
+- **`ExportWorkbookDialog.tsx` (NEW) -- ParseRunDialog pattern.** Props `{ open, onOpenChange, boqName,
+  eligibleSheets }`; the hub computes eligibility (`getEffectiveStatus === "Parsed Check Done"`). Checklist ALL
+  PRE-TICKED (the `[open]`-effect seed + functional `toggleSheet` + Checkbox/`<label htmlFor>` rows). Confirm =
+  a SEQUENTIAL `for` loop: one imperative `get_review_rows` `.call()` per ticked sheet (GET-capable endpoint via
+  `useFrappePostCall` -- the wizard's imperative-multi-read convention; sheet_name VERBATIM #152), a progress line
+  ("Fetching {sheet} ({i}/{n})..."), controls disabled + NOT dismissible mid-flight. ANY fetch or the build step
+  throwing -> ABORT (no partial file), inline `text-destructive` naming the failed sheet (`getFrappeError` +
+  fallback). Confirm label "Export N sheets", disabled at zero ticked.
+- **Hub + card wiring.** `BoqHubPage`: `exportEligibleSheetNames`, a footer "Export reviewed" Tooltip-button (a
+  `<span tabIndex={0}>` sibling of Re-parse/Parse, Download icon, disabled when empty), and a `handleExportCsv`
+  (its own `useFrappePostCall("...get_review_rows")` -> the EXISTING `buildAndDownloadReviewCsv`) passed to each
+  SheetCard as `onExportCsv`. `SheetCard`: new optional `onExportCsv?: (sheetName) => Promise<void>` (the
+  onOpenReview/onReparse convention) + an "Export CSV" Button in the "Parsed Check Done" branch with a LOCAL
+  `exporting` busy state (disables + spinner) and failure -> the card's existing inline `cardError` via
+  `getFrappeError`. Hub owns the fetch; card stays fetch/router-free. **Per-card = .csv (quick one-sheet grab),
+  global = .xlsx (always a workbook, even for one ticked sheet).**
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|exportReview|ExportWorkbook|BoqHubPage|
+  SheetCard|boqTypes` -- empty; baseline 3177 unchanged) + in-container Vite build exit 0 (`✓ built in 6m 54s`,
+  PWA 168 entries); exceljs confirmed in its own lazy chunk, absent from the hub + entry chunks. No Frappe unit
+  tests (frontend-only). Manual live-cert LC1-LC8 pending Nitesh: (1) D2 CSV regression unchanged; (2) modal
+  eligibility gating + pre-ticked list; (3) progress + abort-on-failure; (4) trailing-space-name workbook (tabs
+  sanitized/de-duplicated, Sheet Name column verbatim); (5) numbers AS numbers in xlsx; (6) per-card .csv matches
+  the screen .csv; (7) lazy exceljs chunk -- hub load unaffected; (8) one-sheet global export still .xlsx.
 
 **Slice D2 review CSV export conventions (`exportReviewCsv.ts` NEW + `SheetReviewPage.tsx` + `ReviewTree.tsx`):**
 
