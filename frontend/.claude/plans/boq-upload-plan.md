@@ -81,6 +81,13 @@ chokepoint). Files in scope: `boq_review_row.json`, `review_screen.py`, `test_re
 - **Verification:** tsc 0 new wizard-file errors (project baseline 3177 unchanged) + in-container build exit
   0 (`✓ built in 6m 46s`, PWA 166 entries). Manual live-cert LC1-LC6 (LC3 = edit re-opens, LC4 = remark does
   NOT re-open, LC5 = re-parse wipes) DEFERRED to Nitesh. Two commits (feat, docs); NOT pushed.
+- **Placement follow-up (FRONTEND ONLY, ReviewTree.tsx):** the "Looks OK" button placement was fixed -- the
+  Flags block header div changed from `flex items-center justify-between gap-2` to `flex items-center gap-2`
+  (REMOVED `justify-between`), so the "Looks OK" Button (and the "Reviewed — looks OK" span when dismissed)
+  now sits IMMEDIATELY BESIDE the "Flags" label on the LEFT, always visible with NO horizontal scroll on a
+  wide sheet. Same class of fix as #158 finding-7 (bring the action to the eye, left-visible). ONE className
+  change -- the Button / stopPropagation / reasons `<ul>` / attribution line / dismissError line all UNCHANGED.
+  tsc 0 ReviewTree errors + in-container build exit 0 (`✓ built in 5m 26s`). Live-cert LC1-LC2 pending Nitesh.
 
 **§9 #159 ReviewTree find & filter ✅ COMPLETE (FRONTEND ONLY, `ReviewTree.tsx`; no backend change):**
 A FILTER surface + a SEARCH surface on the main review tree (the owner-LOCKED interaction model from

@@ -897,12 +897,15 @@ clear-on-edit) is in root CLAUDE.md.
   EXISTING `onRemarkSaved` (mutate only -- a dismissal, like a remark, does NOT advance the sheet-level
   "All changes saved" edit anchor); do NOT wire it to `onSaved`/`onRestructured`.
 - **The "Looks OK" button (ReviewTree detail-panel Flags block).** Rendered in the detail panel's "Flags"
-  block header (the natural "I've reviewed this row's flags" spot), beside the "Flags" label. It calls
-  `useFrappePostCall("...dismiss_row_flags")` with `row_index` + `sheet_name` VERBATIM (#152) +
-  `dismissed: true`; `onClick` does `e.stopPropagation()` (the table-body click dismisses the detail panel).
-  When the row is ALREADY dismissed it reads "Reviewed — looks OK" (a span, not a button) -- NO separate
-  un-dismiss button ships (edit re-opens / re-parse wipes / the flag reason stays readable cover the cases).
-  A dedicated `dismissError` state (separate from `saveError` / `remarkError`) surfaces failures inline.
+  block header (the natural "I've reviewed this row's flags" spot), sitting IMMEDIATELY BESIDE the "Flags"
+  label on the LEFT. The header div is `flex items-center gap-2` (NOT `justify-between` -- a `justify-between`
+  header right-pushes the button off-screen on a wide sheet, the same class of problem as #158 finding-7;
+  bring the action to the eye, left-visible). It calls `useFrappePostCall("...dismiss_row_flags")` with
+  `row_index` + `sheet_name` VERBATIM (#152) + `dismissed: true`; `onClick` does `e.stopPropagation()` (the
+  table-body click dismisses the detail panel). When the row is ALREADY dismissed it reads "Reviewed — looks
+  OK" (a span, not a button) -- NO separate un-dismiss button ships (edit re-opens / re-parse wipes / the flag
+  reason stays readable cover the cases). A dedicated `dismissError` state (separate from `saveError` /
+  `remarkError`) surfaces failures inline.
 - **The dismissed visual = a NEW greyed/checked Info-marker state.** When `row.flags_dismissed` is truthy
   the table-body Info marker switches icon to `CheckCircle2` and colour to muted/grey (NOT amber-active,
   NOT removed -- the flags still EXIST, they're acknowledged); title "Reviewed — looks OK". The flag-reveal
