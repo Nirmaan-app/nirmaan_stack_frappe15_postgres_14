@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, SlidersHorizontal, Info, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -288,6 +288,18 @@ const REMARK_MAX_LEN = 250;
 // parser-only DETECTIONS -- valid existing/FROM states but never offered as targets.
 const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] as const;
 
+// §9 #159: the 6 classification values offered in the Classification filter checklist --
+// the full FROM/read vocab (CLS_LABELS keys), NOT ASSIGNABLE_CLASSIFICATIONS (the 4 write
+// targets). A filter reads all 6 existing states (incl. subtotal_marker / header_repeat).
+const CLASS_FILTER_VALUES = ["preamble", "line_item", "note", "spacer", "subtotal_marker", "header_repeat"] as const;
+
+// §9 #159: Status filter option labels.
+const STATUS_FILTER_LABELS: Record<"all" | "edited" | "original", string> = {
+  all: "All",
+  edited: "Edited",
+  original: "Original",
+};
+
 // Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
 // backend). Defined here -- boqTypes.ts is out of scope for this slice.
 interface SaveReviewRestructureResponse {
@@ -481,10 +493,29 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const [showNotes, setShowNotes] = useState(true);
   const [showSubtotals, setShowSubtotals] = useState(true);
 
+  // §9 #159: find & filter state (frontend-only, strict-hide + ring-highlighted search).
+  // statusFilter: edit-provenance filter (predicate = the isEdited expression, see passesFilter).
+  // classFilter: SHOW-set seeded with all 6 CLS_LABELS values; size === 6 => no narrowing,
+  //   unchecking a type hides it (effective_classification membership). Empty set => show none.
+  // searchQuery/searchCurrentIdx: description substring search + the cycling hit pointer.
+  const [statusFilter, setStatusFilter] = useState<"all" | "edited" | "original">("all");
+  const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
+
   const toggleCol = (col: string) => {
     setVisibleCols(prev => {
       const next = new Set(prev);
       if (next.has(col)) next.delete(col); else next.add(col);
+      return next;
+    });
+  };
+
+  // §9 #159: toggle one classification value in the Classification filter SHOW-set.
+  const toggleClassFilter = (cls: string) => {
+    setClassFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(cls)) next.delete(cls); else next.add(cls);
       return next;
     });
   };
@@ -750,6 +781,66 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     return true;
   };
 
+  // §9 #159: filter predicates (Status AND Classification). passesFilter is the
+  // SHOWN-predicate used by BOTH the render gate and the searchHits memo (compose
+  // interlock) -- so a search hit can never be a filtered-out row.
+  const allClassesShown = classFilter.size === CLASS_FILTER_VALUES.length;
+  const statusFilterActive = statusFilter !== "all";
+  const classFilterActive = !allClassesShown;
+  const passesFilter = (row: ReviewRow): boolean => {
+    // Status predicate -- the isEdited expression (mirrors the inline at the render row;
+    // a remark-only row is Original since save_review_remark never stamps edited_at/edit_log).
+    if (statusFilter !== "all") {
+      const edited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
+      if (statusFilter === "edited" ? !edited : edited) return false;
+    }
+    // Classification predicate -- effective_classification ∈ the SHOW-set (all-shown == pass).
+    if (!allClassesShown) {
+      const cls = row.effective_classification;
+      if (cls === null || !classFilter.has(cls)) return false;
+    }
+    return true;
+  };
+
+  // §9 #159: search hit list -- ordered row_index of rows that pass the SAME shown-filter
+  // (classificationVisible + passesFilter) AND whose description matches the query. Collapse
+  // (isVisible) is DELIBERATELY excluded: a hit under a collapsed parent IS a hit, and
+  // stepping to it auto-expands via revealAndScrollToRow. Empty query => no hits.
+  const searchHits = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q === "") return [];
+    const out: number[] = [];
+    for (const row of rows) {
+      if (!classificationVisible(row)) continue;
+      if (!passesFilter(row)) continue;
+      const d = row.description;
+      if (d && d.toLowerCase().includes(q)) out.push(row.row_index);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, searchQuery, statusFilter, classFilter, showSpacers, showNotes, showSubtotals]);
+
+  const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
+  // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
+  useEffect(() => { setSearchCurrentIdx(0); }, [searchHits]);
+  const safeSearchIdx = searchHits.length > 0 ? Math.min(searchCurrentIdx, searchHits.length - 1) : 0;
+  const currentHitRowIdx = searchHits.length > 0 ? searchHits[safeSearchIdx] : null;
+
+  // Cycling steppers (modulo wrap, both directions). On step, reuse revealAndScrollToRow
+  // so the new current hit auto-expands collapsed ancestors + scrolls + flashes.
+  const stepSearchPrev = () => {
+    if (searchHits.length === 0) return;
+    const ni = (safeSearchIdx - 1 + searchHits.length) % searchHits.length;
+    setSearchCurrentIdx(ni);
+    revealAndScrollToRow(searchHits[ni]);
+  };
+  const stepSearchNext = () => {
+    if (searchHits.length === 0) return;
+    const ni = (safeSearchIdx + 1) % searchHits.length;
+    setSearchCurrentIdx(ni);
+    revealAndScrollToRow(searchHits[ni]);
+  };
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4">No rows found for this sheet.</p>
@@ -863,6 +954,56 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
             Subtotals
           </label>
         </div>
+        {/* §9 #159: description search box -- mirrors SheetSearchView's hit-stepper PATTERN
+            (cycling + N-of-M counter), NOT imported. Stepping calls the existing
+            revealAndScrollToRow so a hit under a collapsed parent auto-expands. */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search description…"
+              className="h-8 w-56 pl-7 pr-7 text-xs"
+              aria-label="Search descriptions"
+            />
+            {searchQuery !== "" && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <span className="min-w-[52px] text-xs tabular-nums text-muted-foreground">
+            {searchHits.length === 0 ? "0 of 0" : `${safeSearchIdx + 1} of ${searchHits.length}`}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            disabled={searchHits.length === 0}
+            onClick={stepSearchPrev}
+            aria-label="Previous match"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            disabled={searchHits.length === 0}
+            onClick={stepSearchNext}
+            aria-label="Next match"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       {/* Table scroll area -- max-h adjusted to account for controls bar height */}
       <div className="overflow-auto max-h-[calc(100vh-16rem)]">
@@ -885,9 +1026,50 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Excel Row
               </th>
-              {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left. */}
+              {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left.
+                  §9 #159: header-cell Popover filter (Edited / Original / All) on statusFilter. */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                Status
+                <div className="flex items-center gap-1">
+                  <span>Status</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn(
+                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                          statusFilterActive
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-muted-foreground/60 hover:text-foreground",
+                        )}
+                        aria-label="Filter by status"
+                        title="Filter by status"
+                      >
+                        <Filter className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto min-w-[140px] p-2">
+                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Status</p>
+                      <div className="space-y-0.5">
+                        {(["all", "edited", "original"] as const).map(opt => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setStatusFilter(opt)}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
+                              statusFilter === opt
+                                ? "bg-muted font-medium text-foreground"
+                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                            )}
+                          >
+                            {STATUS_FILTER_LABELS[opt]}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
               </th>
               {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -897,9 +1079,50 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Parent
               </th>
-              {/* Classification (B1.1b-iii): fixed anchor -- chevron + pill; no mapped letter */}
+              {/* Classification (B1.1b-iii): fixed anchor -- chevron + pill; no mapped letter.
+                  §9 #159: header-cell Popover filter -- checklist of the 6 CLS_LABELS values
+                  (effective_classification), NOT the 4 assignable write-targets. */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                Classification
+                <div className="flex items-center gap-1">
+                  <span>Classification</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn(
+                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                          classFilterActive
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-muted-foreground/60 hover:text-foreground",
+                        )}
+                        aria-label="Filter by classification"
+                        title="Filter by classification"
+                      >
+                        <Filter className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
+                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Classification</p>
+                      <div className="space-y-1">
+                        {CLASS_FILTER_VALUES.map(c => (
+                          <label
+                            key={c}
+                            htmlFor={`cls-filter-${c}`}
+                            className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <Checkbox
+                              id={`cls-filter-${c}`}
+                              checked={classFilter.has(c)}
+                              onCheckedChange={() => toggleClassFilter(c)}
+                            />
+                            {CLS_LABELS[c] ?? c}
+                          </label>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
               </th>
               {/* Description: letter from the description descriptor col, if mapped */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -931,6 +1154,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // B1.1b-ii FEAT B: classification-visibility gate (annotation rows only).
               // Children of a filtered row render independently at their original depth.
               if (!classificationVisible(row)) return null;
+              // §9 #159: Status + Classification filter gate (strict hide). Combines with
+              // the two gates above (AND); a non-matching row emits no <tr>. passesFilter is
+              // the SAME predicate searchHits is computed over (compose interlock).
+              if (!passesFilter(row)) return null;
 
               const depth = depths.get(row.row_index) ?? 0;
               const hasChildren = hasChildrenSet.has(row.row_index);
@@ -999,6 +1226,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                       isEdited && "bg-green-50 dark:bg-green-950/30",
                       // FIX 1: transient amber flash wins over green tint (placed after in cn())
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
+                      // §9 #159 search highlight -- RINGS (inset box-shadow), layered OVER the
+                      // background tiers above so they never mask the edited-green / preamble
+                      // tints (the collision rule). Soft ring = all hits; strong = current hit
+                      // (mutually exclusive so the two ring widths can't conflict in Tailwind).
+                      searchHitSet.has(row.row_index) && currentHitRowIdx !== row.row_index && "ring-1 ring-inset ring-blue-300 dark:ring-blue-700",
+                      currentHitRowIdx === row.row_index && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
                     )}
                   >
                     {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
