@@ -317,7 +317,19 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- C-flag-dismissal [per-row "Looks OK"] COMPLETE -- BACKEND + FRONTEND):**
+**Status (2026-06-11 -- Slice D1 "Parsed Check Done" marking + read-only FREEZE + Un-mark COMPLETE -- BACKEND + FRONTEND):**
+A sheet at "Parsed Check Done" is FROZEN: no value/text/area edits, no restructure, no remarks, no flag
+dismissals -- enforced BACKEND (a `_guard_sheet_not_frozen` check in all four write endpoints) AND FRONTEND.
+Files touched (frontend): `boqTypes.ts` (+`MarkParsedCheckDoneResponse` / `UnmarkParsedCheckDoneResponse`,
+reusing the existing `StructuralBreak`), `SheetReviewPage.tsx` (status derivation from `boq.sheet_drafts`,
+`boqMutate`, the "Mark Parsed Check Done" header button + light-confirm/breaks-escalation AlertDialog, the teal
+read-only banner with Un-mark + Go-to-hub, `readOnly={isChecked}` passed down), `ReviewTree.tsx` (the new
+`readOnly?: boolean` prop gating ALL 11 write affordances). tsc 0 new wizard-file errors (baseline 3177
+unchanged) + in-container build exit 0 (`✓ built in 3m 36s`, PWA 166 entries); no Frappe unit tests on the
+frontend (backend has +10 -> test_review_screen 147 green). Manual live-cert LC1-LC8 pending Nitesh. See the
+"Slice D1 Parsed Check Done freeze conventions" section below for the full as-built detail.
+
+// prior: **Status (2026-06-11 -- C-flag-dismissal [per-row "Looks OK"] COMPLETE -- BACKEND + FRONTEND):**
 A per-row dismissal of advisory flags on the review screen. PER-ROW (one gesture clears ALL of a row's
 currently-computing flags); STAYS "Original" (a dismissal is an ACKNOWLEDGMENT, not an edit -- it does NOT
 touch `isEdited`, the Edited pill, or the green tint). Files touched (frontend): `boqTypes.ts` (ReviewRow
@@ -882,6 +894,55 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**Slice D1 Parsed Check Done freeze conventions (`boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx`):**
+
+The read-only freeze + mark/un-mark surface for the review screen. Owner-LOCKED model: a sheet at
+"Parsed Check Done" is FULLY FROZEN (no value/text/area edits, no restructure, no remarks, no flag
+dismissals); the freeze is enforced BOTH frontend (gated affordances) AND backend (write-endpoint guards --
+see root CLAUDE.md). The frontend gating is the UI line of defence; the backend `_guard_sheet_not_frozen`
+is the durable backstop.
+
+- **Status derivation from `boq.sheet_drafts` (THE pattern -- no new fetch).** `SheetReviewPage` ALREADY
+  fetches the BOQs doc via `useFrappeGetDoc("BOQs", boqId)`. `sheet_drafts` is a ONE-LEVEL child table, so it
+  serializes on that payload -- the sheet's `wizard_status` is already in hand. Derive:
+  `const sheetStatus = boq?.sheet_drafts?.find(d => d.sheet_name === (sheetName ?? ""))?.wizard_status;`
+  (sheetName VERBATIM -- no trim, #152) and `const isChecked = sheetStatus === "Parsed Check Done";`. Do NOT
+  add a status fetch. **Destructure `mutate: boqMutate`** from that same `useFrappeGetDoc` and call it after
+  every successful mark / un-mark so the banner + button react (the get_review_rows `mutate` is a DIFFERENT
+  hook -- mark/un-mark change the BOQs doc, not the rows, so they need `boqMutate`).
+- **The Mark button (header right cluster).** Rendered ONLY when `sheetStatus === "Parsed"` (a
+  Mark-and-the-banner are mutually exclusive by construction). It opens a LIGHT-CONFIRM `AlertDialog`; Confirm
+  POSTs `mark_sheet_parsed_check_done` with `confirm:false`. `ok:true` -> close + `boqMutate()`. `ok:false`
+  (breaks present) -> the SAME dialog switches to the ESCALATION view (`markBreaks` state non-null) listing
+  each break (`BREAK_TYPE_LABELS[type]` + "Excel row {source_row_number}" + reason); the action button becomes
+  "Mark anyway" which re-POSTs with `confirm:true`. A backend throw surfaces inline via `getFrappeError()`.
+  The confirm action is a PLAIN `Button` (NOT `AlertDialogAction`) so the dialog stays open to escalate or
+  show an error.
+- **The read-only banner (when `isChecked`).** A full-width strip ABOVE the flags strip, TEAL family
+  (`border-teal-300 bg-teal-50` + dark variants -- matching the "Checked" pill, NOT destructive red), with a
+  `ShieldCheck` icon, the read-only explanation, and two buttons: "Un-mark" (light-confirm AlertDialog ->
+  `unmark_sheet_parsed_check_done` -> `boqMutate()`) and "Go to hub" (reuses the Back nav `handleBack`).
+- **`readOnly` prop on ReviewTree gates ALL 11 write affordances at their render sites.** `SheetReviewPage`
+  passes `readOnly={isChecked}`. In `ReviewTree`, `readOnly?: boolean` (default false) HIDES (does not merely
+  disable): the reclassify pill DropdownMenu (the plain classification text stays), the "Change parent" door
+  (`canChangeParent && !readOnly`), the three edit blocks (`!readOnly && editable*Descriptors.length > 0`),
+  the "Looks OK" button (the dismissed "Reviewed -- looks OK" span still shows read-only), and the Remarks
+  editor -- which when `readOnly` renders the stored remark as READ-ONLY TEXT if present (else nothing),
+  hiding the Textarea + Save. With the triggers gated, the value/area confirm dialog, the childless reclassify
+  AlertDialog, and the RestructureModal become UNREACHABLE (all are state-driven and that state is set ONLY by
+  the gated triggers -- verified: RestructureModal is imported/mounted only in ReviewTree). Every VIEW
+  affordance stays fully live: expand/collapse, the detail panel (provenance, edit history, flag display),
+  search, filters, column selector, scroll-to-parent.
+- **Verification.** tsc 0 new wizard-file errors (baseline 3177 unchanged); in-container build exit 0
+  (`✓ built in 3m 36s`, PWA 166 entries). No Frappe unit tests on the frontend (backend TestParsedCheckDoneFreeze
+  / TestUnmark... + mark M1/M2 -> test_review_screen 147 green). Manual live-cert LC1 (Mark on a clean Parsed
+  sheet -> banner appears, tree frozen) / LC2 (Mark on a sheet with structural breaks -> escalation dialog lists
+  them, "Mark anyway" works) / LC3 (every edit affordance is gone when frozen; view affordances all still work) /
+  LC4 (Un-mark -> tree editable again, edits land) / LC5 (Go to hub) / LC6 (a frozen write attempted out-of-band
+  is rejected by the backend with the read-only message) / LC7 (reload a checked sheet -> banner persists from
+  the payload) / LC8 (regression: a NON-checked sheet behaves byte-for-byte as before -- edits/remarks/restructure/
+  dismissals all work) pending Nitesh.
 
 **C-flag-dismissal conventions (per-row "Looks OK" -- `boqTypes.ts` + `ReviewTree.tsx` + `SheetReviewPage.tsx`):**
 

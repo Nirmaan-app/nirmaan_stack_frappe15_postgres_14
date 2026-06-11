@@ -16,7 +16,13 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: C-flag-dismissal (per-row "Looks OK", BACKEND + FRONTEND) -- a per-row dismissal of advisory flags
+LATEST: Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND). A checked
+sheet is fully frozen (no edits/restructure/remarks/dismissals), enforced both ends; a header "Mark Parsed
+Check Done" button (light confirm -> structural-breaks escalation), a teal read-only banner with Un-mark +
+Go-to-hub, and `readOnly` ReviewTree gating. New `unmark_sheet_parsed_check_done` endpoint + a mark
+precondition (Parsed-only) + a `_guard_sheet_not_frozen` check in all four write endpoints. test_review_screen
+137 -> 147 (+10). The "Slice D1 ..." block immediately below. Prior latest:
+C-flag-dismissal (per-row "Looks OK", BACKEND + FRONTEND) -- a per-row dismissal of advisory flags
 on the review screen; PER-ROW (one gesture clears ALL of a row's currently-computing flags) and STAYS
 "Original" (an acknowledgment, not an edit). Backend: 3 additive `BoQ Review Row` fields (`flags_dismissed`
 Check + `flags_dismissed_by` Data + `flags_dismissed_at` Datetime), a new `dismiss_row_flags` endpoint
@@ -41,6 +47,45 @@ vertical stack; Obs 2 per-block responsive ~4-col grid). Before that:
 moved ABOVE the picker grid); §9 #162 standalone "Change parent" door (detail-panel button
 -> existing RestructureModal via a no-op reclassify); Force Re-parse FRONTEND slice (two entry points +
 shared modal + rewritten destructive warning) -- the blocks further below.
+
+**Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark ✅ COMPLETE (BACKEND + FRONTEND):**
+A sheet at "Parsed Check Done" is FROZEN: no value/text/area edits, no restructure, no remarks, no flag
+dismissals -- enforced BACKEND and FRONTEND. The review screen gains a "Mark Parsed Check Done" action and,
+once checked, a read-only banner with Un-mark + Go-to-hub. Files in scope (exclusive list): `review_screen.py`,
+`test_review_screen.py`, `SheetReviewPage.tsx`, `ReviewTree.tsx`, `boqTypes.ts` (+ the 3 docs). NO doctype JSON
+change (the enum already carries the value); RestructureModal.tsx / SheetCard.tsx / BoqHubPage.tsx /
+ParseRunDialog.tsx / update_sheet_draft.py all OUT of scope.
+- **Backend freeze (1a/1b):** `_get_sheet_wizard_status(boq, sheet)` (one get_value, parent/parenttype/
+  sheet_name filter, VERBATIM #152) + `_guard_sheet_not_frozen(boq, sheet)` (throws the single
+  `_FROZEN_WRITE_MESSAGE` iff status == "Parsed Check Done"), called in EACH of the four write endpoints
+  (`save_review_edit`, `save_review_restructure`, `save_review_remark`, `dismiss_row_flags`) immediately AFTER
+  the BOQs-exists guard and BEFORE any doc-locate / validation / write (in save_review_edit this short-circuits
+  the expensive human_parent cycle-guard). PURELY ADDITIVE -- a non-checked sheet is byte-for-byte unchanged.
+- **Mark precondition (1c):** `mark_sheet_parsed_check_done` reads current status AFTER locating the child row,
+  BEFORE the integrity compute: already "Parsed Check Done" -> throw; not "Parsed" -> throw (status echoed).
+  The endpoint had NO status check before D1 (it stamped unconditionally). ok:false+breaks / ok:true+overridden
+  response shapes UNCHANGED; its 3 prior tests seed "Parsed" so they stay green.
+- **Un-mark endpoint (1d):** NEW `unmark_sheet_parsed_check_done(boq, sheet)` -- precondition current ==
+  "Parsed Check Done" else throw; then direct `set_value(... "Parsed")` + commit; returns `{ok, status:"Parsed"}`.
+  NO integrity check going backward. Deliberately bypasses `set_sheet_status` (which rejects "Parsed" --
+  `_DIRECT_SET_STATUSES` excludes it), same as mark documents.
+- **Tests (1e; +10 -> test_review_screen 137 -> 147, green in-container):** `TestParsedCheckDoneFreeze` F1-F5
+  (each of the four writes blocked on a checked sheet + the unblocked control after status restored),
+  `TestMarkSheetParsedCheckDone` M1/M2 (already-checked rejected; non-Parsed rejected), `TestUnmarkSheetParsedCheckDone`
+  U1-U3 (un-mark accepts; non-checked rejects; mark->freeze-blocked->unmark->write-succeeds round-trip). Each freeze
+  test flips the fixture status in-body and `setUp` restores "Parsed" so siblings are unaffected.
+- **Frontend (2a-2c):** `boqTypes.ts` +`MarkParsedCheckDoneResponse` / `UnmarkParsedCheckDoneResponse` (reuse the
+  existing `StructuralBreak`). `SheetReviewPage` derives `sheetStatus` from `boq.sheet_drafts` (already on the
+  payload -- one-level child; VERBATIM match) + `isChecked`, destructures `boqMutate`, renders the Mark button
+  (only when status=="Parsed") with a light-confirm AlertDialog that escalates to a breaks warn ("Mark anyway" =
+  confirm:true), and a teal read-only banner with Un-mark + Go-to-hub; passes `readOnly={isChecked}` to ReviewTree.
+  `ReviewTree` gains `readOnly?: boolean` gating ALL 11 write affordances at their render sites (reclassify pill,
+  change-parent door, value/text/area edit blocks, Remarks editor [read-only text if a remark exists], "Looks
+  OK"); the confirm dialogs + childless AlertDialog + RestructureModal become unreachable (state-driven, set ONLY
+  by gated triggers). Errors via house `getFrappeError()`. tsc 0 new wizard-file errors + in-container build exit 0
+  (`✓ built in 3m 36s`, PWA 166 entries). Manual live-cert LC1-LC8 pending Nitesh.
+- **DEFERRED (logged):** the `update_sheet_draft` dirty-marker `"Parsed"`-only asymmetry (a config change does NOT
+  drop a "Parsed Check Done" sheet) is left for the status-rename slice -- NOT fixed here (out of scope).
 
 **C-flag-dismissal (per-row "Looks OK") ✅ COMPLETE (BACKEND + FRONTEND):**
 A per-row dismissal of advisory flags on the review screen. Owner-LOCKED model: PER-ROW (one gesture clears
