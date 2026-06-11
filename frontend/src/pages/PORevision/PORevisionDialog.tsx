@@ -46,30 +46,55 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
         return;
       }
 
+      // Aggregate every Step-1 problem into ONE toast — justification first,
+      // then rates, then quantities — so the user sees all issues at once
+      // instead of clearing them one toast at a time.
+      const issues: { key: string; node: React.ReactNode }[] = [];
+
       if (!justification.trim()) {
-        toast({ title: "Justification Required", description: "Please provide a reason for this revision.", variant: "destructive" });
-        return;
+        issues.push({ key: "justification", node: "Provide a revision justification." });
       }
 
-      const invalidRateItem = revisionItems.find(item => item.item_type !== "Deleted" && (item.quote === undefined || item.quote <= 0));
-      if (invalidRateItem) {
-        toast({ title: "Invalid Rate", description: `Rate must be greater than 0 for item: ${invalidRateItem.item_name || "Unknown"}`, variant: "destructive" });
-        return;
-      }
+      revisionItems
+        .filter(item => item.item_type !== "Deleted" && (item.quote === undefined || item.quote <= 0))
+        .forEach((item, i) => {
+          issues.push({
+            key: `rate-${item.name || i}`,
+            node: <><span className="font-medium">{item.item_name || "Unknown"}</span> — rate must be greater than 0</>,
+          });
+        });
 
-      const invalidQtyItem = revisionItems.find(item => {
-        if (item.item_type === "Deleted") return false;
-        const minQty = (item.item_type !== "New" && item.received_quantity) ? item.received_quantity : 0;
-        return (item.quantity === undefined || item.quantity <= 0 || item.quantity < minQty);
-      });
+      revisionItems
+        .filter(item => {
+          if (item.item_type === "Deleted") return false;
+          const minQty = (item.item_type !== "New" && item.received_quantity) ? item.received_quantity : 0;
+          return (item.quantity === undefined || item.quantity <= 0 || item.quantity < minQty);
+        })
+        .forEach((item, i) => {
+          const minQty = (item.item_type !== "New" && item.received_quantity) ? item.received_quantity : 0;
+          const reason = minQty > 0
+            ? `quantity cannot go below ${minQty} (already delivered)`
+            : "quantity must be greater than 0";
+          issues.push({
+            key: `qty-${item.name || i}`,
+            node: <><span className="font-medium">{item.item_name || "Unknown"}</span> — {reason}</>,
+          });
+        });
 
-      if (invalidQtyItem) {
-        const minQty = (invalidQtyItem.item_type !== "New" && invalidQtyItem.received_quantity) ? invalidQtyItem.received_quantity : 0;
-        if (minQty > 0) {
-          toast({ title: "Invalid Quantity", description: `Quantity cannot go below ${minQty} (already delivered) for item: ${invalidQtyItem.item_name || "Unknown"}`, variant: "destructive" });
-        } else {
-          toast({ title: "Invalid Quantity", description: `Quantity must be greater than 0 for item: ${invalidQtyItem.item_name || "Unknown"}`, variant: "destructive" });
-        }
+      if (issues.length > 0) {
+        toast({
+          title: issues.length > 1
+            ? `Please fix ${issues.length} issues to continue`
+            : "Please fix 1 issue to continue",
+          description: (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {issues.map(issue => (
+                <li key={issue.key}>{issue.node}</li>
+              ))}
+            </ul>
+          ),
+          variant: "destructive",
+        });
         return;
       }
 
