@@ -14,8 +14,37 @@ refresh), dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file er
 manual live-cert LC1-12 pending. The restructure-surface arc is COMPLETE pending live-cert. The OWED
 single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196ed765) and is now WIRED
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
-row-self-reparent. LATEST: Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10 -- block
-immediately below.
+row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. LATEST: Force Re-parse
+BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done") -- block immediately below.
+
+**Force Re-parse -- BACKEND slice (flag-gated eligibility) ✅ COMPLETE (BACKEND ONLY; no frontend this slice):**
+The receiving end for a future Force Re-parse UI: a user deliberately re-runs the parser on a sheet that is
+already "Parsed Check Done" (one a human hand-edited on the review screen and marked checked). Today
+`assemble_mapping_config` Rule 4 throws "Parsed Check Done" into `not_eligible`; this slice makes it eligible
+ONLY under an explicit flag, leaving the normal parse path byte-for-byte unchanged.
+- **The flag: `force_reparse: bool = False`.** Threaded through the existing `sheet_names` plumbing pattern:
+  `run_parse(boq_name, sheet_names=None, force_reparse=False)` [whitelisted endpoint; HTTP string coerced
+  to bool via `"true"/"1"/"yes"` check, mirroring the sheet_names JSON-decode] -> `frappe.enqueue(..., force_reparse=)`
+  -> `_run_parse_worker(boq_name, sheet_names=None, user=None, force_reparse=False)` -> `assemble_mapping_config(boq_name, force_reparse=False)`.
+  Default False / absent everywhere -- existing callers and the normal parse path are unchanged.
+- **The eligibility extension (Rule 3, ONE guarded clause):** the existing branch becomes
+  `if status in {"Reviewed", "Parsed"} or (force_reparse and status == "Parsed Check Done"):`. Admitting
+  "Parsed Check Done" into the SAME Rule 3 branch body (not a parallel branch) means the empty-blob /
+  invalid-blob sub-gates apply IDENTICALLY -- a valid sheet_config blob is still required. Chosen for zero
+  validation duplication + minimal blast radius. Scope is "Parsed Check Done" ONLY; "Parse failed" is NOT
+  widened (a frontend-slice concern -- the UI won't offer re-parse on a never-succeeded sheet).
+- **Status after re-parse = "Parsed" (Option A) -- already correct, NOT changed.** The worker's status-set
+  line (`_set_draft_status(boq_name, sheet_name, "Parsed", ...)`) is unconditional on a successful data-sheet
+  parse; a re-parsed "Parsed Check Done" sheet (a data sheet) drops to "Parsed", discarding the human
+  edits/remarks (the prior BoQ Review Rows are deleted-then-inserted -- replace semantics, by design). Verified
+  unchanged this slice (V5).
+- **Tests (+6; test_parse_run 63 -> 69, all green in-container):** T1 (flagged -> "Parsed Check Done" admitted
+  as data); blob-gate guard (flagged but blob-less -> still not_eligible, proves "same terms as Rule 3"); T2
+  (NO flag -> SAME sheet stays in not_eligible -- the load-bearing leak guard); T3 (flag does not change
+  Reviewed/Parsed eligibility, both directions); T4 (worker: flagged re-parse of a Parsed Check Done sheet
+  inserts rows + ends "Parsed" -- Option A end-to-end); T4b (worker: NO flag -> lone Parsed Check Done sheet
+  not eligible, no rows, status untouched). Parser baseline 588 unchanged. Files: `parse_run.py` +
+  `test_parse_run.py` ONLY. No doctype JSON, no frontend.
 
 **Restructure Slice 1b-beta2b ✅ COMPLETE (feat 20e1f5a7; FRONTEND ONLY; finding-9 + finding-10 CLOSED):**
 The restructure-flow completeness slice -- two deliverables, backend UNTOUCHED (the childless wire shape
