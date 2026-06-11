@@ -1180,10 +1180,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     <tr className="bg-muted/30">
                       <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
                         {/* Detail-panel layout pass (FINDING B): a DISTINCT nested card.
-                            bg-background (NOT the bg-muted/30 row-hover tint) + border +
-                            rounded + subtle shadow + own padding insets it from the cell,
-                            so the panel no longer reads as just another hovered row. */}
-                        <div onClick={(e) => e.stopPropagation()} className="bg-background border border-border rounded-md shadow-sm p-3">
+                            INDIGO body tint (NOT the bg-muted/30 row-hover tint) + border +
+                            rounded + subtle shadow + own padding insets it from the cell.
+                            BRAND-RED left-accent stripe (border-l-primary = the rose/crimson
+                            --primary token, hue 346.8, DISTINCT from --destructive's pure-red
+                            hue 0) carries the brand color as an ACCENT, not a full red surface
+                            -- a red surface would collide with the destructive/error red used
+                            on this screen (re-parse warning, cycle rejection). */}
+                        <div onClick={(e) => e.stopPropagation()} className="bg-indigo-50/40 dark:bg-indigo-950/20 border border-border border-l-4 border-l-primary rounded-md shadow-sm p-3">
                           {/* Header: Excel row number + provenance badge */}
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-medium text-foreground">
