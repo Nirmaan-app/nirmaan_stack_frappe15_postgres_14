@@ -16,12 +16,23 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND). A checked
+LATEST: Slice D2 -- per-sheet CSV export on the review screen (FRONTEND ONLY, feat 27866a2e). A new
+wizard-local writer `exportReviewCsv.ts` builds a flat per-sheet CSV (parsed values + human corrections +
+provenance, no JSON blobs) and downloads it; an "Export CSV" button sits in the header right cluster,
+STATUS-INDEPENDENT (a frozen/checked sheet exports too -- the prime use) and VIEW-INDEPENDENT (filters/
+collapse/search never affect it). Per-area values get ONE COLUMN PER AREA PER ROLE (mirroring the tree's
+descriptor columns); numbers written RAW so Excel parses them; UTF-8 BOM for rupee/unicode. The shared
+`src/utils/exportToCsv.ts` is NOT used or touched (TanStack-coupled, 15 callers, wrong shape -- recon
+2026-06-12). REUSES ReviewTree `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` +
+boqTypes `ROLE_LABELS` via an export-keyword-only change (no behaviour change). tsc 0 new wizard-file errors
++ in-container build exit 0 (`✓ built in 5m 47s`, PWA 166 entries); no Frappe tests (frontend-only); live-cert
+LC1-LC7 pending. The "Slice D2 ..." block immediately below. Prior latest:
+Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND). A checked
 sheet is fully frozen (no edits/restructure/remarks/dismissals), enforced both ends; a header "Mark Parsed
 Check Done" button (light confirm -> structural-breaks escalation), a teal read-only banner with Un-mark +
 Go-to-hub, and `readOnly` ReviewTree gating. New `unmark_sheet_parsed_check_done` endpoint + a mark
 precondition (Parsed-only) + a `_guard_sheet_not_frozen` check in all four write endpoints. test_review_screen
-137 -> 147 (+10). The "Slice D1 ..." block immediately below. Prior latest:
+137 -> 147 (+10). The "Slice D1 ..." block further below. Prior latest:
 C-flag-dismissal (per-row "Looks OK", BACKEND + FRONTEND) -- a per-row dismissal of advisory flags
 on the review screen; PER-ROW (one gesture clears ALL of a row's currently-computing flags) and STAYS
 "Original" (an acknowledgment, not an edit). Backend: 3 additive `BoQ Review Row` fields (`flags_dismissed`
@@ -47,6 +58,60 @@ vertical stack; Obs 2 per-block responsive ~4-col grid). Before that:
 moved ABOVE the picker grid); §9 #162 standalone "Change parent" door (detail-panel button
 -> existing RestructureModal via a no-op reclassify); Force Re-parse FRONTEND slice (two entry points +
 shared modal + rewritten destructive warning) -- the blocks further below.
+
+**Slice D2 -- per-sheet review CSV export ✅ COMPLETE (FRONTEND ONLY, feat 27866a2e):**
+A per-sheet CSV export of the review screen's data: parsed values + human corrections + provenance, flat
+columns (no JSON blobs), opening clean in Excel. Files in scope (exclusive): NEW
+`frontend/src/pages/boq-wizard/exportReviewCsv.ts` (the writer), `SheetReviewPage.tsx` (button + wiring),
+`ReviewTree.tsx` (export-keyword-only on 4 helpers) (+ the 3 docs). `boqTypes.ts` NOT needed (the consumed
+types were already exported). OUT of scope: `src/utils/exportToCsv.ts` (NOT touched), all backend, all other
+wizard files.
+- **Owner-locked decisions:** (1) per-area values get ONE COLUMN PER AREA PER ROLE (matching the tree's
+  descriptor columns exactly -- never a JSON dict in a cell); (2) the shared `exportToCsv.ts` is NOT used and
+  NOT touched (TanStack-coupled, 15 callers, wrong shape for the descriptor-driven payload -- recon
+  2026-06-12); a NEW wizard-local writer is built instead; (3) export is STATUS-INDEPENDENT (a
+  frozen/"Parsed Check Done" sheet exports too -- that is the prime use) and VIEW-INDEPENDENT (filters/
+  collapse/search state do NOT affect it -- it is the sheet's data, not the current view).
+- **Column set (in order):** Sheet Name (verbatim, trailing spaces intact #152) | Excel Row
+  (source_row_number) | Sl.No (sl_no_value) | Description | Level (EFFECTIVE depth via the reused
+  `computeDepths`) | Classification (Original) = `classification` and Classification (Final) =
+  `effective_classification`, both via the tree's `CLS_LABELS` (raw value fallback) | Parent Excel Row
+  (Original) = `parent_index` resolved to that row's source_row_number, blank if root | Parent Excel Row
+  (Final) = `effective_parent_index` resolved the same way, blank if root (human_is_root rows are roots) |
+  one DATA column per `ColumnDescriptor` in payload (Excel) order, EXCLUDING sl_no/description roles (the
+  same `FIXED_ROLE_DEDUPE` the tree applies, so Sl.No/Description never duplicate), value via the reused
+  `resolveDescriptorValue`, numbers RAW (`String(val)`, NOT the display formatter -- thousands separators
+  break Excel numeric parsing), header mirrors the tree VERBATIM (`{col} — {ROLE_LABELS[role]}{ · area}`) |
+  Row Notes (`row_notes`, replaces-semantics) | Append Notes (`append_notes_raw`) | Remarks | Edited
+  (Yes/No via the SAME isEdited predicate as the tree's Status column: edited_at set OR edit_log non-empty) |
+  Edited By | Edited At (verbatim server string).
+- **row_notes vs append_notes distinction:** `row_notes` is the single replace-semantics notes field (one
+  string). `append_notes_raw` is the accumulate-semantics per-column notes -- VERIFIED client-side shape is a
+  `dict[str, str]` (keys = the source column's header label, values = note text; parser classifier.py), NOT
+  the array/string the spec anticipated. The writer flattens the dict to `"key: value"` pairs joined `" | "`
+  (flat, no JSON braces, preserves which column each note came from); defensively also handles array (join
+  values) / string (verbatim) / null ("").
+- **Writer mechanics:** `Papa.unparse([headers, ...rows])`; prepend a UTF-8 BOM (`﻿`) before the Blob
+  (real BoQs carry rupee signs + non-ASCII -- Excel needs the BOM); Blob type `text/csv;charset=utf-8;`;
+  anchor-click download; `revokeObjectURL` after. Filename
+  `${boqName}_${sanitize(sheetName)}_review_${yyyyMMdd_HHmmss}.csv` -- sanitize (trim + replace
+  filename-illegal chars / whitespace with `_`) applies to the FILENAME ONLY; bare basename, `.csv` appended
+  exactly once (the shared util's double-extension trap is the cautionary tale). Rows exported in row_index
+  order, ALL rows.
+- **Export button:** header right-cluster (first child, before the D1 Mark button), `size="sm"
+  variant="outline"`, Download icon, label "Export CSV". Rendered whenever review data is loaded; `disabled`
+  while `reviewLoading` or `rows.length === 0`. NOT gated on `sheetStatus`. No dialog, no backend call.
+- **Helper reuse (no drift):** `resolveDescriptorValue`, `computeDepths`, `CLS_LABELS`, `FIXED_ROLE_DEDUPE`
+  gained the `export` keyword in `ReviewTree.tsx` (all already module-level -- a trivial lift, no behaviour
+  change); `ROLE_LABELS` was already exported from `boqTypes.ts`. The CSV and the tree share one source of
+  truth for depth, descriptor-value resolution, classification labels, and the sl_no/description dedupe.
+- **Retired carry:** the prior "fix exportToCsv's 8 baseline tsc errors before Slice D" item is N/A -- the
+  shared util is deliberately untouched this arc; its 8 errors remain part of the standing repo baseline.
+- **Verification:** tsc 0 new wizard-file errors (filtered ReviewTree|boqTypes|boq-wizard|SheetReviewPage|
+  exportReviewCsv -- empty); in-container Vite build exit 0 (`✓ built in 5m 47s`, PWA 166 entries). No Frappe
+  unit tests (frontend-only). Manual live-cert LC1-LC7 pending Nitesh (multi-area column diff vs screen;
+  edited-row original/final pairs; remarks/row-notes/append-notes columns; rupee/unicode in Excel;
+  trailing-space sheet name; export on a frozen/checked sheet; numbers parse as numbers).
 
 **Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark ✅ COMPLETE (BACKEND + FRONTEND):**
 A sheet at "Parsed Check Done" is FROZEN: no value/text/area edits, no restructure, no remarks, no flag

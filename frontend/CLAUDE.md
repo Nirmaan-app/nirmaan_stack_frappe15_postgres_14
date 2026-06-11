@@ -317,7 +317,20 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-11 -- Slice D1 "Parsed Check Done" marking + read-only FREEZE + Un-mark COMPLETE -- BACKEND + FRONTEND):**
+**Status (2026-06-12 -- Slice D2 per-sheet review CSV export COMPLETE -- FRONTEND ONLY, feat 27866a2e):**
+A per-sheet CSV export of the review screen's data (parsed values + human corrections + provenance, flat
+columns, opens clean in Excel). NEW wizard-local writer `exportReviewCsv.ts`; an "Export CSV" button in the
+header right cluster, STATUS-INDEPENDENT (a frozen/checked sheet exports too) and VIEW-INDEPENDENT
+(filters/collapse/search never affect it). Per-area = one column per area per role (mirrors the tree's
+descriptor columns); numbers RAW (Excel parses them); UTF-8 BOM (rupee/unicode). The shared
+`src/utils/exportToCsv.ts` is NOT used or touched. Files touched (frontend): NEW `exportReviewCsv.ts`,
+`SheetReviewPage.tsx` (Export button + wiring), `ReviewTree.tsx` (export keyword on `resolveDescriptorValue`/
+`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` -- no behaviour change). `boqTypes.ts` NOT needed (consumed
+types already exported). tsc 0 new wizard-file errors (filtered, empty) + in-container build exit 0
+(`✓ built in 5m 47s`, PWA 166 entries); no Frappe unit tests (frontend-only). Manual live-cert LC1-LC7
+pending Nitesh. See the "Slice D2 review CSV export conventions" section below for the full as-built detail.
+
+// prior: **Status (2026-06-11 -- Slice D1 "Parsed Check Done" marking + read-only FREEZE + Un-mark COMPLETE -- BACKEND + FRONTEND):**
 A sheet at "Parsed Check Done" is FROZEN: no value/text/area edits, no restructure, no remarks, no flag
 dismissals -- enforced BACKEND (a `_guard_sheet_not_frozen` check in all four write endpoints) AND FRONTEND.
 Files touched (frontend): `boqTypes.ts` (+`MarkParsedCheckDoneResponse` / `UnmarkParsedCheckDoneResponse`,
@@ -894,6 +907,54 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**Slice D2 review CSV export conventions (`exportReviewCsv.ts` NEW + `SheetReviewPage.tsx` + `ReviewTree.tsx`):**
+
+A per-sheet CSV export of the review screen's data. FRONTEND ONLY; no backend, no doctype, no `boqTypes.ts`.
+
+- **Wizard-local writer, NOT the shared util (THE decision).** `src/pages/boq-wizard/exportReviewCsv.ts`
+  exports ONE function `buildAndDownloadReviewCsv({ boqName, sheetName, rows, columnDescriptors })`. The shared
+  `src/utils/exportToCsv.ts` is deliberately NOT used and NOT touched -- it is TanStack-`ColumnDef`-coupled with
+  15 callers and the wrong shape for the descriptor-driven review payload (recon 2026-06-12); reusing it would
+  mean manufacturing fake ColumnDefs. Its 8 baseline tsc errors stay as-is (the old "fix exportToCsv before
+  Slice D" carry is retired as N/A). Any future wizard export extends THIS writer, not the shared one.
+- **Reuse the tree's helpers, never copy (THE no-drift rule).** The writer imports `resolveDescriptorValue`,
+  `computeDepths`, `CLS_LABELS`, `FIXED_ROLE_DEDUPE` from `ReviewTree.tsx` (each gained the `export` keyword --
+  all were already module-level; a trivial lift, zero behaviour change) and `ROLE_LABELS` from `boqTypes.ts`
+  (already exported). So the CSV's depth, per-area/singleton value resolution, classification labels, and
+  sl_no/description dedupe are byte-identical to what the tree renders. Do NOT re-implement any of these in the
+  writer.
+- **Column set + the row_notes-vs-append_notes distinction.** Fixed columns: Sheet Name (verbatim #152) |
+  Excel Row | Sl.No | Description | Level (effective depth) | Classification (Original)=`classification` +
+  Classification (Final)=`effective_classification` (both via `CLS_LABELS`) | Parent Excel Row
+  (Original)=`parent_index`->source_row_number + (Final)=`effective_parent_index`->source_row_number (blank if
+  root; human_is_root => root). Then one DATA column per `ColumnDescriptor` EXCLUDING sl_no/description roles
+  (`FIXED_ROLE_DEDUPE` -- they are the dedicated Sl.No/Description columns, so no duplication), header mirrors
+  the tree VERBATIM (`{col} — {ROLE_LABELS[role]}{ · area}`), value via `resolveDescriptorValue`, **numbers RAW
+  (`String(val)`, NOT the display formatter** -- thousands separators break Excel numeric parsing). Trailing:
+  Row Notes (`row_notes`, single replace-semantics field) | Append Notes (`append_notes_raw`) | Remarks |
+  Edited (Yes/No via the SAME isEdited predicate the tree's Status column uses) | Edited By | Edited At.
+- **`append_notes_raw` is a `dict[str,str]`, not an array.** VERIFIED client-side shape (2026-06-12): keys are
+  the source column's header label, values the note text. The writer flattens it to `"key: value"` pairs joined
+  `" | "` (flat, no JSON braces, preserves source-column context); it defensively also handles array (join
+  values) / string (verbatim) / null (""). Do NOT dump JSON into the cell (the §8 "no JSON blobs" rule).
+- **Writer mechanics.** `Papa.unparse([headers, ...rows])`; prepend a UTF-8 BOM (`﻿`) before the Blob
+  (`text/csv;charset=utf-8;`) so Excel renders rupee/unicode; anchor-click download + `revokeObjectURL`.
+  Filename `${boqName}_${sanitize(sheetName)}_review_${yyyyMMdd_HHmmss}.csv` -- `sanitize` (trim + replace
+  filename-illegal chars/whitespace with `_`) is FILENAME-ONLY; build a bare basename and append `.csv` exactly
+  once (the shared util's double-extension trap). ALL rows in row_index order -- export is the sheet's data, NOT
+  the current view (filters/collapse/search ignored).
+- **Export button.** Header right-cluster (first child, before the D1 Mark button), `size="sm"
+  variant="outline"`, Download icon, "Export CSV", `disabled={reviewLoading || rows.length === 0}`, NOT gated on
+  `sheetStatus` (a frozen/checked sheet is the prime export target). Inline `onClick` -> `buildAndDownloadReviewCsv`
+  with the in-hand `rows` / `columnDescriptors`; no dialog, no backend call.
+- **Verification.** tsc 0 new wizard-file errors (filtered `ReviewTree|boqTypes|boq-wizard|SheetReviewPage|
+  exportReviewCsv` -- empty) + in-container build exit 0 (`✓ built in 5m 47s`, PWA 166 entries). No Frappe unit
+  tests (frontend-only). Manual live-cert LC1 (multi-area sheet -> diff CSV columns vs the screen) / LC2
+  (edited-row original-vs-final classification + parent pairs) / LC3 (remarks + row-notes + append-notes
+  columns) / LC4 (rupee/unicode renders in Excel via the BOM) / LC5 (a trailing-space sheet name: body verbatim,
+  filename sanitized) / LC6 (export works on a frozen/checked sheet) / LC7 (numbers parse AS numbers in Excel,
+  not text) pending Nitesh.
 
 **Slice D1 Parsed Check Done freeze conventions (`boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx`):**
 
