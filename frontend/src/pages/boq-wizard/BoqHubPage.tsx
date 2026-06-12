@@ -72,7 +72,7 @@ const PARSE_ERROR_MSGS: Record<string, { message: string; severity: "destructive
   },
   no_eligible_sheets: {
     message:
-      "No sheets were eligible to parse. Mark at least one sheet as Reviewed before parsing.",
+      "No sheets were eligible to parse. Mark at least one sheet as Config Done before parsing.",
     severity: "neutral",
   },
   parse_failed: {
@@ -101,11 +101,11 @@ const BoqHubPage = () => {
 
   // General-specs checklist state (Slice 2b-frontend-ii).
   // tickedSpecsSheets: local Set seeded from server; committed on Save (not per-toggle).
-  // pendingReviewedNames + pendingFullTickedSet: drive the combined Reviewed-warning dialog.
+  // pendingConfigDoneNames + pendingFullTickedSet: drive the combined Config-Done-warning dialog.
   const [tickedSpecsSheets, setTickedSpecsSheets] = useState<Set<string>>(new Set());
   const [specsDialogOpen, setSpecsDialogOpen] = useState(false);
   const [specsError, setSpecsError] = useState<string | null>(null);
-  const [pendingReviewedNames, setPendingReviewedNames] = useState<string[]>([]);
+  const [pendingConfigDoneNames, setPendingConfigDoneNames] = useState<string[]>([]);
   const [pendingFullTickedSet, setPendingFullTickedSet] = useState<string[]>([]);
 
   // Parse-run dialog + result state.
@@ -303,7 +303,7 @@ const BoqHubPage = () => {
   };
 
   // ── Review-screen navigation callback (Slice B1) ────────────────────────
-  // Navigates to the per-sheet review screen for Parsed/Parsed Check Done sheets.
+  // Navigates to the per-sheet review screen for Parsed/Finalized sheets.
   // Same encode/decode convention as handleOpenSpoke.
   const handleOpenReview = (sheetName: string) => {
     navigate(`/upload-boq/hub/${boqId}/review/${encodeURIComponent(sheetName)}`);
@@ -370,7 +370,7 @@ const BoqHubPage = () => {
     return eff === "Pending" || eff === "Parse failed";
   }).length;
   const reviewedCount = dataSheets.filter(
-    (s) => getEffectiveStatus(s) === "Reviewed"
+    (s) => getEffectiveStatus(s) === "Config Done"
   ).length;
   const totalDataCount = dataSheets.length;
   const canParse = blockingCount === 0 && reviewedCount >= 1;
@@ -389,22 +389,22 @@ const BoqHubPage = () => {
     (s) => getEffectiveStatus(s) === "Parsed"
   ).length;
 
-  // Sheets available for review (Parsed or Parsed Check Done).
+  // Sheets available for review (Parsed or Finalized).
   // Used to show/hide the "Review parsed sheets" section and to provide
   // the picker list for navigating to SheetReviewPage.
   const reviewableDrafts = allDrafts.filter((s) => {
     const eff = getEffectiveStatus(s);
-    return eff === "Parsed" || eff === "Parsed Check Done";
+    return eff === "Parsed" || eff === "Finalized";
   });
   const parsedCheckDoneCount = dataSheets.filter(
-    (s) => getEffectiveStatus(s) === "Parsed Check Done"
+    (s) => getEffectiveStatus(s) === "Finalized"
   ).length;
 
   // ── Export eligibility (Slice D2b) ────────────────────────────────────────
-  // The global "Export reviewed" button + the dialog checklist operate on every
-  // "Parsed Check Done" sheet (VERBATIM names, #152). Empty => button disabled.
+  // The global "Export Finalized" button + the dialog checklist operate on every
+  // "Finalized" sheet (VERBATIM names, #152). Empty => button disabled.
   const exportEligibleSheetNames = allDrafts
-    .filter((s) => getEffectiveStatus(s) === "Parsed Check Done")
+    .filter((s) => getEffectiveStatus(s) === "Finalized")
     .map((s) => s.sheet_name);
 
   const parseGateReason = (() => {
@@ -415,14 +415,14 @@ const BoqHubPage = () => {
         `review or skip ${blockingCount} pending sheet${blockingCount !== 1 ? "s" : ""}`
       );
     if (reviewedCount === 0)
-      parts.push("mark at least one sheet as Reviewed");
+      parts.push("mark at least one sheet as Config Done");
     return `Still needed: ${parts.join("; ")}`;
   })();
 
   // ── Dialog data for ParseRunDialog (Slice 2b-frontend-i) ──────────────────
   // Computed from effective statuses -- same source as the gate.
   const reviewedDraftsForDialog = allDrafts.filter(
-    (d) => getEffectiveStatus(d) === "Reviewed"
+    (d) => getEffectiveStatus(d) === "Config Done"
   );
   const parsedDraftsForDialog = allDrafts.filter(
     (d) => getEffectiveStatus(d) === "Parsed"
@@ -443,15 +443,15 @@ const BoqHubPage = () => {
 
   // ── Re-parse eligibility (Force Re-parse slice) ──────────────────────────
   // A sheet is re-parse-eligible iff it has a prior parse AND its effective status
-  // is one the backend force_reparse path admits: Parsed / Parsed Check Done /
-  // dirty-Reviewed. Parse failed is DELIBERATELY excluded -- the backend does NOT
+  // is one the backend force_reparse path admits: Parsed / Finalized /
+  // dirty-Config Done. Parse failed is DELIBERATELY excluded -- the backend does NOT
   // widen force_reparse to it (parse_run.assemble_mapping_config Rule 4). This is the
   // tickable source for the dialog in reparse mode AND the global-button enable gate.
   const reparseEligibleDrafts = allDrafts.filter((d) => {
     const eff = getEffectiveStatus(d);
     return (
       d.has_prior_parse === 1 &&
-      (eff === "Parsed" || eff === "Parsed Check Done" || eff === "Reviewed")
+      (eff === "Parsed" || eff === "Finalized" || eff === "Config Done")
     );
   });
   // ENABLED when >= 1 eligible sheet; NO blockingCount gate (deliberate divergence
@@ -536,7 +536,7 @@ const BoqHubPage = () => {
     });
   };
 
-  // On Save: compute newly-designated Reviewed sheets; show combined warning or commit.
+  // On Save: compute newly-designated Config Done sheets; show combined warning or commit.
   // One Save = one write (backend is replace-all; per-toggle = N redundant whole-set writes).
   const handleSpecsSave = () => {
     // Full ordered list (preserves nonHiddenDrafts order for determinism).
@@ -544,17 +544,17 @@ const BoqHubPage = () => {
       .filter((d) => tickedSpecsSheets.has(d.sheet_name))
       .map((d) => d.sheet_name);
 
-    // Newly designated Reviewed sheets: ticked now AND not already server-designated AND Reviewed.
-    const newlyDesignatedReviewed = nonHiddenDrafts.filter(
+    // Newly designated Config Done sheets: ticked now AND not already server-designated AND Config Done.
+    const newlyDesignatedConfigDone = nonHiddenDrafts.filter(
       (d) =>
         tickedSpecsSheets.has(d.sheet_name) &&
         !generalSpecsSheetNames.has(d.sheet_name) &&
-        getEffectiveStatus(d) === "Reviewed"
+        getEffectiveStatus(d) === "Config Done"
     );
 
-    if (newlyDesignatedReviewed.length > 0) {
-      // Combined M2.23 courtesy warning naming all affected Reviewed sheets.
-      setPendingReviewedNames(newlyDesignatedReviewed.map((d) => d.sheet_name));
+    if (newlyDesignatedConfigDone.length > 0) {
+      // Combined M2.23 courtesy warning naming all affected Config Done sheets.
+      setPendingConfigDoneNames(newlyDesignatedConfigDone.map((d) => d.sheet_name));
       setPendingFullTickedSet(fullList);
       setSpecsDialogOpen(true);
     } else {
@@ -564,14 +564,14 @@ const BoqHubPage = () => {
 
   const handleSpecsConfirm = () => {
     const list = pendingFullTickedSet;
-    setPendingReviewedNames([]);
+    setPendingConfigDoneNames([]);
     setPendingFullTickedSet([]);
     void doSetGeneralSpecs(list);
     // Dialog closes via onOpenChange from AlertDialogAction.
   };
 
   const handleSpecsCancel = () => {
-    setPendingReviewedNames([]);
+    setPendingConfigDoneNames([]);
     setPendingFullTickedSet([]);
     // No write; checklist stays at current local ticks (not auto-reverted).
     // Dialog closes via onOpenChange from AlertDialogCancel.
@@ -752,7 +752,7 @@ const BoqHubPage = () => {
       </div>
 
       {/* ── Review parsed sheets section (Slice B1) ──────────────────────── */}
-      {/* Shown when at least one sheet is Parsed or Parsed Check Done.        */}
+      {/* Shown when at least one sheet is Parsed or Finalized.               */}
       {/* Each entry navigates to SheetReviewPage via handleOpenReview.        */}
       {reviewableDrafts.length > 0 && (
         <div className="rounded-lg border border-border bg-muted/20 p-4 flex flex-col gap-3">
@@ -765,7 +765,7 @@ const BoqHubPage = () => {
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             {reviewableDrafts.map((draft) => {
               const eff = getEffectiveStatus(draft);
-              const isChecked = eff === "Parsed Check Done";
+              const isChecked = eff === "Finalized";
               return (
                 <li key={draft.sheet_name} className="flex items-center justify-between gap-2">
                   <span className="text-sm text-foreground truncate min-w-0">
@@ -779,7 +779,7 @@ const BoqHubPage = () => {
                         ? "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300"
                         : "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
                     )}>
-                      {isChecked ? "Checked" : "Parsed"}
+                      {isChecked ? "Finalized" : "Parsed"}
                     </span>
                     <Button
                       size="sm"
@@ -811,8 +811,8 @@ const BoqHubPage = () => {
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <TooltipProvider>
-            {/* Export reviewed (Slice D2b) -- one .xlsx workbook of the checked
-                sheets (one tab each). Enabled when >= 1 "Parsed Check Done" sheet
+            {/* Export Finalized (Slice D2b) -- one .xlsx workbook of the Finalized
+                sheets (one tab each). Enabled when >= 1 "Finalized" sheet
                 exists; opens the selection dialog. Status- and view-independent. */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -823,7 +823,7 @@ const BoqHubPage = () => {
                     onClick={() => setExportDialogOpen(true)}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Export reviewed
+                    Export Finalized
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -975,22 +975,22 @@ const BoqHubPage = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── M2.23 combined warn-on-Reviewed dialog (Slice 2b-frontend-ii) ── */}
-      {/* Fires on Save when any newly-designated sheet is currently Reviewed. */}
-      {/* Un-designating never warns; non-Reviewed sheets never warn.          */}
+      {/* ── M2.23 combined warn-on-Config-Done dialog (Slice 2b-frontend-ii) ── */}
+      {/* Fires on Save when any newly-designated sheet is currently Config Done. */}
+      {/* Un-designating never warns; non-Config-Done sheets never warn.          */}
       <AlertDialog open={specsDialogOpen} onOpenChange={setSpecsDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Designate reviewed sheets as general specs?</AlertDialogTitle>
+            <AlertDialogTitle>Designate Config Done sheets as general specs?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingReviewedNames.length === 1
-                ? `"${pendingReviewedNames[0].trim() || pendingReviewedNames[0]}" is Reviewed -- designating it as a general-specs sheet will set its review aside. Continue?`
-                : `These ${pendingReviewedNames.length} sheets are Reviewed -- designating them as general-specs sheets will set their reviews aside. Continue?`}
+              {pendingConfigDoneNames.length === 1
+                ? `"${pendingConfigDoneNames[0].trim() || pendingConfigDoneNames[0]}" is Config Done -- designating it as a general-specs sheet will set its review aside. Continue?`
+                : `These ${pendingConfigDoneNames.length} sheets are Config Done -- designating them as general-specs sheets will set their reviews aside. Continue?`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {pendingReviewedNames.length > 1 && (
+          {pendingConfigDoneNames.length > 1 && (
             <ul className="px-6 pb-2 space-y-0.5 text-sm text-muted-foreground">
-              {pendingReviewedNames.map((name) => (
+              {pendingConfigDoneNames.map((name) => (
                 <li key={name}>&middot; {name.trim() || name}</li>
               ))}
             </ul>

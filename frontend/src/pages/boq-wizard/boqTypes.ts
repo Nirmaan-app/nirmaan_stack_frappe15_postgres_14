@@ -48,12 +48,12 @@ export type WizardStatus =
   | ""
   | "Pending"
   | "Hidden"
-  | "Reviewed"
+  | "Config Done"
   | "Skip"
   | "General specs"
   | "Parse failed"
   | "Parsed"
-  | "Parsed Check Done";
+  | "Finalized";
 
 /**
  * Whole-BoQ work-package map returned by get_boq_work_packages.
@@ -95,7 +95,7 @@ export interface BoQSheetDraft {
   sheet_config?: Record<string, unknown> | string | null;
   /**
    * Set to 1 by the parse worker when it marks a sheet "Parsed". Never cleared.
-   * Dirty-detection contract: wizard_status="Reviewed" + has_prior_parse=1 means
+   * Dirty-detection contract: wizard_status="Config Done" + has_prior_parse=1 means
    * the sheet was parsed then had its config changed (parse is stale).
    */
   has_prior_parse?: 0 | 1;
@@ -401,13 +401,13 @@ export interface GetStructuralBreaksResponse {
   breaks: StructuralBreak[];
 }
 
-// ── Parsed Check Done marking (Slice D1) ──────────────────────────────────────
+// ── Finalized marking (Slice D1; renamed A1) ──────────────────────────────────
 
 /**
  * Response shape of mark_sheet_parsed_check_done.
  *  - ok:false + breaks  -> structural issues found; caller escalates to a warn dialog
  *    and may re-POST with confirm:true.
- *  - ok:true + status + overridden -> the sheet is now "Parsed Check Done"
+ *  - ok:true + status + overridden -> the sheet is now "Finalized"
  *    (overridden true iff breaks existed but were confirmed past).
  */
 export interface MarkParsedCheckDoneResponse {

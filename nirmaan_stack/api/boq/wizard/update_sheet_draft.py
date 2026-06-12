@@ -7,7 +7,7 @@ import frappe
 _DIRECT_SET_STATUSES = frozenset({
     "Pending",
     "Hidden",
-    "Reviewed",
+    "Config Done",
     "Skip",
     "Parse failed",
 })
@@ -46,11 +46,33 @@ def _guard_sheet_not_parsing(boq_name: str, sheet_name: str) -> None:
         )
 
 
+def _guard_sheet_not_finalized(boq_name: str, sheet_name: str) -> None:
+    """Block any config write to a Finalized sheet (A1 config freeze).
+
+    Throws iff the draft's wizard_status == "Finalized". A missing draft row ->
+    get_value None -> pass-through (safe). sheet_name matched VERBATIM (#152).
+    The frontend offers an "Un-mark and edit" affordance (SheetConfigPanel) that
+    calls unmark_sheet_parsed_check_done to lift the freeze; this is the backend
+    backstop. Called in all five config writers, AFTER _guard_sheet_not_parsing.
+    """
+    status = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "wizard_status",
+    )
+    if status == "Finalized":
+        frappe.throw(
+            "This sheet is Finalized and locked. Un-mark it from the sheet's "
+            "config screen or review screen to make changes.",
+            title="Sheet is Finalized",
+        )
+
+
 @frappe.whitelist(methods=["POST"])
 def set_sheet_status(boq_name: str = None, sheet_name: str = None, status: str = None):
     """Set wizard_status on a sheet-draft child row.
 
-    Allowed values: Pending, Hidden, Reviewed, Skip, Parse failed.
+    Allowed values: Pending, Hidden, Config Done, Skip, Parse failed.
     'General specs' cannot be set directly -- use set_general_specs_sheet; the
     backend stores a pointer on BOQs.general_specs_sheet and the frontend derives
     the displayed badge from it.
@@ -89,6 +111,8 @@ def set_sheet_status(boq_name: str = None, sheet_name: str = None, status: str =
 
     # #164: reject writes to a sheet whose parse is in flight.
     _guard_sheet_not_parsing(boq_name, sheet_name)
+    # A1: reject config writes to a Finalized sheet (un-mark to edit).
+    _guard_sheet_not_finalized(boq_name, sheet_name)
 
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", status)
     frappe.db.commit()
@@ -118,6 +142,8 @@ def set_sheet_label(boq_name: str = None, sheet_name: str = None, label: str = N
 
     # #164: reject writes to a sheet whose parse is in flight.
     _guard_sheet_not_parsing(boq_name, sheet_name)
+    # A1: reject config writes to a Finalized sheet (un-mark to edit).
+    _guard_sheet_not_finalized(boq_name, sheet_name)
 
     frappe.db.set_value("BoQ Sheet Draft", child_name, "sheet_label", label or "")
     frappe.db.commit()
@@ -180,6 +206,8 @@ def set_general_specs_sheet(boq_name: str = None, sheet_names=None):
             )
         # #164: reject if ANY named sheet's parse is in flight (no partial write).
         _guard_sheet_not_parsing(boq_name, name)
+        # A1: reject if ANY named sheet is Finalized (no partial write).
+        _guard_sheet_not_finalized(boq_name, name)
 
     # Replace-all: remove all existing designations, then insert one row per name.
     frappe.db.delete("BoQ General Specs Sheet", {"parent": boq_name, "parenttype": "BOQs"})
@@ -206,7 +234,7 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
 
     Dirty-marker: if the sheet's current wizard_status is "Parsed" and the new
     config differs from the stored config (semantic compare with sort_keys
-    normalization, not raw-string), the status is dropped to "Reviewed" -- the
+    normalization, not raw-string), the status is dropped to "Config Done" -- the
     config change invalidates the prior parse. A no-op save (identical config,
     including key-reordering) leaves a Parsed sheet as Parsed.
     URL: /api/method/nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_config
@@ -246,6 +274,8 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
 
     # #164: reject writes to a sheet whose parse is in flight.
     _guard_sheet_not_parsing(boq_name, sheet_name)
+    # A1: reject config writes to a Finalized sheet (un-mark to edit).
+    _guard_sheet_not_finalized(boq_name, sheet_name)
 
     # Read current state for dirty-marker detection.
     current = frappe.db.get_value(
@@ -280,11 +310,12 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
 
     changed = incoming_canonical != stored_canonical
 
-    # Dirty-marker: drop Parsed -> Reviewed on an actual config change only.
-    # Other statuses (Pending, Reviewed, Skip, Hidden, Parse failed) are not
-    # affected -- the marker is only meaningful for a post-parse sheet.
+    # Dirty-marker: drop Parsed -> Config Done on an actual config change only.
+    # Other statuses (Pending, Config Done, Skip, Hidden, Parse failed) are not
+    # affected -- the marker is only meaningful for a post-parse sheet. A Finalized
+    # sheet never reaches here: _guard_sheet_not_finalized rejects the write first.
     if current_status == "Parsed" and changed:
-        frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", "Reviewed")
+        frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", "Config Done")
 
     frappe.db.set_value("BoQ Sheet Draft", child_name, "sheet_config", config_str)
     frappe.db.commit()
@@ -342,6 +373,8 @@ def set_sheet_work_packages(boq_name: str = None, sheet_name: str = None, work_h
 
     # #164: reject writes to a sheet whose parse is in flight.
     _guard_sheet_not_parsing(boq_name, sheet_name)
+    # A1: reject config writes to a Finalized sheet (un-mark to edit).
+    _guard_sheet_not_finalized(boq_name, sheet_name)
 
     # Replace-all: clear existing, insert new
     frappe.db.delete("BoQ Sheet Work Package", {

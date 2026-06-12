@@ -19,7 +19,7 @@ interface ParseRunDialogProps {
   onClose: () => void;
   /** Called with the exact sheet_names list to pass to run_parse. */
   onConfirm: (sheetNames: string[]) => void;
-  /** All "Reviewed" effective-status sheets -- each gets a checkbox. */
+  /** All "Config Done" effective-status sheets -- each gets a checkbox. */
   reviewedDrafts: BoQSheetDraft[];
   /** All "Parsed" effective-status sheets -- shown as read-only "Already parsed". */
   parsedDrafts: BoQSheetDraft[];
@@ -36,7 +36,7 @@ interface ParseRunDialogProps {
    * tickable source is `reviewedDrafts`, the four informational lists show, no
    * force_reparse. "reparse" = the Force Re-parse path: tickable source is
    * `reparseDrafts` (already-parsed sheets the backend admits under force_reparse --
-   * Parsed / Parsed Check Done / dirty-Reviewed), informational lists hidden, copy
+   * Parsed / Finalized / dirty-Config-Done), informational lists hidden, copy
    * + warning re-targeted. The parent derives force_reparse from its own mode state;
    * onConfirm's signature is unchanged.
    */
@@ -71,7 +71,7 @@ export function ParseRunDialog({
 }: ParseRunDialogProps) {
   const isReparse = mode === "reparse";
 
-  // The tickable source. Parse mode = Reviewed drafts (the existing behaviour).
+  // The tickable source. Parse mode = Config Done drafts (the existing behaviour).
   // Reparse mode = the re-parse-eligible drafts, optionally narrowed to one sheet
   // (per-card entry point). Computed before state so the seed effect reads it.
   const tickableDrafts = isReparse
@@ -113,7 +113,7 @@ export function ParseRunDialog({
     .map((d) => d.sheet_name);
 
   // Ticked sheets that have has_prior_parse=1 (re-parsing them discards prior output).
-  // In reparse mode every tickable sheet qualifies; in parse mode only dirty-Reviewed.
+  // In reparse mode every tickable sheet qualifies; in parse mode only dirty-Config-Done.
   const dirtyTicked = tickableDrafts.filter(
     (d) => tickedSheets.has(d.sheet_name) && d.has_prior_parse === 1
   );
@@ -121,7 +121,7 @@ export function ParseRunDialog({
   // Of the discarded sheets, those a human hand-reviewed and marked Checked -- the
   // loudest loss (a completed review is thrown away). Drives the step-2 callout.
   const checkedDoneTicked = dirtyTicked.filter(
-    (d) => d.wizard_status === "Parsed Check Done"
+    (d) => d.wizard_status === "Finalized"
   );
 
   const handleParseClick = () => {
@@ -177,10 +177,10 @@ export function ParseRunDialog({
                       const isDirty = d.has_prior_parse === 1;
                       const isTicked = tickedSheets.has(d.sheet_name);
                       // Per-row note: in reparse mode name what is discarded by status;
-                      // in parse mode flag only dirty-Reviewed sheets (the existing note).
+                      // in parse mode flag only dirty-Config-Done sheets (the existing note).
                       const note = isReparse
-                        ? d.wizard_status === "Parsed Check Done"
-                          ? "checked -- re-parsing discards the completed review"
+                        ? d.wizard_status === "Finalized"
+                          ? "finalized -- re-parsing discards the completed review"
                           : d.wizard_status === "Parsed"
                           ? "parsed -- current output will be discarded"
                           : "was parsed -- config changed, will re-parse"
@@ -334,8 +334,8 @@ export function ParseRunDialog({
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>
                     {checkedDoneTicked.length === 1
-                      ? `"${checkedDoneTicked[0].sheet_name.trim() || checkedDoneTicked[0].sheet_name}" was hand-reviewed and marked Checked.`
-                      : `${checkedDoneTicked.length} sheets were hand-reviewed and marked Checked.`}{" "}
+                      ? `"${checkedDoneTicked[0].sheet_name.trim() || checkedDoneTicked[0].sheet_name}" was hand-reviewed and marked Finalized.`
+                      : `${checkedDoneTicked.length} sheets were hand-reviewed and marked Finalized.`}{" "}
                     Re-parsing throws away that completed review entirely.
                   </span>
                 </p>

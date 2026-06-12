@@ -33,7 +33,16 @@ import {
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import type { ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
-import { AlertTriangle, Check, CheckCircle2, Info, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Info, Loader2, ShieldCheck, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
@@ -164,7 +173,7 @@ interface SheetConfigPanelProps {
   /**
    * #164: true while this sheet is under active parse/re-parse. When set, the
    * whole panel is locked (a <fieldset disabled> + an amber banner) and
-   * dropIfReviewed is short-circuited -- no config write may fire mid-parse.
+   * dropIfConfigDone is short-circuited -- no config write may fire mid-parse.
    */
   isParsing?: boolean;
   onSaveSuccess: () => void;
@@ -378,6 +387,30 @@ export function SheetConfigPanel({
   const { call: callSetWorkPackages } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.set_sheet_work_packages"
   );
+  // A1: un-mark a Finalized sheet (lifts the config freeze). Reuses the existing
+  // review-screen endpoint -- name unchanged (it sets wizard_status back to "Parsed").
+  const { call: callUnmark, loading: unmarkLoading } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.review_screen.unmark_sheet_parsed_check_done"
+  );
+
+  // ── A1: Finalized config freeze ───────────────────────────────────────────
+  // When the sheet is Finalized the whole panel is locked (fieldset + teal banner);
+  // "Un-mark and edit" lifts it via the unmark endpoint, then onSaveSuccess re-fetches
+  // so wizardStatus flips to "Parsed" and the panel unlocks. Parsing amber beats this.
+  const finalized = wizardStatus === "Finalized";
+  const [unmarkDialogOpen, setUnmarkDialogOpen] = useState(false);
+  const [unmarkError, setUnmarkError] = useState<string | null>(null);
+
+  const handleUnmarkAndEdit = async () => {
+    setUnmarkError(null);
+    try {
+      await callUnmark({ boq_name: boqName, sheet_name: sheetName });
+      setUnmarkDialogOpen(false);
+      onSaveSuccess();
+    } catch (e: unknown) {
+      setUnmarkError(getFrappeError(e) || "Could not un-mark the sheet. Please try again.");
+    }
+  };
 
   // ── Work Headers catalog (Section 4 picker) ───────────────────────────────
   // ~9 global records; fetched once. "order" is a PostgreSQL reserved keyword
@@ -409,15 +442,15 @@ export function SheetConfigPanel({
   const touchS4 = () =>
     setConfirmedFields((prev) => new Set([...prev, "section:workpackages"]));
 
-  // M3.12: drop a Reviewed sheet to Pending on the first genuine change event.
+  // M3.12: drop a Config Done sheet to Pending on the first genuine change event.
   // Fires at most once per spoke open (dropFiredRef). Change events only -- NOT
   // onFocus/onClick/onOpenChange (those do not represent a value edit).
-  const dropIfReviewed = () => {
+  const dropIfConfigDone = () => {
     // #164: never fire a write while the sheet is parsing (belt-and-braces -- the
     // controls are disabled by the fieldset, but guard the programmatic path too).
     if (isParsing) return;
     if (dropFiredRef.current) return;
-    if (statusAtOpenRef.current !== "Reviewed") return;
+    if (statusAtOpenRef.current !== "Config Done") return;
     dropFiredRef.current = true;
     setAttestChecked(false);
     // §9 #161: surface a real backend reject (e.g. the parse-lock guard) instead of
@@ -527,7 +560,7 @@ export function SheetConfigPanel({
   // ── Section 3 handlers ───────────────────────────────────────────────────
 
   const addRow = () => {
-    dropIfReviewed();
+    dropIfConfigDone();
     touchS3("column_role_map");
     pendingIdRef.current += 1;
     setPendingRows((prev) => [...prev, String(pendingIdRef.current)]);
@@ -535,7 +568,7 @@ export function SheetConfigPanel({
 
   /** Pending row: column selected → moves to columnRoleMap with empty role. */
   const commitPendingRow = (pendingId: string, col: string) => {
-    dropIfReviewed();
+    dropIfConfigDone();
     setPendingRows((prev) => prev.filter((id) => id !== pendingId));
     setColumnRoleMap((prev) => ({ ...prev, [col]: { role: "", area: null } }));
     touchS3("column_role_map");
@@ -544,7 +577,7 @@ export function SheetConfigPanel({
   /** Change the column letter of an existing mapped row (A → B). */
   const changeColumn = (oldCol: string, newCol: string) => {
     if (oldCol === newCol) return;
-    dropIfReviewed();
+    dropIfConfigDone();
     setColumnRoleMap((prev) => {
       const entry = prev[oldCol];
       const next = { ...prev };
@@ -558,7 +591,7 @@ export function SheetConfigPanel({
 
   /** Update the role for an existing mapped row. Clears area if new role is non-compatible. */
   const changeRole = (col: string, newRole: string) => {
-    dropIfReviewed();
+    dropIfConfigDone();
     setColumnRoleMap((prev) => ({
       ...prev,
       [col]: {
@@ -571,7 +604,7 @@ export function SheetConfigPanel({
 
   /** Update the area for an existing mapped row. "__none__" sentinel → null. */
   const changeArea = (col: string, v: string) => {
-    dropIfReviewed();
+    dropIfConfigDone();
     setColumnRoleMap((prev) => ({
       ...prev,
       [col]: { ...prev[col], area: v === "__none__" ? null : v },
@@ -580,7 +613,7 @@ export function SheetConfigPanel({
   };
 
   const removeRow = (col: string) => {
-    dropIfReviewed();
+    dropIfConfigDone();
     setColumnRoleMap((prev) => {
       const next = { ...prev };
       delete next[col];
@@ -590,14 +623,14 @@ export function SheetConfigPanel({
   };
 
   const removePendingRow = (pendingId: string) => {
-    dropIfReviewed();
+    dropIfConfigDone();
     setPendingRows((prev) => prev.filter((id) => id !== pendingId));
     touchS3("column_role_map");
   };
 
   // ── Save (read-modify-write) ──────────────────────────────────────────────
 
-  /** Build the full config payload -- shared by handleSave and handleMarkReviewed. */
+  /** Build the full config payload -- shared by handleSave and handleMarkConfigDone. */
   const buildConfigPayload = (): string => {
     const existing = parsedConfig ?? {};
     let topRows: number[] = [];
@@ -682,9 +715,9 @@ export function SheetConfigPanel({
 
   // ── Mark as reviewed (save-anchored, two sequential calls) ─────────────────
   // Step 1: set_sheet_config (same payload as Save config).
-  // Step 2 (only on Step 1 success): set_sheet_status("Reviewed").
+  // Step 2 (only on Step 1 success): set_sheet_status("Config Done").
   // If Step 2 fails, config is saved but status flip is reported inline.
-  const handleMarkReviewed = async () => {
+  const handleMarkConfigDone = async () => {
     if (isSaving) return;
     setIsSaving(true);
     setSaveError(null);
@@ -715,7 +748,7 @@ export function SheetConfigPanel({
 
       // Step 3: flip status.
       try {
-        await callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Reviewed" });
+        await callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Config Done" });
       } catch (e: unknown) {
         setSaveError(
           `Config and work packages saved but status update failed. ${getFrappeError(e)} Click Mark as reviewed again to retry.`.trim()
@@ -753,9 +786,32 @@ export function SheetConfigPanel({
         </div>
       )}
 
-      {/* #164: native <fieldset disabled> cascades to every descendant button/input/
-          select, so a single flag locks Sections 1-4 + Save + Mark-as-reviewed. */}
-      <fieldset disabled={isParsing} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">
+      {/* ── A1: Finalized config-lock banner -- shown when Finalized AND not parsing
+          (parsing amber takes precedence). "Un-mark and edit" lifts the freeze. ── */}
+      {!isParsing && finalized && (
+        <div className="flex flex-col gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
+          <div className="flex items-start gap-2">
+            <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-teal-700 dark:text-teal-300" />
+            <p className="text-teal-900 dark:text-teal-100">
+              This sheet is Finalized and locked. To change the configuration, un-mark it first.
+            </p>
+          </div>
+          <div className="pl-6">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setUnmarkError(null); setUnmarkDialogOpen(true); }}
+            >
+              Un-mark and edit
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* #164 + A1: native <fieldset disabled> cascades to every descendant button/
+          input/select, so one flag (parsing OR finalized) locks Sections 1-4 + Save +
+          Mark-as-reviewed. */}
+      <fieldset disabled={isParsing || finalized} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">
 
       {/* ── Zone A: Parsing configuration ────────────────────────────────── */}
       <div className="rounded-md border border-border p-3">
@@ -785,7 +841,7 @@ export function SheetConfigPanel({
             value={String(hrc)}
             onOpenChange={(open) => { if (open) touchS1("header_row_count"); }}
             onValueChange={(v) => {
-              dropIfReviewed();
+              dropIfConfigDone();
               touchS1("header_row_count");
               setHrc(v === "2" ? 2 : 1);
             }}
@@ -818,7 +874,7 @@ export function SheetConfigPanel({
             className={cn("w-32", isUnconfirmed("header_row", headerRow !== "") && "opacity-50")}
             onFocus={() => touchS1("header_row")}
             onClick={() => touchS1("header_row")}
-            onChange={(e) => { dropIfReviewed(); touchS1("header_row"); setHeaderRow(e.target.value); }}
+            onChange={(e) => { dropIfConfigDone(); touchS1("header_row"); setHeaderRow(e.target.value); }}
           />
         </div>
 
@@ -845,7 +901,7 @@ export function SheetConfigPanel({
                 variant={topAdjacent ? "default" : "ghost"}
                 className="rounded-none"
                 onClick={() => {
-                  dropIfReviewed();
+                  dropIfConfigDone();
                   touchS1("top_header_rows_override");
                   setTopAdjacent(true);
                   setTopHeaderRowNum("");
@@ -859,7 +915,7 @@ export function SheetConfigPanel({
                 variant={!topAdjacent ? "default" : "ghost"}
                 className="rounded-none border-l border-border"
                 onClick={() => {
-                  dropIfReviewed();
+                  dropIfConfigDone();
                   touchS1("top_header_rows_override");
                   setTopAdjacent(false);
                 }}
@@ -892,7 +948,7 @@ export function SheetConfigPanel({
                   onFocus={() => touchS1("top_header_rows_override")}
                   onClick={() => touchS1("top_header_rows_override")}
                   onChange={(e) => {
-                    dropIfReviewed();
+                    dropIfConfigDone();
                     touchS1("top_header_rows_override");
                     setTopHeaderRowNum(e.target.value);
                   }}
@@ -924,7 +980,7 @@ export function SheetConfigPanel({
             className={cn("w-64", isUnconfirmed("skip_top_rows_after_header", skipRowsInput !== "") && "opacity-50")}
             onFocus={() => touchS1("skip_top_rows_after_header")}
             onClick={() => touchS1("skip_top_rows_after_header")}
-            onChange={(e) => { dropIfReviewed(); touchS1("skip_top_rows_after_header"); setSkipRowsInput(e.target.value); }}
+            onChange={(e) => { dropIfConfigDone(); touchS1("skip_top_rows_after_header"); setSkipRowsInput(e.target.value); }}
           />
           <p className="text-xs text-muted-foreground">
             Comma-separated absolute row numbers to exclude. Non-numeric entries are ignored.
@@ -948,7 +1004,7 @@ export function SheetConfigPanel({
               size="sm"
               variant={!isMulti ? "default" : "ghost"}
               className="rounded-none"
-              onClick={() => { dropIfReviewed(); touchS2("area_dimensions"); setIsMulti(false); }}
+              onClick={() => { dropIfConfigDone(); touchS2("area_dimensions"); setIsMulti(false); }}
             >
               Single area
             </Button>
@@ -958,7 +1014,7 @@ export function SheetConfigPanel({
               variant={isMulti ? "default" : "ghost"}
               className="rounded-none border-l border-border"
               onClick={() => {
-                dropIfReviewed();
+                dropIfConfigDone();
                 touchS2("area_dimensions");
                 if (!isMulti && areaBoxes.every((s) => s.trim() === "")) setAreaBoxes([""]);
                 setIsMulti(true);
@@ -978,7 +1034,7 @@ export function SheetConfigPanel({
                     className="max-w-64"
                     onFocus={() => touchS2("area_dimensions")}
                     onChange={(e) => {
-                      dropIfReviewed();
+                      dropIfConfigDone();
                       touchS2("area_dimensions");
                       setAreaBoxes((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)));
                     }}
@@ -988,7 +1044,7 @@ export function SheetConfigPanel({
                       type="button"
                       className="text-muted-foreground hover:text-destructive focus:outline-none"
                       aria-label={`Remove area ${i + 1}`}
-                      onClick={() => { dropIfReviewed(); touchS2("area_dimensions"); setAreaBoxes((prev) => prev.filter((_, idx) => idx !== i)); }}
+                      onClick={() => { dropIfConfigDone(); touchS2("area_dimensions"); setAreaBoxes((prev) => prev.filter((_, idx) => idx !== i)); }}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -999,7 +1055,7 @@ export function SheetConfigPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => { dropIfReviewed(); touchS2("area_dimensions"); setAreaBoxes((prev) => [...prev, ""]); }}
+                onClick={() => { dropIfConfigDone(); touchS2("area_dimensions"); setAreaBoxes((prev) => [...prev, ""]); }}
               >
                 + Add area
               </Button>
@@ -1267,7 +1323,7 @@ export function SheetConfigPanel({
                 id={`wp-${wh.name}`}
                 checked={selectedWorkHeaders.includes(wh.name)}
                 onCheckedChange={(checked) => {
-                  dropIfReviewed();
+                  dropIfConfigDone();
                   touchS4();
                   setSelectedWorkHeaders((prev) =>
                     checked
@@ -1407,16 +1463,37 @@ export function SheetConfigPanel({
             disabled={isSaving || !attestChecked}
             className="text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950"
             variant="outline"
-            onClick={() => void handleMarkReviewed()}
+            onClick={() => void handleMarkConfigDone()}
           >
             {isSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             {!isSaving && <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
-            Mark as reviewed
+            Mark as Config Done
           </Button>
           {saveError && <p className="text-xs text-destructive">{saveError}</p>}
         </div>
       </div>
       </fieldset>
+
+      {/* ── A1: Un-mark-and-edit confirm (outside the fieldset; portals to body) ── */}
+      <AlertDialog open={unmarkDialogOpen} onOpenChange={(o) => { if (!o) { setUnmarkDialogOpen(false); setUnmarkError(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Un-mark this Finalized sheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the Finalized status. The sheet returns to Parsed and must be
+              re-finalized after any changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {unmarkError && <p className="text-sm text-destructive">{unmarkError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unmarkLoading}>Cancel</AlertDialogCancel>
+            {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend error. */}
+            <Button disabled={unmarkLoading} onClick={() => { void handleUnmarkAndEdit(); }}>
+              Un-mark and edit
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
     </TooltipProvider>
   );

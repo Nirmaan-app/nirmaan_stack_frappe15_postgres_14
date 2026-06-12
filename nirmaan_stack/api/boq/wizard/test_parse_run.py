@@ -156,7 +156,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.append("general_specs_sheets", {"source_sheet_name": "Sheet5", "preamble_text": ""})
         boq.append("sheet_drafts", {
             "sheet_name": "Sheet1", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.append("sheet_drafts", {
             "sheet_name": "Sheet2", "sheet_order": 2,
@@ -172,7 +172,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         })
         boq.append("sheet_drafts", {
             "sheet_name": "Sheet5", "sheet_order": 5,
-            "wizard_status": "Reviewed",
+            "wizard_status": "Config Done",
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -188,7 +188,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         frappe.db.commit()
 
     def test_reviewed_sheet_included_as_data(self):
-        """A Reviewed sheet with a valid blob is included as a data SheetConfig."""
+        """A Config Done sheet with a valid blob is included as a data SheetConfig."""
         boq = self._make_boq_with_sheets()
         config, not_eligible = assemble_mapping_config(boq.name)
         reviewed = next((s for s in config.sheets if s.sheet_name == "Sheet1"), None)
@@ -244,7 +244,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         self.assertEqual(len(config.sheets), 4)
 
     def test_parsed_status_included_like_reviewed(self):
-        """A 'Parsed' sheet (next lifecycle state after Reviewed) is treated as data."""
+        """A 'Parsed' sheet (next lifecycle state after Config Done) is treated as data."""
         sc = SheetConfig(
             sheet_name="SheetParsed",
             header_row=1,
@@ -271,7 +271,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         self.assertNotIn("SheetParsed", not_eligible)
 
     def test_reviewed_without_config_blob_goes_to_not_eligible(self):
-        """Reviewed but no sheet_config blob -> not_eligible, not a hard error."""
+        """Config Done but no sheet_config blob -> not_eligible, not a hard error."""
         sc = SheetConfig(
             sheet_name="OtherSheet",
             header_row=1,
@@ -283,11 +283,11 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.append("sheet_drafts", {
             "sheet_name": "OtherSheet", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": json.dumps(sc.model_dump()),
+            "wizard_status": "Config Done", "sheet_config": json.dumps(sc.model_dump()),
         })
         boq.append("sheet_drafts", {
             "sheet_name": "NoBlob", "sheet_order": 2,
-            "wizard_status": "Reviewed",
+            "wizard_status": "Config Done",
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -323,7 +323,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         })
         boq.append("sheet_drafts", {
             "sheet_name": "Data Sheet", "sheet_order": 2,
-            "wizard_status": "Reviewed", "sheet_config": sc_blob,
+            "wizard_status": "Config Done", "sheet_config": sc_blob,
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -380,7 +380,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.append("sheet_drafts", {
             "sheet_name": "Electrical BOQ",
             "sheet_order": 1,
-            "wizard_status": "Reviewed",
+            "wizard_status": "Config Done",
             "sheet_config": production_blob,
         })
         boq.insert(ignore_permissions=True)
@@ -417,7 +417,7 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.append("sheet_drafts", {"sheet_name": "General Notes", "sheet_order": 2, "wizard_status": "Skip"})
         boq.append("sheet_drafts", {
             "sheet_name": "DataSheet", "sheet_order": 3,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -440,16 +440,16 @@ class TestAssembleMappingConfig(FrappeTestCase):
         self.assertIsNotNone(gn_sc)
         self.assertEqual(gn_sc.treat_as, "master_preamble")
 
-    # -- Force Re-parse: flag-gated "Parsed Check Done" eligibility ----------
+    # -- Force Re-parse: flag-gated "Finalized" eligibility ----------
     # Slice: Force Re-parse backend floor. assemble_mapping_config gains an
-    # optional force_reparse flag that admits a "Parsed Check Done" sheet (one a
+    # optional force_reparse flag that admits a "Finalized" sheet (one a
     # human hand-edited on the review screen and marked checked) as a data target
     # ONLY when set. Without the flag the normal parse path is byte-for-byte
     # unchanged -- the regression guard (T2) is the load-bearing proof of that.
 
     def _make_boq_with_checked_sheet(self):
-        """BOQ with a 'Parsed Check Done' sheet (valid blob) PLUS a Reviewed and a
-        Parsed data sheet. The Reviewed/Parsed sheets keep assemble_mapping_config
+        """BOQ with a 'Finalized' sheet (valid blob) PLUS a Config Done and a
+        Parsed data sheet. The Config Done/Parsed sheets keep assemble_mapping_config
         from raising 'no eligible sheets' on the no-flag path, so the Checked sheet
         can be observed landing in not_eligible (T2)."""
         sc = SheetConfig(
@@ -464,11 +464,11 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.append("sheet_drafts", {
             "sheet_name": "Checked", "sheet_order": 1,
-            "wizard_status": "Parsed Check Done", "sheet_config": blob,
+            "wizard_status": "Finalized", "sheet_config": blob,
         })
         boq.append("sheet_drafts", {
-            "sheet_name": "ReviewedSheet", "sheet_order": 2,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "sheet_name": "ConfigDoneSheet", "sheet_order": 2,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.append("sheet_drafts", {
             "sheet_name": "ParsedSheet", "sheet_order": 3,
@@ -479,19 +479,19 @@ class TestAssembleMappingConfig(FrappeTestCase):
         return boq
 
     def test_force_reparse_admits_parsed_check_done(self):
-        """T1: WITH force_reparse=True, a 'Parsed Check Done' sheet (valid blob) IS
+        """T1: WITH force_reparse=True, a 'Finalized' sheet (valid blob) IS
         admitted as a data parse target -- same treatment as Rule 3."""
         boq = self._make_boq_with_checked_sheet()
         config, not_eligible = assemble_mapping_config(boq.name, force_reparse=True)
         checked = next((s for s in config.sheets if s.sheet_name == "Checked"), None)
-        self.assertIsNotNone(checked, "Parsed Check Done sheet not admitted under force_reparse")
+        self.assertIsNotNone(checked, "Finalized sheet not admitted under force_reparse")
         self.assertFalse(checked.skip)
         self.assertEqual(checked.treat_as, "data")
         self.assertNotIn("Checked", not_eligible)
 
     def test_normal_parse_excludes_parsed_check_done(self):
         """T2 (regression guard -- the load-bearing proof): WITHOUT the flag, the SAME
-        'Parsed Check Done' sheet stays in not_eligible exactly as today. Force-reparse
+        'Finalized' sheet stays in not_eligible exactly as today. Force-reparse
         eligibility must never leak into the normal parse path."""
         boq = self._make_boq_with_checked_sheet()
         config, not_eligible = assemble_mapping_config(boq.name)  # default force_reparse=False
@@ -499,22 +499,22 @@ class TestAssembleMappingConfig(FrappeTestCase):
         self.assertNotIn("Checked", [s.sheet_name for s in config.sheets])
 
     def test_force_reparse_does_not_change_reviewed_or_parsed(self):
-        """T3 (no-regression on Rule 3): Reviewed and Parsed sheets remain eligible data
+        """T3 (no-regression on Rule 3): Config Done and Parsed sheets remain eligible data
         targets identically with or without force_reparse."""
         boq = self._make_boq_with_checked_sheet()
         cfg_off, _ = assemble_mapping_config(boq.name)
         cfg_on, _ = assemble_mapping_config(boq.name, force_reparse=True)
         for label, cfg in (("force_reparse=False", cfg_off), ("force_reparse=True", cfg_on)):
-            rev = next((s for s in cfg.sheets if s.sheet_name == "ReviewedSheet"), None)
+            rev = next((s for s in cfg.sheets if s.sheet_name == "ConfigDoneSheet"), None)
             par = next((s for s in cfg.sheets if s.sheet_name == "ParsedSheet"), None)
-            self.assertIsNotNone(rev, f"ReviewedSheet missing under {label}")
-            self.assertEqual(rev.treat_as, "data", f"ReviewedSheet not data under {label}")
+            self.assertIsNotNone(rev, f"ConfigDoneSheet missing under {label}")
+            self.assertEqual(rev.treat_as, "data", f"ConfigDoneSheet not data under {label}")
             self.assertIsNotNone(par, f"ParsedSheet missing under {label}")
             self.assertEqual(par.treat_as, "data", f"ParsedSheet not data under {label}")
 
     def test_force_reparse_parsed_check_done_without_blob_still_not_eligible(self):
-        """The flag admits 'Parsed Check Done' on the SAME terms as Rule 3 -- a valid
-        sheet_config blob is still required. A blob-less Parsed Check Done sheet stays
+        """The flag admits 'Finalized' on the SAME terms as Rule 3 -- a valid
+        sheet_config blob is still required. A blob-less Finalized sheet stays
         not_eligible even WITH force_reparse=True (the empty-blob sub-gate still applies)."""
         sc = SheetConfig(
             sheet_name="Anchor", header_row=1,
@@ -525,14 +525,14 @@ class TestAssembleMappingConfig(FrappeTestCase):
         boq.project = self.__class__.test_project.name
         boq.boq_name = f"ForceReparse NoBlob {frappe.generate_hash(length=4)}"
         boq.tax_treatment = "Pre-tax"
-        # Anchor (Reviewed) keeps assemble from raising; CheckedNoBlob has no sheet_config.
+        # Anchor (Config Done) keeps assemble from raising; CheckedNoBlob has no sheet_config.
         boq.append("sheet_drafts", {
             "sheet_name": "Anchor", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.append("sheet_drafts", {
             "sheet_name": "CheckedNoBlob", "sheet_order": 2,
-            "wizard_status": "Parsed Check Done",
+            "wizard_status": "Finalized",
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -1044,8 +1044,8 @@ class TestRunParseWorker(FrappeTestCase):
         self,
         include_b: bool = False,
         include_sow: bool = False,
-        sheet_a_status: str = "Reviewed",
-        sheet_b_status: str = "Reviewed",
+        sheet_a_status: str = "Config Done",
+        sheet_b_status: str = "Config Done",
     ):
         """Create a BOQs with SheetA + optional SheetB / SOW. Blob uses production 6-key shape."""
         blob = json.dumps(_PROD_BLOB_TMPL)
@@ -1068,7 +1068,7 @@ class TestRunParseWorker(FrappeTestCase):
         if include_sow:
             boq.append("sheet_drafts", {
                 "sheet_name": "SOW", "sheet_order": 3,
-                "wizard_status": "Reviewed",
+                "wizard_status": "Config Done",
                 # no sheet_config: Rule 2 (master_preamble) fires before Rule 3 (blob check)
             })
         boq.insert(ignore_permissions=True)
@@ -1082,7 +1082,7 @@ class TestRunParseWorker(FrappeTestCase):
     # -- status lifecycle ------------------------------------------------
 
     def test_reviewed_becomes_parsed_on_success(self):
-        """Reviewed sheet's wizard_status transitions to 'Parsed' after a successful parse."""
+        """Config Done sheet's wizard_status transitions to 'Parsed' after a successful parse."""
         boq = self._make_boq()
         self._run(boq.name)
         boq.reload()
@@ -1129,7 +1129,7 @@ class TestRunParseWorker(FrappeTestCase):
         self._run(boq.name)
         count_1 = frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"})
 
-        # Second parse: sheet is now "Parsed" (treated same as Reviewed by assemble_mapping_config)
+        # Second parse: sheet is now "Parsed" (treated same as Config Done by assemble_mapping_config)
         self._run(boq.name)
         count_2 = frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"})
 
@@ -1139,37 +1139,37 @@ class TestRunParseWorker(FrappeTestCase):
     # -- Force Re-parse (Option A confirmation at the worker level) -------
 
     def test_force_reparse_checked_sheet_ends_parsed(self):
-        """T4 (Option A end-to-end): a flagged re-parse of a 'Parsed Check Done' sheet
+        """T4 (Option A end-to-end): a flagged re-parse of a 'Finalized' sheet
         inserts rows and ends with wizard_status 'Parsed' (the worker's unconditional
         status-set line, verified unchanged this slice)."""
-        boq = self._make_boq(sheet_a_status="Parsed Check Done")
+        boq = self._make_boq(sheet_a_status="Finalized")
         _run_parse_worker(boq.name, user="Administrator", force_reparse=True)
         boq.reload()
         self.assertEqual(
             next(d for d in boq.sheet_drafts if d.sheet_name == "SheetA").wizard_status,
             "Parsed",
-            "force re-parse of a Parsed Check Done sheet did not end at 'Parsed'",
+            "force re-parse of a Finalized sheet did not end at 'Parsed'",
         )
         self.assertGreater(
             frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0,
-            "force re-parse inserted no rows for the Parsed Check Done sheet",
+            "force re-parse inserted no rows for the Finalized sheet",
         )
 
     def test_normal_parse_leaves_checked_sheet_untouched(self):
-        """T4b (worker regression guard): WITHOUT force_reparse, a lone 'Parsed Check Done'
+        """T4b (worker regression guard): WITHOUT force_reparse, a lone 'Finalized'
         sheet is not eligible -- the worker inserts no rows and leaves its status unchanged
         (assemble raises 'no eligible sheets'; worker handles it gracefully)."""
-        boq = self._make_boq(sheet_a_status="Parsed Check Done")
+        boq = self._make_boq(sheet_a_status="Finalized")
         _run_parse_worker(boq.name, user="Administrator")  # default force_reparse=False
         boq.reload()
         self.assertEqual(
             next(d for d in boq.sheet_drafts if d.sheet_name == "SheetA").wizard_status,
-            "Parsed Check Done",
-            "normal parse changed a Parsed Check Done sheet's status",
+            "Finalized",
+            "normal parse changed a Finalized sheet's status",
         )
         self.assertEqual(
             frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "SheetA"}), 0,
-            "normal parse inserted rows for an ineligible Parsed Check Done sheet",
+            "normal parse inserted rows for an ineligible Finalized sheet",
         )
 
     # -- subset parse ----------------------------------------------------
@@ -1274,7 +1274,7 @@ class TestRunParseWorker(FrappeTestCase):
         but wizard_status='Skip' -- worker must still extract and store preamble.
 
         Differs from test_master_preamble_written_for_general_specs_sheet: that test
-        creates SOW with wizard_status='Reviewed'. This uses wizard_status='Skip', which
+        creates SOW with wizard_status='Config Done'. This uses wizard_status='Skip', which
         is the real-data shape from BOQ-26-00145 and is what the rule-order bug muted.
         """
         blob = json.dumps(_PROD_BLOB_TMPL)
@@ -1286,7 +1286,7 @@ class TestRunParseWorker(FrappeTestCase):
         boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
         boq.append("sheet_drafts", {
             "sheet_name": "SheetA", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         # SOW stored as "Skip" -- mirrors real data; designation in child table does not
         # change wizard_status per M2.16 (status is derived, not stored).
@@ -1346,7 +1346,7 @@ class TestRunParseWorker(FrappeTestCase):
         )
         self.assertEqual(len(rows_after_1), 1, "Expected exactly 1 child row after first parse")
 
-        # Second parse -- sheet is now 'Parsed' status (treated same as Reviewed)
+        # Second parse -- sheet is now 'Parsed' status (treated same as Config Done)
         self._run(boq.name)
         rows_after_2 = frappe.db.get_all(
             "BoQ General Specs Sheet",
@@ -1378,7 +1378,7 @@ class TestRunParseWorker(FrappeTestCase):
         boq.boq_name = f"SkipHidden Test {frappe.generate_hash(length=6)}"
         boq.tax_treatment = "Pre-tax"
         boq.source_file_url = self.__class__._worker_wb_path
-        boq.append("sheet_drafts", {"sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Reviewed", "sheet_config": blob})
+        boq.append("sheet_drafts", {"sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Config Done", "sheet_config": blob})
         boq.append("sheet_drafts", {"sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Skip"})
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -1497,12 +1497,12 @@ class TestParseHistoryFields(FrappeTestCase):
             boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
         boq.append("sheet_drafts", {
             "sheet_name": "DataSheet", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         if include_sow:
             boq.append("sheet_drafts", {
                 "sheet_name": "SOW", "sheet_order": 2,
-                "wizard_status": "Reviewed",
+                "wizard_status": "Config Done",
             })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -1552,9 +1552,9 @@ class TestParseHistoryFields(FrappeTestCase):
     def test_parse_history_survives_config_change_dirty_drop(self):
         """
         Dirty-signal contract (Check 5 support):
-        After parse, a config change via set_sheet_config drops Parsed->Reviewed.
+        After parse, a config change via set_sheet_config drops Parsed->Config Done.
         has_prior_parse must STILL be 1 and last_parsed_at STILL be set.
-        The combination wizard_status=Reviewed + has_prior_parse=1 is the dirty signal.
+        The combination wizard_status=Config Done + has_prior_parse=1 is the dirty signal.
         """
         boq = self._make_boq()
         self._run(boq.name)
@@ -1563,7 +1563,7 @@ class TestParseHistoryFields(FrappeTestCase):
         self.assertEqual(hist_before.has_prior_parse, 1)
         self.assertIsNotNone(hist_before.last_parsed_at)
 
-        # Config change -> drops Parsed to Reviewed
+        # Config change -> drops Parsed to Config Done
         set_sheet_config(
             boq_name=boq.name,
             sheet_name="DataSheet",
@@ -1577,7 +1577,7 @@ class TestParseHistoryFields(FrappeTestCase):
             {"parent": boq.name, "sheet_name": "DataSheet"},
             "wizard_status",
         )
-        self.assertEqual(status, "Reviewed", "Expected dirty-drop to Reviewed")
+        self.assertEqual(status, "Config Done", "Expected dirty-drop to Config Done")
         # History fields MUST NOT be cleared
         self.assertEqual(hist_after.has_prior_parse, 1,
             "has_prior_parse was cleared by set_sheet_config -- history must survive dirty-drop")
@@ -1668,7 +1668,7 @@ class TestParseInProgressMarker(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.append("sheet_drafts", {
             "sheet_name": "SheetA", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -1794,7 +1794,7 @@ class TestParseEnqueueMarking(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.append("sheet_drafts", {
             "sheet_name": "SheetA", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.append("sheet_drafts", {
             "sheet_name": "SheetB", "sheet_order": 2,
@@ -1860,11 +1860,11 @@ class TestParseEnqueueMarking(FrappeTestCase):
         self.assertEqual(self._marker("SheetC"), 0, "unnamed SheetC must stay 0")
 
     def test_superset_marking_none_all_admissible(self):
-        """sheet_names=None marks every Rule-3-admissible sheet (Reviewed/Parsed), not Skip."""
+        """sheet_names=None marks every Rule-3-admissible sheet (Config Done/Parsed), not Skip."""
         from unittest.mock import patch
         with patch.object(frappe, "enqueue", return_value=self._mock_enqueue()):
             run_parse(boq_name=self.boq_name)
-        self.assertEqual(self._marker("SheetA"), 1, "Reviewed SheetA must be marked")
+        self.assertEqual(self._marker("SheetA"), 1, "Config Done SheetA must be marked")
         self.assertEqual(self._marker("SheetC"), 1, "Parsed SheetC must be marked")
         self.assertEqual(self._marker("SheetB"), 0, "Skip SheetB must NOT be marked")
 
@@ -1877,6 +1877,28 @@ class TestParseEnqueueMarking(FrappeTestCase):
         self.assertTrue(stored, "parse_job_id must be stored after enqueue")
         self.assertNotIn("::", stored,
             "parse_job_id must be the RAW id (no '::' namespace); job.id would double-namespace")
+
+    def test_retired_reviewed_value_not_marked(self):
+        """A1 old-value hygiene: a stray draft still holding the retired 'Reviewed'
+        value is NOT superset-marked (the old name is no longer Rule-3-admissible)."""
+        from unittest.mock import patch
+        child_b = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": "SheetB"},
+            "name",
+        )
+        # 'Reviewed' is the retired name -- set directly to prove no code path admits it.
+        frappe.db.set_value("BoQ Sheet Draft", child_b, "wizard_status", "Reviewed")
+        frappe.db.commit()
+        try:
+            with patch.object(frappe, "enqueue", return_value=self._mock_enqueue()):
+                run_parse(boq_name=self.boq_name)
+            self.assertEqual(self._marker("SheetB"), 0,
+                "a draft holding the retired 'Reviewed' value must NOT be superset-marked")
+        finally:
+            # Restore so wizard_status does not leak to sibling tests.
+            frappe.db.set_value("BoQ Sheet Draft", child_b, "wizard_status", "Skip")
+            frappe.db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -1898,10 +1920,10 @@ class TestSelfHealParseState(FrappeTestCase):
         boq.boq_name = "Self Heal BoQ"
         boq.tax_treatment = "Pre-tax"
         boq.append("sheet_drafts", {
-            "sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Reviewed",
+            "sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Config Done",
         })
         boq.append("sheet_drafts", {
-            "sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Reviewed",
+            "sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Config Done",
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -2076,7 +2098,7 @@ class TestPerSheetParseMarkersWorker(FrappeTestCase):
             frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
-    def _make_boq(self, sheet_b_status="Reviewed"):
+    def _make_boq(self, sheet_b_status="Config Done"):
         blob = json.dumps(_PROD_BLOB_TMPL)
         boq = frappe.new_doc("BOQs")
         boq.project = self.__class__.test_project.name
@@ -2085,12 +2107,12 @@ class TestPerSheetParseMarkersWorker(FrappeTestCase):
         boq.source_file_url = self.__class__._wb_path
         boq.append("sheet_drafts", {
             "sheet_name": "SheetA", "sheet_order": 1,
-            "wizard_status": "Reviewed", "sheet_config": blob,
+            "wizard_status": "Config Done", "sheet_config": blob,
         })
         boq.append("sheet_drafts", {
             "sheet_name": "SheetB", "sheet_order": 2,
             "wizard_status": sheet_b_status,
-            "sheet_config": blob if sheet_b_status in ("Reviewed", "Parsed") else None,
+            "sheet_config": blob if sheet_b_status in ("Config Done", "Parsed") else None,
         })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()

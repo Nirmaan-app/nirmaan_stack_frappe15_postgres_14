@@ -11,6 +11,8 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     set_sheet_status,
     set_sheet_work_packages,
 )
+# A1: the REAL un-mark endpoint (review_screen) used by the round-trip freeze test.
+from nirmaan_stack.api.boq.wizard.review_screen import unmark_sheet_parsed_check_done
 
 _SHEET_HVAC = "HVAC BOQ"
 _SHEET_ELEC = "ELECTRICAL"
@@ -77,9 +79,9 @@ class TestSetSheetStatusPositive(FrappeTestCase):
         )
 
     def test_set_reviewed(self):
-        result = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+        result = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Config Done")
         self.assertEqual(result["status"], "saved")
-        self.assertEqual(self._get_status(_SHEET_HVAC), "Reviewed")
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Config Done")
 
     def test_set_skip(self):
         result = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_ELEC, status="Skip")
@@ -91,7 +93,7 @@ class TestSetSheetStatusPositive(FrappeTestCase):
         self.assertEqual(self._get_status(_SHEET_HVAC), "Hidden")
 
     def test_set_pending_after_reviewed(self):
-        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Config Done")
         set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Pending")
         self.assertEqual(self._get_status(_SHEET_HVAC), "Pending")
 
@@ -100,7 +102,7 @@ class TestSetSheetStatusPositive(FrappeTestCase):
         self.assertEqual(self._get_status(_SHEET_HVAC), "Parse failed")
 
     def test_second_sheet_unaffected(self):
-        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Config Done")
         self.assertEqual(self._get_status(_SHEET_ELEC), "Pending")
 
 
@@ -138,11 +140,11 @@ class TestSetSheetStatusNegative(FrappeTestCase):
 
     def test_rejects_unknown_sheet(self):
         with self.assertRaises(frappe.ValidationError):
-            set_sheet_status(boq_name=self.boq.name, sheet_name="NONEXISTENT SHEET", status="Reviewed")
+            set_sheet_status(boq_name=self.boq.name, sheet_name="NONEXISTENT SHEET", status="Config Done")
 
     def test_rejects_unknown_boq(self):
         with self.assertRaises(frappe.ValidationError):
-            set_sheet_status(boq_name="BOQ-DOES-NOT-EXIST-99999", sheet_name=_SHEET_HVAC, status="Reviewed")
+            set_sheet_status(boq_name="BOQ-DOES-NOT-EXIST-99999", sheet_name=_SHEET_HVAC, status="Config Done")
 
     def test_rejects_missing_status(self):
         with self.assertRaises(frappe.ValidationError):
@@ -530,11 +532,11 @@ class TestSetSheetConfig(FrappeTestCase):
 
 
 # ---------------------------------------------------------------------------
-# set_sheet_config -- dirty marker (Parsed -> Reviewed on config change)
+# set_sheet_config -- dirty marker (Parsed -> Config Done on config change)
 # ---------------------------------------------------------------------------
 
 class TestSetSheetConfigDirtyMarker(FrappeTestCase):
-    """Truth-table tests for the Parsed->Reviewed dirty marker in set_sheet_config."""
+    """Truth-table tests for the Parsed->Config Done dirty marker in set_sheet_config."""
 
     @classmethod
     def setUpClass(cls):
@@ -572,21 +574,21 @@ class TestSetSheetConfigDirtyMarker(FrappeTestCase):
         frappe.db.commit()
 
     def test_parsed_changed_config_drops_to_reviewed(self):
-        """Parsed + changed config -> wizard_status drops to Reviewed."""
+        """Parsed + changed config -> wizard_status drops to Config Done."""
         self._set_status_direct(_SHEET_HVAC, "Parsed")
         set_sheet_config(
             boq_name=self.boq.name,
             sheet_name=_SHEET_HVAC,
             sheet_config={"header_row": 5},
         )
-        self.assertEqual(self._get_status(_SHEET_HVAC), "Reviewed")
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Config Done")
 
     def test_parsed_identical_config_stays_parsed(self):
         """Parsed + identical config (no-op save) -> wizard_status stays Parsed."""
         cfg = {"header_row": 3, "column_role_map": {"A": "sl_no"}}
         set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=cfg)
         self._set_status_direct(_SHEET_HVAC, "Parsed")
-        # Second write with the same config -- must not drop to Reviewed.
+        # Second write with the same config -- must not drop to Config Done.
         set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=cfg)
         self.assertEqual(self._get_status(_SHEET_HVAC), "Parsed")
 
@@ -601,24 +603,24 @@ class TestSetSheetConfigDirtyMarker(FrappeTestCase):
         reordered = {"column_role_map": {"A": "sl_no"}, "header_row": 3}
         set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=original)
         self._set_status_direct(_SHEET_HVAC, "Parsed")
-        # Reversed key order -- semantically identical; must not drop to Reviewed.
+        # Reversed key order -- semantically identical; must not drop to Config Done.
         set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config=reordered)
         self.assertEqual(self._get_status(_SHEET_HVAC), "Parsed")
 
     def test_reviewed_changed_config_stays_reviewed(self):
-        """Reviewed + changed config -> wizard_status stays Reviewed (not touched)."""
+        """Config Done + changed config -> wizard_status stays Config Done (not touched)."""
         set_sheet_config(
             boq_name=self.boq.name,
             sheet_name=_SHEET_HVAC,
             sheet_config={"header_row": 1},
         )
-        self._set_status_direct(_SHEET_HVAC, "Reviewed")
+        self._set_status_direct(_SHEET_HVAC, "Config Done")
         set_sheet_config(
             boq_name=self.boq.name,
             sheet_name=_SHEET_HVAC,
             sheet_config={"header_row": 99},
         )
-        self.assertEqual(self._get_status(_SHEET_HVAC), "Reviewed")
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Config Done")
 
     def test_pending_changed_config_stays_pending(self):
         """Pending + changed config -> wizard_status stays Pending (not touched)."""
@@ -640,7 +642,7 @@ class TestSetSheetConfigDirtyMarker(FrappeTestCase):
         self.assertEqual(self._get_status(_SHEET_HVAC), "Skip")
 
     def test_changed_config_blob_written_correctly(self):
-        """Config blob is correctly written in the Parsed->Reviewed drop path."""
+        """Config blob is correctly written in the Parsed->Config Done drop path."""
         import json as _json
         self._set_status_direct(_SHEET_HVAC, "Parsed")
         new_cfg = {"header_row": 7, "area_dimensions": ["C3"]}
@@ -1014,7 +1016,7 @@ class TestParseHistoryNotTouched(FrappeTestCase):
 
     def test_set_sheet_config_dirty_drop_does_not_clear_parse_history(self):
         """
-        set_sheet_config with a changed config drops Parsed->Reviewed but must NOT
+        set_sheet_config with a changed config drops Parsed->Config Done but must NOT
         touch has_prior_parse or last_parsed_at.
         """
         set_sheet_config(
@@ -1028,7 +1030,7 @@ class TestParseHistoryNotTouched(FrappeTestCase):
             {"parent": self.boq.name, "sheet_name": _SHEET_HVAC},
             "wizard_status",
         )
-        self.assertEqual(status, "Reviewed", "dirty-marker drop did not fire -- test precondition failed")
+        self.assertEqual(status, "Config Done", "dirty-marker drop did not fire -- test precondition failed")
 
         hist = self._get_history(_SHEET_HVAC)
         self.assertEqual(hist.has_prior_parse, 1,
@@ -1066,14 +1068,14 @@ class TestParseHistoryNotTouched(FrappeTestCase):
             "set_sheet_status('Pending') modified last_parsed_at")
 
     def test_set_sheet_status_reviewed_does_not_clear_parse_history(self):
-        """set_sheet_status('Reviewed') must also leave parse history intact."""
-        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+        """set_sheet_status('Config Done') must also leave parse history intact."""
+        set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Config Done")
 
         hist = self._get_history(_SHEET_HVAC)
         self.assertEqual(hist.has_prior_parse, 1,
-            "set_sheet_status('Reviewed') cleared has_prior_parse")
+            "set_sheet_status('Config Done') cleared has_prior_parse")
         self.assertEqual(self._ts_str(hist.last_parsed_at), self._SENTINEL_TS,
-            "set_sheet_status('Reviewed') modified last_parsed_at")
+            "set_sheet_status('Config Done') modified last_parsed_at")
 
 
 # ---------------------------------------------------------------------------
@@ -1114,7 +1116,7 @@ class TestParseInProgressGuard(FrappeTestCase):
 
     def test_set_sheet_status_rejected(self):
         with self.assertRaises(frappe.ValidationError):
-            set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+            set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Config Done")
 
     def test_set_sheet_label_rejected(self):
         with self.assertRaises(frappe.ValidationError):
@@ -1139,3 +1141,142 @@ class TestParseInProgressGuard(FrappeTestCase):
         """The unmarked control sheet writes normally."""
         res = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_ELEC, status="Skip")
         self.assertEqual(res, {"status": "saved"})
+
+
+# ---------------------------------------------------------------------------
+# A1 status rename -- regression: the OLD value is now invalid
+# ---------------------------------------------------------------------------
+
+class TestStatusRenameRegression(FrappeTestCase):
+    """The retired status name 'Reviewed' is no longer a valid set_sheet_status
+    target (it was renamed to 'Config Done'). This is the strongest rename
+    regression assertion -- a code path still recognizing the old name would fail."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_old_reviewed_name_rejected(self):
+        # "Reviewed" is the retired name -- intentionally used here to prove it is
+        # no longer in _DIRECT_SET_STATUSES (now 'Config Done').
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+
+    def test_new_config_done_name_accepted(self):
+        res = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Config Done")
+        self.assertEqual(res, {"status": "saved"})
+
+
+# ---------------------------------------------------------------------------
+# A1 Finalized config freeze (un-mark-and-edit)
+# ---------------------------------------------------------------------------
+
+class TestFinalizedConfigFreeze(FrappeTestCase):
+    """Every config-writer rejects a write to a Finalized sheet; a Config Done
+    sheet passes through; the REAL un-mark endpoint lifts the freeze so a writer
+    then succeeds; and the parse guard fires BEFORE the finalized guard.
+    _SHEET_HVAC is Finalized; _SHEET_ELEC is the Config Done control."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+        self._set_status(_SHEET_HVAC, "Finalized")
+        self._set_status(_SHEET_ELEC, "Config Done")
+
+    def tearDown(self):
+        if frappe.db.exists("BOQs", self.boq.name):
+            frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _child(self, sheet_name: str) -> str:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            "name",
+        )
+
+    def _set_status(self, sheet_name: str, status: str):
+        frappe.db.set_value("BoQ Sheet Draft", self._child(sheet_name), "wizard_status", status)
+        frappe.db.commit()
+
+    def _get_status(self, sheet_name: str) -> str:
+        return frappe.db.get_value("BoQ Sheet Draft", self._child(sheet_name), "wizard_status")
+
+    # -- rejections (wizard_status == 'Finalized') -----------------------
+
+    def test_set_sheet_status_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Skip")
+
+    def test_set_sheet_label_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_label(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, label="x")
+
+    def test_set_sheet_config_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config="{}")
+
+    def test_set_sheet_work_packages_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_work_packages(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, work_headers=[])
+
+    def test_set_general_specs_rejected_when_any_member_finalized(self):
+        """A Finalized sheet anywhere in the list rejects the whole call (no partial write)."""
+        with self.assertRaises(frappe.ValidationError):
+            set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_ELEC, _SHEET_HVAC])
+
+    # -- pass-through (Config Done control) ------------------------------
+
+    def test_config_done_sheet_passes_through(self):
+        res = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_ELEC, status="Skip")
+        self.assertEqual(res, {"status": "saved"})
+
+    # -- real un-mark round-trip -----------------------------------------
+
+    def test_real_unmark_then_config_writer_succeeds(self):
+        """The REAL unmark endpoint lifts the freeze; a config writer then succeeds."""
+        # Frozen first.
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config="{}")
+        # Un-mark via the real review_screen endpoint -> status returns to 'Parsed'.
+        res = unmark_sheet_parsed_check_done(boq_name=self.boq.name, sheet_name=_SHEET_HVAC)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["status"], "Parsed")
+        self.assertEqual(self._get_status(_SHEET_HVAC), "Parsed")
+        # Now the previously-rejected write lands.
+        saved = set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config="{}")
+        self.assertEqual(saved, {"status": "saved"})
+
+    # -- guard precedence: parse guard fires before finalized guard ------
+
+    def test_parse_guard_precedence_over_finalized(self):
+        """A sheet both Finalized AND parse_in_progress=1 -> the PARSE guard wins."""
+        frappe.db.set_value("BoQ Sheet Draft", self._child(_SHEET_HVAC), "parse_in_progress", 1)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as cm:
+            set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config="{}")
+        self.assertIn("being parsed", str(cm.exception),
+                      "the parse-in-progress guard must fire before the finalized guard")

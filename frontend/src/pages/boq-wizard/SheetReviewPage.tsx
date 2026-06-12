@@ -98,14 +98,14 @@ const SheetReviewPage = () => {
   // Back nav: semantic entity-id route -- never navigate(-1) (survives hard refresh).
   const handleBack = () => navigate(`/upload-boq/hub/${boqId ?? ""}`);
 
-  // ── Slice D1: Parsed Check Done marking + read-only freeze ──────────────────
+  // ── Slice D1: Finalized marking + read-only freeze (renamed A1) ─────────────
   // Sheet status rides the BOQs doc payload (boq.sheet_drafts is a one-level child
   // table -> serializes). sheetName is VERBATIM (no trim -- #152 trailing-space guard).
   const sheetDraft = boq?.sheet_drafts?.find(
     (d) => d.sheet_name === (sheetName ?? ""),
   );
   const sheetStatus = sheetDraft?.wizard_status;
-  const isChecked = sheetStatus === "Parsed Check Done";
+  const isChecked = sheetStatus === "Finalized";
   // #164: the sheet is under active parse/re-parse -> the screen is transiently
   // read-only (the worker is rebuilding these rows). Same draft lookup, new flag.
   const isParsing = sheetDraft?.parse_in_progress === 1;
@@ -303,7 +303,7 @@ const SheetReviewPage = () => {
               onClick={openMarkDialog}
             >
               <ShieldCheck className="h-4 w-4" />
-              Mark Parsed Check Done
+              Mark Finalized
             </Button>
           )}
           {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
@@ -340,7 +340,7 @@ const SheetReviewPage = () => {
           <div className="flex items-start gap-2">
             <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-teal-700 dark:text-teal-300" />
             <p className="text-teal-900 dark:text-teal-100">
-              This sheet is marked <span className="font-medium">&lsquo;Parsed Check Done&rsquo;</span> and is
+              This sheet is marked <span className="font-medium">&lsquo;Finalized&rsquo;</span> and is
               read-only. Un-mark it to make changes, or re-parse / edit config from the hub.
             </p>
           </div>
@@ -412,7 +412,7 @@ const SheetReviewPage = () => {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {markBreaks ? "Structural issues found" : "Mark this sheet as checked?"}
+              {markBreaks ? "Structural issues found" : "Mark this sheet as Finalized?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {markBreaks
@@ -440,7 +440,7 @@ const SheetReviewPage = () => {
               disabled={markLoading}
               onClick={() => { void confirmMark(markBreaks !== null); }}
             >
-              {markBreaks ? "Mark anyway" : "Mark as checked"}
+              {markBreaks ? "Mark anyway" : "Mark as Finalized"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

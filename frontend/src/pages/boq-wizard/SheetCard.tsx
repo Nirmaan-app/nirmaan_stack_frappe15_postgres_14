@@ -19,12 +19,12 @@ const STATUS_PILL: Record<string, { label: string; className: string }> = {
   "Hidden":         { label: "Hidden",        className: "bg-slate-500 text-white dark:bg-slate-600 dark:text-white" },
   // Pending: vivid blue so it stands out as "needs attention" (not slate-near-gray).
   "Pending":        { label: "Pending",       className: "bg-blue-500 text-white dark:bg-blue-600 dark:text-white" },
-  "Reviewed":       { label: "Reviewed",      className: "bg-emerald-600 text-white dark:bg-emerald-700 dark:text-white" },
+  "Config Done":    { label: "Config Done",   className: "bg-emerald-600 text-white dark:bg-emerald-700 dark:text-white" },
   "Skip":           { label: "Skip",          className: "bg-amber-500 text-white dark:bg-amber-600 dark:text-white" },
   "General specs":  { label: "General specs", className: "bg-sky-500 text-white dark:bg-sky-600 dark:text-white" },
   "Parsed":         { label: "Parsed",        className: "bg-green-600 text-white dark:bg-green-700 dark:text-white" },
   // Teal = "green + checked" register, clearly distinct from Parsed green.
-  "Parsed Check Done": { label: "Checked",   className: "bg-teal-600 text-white dark:bg-teal-700 dark:text-white" },
+  "Finalized":      { label: "Finalized",    className: "bg-teal-600 text-white dark:bg-teal-700 dark:text-white" },
 };
 
 
@@ -38,13 +38,13 @@ interface SheetCardProps {
   /** Called after any successful write to trigger parent SWR re-fetch. */
   onSaved: () => void;
   /**
-   * Called when the user clicks Review (Pending/Parse-failed) or Edit (Reviewed/Parsed).
+   * Called when the user clicks Review (Pending/Parse-failed) or Edit (Config Done/Parsed/Finalized).
    * Receives the VERBATIM sheet_name (no trimming). Parent (BoqHubPage) owns
    * navigate so SheetCard stays router-free.
    */
   onOpenSpoke?: (sheetName: string) => void;
   /**
-   * Called when the user clicks Review on a Parsed Check Done card.
+   * Called when the user clicks Review on a Finalized card.
    * Navigates to the review screen (distinct from the config spoke).
    * Receives the VERBATIM sheet_name. Hub owns navigate; SheetCard stays router-free.
    */
@@ -57,13 +57,13 @@ interface SheetCardProps {
   /**
    * Called when the user clicks the per-card "Re-parse" control (Force Re-parse slice).
    * Rendered ONLY on re-parse-eligible cards (has_prior_parse === 1 AND effective status
-   * in Parsed / Parsed Check Done / Reviewed). Opens the shared ParseRunDialog pre-filtered
+   * in Parsed / Finalized / Config Done). Opens the shared ParseRunDialog pre-filtered
    * to this one sheet. Receives the VERBATIM sheet_name; hub owns the dialog + navigate.
    */
   onReparse?: (sheetName: string) => void;
   /**
    * Called when the user clicks the per-card "Export CSV" control (Slice D2b),
-   * rendered ONLY on a "Parsed Check Done" card. The HUB owns the fetch + the CSV
+   * rendered ONLY on a "Finalized" card. The HUB owns the fetch + the CSV
    * writer; this card awaits the returned promise to drive its own busy state and
    * surfaces any rejection via its inline cardError. Receives the VERBATIM
    * sheet_name (#152). Mirrors the onOpenReview / onReparse callback convention.
@@ -109,15 +109,15 @@ export function SheetCard({
 
   // ── Re-parse eligibility (Force Re-parse slice) ──────────────────────────
   // A sheet is re-parse-eligible iff it has a prior parse AND its effective status
-  // is one the backend force_reparse path admits (Parsed / Parsed Check Done / Reviewed).
+  // is one the backend force_reparse path admits (Parsed / Finalized / Config Done).
   // Parse failed is DELIBERATELY excluded -- the backend does NOT widen force_reparse to it
   // (parse_run.assemble_mapping_config Rule 4); offering it would be a no-op control.
   // Never-parsed sheets (has_prior_parse !== 1) never show a Re-parse control.
   const canReparse =
     draft.has_prior_parse === 1 &&
     (effectiveStatus === "Parsed" ||
-      effectiveStatus === "Parsed Check Done" ||
-      effectiveStatus === "Reviewed");
+      effectiveStatus === "Finalized" ||
+      effectiveStatus === "Config Done");
 
   // One muted summary line -- priority: sheet_label > workHeaders > keyword hint.
   // workHeaders comes from get_boq_work_packages (Slice 3f-readback), not draft.work_packages
@@ -221,8 +221,8 @@ export function SheetCard({
           )}>
             {pill.label}
           </span>
-          {/* Dirty indicator: Reviewed sheet whose config changed since last parse. */}
-          {effectiveStatus === "Reviewed" && draft.has_prior_parse === 1 && (
+          {/* Dirty indicator: Config Done sheet whose config changed since last parse. */}
+          {effectiveStatus === "Config Done" && draft.has_prior_parse === 1 && (
             <span className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
               needs re-parse
             </span>
@@ -247,8 +247,8 @@ export function SheetCard({
           </div>
         )}
 
-        {/* ── Reviewed ────────────────────────────────────────────────────── */}
-        {effectiveStatus === "Reviewed" && (
+        {/* ── Config Done ─────────────────────────────────────────────────── */}
+        {effectiveStatus === "Config Done" && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
             <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
@@ -259,7 +259,7 @@ export function SheetCard({
               onClick={() => void handleStatusChange("Pending")}>
               Set pending
             </Button>
-            {/* Re-parse: only on a dirty Reviewed card (has_prior_parse === 1). */}
+            {/* Re-parse: only on a dirty Config Done card (has_prior_parse === 1). */}
             {canReparse && (
               <Button size="sm" variant="outline" disabled={isSaving || isParsing}
                 onClick={() => onReparse?.(draft.sheet_name)}>
@@ -339,13 +339,19 @@ export function SheetCard({
           </div>
         )}
 
-        {/* ── Parsed Check Done ──────────────────────────────────────────── */}
+        {/* ── Finalized ──────────────────────────────────────────────────── */}
         {/* Review navigates to the review screen (not the config spoke). */}
-        {effectiveStatus === "Parsed Check Done" && (
+        {effectiveStatus === "Finalized" && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
               onClick={() => onOpenReview?.(draft.sheet_name)}>
               Review
+            </Button>
+            {/* A1: Edit config -> the spoke, where a Finalized sheet shows the
+                un-mark-and-edit affordance (makes the freeze reversible in-UI). */}
+            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
+              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+              Edit config
             </Button>
             {/* Export CSV (Slice D2b): single-sheet .csv via the hub-owned fetch. */}
             {onExportCsv && (

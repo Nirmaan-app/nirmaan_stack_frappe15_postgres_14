@@ -1361,7 +1361,7 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
 class TestMarkSheetParsedCheckDone(FrappeTestCase):
     """
     Verifies the confirm-gate (ok:False when breaks + confirm=False) and the
-    status transition to "Parsed Check Done" with correct overridden flag.
+    status transition to "Finalized" with correct overridden flag.
 
     CleanSheet: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks.
     BreakSheet: orphan line_item (row 0, parent=None) -> ORPHAN break.
@@ -1428,11 +1428,11 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
             boq_name=self.boq_name, sheet_name="CleanSheet",
         )
         self.assertTrue(result["ok"])
-        self.assertEqual(result["status"], "Parsed Check Done")
+        self.assertEqual(result["status"], "Finalized")
         self.assertFalse(result["overridden"],
                          "overridden must be False when there are no breaks")
-        self.assertEqual(self._get_wizard_status("CleanSheet"), "Parsed Check Done",
-                         "wizard_status must be written to 'Parsed Check Done'")
+        self.assertEqual(self._get_wizard_status("CleanSheet"), "Finalized",
+                         "wizard_status must be written to 'Finalized'")
 
     def test_break_no_confirm_returns_ok_false_status_unchanged(self):
         result = mark_sheet_parsed_check_done(
@@ -1452,39 +1452,39 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
             boq_name=self.boq_name, sheet_name="BreakSheet", confirm=True,
         )
         self.assertTrue(result["ok"])
-        self.assertEqual(result["status"], "Parsed Check Done")
+        self.assertEqual(result["status"], "Finalized")
         self.assertTrue(result["overridden"],
                         "overridden must be True when breaks existed and user confirmed past them")
-        self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed Check Done",
-                         "wizard_status must be written to 'Parsed Check Done' when confirmed")
+        self.assertEqual(self._get_wizard_status("BreakSheet"), "Finalized",
+                         "wizard_status must be written to 'Finalized' when confirmed")
 
     # -- Slice D1 mark precondition (M1/M2) ----------------------------------
 
     def test_mark_already_checked_rejected_status_unchanged(self):
-        """M1: marking an already-'Parsed Check Done' sheet throws; status stays checked."""
+        """M1: marking an already-'Finalized' sheet throws; status stays checked."""
         mark_sheet_parsed_check_done(boq_name=self.boq_name, sheet_name="CleanSheet")
-        self.assertEqual(self._get_wizard_status("CleanSheet"), "Parsed Check Done")
+        self.assertEqual(self._get_wizard_status("CleanSheet"), "Finalized")
         with self.assertRaises(frappe.ValidationError):
             mark_sheet_parsed_check_done(boq_name=self.boq_name, sheet_name="CleanSheet")
         self.assertEqual(
-            self._get_wizard_status("CleanSheet"), "Parsed Check Done",
-            "status must remain 'Parsed Check Done' after a rejected re-mark",
+            self._get_wizard_status("CleanSheet"), "Finalized",
+            "status must remain 'Finalized' after a rejected re-mark",
         )
 
     def test_mark_non_parsed_status_rejected(self):
-        """M2: marking a 'Reviewed' (non-Parsed) sheet throws; status unchanged."""
+        """M2: marking a 'Config Done' (non-Parsed) sheet throws; status unchanged."""
         child = frappe.db.get_value(
             "BoQ Sheet Draft",
             {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": "CleanSheet"},
             "name",
         )
-        frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", "Reviewed")
+        frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", "Config Done")
         frappe.db.commit()
         with self.assertRaises(frappe.ValidationError):
             mark_sheet_parsed_check_done(boq_name=self.boq_name, sheet_name="CleanSheet")
         self.assertEqual(
-            self._get_wizard_status("CleanSheet"), "Reviewed",
-            "status must remain 'Reviewed' after a rejected mark",
+            self._get_wizard_status("CleanSheet"), "Config Done",
+            "status must remain 'Config Done' after a rejected mark",
         )
 
 
@@ -2621,12 +2621,12 @@ class TestSaveReviewRestructure(FrappeTestCase):
 
 
 # ===========================================================================
-# Group 12: Parsed Check Done read-only freeze (Slice D1)
+# Group 12: Finalized read-only freeze (Slice D1)
 # ===========================================================================
 
 class TestParsedCheckDoneFreeze(FrappeTestCase):
     """
-    Verifies the Slice D1 read-only freeze: a sheet at "Parsed Check Done" rejects
+    Verifies the Slice D1 read-only freeze: a sheet at "Finalized" rejects
     ALL FOUR write endpoints (save_review_edit, save_review_restructure,
     save_review_remark, dismiss_row_flags) before any write, and the freeze lifts
     once the status is restored to "Parsed".
@@ -2697,7 +2697,7 @@ class TestParsedCheckDoneFreeze(FrappeTestCase):
 
     def test_F1_edit_frozen_rejected_no_change(self):
         """F1: save_review_edit on a checked sheet throws; value + edit_log unchanged."""
-        self._set_status("Parsed Check Done")
+        self._set_status("Finalized")
         with self.assertRaises(frappe.ValidationError):
             save_review_edit(
                 boq_name=self.boq_name, sheet_name=self.sheet_name,
@@ -2710,7 +2710,7 @@ class TestParsedCheckDoneFreeze(FrappeTestCase):
 
     def test_F2_restructure_frozen_rejected_no_change(self):
         """F2: save_review_restructure on a checked sheet throws; classification unchanged."""
-        self._set_status("Parsed Check Done")
+        self._set_status("Finalized")
         before = self._get_doc(2).classification
         with self.assertRaises(frappe.ValidationError):
             save_review_restructure(
@@ -2724,7 +2724,7 @@ class TestParsedCheckDoneFreeze(FrappeTestCase):
 
     def test_F3_remark_frozen_rejected_no_change(self):
         """F3: save_review_remark on a checked sheet throws; remarks unchanged."""
-        self._set_status("Parsed Check Done")
+        self._set_status("Finalized")
         with self.assertRaises(frappe.ValidationError):
             save_review_remark(
                 boq_name=self.boq_name, sheet_name=self.sheet_name,
@@ -2734,7 +2734,7 @@ class TestParsedCheckDoneFreeze(FrappeTestCase):
 
     def test_F4_dismiss_frozen_rejected_no_change(self):
         """F4: dismiss_row_flags on a checked sheet throws; flags_dismissed unchanged."""
-        self._set_status("Parsed Check Done")
+        self._set_status("Finalized")
         with self.assertRaises(frappe.ValidationError):
             dismiss_row_flags(
                 boq_name=self.boq_name, sheet_name=self.sheet_name,
@@ -2745,7 +2745,7 @@ class TestParsedCheckDoneFreeze(FrappeTestCase):
 
     def test_F5_edit_succeeds_after_status_restored(self):
         """F5: the SAME endpoint succeeds again once status is restored to 'Parsed'."""
-        self._set_status("Parsed Check Done")
+        self._set_status("Finalized")
         with self.assertRaises(frappe.ValidationError):
             save_review_edit(
                 boq_name=self.boq_name, sheet_name=self.sheet_name,
@@ -2834,7 +2834,7 @@ class TestUnmarkSheetParsedCheckDone(FrappeTestCase):
 
     def test_U1_unmark_checked_reverts_to_parsed(self):
         """U1: un-marking a checked sheet returns ok:True + status 'Parsed'."""
-        self._set_status("Parsed Check Done")
+        self._set_status("Finalized")
         result = unmark_sheet_parsed_check_done(
             boq_name=self.boq_name, sheet_name=self.sheet_name,
         )
@@ -2856,7 +2856,7 @@ class TestUnmarkSheetParsedCheckDone(FrappeTestCase):
             boq_name=self.boq_name, sheet_name=self.sheet_name,
         )
         self.assertTrue(mark_res["ok"])
-        self.assertEqual(self._get_status(), "Parsed Check Done")
+        self.assertEqual(self._get_status(), "Finalized")
         # Freeze: a remark write is blocked.
         with self.assertRaises(frappe.ValidationError):
             save_review_remark(
@@ -2887,7 +2887,7 @@ class TestParseInProgressWriteGuard(FrappeTestCase):
 
     GuardSheet (wizard_status='Parsed', parse_in_progress=1) is the parsing sheet;
     OpenSheet (wizard_status='Parsed', parse_in_progress=0) is the unmarked control.
-    GuardSheet is deliberately NOT 'Parsed Check Done' so the frozen guard cannot
+    GuardSheet is deliberately NOT 'Finalized' so the frozen guard cannot
     fire first -- only the parse-in-progress guard can reject."""
 
     @classmethod

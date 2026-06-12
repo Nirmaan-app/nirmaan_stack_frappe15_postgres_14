@@ -1,7 +1,7 @@
 /**
  * ExportWorkbookDialog -- hub-level multi-sheet XLSX export (Slice D2b).
  *
- * Lists every "Parsed Check Done" sheet as a pre-ticked checklist (the
+ * Lists every "Finalized" sheet as a pre-ticked checklist (the
  * ParseRunDialog pattern). On confirm it fetches each ticked sheet's review rows
  * SEQUENTIALLY via get_review_rows, then hands them to buildAndDownloadReviewWorkbook
  * to produce ONE .xlsx (one tab per sheet) and download it.
@@ -39,7 +39,7 @@ interface ExportWorkbookDialogProps {
   onOpenChange: (open: boolean) => void;
   /** BOQs docname -- passed VERBATIM to get_review_rows + the workbook filename. */
   boqName: string;
-  /** "Parsed Check Done" sheet names (the hub computes eligibility). VERBATIM (#152). */
+  /** "Finalized" sheet names (the hub computes eligibility). VERBATIM (#152). */
   eligibleSheets: string[];
 }
 
@@ -137,9 +137,9 @@ export function ExportWorkbookDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Export checked sheets to Excel</DialogTitle>
+          <DialogTitle>Export Finalized sheets to Excel</DialogTitle>
           <DialogDescription>
-            One workbook with a tab per sheet. All checked sheets are selected by
+            One workbook with a tab per sheet. All Finalized sheets are selected by
             default; untick any you want to leave out.
           </DialogDescription>
         </DialogHeader>
@@ -147,10 +147,10 @@ export function ExportWorkbookDialog({
         <div className="space-y-4 py-1 max-h-72 overflow-y-auto pr-1">
           <section>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-              Checked sheets ({eligibleSheets.length})
+              Finalized sheets ({eligibleSheets.length})
             </p>
             {eligibleSheets.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No checked sheets to export.</p>
+              <p className="text-sm text-muted-foreground">No Finalized sheets to export.</p>
             ) : (
               <ul className="space-y-2">
                 {eligibleSheets.map((name) => {

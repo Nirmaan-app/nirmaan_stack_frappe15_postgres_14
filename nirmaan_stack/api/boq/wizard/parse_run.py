@@ -51,15 +51,15 @@ _LIST_JSON_FIELDS: frozenset[str] = frozenset({
 _STALE_PARSE_SECONDS = 1200
 
 # wizard_status values admissible as a parse target under Rule 3. Mirrors
-# assemble_mapping_config (the {"Reviewed","Parsed"} base; "Parsed Check Done"
+# assemble_mapping_config (the {"Config Done","Parsed"} base; "Finalized"
 # joins ONLY under force_reparse). Used for enqueue-time superset marking.
-_RULE3_BASE_STATUSES: frozenset[str] = frozenset({"Reviewed", "Parsed"})
+_RULE3_BASE_STATUSES: frozenset[str] = frozenset({"Config Done", "Parsed"})
 
 
 def _rule3_admissible_statuses(force_reparse: bool) -> frozenset[str]:
     """The wizard_status set a sheet may carry to be a parse target this run."""
     if force_reparse:
-        return _RULE3_BASE_STATUSES | {"Parsed Check Done"}
+        return _RULE3_BASE_STATUSES | {"Finalized"}
     return _RULE3_BASE_STATUSES
 
 
@@ -101,23 +101,23 @@ def assemble_mapping_config(
 
     Returns (MappingConfig, not_eligible) where not_eligible is a list of
     sheet_names that were excluded because they are Pending, have unsupported
-    statuses, or are Reviewed but missing a sheet_config blob.
+    statuses, or are Config Done but missing a sheet_config blob.
 
     Inclusion rules applied in order:
-      1. wizard_status in {Hidden, Skip}         -> SheetConfig(skip=True)
-      2. sheet_name == BOQs.general_specs_sheet  -> treat_as="master_preamble"
-      3. wizard_status in {Reviewed, Parsed}     -> deserialize blob, include as data
-         (+ "Parsed Check Done" ONLY when force_reparse=True -- see below)
+      1. wizard_status in {Hidden, Skip}          -> SheetConfig(skip=True)
+      2. sheet_name == BOQs.general_specs_sheet   -> treat_as="master_preamble"
+      3. wizard_status in {Config Done, Parsed}   -> deserialize blob, include as data
+         (+ "Finalized" ONLY when force_reparse=True -- see below)
       4. anything else (Pending, Parse failed, blank, ...) -> not_eligible
 
-    "Parsed" is treated the same as "Reviewed" because the sheet config is still
+    "Parsed" is treated the same as "Config Done" because the sheet config is still
     valid and a re-run should re-parse configured sheets.
 
-    Force Re-parse (force_reparse): when True, a "Parsed Check Done" sheet (one a
+    Force Re-parse (force_reparse): when True, a "Finalized" sheet (one a
     human hand-edited on the review screen and marked checked) is ALSO admitted as
     a data parse target, on the SAME terms as Rule 3 (valid sheet_config blob still
     required; the empty-blob and invalid-blob sub-gates still apply). When False
-    (the default, and the normal parse path), "Parsed Check Done" stays in
+    (the default, and the normal parse path), "Finalized" stays in
     not_eligible exactly as before -- the flag-gated branch is the ONLY way it
     becomes eligible. A successful re-parse drops it back to "Parsed" via the
     worker's unconditional status-set line (Option A); re-parsing DELETES the prior
@@ -175,13 +175,13 @@ def assemble_mapping_config(
             sheet_configs.append(SheetConfig(sheet_name=sheet_name, skip=True))
             continue
 
-        # Rule 3: Reviewed or Parsed (next lifecycle state after Reviewed).
-        # Force Re-parse: when force_reparse is set, ALSO admit "Parsed Check Done"
+        # Rule 3: Config Done or Parsed (next lifecycle state after Config Done).
+        # Force Re-parse: when force_reparse is set, ALSO admit "Finalized"
         # into this SAME branch -- the blob sub-gates below then apply identically
         # (no parallel branch, no duplicated validation). Without the flag this is
-        # byte-for-byte the prior behaviour and "Parsed Check Done" falls to Rule 4.
-        if status in {"Reviewed", "Parsed"} or (
-            force_reparse and status == "Parsed Check Done"
+        # byte-for-byte the prior behaviour and "Finalized" falls to Rule 4.
+        if status in {"Config Done", "Parsed"} or (
+            force_reparse and status == "Finalized"
         ):
             blob = draft.sheet_config
             if not blob:
@@ -216,7 +216,7 @@ def assemble_mapping_config(
     if not sheet_configs:
         raise frappe.ValidationError(
             f"BoQ '{boq_name}' has no eligible sheets for parsing. "
-            "Mark at least one sheet as Reviewed."
+            "Mark at least one sheet as Config Done."
         )
 
     config = MappingConfig(
@@ -334,12 +334,12 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
     """
     Enqueue a background parse worker.  Returns immediately.
 
-    sheet_names=None  -> parse all eligible Reviewed/Parsed sheets.
+    sheet_names=None  -> parse all eligible Config Done/Parsed sheets.
     sheet_names=[...] -> parse only the named subset (per-sheet re-parse).
 
-    force_reparse=False (default) -> normal parse path; "Parsed Check Done"
+    force_reparse=False (default) -> normal parse path; "Finalized"
         sheets stay ineligible exactly as before.
-    force_reparse=True -> Force Re-parse; "Parsed Check Done" sheets become
+    force_reparse=True -> Force Re-parse; "Finalized" sheets become
         eligible data parse targets (see assemble_mapping_config). The frontend
         sets this only for a deliberate, warned re-parse of an already-checked
         sheet (a later slice wires the button).
@@ -528,11 +528,11 @@ def _run_parse_worker(
     it changes eligibility); default False keeps the normal parse path unchanged.
 
     Status lifecycle (per BoQ Sheet Draft.wizard_status):
-      Reviewed          --[success]--> Parsed
-      Reviewed          --[parse_boq failure]--> Parse failed  (global; all eligible sheets)
-      Reviewed          --[insert failure]--> Parse failed  (per-sheet; other sheets continue)
-      Parsed            --[re-parse success]--> Parsed  (rows replaced, status stays Parsed)
-      Parsed Check Done --[force re-parse success]--> Parsed  (rows replaced; Option A)
+      Config Done --[success]--> Parsed
+      Config Done --[parse_boq failure]--> Parse failed  (global; all eligible sheets)
+      Config Done --[insert failure]--> Parse failed  (per-sheet; other sheets continue)
+      Parsed      --[re-parse success]--> Parsed  (rows replaced, status stays Parsed)
+      Finalized   --[force re-parse success]--> Parsed  (rows replaced; Option A)
 
     General-specs sheet (treat_as=master_preamble): never set to Parsed; produces no rows.
     Master-preamble text: extracted by parse_boq and written to BOQs.master_preamble when
@@ -565,7 +565,7 @@ def _run_parse_worker(
             return
 
         # Step 2: Assemble mapping config (applies FIX: sheet_name injection in Rule 3)
-        # force_reparse admits "Parsed Check Done" sheets here and nowhere else.
+        # force_reparse admits "Finalized" sheets here and nowhere else.
         try:
             config, not_eligible = assemble_mapping_config(boq_name, force_reparse=force_reparse)
         except frappe.ValidationError as exc:
@@ -647,7 +647,7 @@ def _run_parse_worker(
 
                 # Mark Parsed -- but NOT general-specs sheets (they are not data sheets).
                 # Stamp parse-history fields alongside status in the same DB write so the
-                # frontend can distinguish "never parsed" from "Reviewed after config change".
+                # frontend can distinguish "never parsed" from "Config Done after config change".
                 if sheet_name not in general_specs_sheet_names_worker:
                     _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields={
                         "has_prior_parse": 1,
