@@ -28,7 +28,10 @@ from typing import Any
 import frappe
 
 from nirmaan_stack.services.boq_parser.classifier import RowClassification, _RATE_ROLE_TO_KIND
-from nirmaan_stack.api.boq.wizard.update_sheet_draft import get_boq_work_packages
+from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
+    _guard_sheet_not_parsing,
+    get_boq_work_packages,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1068,6 +1071,8 @@ def save_review_edit(
     # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the per-area
     # routing, field validation, and the expensive human_parent cycle-guard below.
     _guard_sheet_not_frozen(boq_name, sheet_name)
+    # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     # Slice C-v2d: a non-empty `area` routes to the per-area JSON write path; otherwise
     # this is exactly the flat-field path. An empty-string area is treated as no area.
@@ -1315,6 +1320,8 @@ def save_review_restructure(
     # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the batch
     # cycle-guard and any write.
     _guard_sheet_not_frozen(boq_name, sheet_name)
+    # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     try:
         row_index = int(row_index)
@@ -1585,6 +1592,8 @@ def save_review_remark(
     # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the row-locate
     # and write.
     _guard_sheet_not_frozen(boq_name, sheet_name)
+    # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     try:
         row_index = int(row_index)
@@ -1672,6 +1681,8 @@ def dismiss_row_flags(
     # Slice D1: a "Parsed Check Done" sheet is read-only. Guard BEFORE the row-locate
     # and write.
     _guard_sheet_not_frozen(boq_name, sheet_name)
+    # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     try:
         row_index = int(row_index)

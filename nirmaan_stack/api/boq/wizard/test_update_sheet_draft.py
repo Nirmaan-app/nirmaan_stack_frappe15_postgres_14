@@ -1074,3 +1074,68 @@ class TestParseHistoryNotTouched(FrappeTestCase):
             "set_sheet_status('Reviewed') cleared has_prior_parse")
         self.assertEqual(self._ts_str(hist.last_parsed_at), self._SENTINEL_TS,
             "set_sheet_status('Reviewed') modified last_parsed_at")
+
+
+# ---------------------------------------------------------------------------
+# Parse-in-progress write guard (#164 A3-backend)
+# ---------------------------------------------------------------------------
+
+class TestParseInProgressGuard(FrappeTestCase):
+    """Every config-writer rejects a write to a sheet whose parse is in flight,
+    and passes through when it is not. _SHEET_HVAC is marked parsing; _SHEET_ELEC
+    is the unmarked control."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.boq = _make_boq(self.__class__.test_project.name)
+        # Mark HVAC as parsing; ELEC stays 0.
+        hvac_child = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq.name, "parenttype": "BOQs", "sheet_name": _SHEET_HVAC},
+            "name",
+        )
+        frappe.db.set_value("BoQ Sheet Draft", hvac_child, "parse_in_progress", 1)
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.delete_doc("BOQs", self.boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    # -- rejections (parse_in_progress == 1) -----------------------------
+
+    def test_set_sheet_status_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, status="Reviewed")
+
+    def test_set_sheet_label_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_label(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, label="x")
+
+    def test_set_sheet_config_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_config(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, sheet_config="{}")
+
+    def test_set_sheet_work_packages_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            set_sheet_work_packages(boq_name=self.boq.name, sheet_name=_SHEET_HVAC, work_headers=[])
+
+    def test_set_general_specs_sheet_rejected_on_listed_parsing_member(self):
+        """A parsing sheet anywhere in the list rejects the whole call (no partial write)."""
+        with self.assertRaises(frappe.ValidationError):
+            set_general_specs_sheet(boq_name=self.boq.name, sheet_names=[_SHEET_HVAC])
+
+    # -- pass-through (parse_in_progress == 0) ---------------------------
+
+    def test_unmarked_sheet_passes_through(self):
+        """The unmarked control sheet writes normally."""
+        res = set_sheet_status(boq_name=self.boq.name, sheet_name=_SHEET_ELEC, status="Skip")
+        self.assertEqual(res, {"status": "saved"})

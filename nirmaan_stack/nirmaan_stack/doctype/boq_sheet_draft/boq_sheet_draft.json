@@ -11,7 +11,8 @@
   "sheet_label",
   "sheet_config",
   "has_prior_parse",
-  "last_parsed_at"
+  "last_parsed_at",
+  "parse_in_progress"
  ],
  "fields": [
   {
@@ -61,6 +62,13 @@
    "fieldname": "last_parsed_at",
    "fieldtype": "Datetime",
    "label": "Last Parsed At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "parse_in_progress",
+   "fieldtype": "Check",
+   "label": "Parse In Progress",
    "read_only": 1
   }
  ],

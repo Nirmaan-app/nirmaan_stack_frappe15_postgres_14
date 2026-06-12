@@ -27,9 +27,13 @@ from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import 
 
 from nirmaan_stack.api.boq.wizard.parse_run import (
     _LIST_JSON_FIELDS,
+    _clear_all_sheet_parse_markers,
+    _maybe_self_heal_parse_state,
     _publish_parse_event,
     _run_parse_worker,
+    _set_sheet_parse_markers,
     assemble_mapping_config,
+    check_parse_status,
     flatten_parsed_boq,
     flatten_resolved_row,
     run_parse,
@@ -1762,3 +1766,399 @@ class TestParseInProgressMarker(FrappeTestCase):
 
         self.assertEqual(self._get_marker(), 0,
             "parse_in_progress not cleared after rollback+publish (stuck-flag on error path)")
+
+
+# ---------------------------------------------------------------------------
+# Group 7: per-sheet parse-lifecycle markers -- enqueue side (#164 A3-backend)
+# ---------------------------------------------------------------------------
+
+class TestParseEnqueueMarking(FrappeTestCase):
+    """
+    run_parse enqueue-side behaviour (#164):
+      - double-fire rejected while a parse is genuinely live;
+      - superset per-sheet marking (named subset AND None=all-admissible);
+      - the stored parse_job_id is the RAW (un-namespaced) id.
+
+    frappe.enqueue is patched (no worker runs); get_job_status is patched for the
+    double-fire case. No workbook needed -- this is purely the enqueue path.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Enqueue Marking BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetB", "sheet_order": 2,
+            "wizard_status": "Skip",
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetC", "sheet_order": 3,
+            "wizard_status": "Parsed", "sheet_config": blob,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        # Reset all lifecycle state so it does not leak across tests.
+        frappe.db.set_value("BOQs", self.boq_name, {
+            "parse_in_progress": 0, "parse_job_id": None, "parse_enqueued_at": None,
+        })
+        _clear_all_sheet_parse_markers(self.boq_name)
+        frappe.db.commit()
+
+    def _marker(self, sheet_name):
+        return int(frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            "parse_in_progress",
+        ) or 0)
+
+    def _mock_enqueue(self):
+        from unittest.mock import MagicMock
+        job = MagicMock()
+        job.id = "site::namespaced-id"
+        return job
+
+    def test_double_fire_rejected_when_job_live(self):
+        """run_parse throws when parse_in_progress=1 and the RQ job reads live."""
+        from unittest.mock import patch
+        frappe.db.set_value("BOQs", self.boq_name, {
+            "parse_in_progress": 1,
+            "parse_job_id": "live-raw-id",
+            "parse_enqueued_at": frappe.utils.now(),
+        })
+        frappe.db.commit()
+
+        with patch("frappe.utils.background_jobs.get_job_status", return_value="started"), \
+             patch.object(frappe, "enqueue", return_value=self._mock_enqueue()) as mock_enq:
+            with self.assertRaises(frappe.ValidationError):
+                run_parse(boq_name=self.boq_name)
+            mock_enq.assert_not_called()  # rejected BEFORE enqueue
+
+    def test_superset_marking_named_subset(self):
+        """A named subset marks exactly those sheets; others stay 0."""
+        from unittest.mock import patch
+        with patch.object(frappe, "enqueue", return_value=self._mock_enqueue()):
+            run_parse(boq_name=self.boq_name, sheet_names=["SheetA"])
+        self.assertEqual(self._marker("SheetA"), 1, "named SheetA must be marked")
+        self.assertEqual(self._marker("SheetB"), 0, "unnamed SheetB must stay 0")
+        self.assertEqual(self._marker("SheetC"), 0, "unnamed SheetC must stay 0")
+
+    def test_superset_marking_none_all_admissible(self):
+        """sheet_names=None marks every Rule-3-admissible sheet (Reviewed/Parsed), not Skip."""
+        from unittest.mock import patch
+        with patch.object(frappe, "enqueue", return_value=self._mock_enqueue()):
+            run_parse(boq_name=self.boq_name)
+        self.assertEqual(self._marker("SheetA"), 1, "Reviewed SheetA must be marked")
+        self.assertEqual(self._marker("SheetC"), 1, "Parsed SheetC must be marked")
+        self.assertEqual(self._marker("SheetB"), 0, "Skip SheetB must NOT be marked")
+
+    def test_stored_job_id_is_raw_not_namespaced(self):
+        """The stored parse_job_id is the RAW id -- never the namespaced 'site::id'."""
+        from unittest.mock import patch
+        with patch.object(frappe, "enqueue", return_value=self._mock_enqueue()):
+            run_parse(boq_name=self.boq_name)
+        stored = frappe.db.get_value("BOQs", self.boq_name, "parse_job_id")
+        self.assertTrue(stored, "parse_job_id must be stored after enqueue")
+        self.assertNotIn("::", stored,
+            "parse_job_id must be the RAW id (no '::' namespace); job.id would double-namespace")
+
+
+# ---------------------------------------------------------------------------
+# Group 8: self-heal of a stuck parse flag (#164 A3-backend)
+# ---------------------------------------------------------------------------
+
+class TestSelfHealParseState(FrappeTestCase):
+    """
+    _maybe_self_heal_parse_state + check_parse_status decision tree.
+    get_job_status is patched; no real RQ/Redis or worker involved.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Self Heal BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1, "wizard_status": "Reviewed",
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetB", "sheet_order": 2, "wizard_status": "Reviewed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        frappe.db.set_value("BOQs", self.boq_name, {
+            "parse_in_progress": 0, "parse_job_id": None, "parse_enqueued_at": None,
+        })
+        _clear_all_sheet_parse_markers(self.boq_name)
+        frappe.db.commit()
+
+    def _seed(self, *, flag=1, job_id="raw-id", enqueued_offset_s=0, mark_sheets=True):
+        """Set the BoQ into an 'in progress' state with optional staleness offset."""
+        enqueued = (
+            frappe.utils.add_to_date(frappe.utils.now(), seconds=enqueued_offset_s)
+            if enqueued_offset_s is not None else None
+        )
+        frappe.db.set_value("BOQs", self.boq_name, {
+            "parse_in_progress": flag, "parse_job_id": job_id, "parse_enqueued_at": enqueued,
+        })
+        if mark_sheets:
+            _set_sheet_parse_markers(self.boq_name, ["SheetA", "SheetB"], 1)
+        frappe.db.commit()
+
+    def _boq_state(self):
+        d = frappe.db.get_value(
+            "BOQs", self.boq_name,
+            ["parse_in_progress", "parse_job_id", "parse_enqueued_at"], as_dict=True,
+        )
+        return int(d.parse_in_progress or 0), d.parse_job_id, d.parse_enqueued_at
+
+    def _sheet_marker(self, sheet_name):
+        return int(frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            "parse_in_progress",
+        ) or 0)
+
+    def _assert_cleared(self):
+        flag, job_id, enqueued = self._boq_state()
+        self.assertEqual(flag, 0, "BoQ flag not cleared")
+        self.assertIsNone(job_id, "parse_job_id not blanked on clear")
+        self.assertIsNone(enqueued, "parse_enqueued_at not blanked on clear")
+        self.assertEqual(self._sheet_marker("SheetA"), 0, "SheetA marker not cleared")
+        self.assertEqual(self._sheet_marker("SheetB"), 0, "SheetB marker not cleared")
+
+    def test_none_status_clears(self):
+        from unittest.mock import patch
+        self._seed(enqueued_offset_s=-60)  # recent, but job gone
+        with patch("frappe.utils.background_jobs.get_job_status", return_value=None):
+            self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared")
+        self._assert_cleared()
+
+    def test_finished_status_clears(self):
+        from unittest.mock import patch
+        self._seed(enqueued_offset_s=-60)
+        with patch("frappe.utils.background_jobs.get_job_status", return_value="finished"):
+            self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared")
+        self._assert_cleared()
+
+    def test_queued_within_window_stays_running(self):
+        from unittest.mock import patch
+        self._seed(enqueued_offset_s=-60)  # 1 min ago: well inside 1200s window
+        with patch("frappe.utils.background_jobs.get_job_status", return_value="queued"):
+            self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "running")
+        # NON-MUTATION: nothing changed.
+        flag, job_id, _ = self._boq_state()
+        self.assertEqual(flag, 1, "flag must stay 1 while running")
+        self.assertEqual(job_id, "raw-id", "job id must be untouched while running")
+        self.assertEqual(self._sheet_marker("SheetA"), 1, "sheet marker must stay 1 while running")
+
+    def test_stale_started_past_window_clears(self):
+        from unittest.mock import patch
+        self._seed(enqueued_offset_s=-1300)  # 21+ min ago: past the 1200s window
+        with patch("frappe.utils.background_jobs.get_job_status", return_value="started"):
+            self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared_stale")
+        self._assert_cleared()
+
+    def test_legacy_flag_no_job_id_clears(self):
+        """Flag set but no job id ever stored (legacy stuck state) -> cleared."""
+        self._seed(job_id="", enqueued_offset_s=None)  # no job id, no timestamp
+        # get_job_status must NOT be consulted (no id) -- patch to blow up if called.
+        from unittest.mock import patch
+        with patch("frappe.utils.background_jobs.get_job_status",
+                   side_effect=AssertionError("get_job_status must not be called without a job id")):
+            self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared")
+        self._assert_cleared()
+
+    def test_legacy_flag_no_job_id_stale_clears_stale(self):
+        """Legacy flag, no job id, but a stale enqueue timestamp -> cleared_stale."""
+        self._seed(job_id="", enqueued_offset_s=-1300)
+        from unittest.mock import patch
+        with patch("frappe.utils.background_jobs.get_job_status",
+                   side_effect=AssertionError("get_job_status must not be called without a job id")):
+            self.assertEqual(_maybe_self_heal_parse_state(self.boq_name), "cleared_stale")
+        self._assert_cleared()
+
+    def test_check_parse_status_idle_when_flag_zero(self):
+        """check_parse_status returns 'idle' (no self-heal) when the flag is not set."""
+        frappe.db.set_value("BOQs", self.boq_name, "parse_in_progress", 0)
+        frappe.db.commit()
+        self.assertEqual(check_parse_status(boq_name=self.boq_name), {"state": "idle"})
+
+    def test_check_parse_status_running_does_not_mutate(self):
+        """A live job -> check_parse_status returns 'running' and leaves ALL state untouched."""
+        from unittest.mock import patch
+        self._seed(job_id="raw-id", enqueued_offset_s=-60)
+        with patch("frappe.utils.background_jobs.get_job_status", return_value="queued"):
+            self.assertEqual(check_parse_status(boq_name=self.boq_name), {"state": "running"})
+        # Explicit non-mutation assertions (required).
+        flag, job_id, enqueued = self._boq_state()
+        self.assertEqual(flag, 1, "flag mutated by a 'running' check")
+        self.assertEqual(job_id, "raw-id", "job id mutated by a 'running' check")
+        self.assertIsNotNone(enqueued, "enqueued_at blanked by a 'running' check")
+        self.assertEqual(self._sheet_marker("SheetA"), 1, "SheetA marker mutated by a 'running' check")
+        self.assertEqual(self._sheet_marker("SheetB"), 1, "SheetB marker mutated by a 'running' check")
+
+
+# ---------------------------------------------------------------------------
+# Group 9: per-sheet parse markers -- worker reconcile + clear (#164 A3-backend)
+# ---------------------------------------------------------------------------
+
+class TestPerSheetParseMarkersWorker(FrappeTestCase):
+    """
+    Worker-side per-sheet marker behaviour (#164):
+      - reconcile clears a marked-but-ineligible sheet and marks the eligible set;
+      - markers are cleared on the success path, the global parse_failed path, and
+        the top-level-exception path (the rollback-then-clear case).
+
+    Uses a 2-sheet workbook (SheetA data + SheetB) like TestRunParseWorker.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        generate_all()
+        cls.test_project = _make_project()
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "SheetA"
+        ws1.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws1.append([1, "Alpha Item", "nos", 2, 100.0, 200.0])
+        ws2 = wb.create_sheet("SheetB")
+        ws2.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws2.append([1, "Beta Item", "nos", 3, 50.0, 150.0])
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        cls._wb_path = tmp.name
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls._wb_path)
+        except OSError:
+            pass
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
+        ):
+            frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_boq(self, sheet_b_status="Reviewed"):
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Marker Worker {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.source_file_url = self.__class__._wb_path
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": "Reviewed", "sheet_config": blob,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetB", "sheet_order": 2,
+            "wizard_status": sheet_b_status,
+            "sheet_config": blob if sheet_b_status in ("Reviewed", "Parsed") else None,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def _marker(self, boq_name, sheet_name):
+        return int(frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            "parse_in_progress",
+        ) or 0)
+
+    def test_reconcile_clears_marked_but_ineligible(self):
+        """Reconcile marks the eligible set and clears a pre-marked ineligible (Skip) sheet.
+
+        _publish_parse_event is patched to a no-op so the end-of-run blanket clear does
+        not mask the reconcile result -- we observe the marker state reconcile committed.
+        """
+        from unittest.mock import patch
+        boq = self._make_boq(sheet_b_status="Skip")
+        # Pre-mark BOTH sheets 1 (as the enqueue superset would for the Skip case too).
+        _set_sheet_parse_markers(boq.name, ["SheetA", "SheetB"], 1)
+        frappe.db.commit()
+
+        with patch("nirmaan_stack.api.boq.wizard.parse_run._publish_parse_event"):
+            _run_parse_worker(boq.name, user="Administrator")
+
+        self.assertEqual(self._marker(boq.name, "SheetA"), 1,
+            "eligible SheetA must remain marked after reconcile")
+        self.assertEqual(self._marker(boq.name, "SheetB"), 0,
+            "ineligible (Skip) SheetB must be cleared by reconcile")
+
+    def test_markers_cleared_on_success(self):
+        boq = self._make_boq()
+        _set_sheet_parse_markers(boq.name, ["SheetA", "SheetB"], 1)
+        frappe.db.commit()
+        _run_parse_worker(boq.name, user="Administrator")
+        self.assertEqual(self._marker(boq.name, "SheetA"), 0, "SheetA marker not cleared on success")
+        self.assertEqual(self._marker(boq.name, "SheetB"), 0, "SheetB marker not cleared on success")
+
+    def test_markers_cleared_on_global_parse_failed(self):
+        """A global parse_boq failure still clears every per-sheet marker."""
+        from unittest.mock import patch
+        boq = self._make_boq()
+        _set_sheet_parse_markers(boq.name, ["SheetA", "SheetB"], 1)
+        frappe.db.commit()
+        with patch("nirmaan_stack.api.boq.wizard.parse_run.parse_boq",
+                   side_effect=RuntimeError("boom")):
+            _run_parse_worker(boq.name, user="Administrator")
+        self.assertEqual(self._marker(boq.name, "SheetA"), 0,
+            "SheetA marker not cleared on global parse_failed")
+        self.assertEqual(self._marker(boq.name, "SheetB"), 0,
+            "SheetB marker not cleared on global parse_failed")
+
+    def test_markers_cleared_on_top_level_exception(self):
+        """The top-level-exception path (rollback then publish) still clears markers.
+
+        Inject the failure in reconcile (_set_sheet_parse_markers) so it escapes ALL
+        inner try blocks and hits the outer except -> rollback() -> _publish_parse_event
+        (its own fresh-transaction clear) -> re-raise. The marker must end at 0.
+        """
+        from unittest.mock import patch
+        boq = self._make_boq()
+        _set_sheet_parse_markers(boq.name, ["SheetA"], 1)
+        frappe.db.commit()
+        with patch("nirmaan_stack.api.boq.wizard.parse_run._set_sheet_parse_markers",
+                   side_effect=RuntimeError("reconcile boom")):
+            with self.assertRaises(RuntimeError):
+                _run_parse_worker(boq.name, user="Administrator")
+        self.assertEqual(self._marker(boq.name, "SheetA"), 0,
+            "SheetA marker not cleared on the top-level-exception path (rollback+publish)")

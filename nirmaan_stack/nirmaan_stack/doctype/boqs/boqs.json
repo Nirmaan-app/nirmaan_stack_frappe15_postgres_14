@@ -26,6 +26,8 @@
   "general_specs_sheets",
   "wizard_state",
   "parse_in_progress",
+  "parse_job_id",
+  "parse_enqueued_at",
   "sheet_drafts"
  ],
  "fields": [
@@ -154,6 +156,20 @@
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Parse In Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parse_job_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Parse Job ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parse_enqueued_at",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Parse Enqueued At",
    "read_only": 1
   },
   {

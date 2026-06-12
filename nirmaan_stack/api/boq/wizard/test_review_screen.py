@@ -2875,3 +2875,91 @@ class TestUnmarkSheetParsedCheckDone(FrappeTestCase):
         )
         self.assertTrue(ok["ok"])
         self.assertEqual(self._get_remark(0), "now allowed", "the write must land after unmark")
+
+
+# ===========================================================================
+# Group: parse-in-progress write guard (#164 A3-backend)
+# ===========================================================================
+
+class TestParseInProgressWriteGuard(FrappeTestCase):
+    """All four BoQ Review Row write endpoints reject a write to a sheet whose
+    parse is in flight, and pass through when it is not.
+
+    GuardSheet (wizard_status='Parsed', parse_in_progress=1) is the parsing sheet;
+    OpenSheet (wizard_status='Parsed', parse_in_progress=0) is the unmarked control.
+    GuardSheet is deliberately NOT 'Parsed Check Done' so the frozen guard cannot
+    fire first -- only the parse-in-progress guard can reject."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Parse Guard Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "GuardSheet", "sheet_order": 1,
+            "wizard_status": "Parsed", "parse_in_progress": 1,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "OpenSheet", "sheet_order": 2,
+            "wizard_status": "Parsed", "parse_in_progress": 0,
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        for sheet in ("GuardSheet", "OpenSheet"):
+            _insert_rows(self.boq_name, [
+                _minimal_row(sheet, 0, "preamble", parent_index=None),
+                _minimal_row(sheet, 1, "line_item", parent_index=0),
+            ])
+
+    # -- rejections (parse_in_progress == 1) -----------------------------
+
+    def test_save_review_edit_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name="GuardSheet",
+                row_index=1, field="qty_total", value=5,
+            )
+
+    def test_save_review_restructure_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_restructure(
+                boq_name=self.boq_name, sheet_name="GuardSheet",
+                row_index=1, new_classification="line_item",
+            )
+
+    def test_save_review_remark_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_review_remark(
+                boq_name=self.boq_name, sheet_name="GuardSheet",
+                row_index=1, remark="nope",
+            )
+
+    def test_dismiss_row_flags_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            dismiss_row_flags(
+                boq_name=self.boq_name, sheet_name="GuardSheet",
+                row_index=1, dismissed=True,
+            )
+
+    # -- pass-through (parse_in_progress == 0) ---------------------------
+
+    def test_unmarked_sheet_edit_passes_through(self):
+        res = save_review_edit(
+            boq_name=self.boq_name, sheet_name="OpenSheet",
+            row_index=1, field="qty_total", value=7,
+        )
+        self.assertTrue(res["ok"], "edit on a non-parsing sheet must succeed")

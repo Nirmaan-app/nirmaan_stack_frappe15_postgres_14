@@ -22,6 +22,30 @@ def _get_child_name(boq_name: str, sheet_name: str) -> str | None:
     )
 
 
+def _guard_sheet_not_parsing(boq_name: str, sheet_name: str) -> None:
+    """Block any write to a sheet whose parse is in flight (#164 A3-backend).
+
+    Reads parse_in_progress on the matching BoQ Sheet Draft child row; throws iff
+    it is 1. A missing draft row -> get_value None -> pass-through (safe).
+    sheet_name matched VERBATIM (#152).
+
+    Canonical home is this leaf module: review_screen.py imports it (review_screen
+    already imports from here, and this module must NOT import review_screen --
+    that would be a circular import). The frontend parse-lock is the first line of
+    defence; this guard is the durable backstop.
+    """
+    in_progress = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "parse_in_progress",
+    )
+    if int(in_progress or 0) == 1:
+        frappe.throw(
+            "This sheet is being parsed. Wait for the parse to finish.",
+            title="Parse in progress",
+        )
+
+
 @frappe.whitelist(methods=["POST"])
 def set_sheet_status(boq_name: str = None, sheet_name: str = None, status: str = None):
     """Set wizard_status on a sheet-draft child row.
@@ -63,6 +87,9 @@ def set_sheet_status(boq_name: str = None, sheet_name: str = None, status: str =
             title="Sheet not found",
         )
 
+    # #164: reject writes to a sheet whose parse is in flight.
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", status)
     frappe.db.commit()
     return {"status": "saved"}
@@ -88,6 +115,9 @@ def set_sheet_label(boq_name: str = None, sheet_name: str = None, label: str = N
             f"Sheet '{sheet_name}' not found in BOQs '{boq_name}'.",
             title="Sheet not found",
         )
+
+    # #164: reject writes to a sheet whose parse is in flight.
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     frappe.db.set_value("BoQ Sheet Draft", child_name, "sheet_label", label or "")
     frappe.db.commit()
@@ -148,6 +178,8 @@ def set_general_specs_sheet(boq_name: str = None, sheet_names=None):
                 " No changes were made.",
                 title="Sheet is Hidden",
             )
+        # #164: reject if ANY named sheet's parse is in flight (no partial write).
+        _guard_sheet_not_parsing(boq_name, name)
 
     # Replace-all: remove all existing designations, then insert one row per name.
     frappe.db.delete("BoQ General Specs Sheet", {"parent": boq_name, "parenttype": "BOQs"})
@@ -211,6 +243,9 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
             f"Sheet '{sheet_name}' not found in BOQs '{boq_name}'.",
             title="Sheet not found",
         )
+
+    # #164: reject writes to a sheet whose parse is in flight.
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     # Read current state for dirty-marker detection.
     current = frappe.db.get_value(
@@ -304,6 +339,9 @@ def set_sheet_work_packages(boq_name: str = None, sheet_name: str = None, work_h
             f"Sheet '{sheet_name}' not found in BOQs '{boq_name}'.",
             title="Sheet not found",
         )
+
+    # #164: reject writes to a sheet whose parse is in flight.
+    _guard_sheet_not_parsing(boq_name, sheet_name)
 
     # Replace-all: clear existing, insert new
     frappe.db.delete("BoQ Sheet Work Package", {
