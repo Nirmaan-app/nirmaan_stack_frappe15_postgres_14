@@ -317,7 +317,36 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-12 -- Slice D2b hub XLSX workbook export + per-card CSV export COMPLETE -- FRONTEND + dep, feat 91bf255d):**
+**Status (2026-06-13 -- §9 #164 Slice A3-frontend parse-lock UI + check_parse_status wiring + SheetConfigPanel getFrappeError migration COMPLETE -- FRONTEND ONLY, feat 6be90efd):**
+The frontend half of the parse-lifecycle lock (backend floor: feat 004f80a8). While a sheet is under active
+parse/re-parse (`BoQ Sheet Draft.parse_in_progress === 1`, which rides the `useFrappeGetDoc("BOQs")` payload),
+its hub card actions are disabled + show a "Parsing..." indicator, its spoke config panel is fully locked,
+and its review screen is read-only -- all surfaced via amber banners. Files: `boqTypes.ts` (+`parse_in_progress
+?: 0|1` on `BoQSheetDraft`; `BOQsDoc.parse_in_progress` already existed), `SheetCard.tsx` (`isParsing =
+draft.parse_in_progress === 1`; the four PARSE-ADMISSIBLE branches -- Reviewed/Parsed/Parsed Check Done/**Parse
+failed** [v5.46: Parse-failed IS force-re-parse eligible so it can be superset-marked] -- get
+`disabled={isSaving || isParsing}` on every action + a Loader2 "Parsing..." chip by the pill; Pending/Skip/
+Hidden/General-specs untouched -- never parse-marked), `SheetReviewPage.tsx` (the existing draft lookup now
+also yields `isParsing`; `readOnly={isChecked || isParsing}` on `ReviewTree`; an AMBER parsing banner that
+TAKES PRECEDENCE over the D1 teal checked banner -- teal gated to `isChecked && !isParsing`), `SheetSpokePage.
+tsx` (derives `isSheetParsing` from the same `:58` draft lookup -> new `isParsing` prop to SheetConfigPanel),
+`SheetConfigPanel.tsx` (new `isParsing?: boolean`; an amber lock banner + the WHOLE form wrapped in a native
+`<fieldset disabled={isParsing}>` -- cascades to every shadcn button/input/Radix-select trigger, one flag
+locks Sections 1-4 + Save + Mark-as-reviewed; `dropIfReviewed` early-returns when `isParsing`), `BoqHubPage.
+tsx` (a one-shot imperative `check_parse_status` call via `useFrappePostCall` in a `useEffect([boqId])` mount
+effect -> on `cleared`/`cleared_stale` `void mutate()` so the existing `useEffect([boq])` recovery re-reads the
+healed flags; `running`/`idle` no-op; failures are `console.error`-only/non-fatal). **§9 #161 getFrappeError
+migration:** SheetConfigPanel now imports `getFrappeError` -- `handleSave` + `handleMarkReviewed`'s outer
+catches use `getFrappeError(e) || "<fallback>"`, the two inner work-package/status catches append
+`${getFrappeError(e)}` to their static strings, and `dropIfReviewed`'s `callSetStatus` gains a `.catch` routing
+into `setSaveError` (no longer swallowed) -- so a STALE-tab mid-parse config write now surfaces the REAL backend
+message ("This sheet is being parsed..."). No backend/Python touched; `ReviewTree.tsx` untouched (its `readOnly`
+gating already covers the freeze). tsc 0 new wizard-file errors + in-container build exit 0 (`✓ built in 3m
+46s`, PWA 168 entries). Manual live-cert LC1-LC7 pending Nitesh. STALE-PATH NOTE: the build brief listed
+`frontend/src/types/boqTypes.ts` but the real file is `frontend/src/pages/boq-wizard/boqTypes.ts`. See the
+"§9 #164 A3-frontend parse-lock conventions" section below for full detail.
+
+// prior: **Status (2026-06-12 -- Slice D2b hub XLSX workbook export + per-card CSV export COMPLETE -- FRONTEND + dep, feat 91bf255d):**
 Two hub export entry points: a GLOBAL multi-sheet .xlsx workbook (footer "Export reviewed" button -> a selection
 modal of every "Parsed Check Done" sheet, all pre-ticked -> ONE .xlsx, one tab per sheet) and a PER-CARD
 single-sheet .csv (the EXISTING D2 writer, on each "Parsed Check Done" SheetCard). The global path fetches each
@@ -923,6 +952,62 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**§9 #164 A3-frontend parse-lock conventions (`boqTypes.ts` + `SheetCard.tsx` + `SheetReviewPage.tsx` + `SheetSpokePage.tsx` + `SheetConfigPanel.tsx` + `BoqHubPage.tsx`):**
+
+The frontend parse-lifecycle lock. Backend floor (per-sheet `parse_in_progress`, double-fire guard, write
+guards, `check_parse_status`) is feat 004f80a8; this is FRONTEND ONLY (no backend, no `ReviewTree.tsx` --
+its `readOnly` gating already freezes everything).
+
+- **The signal flows for free (THE pattern).** `BoQSheetDraft.parse_in_progress?: 0 | 1` (boqTypes.ts) rides
+  the `useFrappeGetDoc("BOQs", boqId)` payload (one-level child table -- Recon #2 Q3), so every surface that
+  already fetches the BOQs doc reads it from its EXISTING draft lookup -- no new fetch, no new prop drilling
+  from a fetch. `BOQsDoc.parse_in_progress` (BoQ-level) already existed. `parse_job_id`/`parse_enqueued_at`
+  are deliberately NOT typed -- the frontend never reads them; `check_parse_status` returns a derived `state`.
+- **SheetCard: disable + indicate ONLY the parse-admissible branches.** `isParsing = draft.parse_in_progress
+  === 1`. The branches that can be superset-marked mid-parse are Reviewed / Parsed / Parsed Check Done AND
+  **Parse failed** (v5.46: Parse-failed is force-re-parse eligible, so the enqueue superset can mark it; the
+  worker reconcile clears it if assemble drops it, but the card must reflect the transient mark). Each
+  actionable control on those four branches gets `disabled={isSaving || isParsing}` (Edit/Review nav +
+  Set-pending + Re-parse + Export CSV); a compact `<Loader2 animate-spin/> Parsing...` amber chip renders by
+  the status pill. Pending/Skip/Hidden/General-specs are NEVER parse-marked -> untouched.
+- **SheetReviewPage: amber banner BEATS the teal D1 banner.** The existing `boq.sheet_drafts.find(...)` lookup
+  now captures the whole draft -> `sheetStatus` + `isParsing = draft?.parse_in_progress === 1`. `readOnly=
+  {isChecked || isParsing}` on `ReviewTree` (reuses the entire D1 freeze machinery). An AMBER parsing banner
+  (border-amber-300/bg-amber-50 + dark, Loader2 icon, one "Go to hub" button) renders when `isParsing` and
+  TAKES PRECEDENCE: the teal "Parsed Check Done" banner is gated to `isChecked && !isParsing` (parsing is the
+  transient state worth surfacing first).
+- **SheetSpokePage -> SheetConfigPanel: a `<fieldset disabled>` locks the whole panel.** The spoke derives
+  `isSheetParsing` from its `:58` draft lookup and passes `isParsing` to SheetConfigPanel. The panel accepts
+  `isParsing?: boolean`, renders an amber lock banner, and wraps ALL form content in a native `<fieldset
+  disabled={isParsing} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">` -- native fieldset
+  disabling cascades to every descendant shadcn Button/Input/Checkbox + Radix Select trigger (all `<button>`/
+  `<input>`), so ONE flag locks Sections 1-4 + Save + Mark-as-reviewed with no per-control edits. Belt-and-
+  braces: `dropIfReviewed` early-returns `if (isParsing)` so no programmatic write can fire either.
+- **BoqHubPage: one-shot self-heal on mount.** A `useFrappePostCall("...parse_run.check_parse_status")` (the
+  wizard's imperative GET-capable form -- NOT `useFrappeGetCall`, to avoid SWR re-fetch loops re-hitting a
+  self-healing endpoint) is called once in a `useEffect([boqId])`. On `state === "cleared" | "cleared_stale"`
+  -> `void mutate()` so the EXISTING `useEffect([boq])` on-mount recovery re-reads the healed BoQ + per-sheet
+  flags. `running`/`idle` -> no action. The call is NON-FATAL by contract: any failure is `console.error`-only;
+  the hub renders regardless. The `cancelled` unmount guard mirrors the upload-screen socket pattern.
+- **§9 #161 getFrappeError migration (SheetConfigPanel was the lone un-migrated wizard writer).** Import
+  `getFrappeError` from `@/utils/frappeErrors` (ReviewTree form). `handleSave` + `handleMarkReviewed`'s outer
+  catches -> `setSaveError(getFrappeError(e) || "Save failed. Please try again.")`. The two inner static-string
+  catches (work-packages step, status step) -> `${"...failed."} ${getFrappeError(e)} Click ... again.`.trim()
+  (catch param changed from bare `catch {` to `catch (e: unknown)`). `dropIfReviewed`'s `callSetStatus` gains a
+  `.catch((e) => setSaveError(getFrappeError(e) || "..."))` -- previously swallowed. Net effect: a stale-tab
+  mid-parse config write surfaces the REAL backend `frappe.throw` text (from `_server_messages`) instead of the
+  SDK's generic "There was an error." `frappeErrors.ts` is CONSUMED, not modified.
+- **STALE FILE-IN-SCOPE PATH (recorded).** The build brief listed `frontend/src/types/boqTypes.ts`; the real
+  file is `frontend/src/pages/boq-wizard/boqTypes.ts` (all wizard types live in the page folder). The correct
+  file was edited + staged.
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|boqTypes` -> only the marker, empty) +
+  in-container Vite build exit 0 (`✓ built in 3m 46s`, PWA 168 entries). No Frappe unit tests (frontend-only).
+  Manual live-cert pending Nitesh: LC1 mid-parse card buttons disabled + Parsing chip; LC2 spoke locked +
+  amber banner + dropIfReviewed inert; LC3 review screen read-only + amber banner (beats teal); LC4 post-parse
+  all three unlock via socket->mutate without manual refresh; LC5 stale-tab config save shows the REAL backend
+  message (getFrappeError proof); LC6 idle hub loads normally (check_parse_status idle, no side-effects);
+  LC7 stuck-flag self-heal on mount -> cleared -> surfaces unlock.
 
 **Slice D2b hub export conventions (`exportReviewXlsx.ts` NEW + `ExportWorkbookDialog.tsx` NEW + `exportReviewCsv.ts` + `BoqHubPage.tsx` + `SheetCard.tsx`):**
 
