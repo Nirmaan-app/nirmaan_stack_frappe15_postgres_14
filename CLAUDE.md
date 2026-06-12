@@ -1,6 +1,39 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-13 (§9 #164 Slice A3-backend -- per-sheet parse-lifecycle state + double-fire
+**Last updated:** 2026-06-13 (Slice A1 status rename + Finalized config-freeze + dirty-marker fix --
+BACKEND + FRONTEND + DATA MIGRATION, feat 6001e36e: the `BoQ Sheet Draft.wizard_status` values
+**"Reviewed" -> "Config Done"** and **"Parsed Check Done" -> "Finalized"** (compared LITERALLY across backend
++ frontend, so the rename is coverage-critical -- a zero-hit grep gate confirmed 100% coverage). The doctype
+options string (`boq_sheet_draft.json`) renames both tokens; an idempotent patch
+`v3_0/migrate_boq_sheet_draft_status_rename` rewrites stored rows (option metadata does NOT touch stored
+values) -- `bench migrate` verified 0 old-value rows remain (6 'Reviewed'->'Config Done'). BACKEND: parse_run
+`_RULE3_BASE_STATUSES`/force-arm/worker-comparison; update_sheet_draft `_DIRECT_SET_STATUSES` (now excludes
+"Reviewed" -- the old name is now an INVALID status) + the dirty-drop write (Parsed->"Config Done");
+review_screen renames the const `_PARSED_CHECK_DONE`->`_SHEET_FINALIZED="Finalized"` AND fixes the
+const-vs-literal split (mark/unmark preconditions + writes + messages now all reference the const -- one
+definition site). **DIRTY-MARKER ASYMMETRY FIX (Finalized config-freeze):** a NEW shared
+`_guard_sheet_not_finalized(boq, sheet)` (update_sheet_draft, leaf module; imported by review_screen) throws
+iff wizard_status=="Finalized", called in ALL FIVE config writers immediately AFTER `_guard_sheet_not_parsing`
+(per-named-sheet in `set_general_specs_sheet`) -- so a Finalized sheet's config write is REJECTED (superseding
+the old silent "Parsed Check Done never drops" asymmetry); the dirty-drop at the Parsed branch is unchanged (a
+Finalized sheet is rejected before reaching it). FRONTEND: `WizardStatus` union + `STATUS_PILL` keys/labels +
+all effectiveStatus branches/comparisons (SheetCard/BoqHubPage/SheetReviewPage/ParseRunDialog) + the
+statusAtOpenRef compare + the `set_sheet_status` write + the hub "Export reviewed"->"Export Finalized" label;
+identifiers carrying the old name were renamed for a zero-justification grep (`newlyDesignatedReviewed`->
+`newlyDesignatedConfigDone`, `pendingReviewedNames`->`pendingConfigDoneNames`, `dropIfReviewed`->
+`dropIfConfigDone`, `handleMarkReviewed`->`handleMarkConfigDone`). **NEW un-mark-and-edit affordance:**
+SheetConfigPanel shows a TEAL Finalized-lock banner + an "Un-mark and edit" confirm (-> the EXISTING
+`unmark_sheet_parsed_check_done` endpoint -- function name unchanged -> onSaveSuccess re-fetch unlocks); the
+whole form is `<fieldset disabled={isParsing || finalized}>` (parsing amber banner takes precedence over
+finalized teal); SheetCard's Finalized branch gains an "Edit config" -> spoke button so the affordance is
+reachable. TESTS: ~78 status literals renamed in place + new TestFinalizedConfigFreeze (5 writer rejects +
+Config-Done control + REAL-unmark-then-writer round-trip + parse-guard-precedence) + TestStatusRenameRegression
+(old "Reviewed" rejected) + retired-value superset-marking hygiene; the renamed M2 test covers mark-rejects-
+Config-Done. test_parse_run 85->86, test_update_sheet_draft 72->82, test_review_screen 152 (renamed in place),
+parser 588 unchanged. tsc 0 wizard errors (3177 baseline) + build exit 0. Zero-hit grep residuals all justified
+(migration map / 2 intentional-old-name tests / ReviewTree "Reviewed -- looks OK" flag text [out-of-scope] /
+exportReviewCsv docstring). Live-cert pending Nitesh. Full detail in boq-upload-plan.md + frontend/CLAUDE.md.
+// prior: §9 #164 Slice A3-backend -- per-sheet parse-lifecycle state + double-fire
 guard + self-heal + write guards -- BACKEND ONLY, feat 004f80a8: a sheet under active parse/re-parse is
 marked in-flight so its config + review writes are rejected until the parse finishes. SCHEMA: `BoQ Sheet
 Draft.parse_in_progress` (Check, default 0); `BOQs.parse_job_id` (Data, hidden, read-only) + `BOQs.
@@ -520,7 +553,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 - Object-per-flag distinction: `needs_classification_review` + `review_reason` are ResolvedRow-level flags (set by hierarchy post-pass); `classifier_warnings` + `preamble_candidate_*` are ClassifiedRow-level signals (set during classification). Do NOT conflate them.
 - Review edits (human layer, Slice A): `human_classification` (Data), `human_parent` (Int), `edit_log` (JSON list), `edited_by` (Data), `edited_at` (Datetime). `has_human_parent` DOES NOT EXIST (was retired in feat fff26abd -- see -1 sentinel below). `remarks` (Small Text, Slice C-v2c) also lives in this section but is NOT an edit field -- it is human-only annotation written ONLY by `save_review_remark`, never stamps edited_at/edit_log, and a remark-only row stays "Original". `flags_dismissed` (Check, default 0), `flags_dismissed_by` (Data, read-only), `flags_dismissed_at` (Datetime, read-only) (C-flag-dismissal) also live here but are NOT edit fields -- the per-row "Looks OK" acknowledgment, written ONLY by `dismiss_row_flags` (mirrors the remark bypass), cleared on any edit at the `_apply_and_save_row_edit` chokepoint, and a dismissed-only row stays "Original".
 - **-1 sentinel convention (parent_index + human_parent):** Frappe coerces Int None->0 on insert and 0 is a valid row index, so None is unusable as a "no parent/no override" sentinel at the DB boundary. FIX: -1 is the sentinel. `flatten_resolved_row` writes -1 for root rows (None->-1). `save_review_edit` writes -1 when human_parent is cleared. `resolve_effective` translates both -1 AND None to Python None before computing effective values (`in (None, -1)` check), so all downstream tree/cycle/orphan logic (which uses None for root) is unchanged. `human_parent >= 0` (including 0) is a real human override. The Check field `has_human_parent` was redundant once -1 is the sentinel and has been removed from the schema.
-- **wizard_status 9 values on BoQ Sheet Draft:** blank / Pending / Hidden / Reviewed / Skip / General specs (derived, never stored) / Parse failed / Parsed / Parsed Check Done. `mark_sheet_parsed_check_done` writes "Parsed Check Done" directly (bypasses `set_sheet_status` which rejects it).
+- **wizard_status 9 values on BoQ Sheet Draft (renamed Slice A1):** blank / Pending / Hidden / **Config Done** (was "Reviewed") / Skip / General specs (derived, never stored) / Parse failed / Parsed / **Finalized** (was "Parsed Check Done"). `mark_sheet_parsed_check_done` writes "Finalized" directly (bypasses `set_sheet_status` which rejects it). The endpoint FUNCTION names (`mark_sheet_parsed_check_done` / `unmark_sheet_parsed_check_done`) are UNCHANGED -- only the status strings moved.
 
 **`review_screen.py`** (Slice A, feat fff26abd) -- helpers + 3 endpoints in `nirmaan_stack/api/boq/wizard/review_screen.py`:
 

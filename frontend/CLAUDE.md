@@ -317,7 +317,32 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-13 -- §9 #164 Slice A3-frontend parse-lock UI + check_parse_status wiring + SheetConfigPanel getFrappeError migration COMPLETE -- FRONTEND ONLY, feat 6be90efd):**
+**Status (2026-06-13 -- Slice A1 status rename + Finalized config-freeze (un-mark-and-edit) COMPLETE -- BACKEND + FRONTEND + DATA MIGRATION, feat 6001e36e):**
+The `wizard_status` values **"Reviewed" -> "Config Done"** and **"Parsed Check Done" -> "Finalized"** (compared
+LITERALLY everywhere, so the rename was coverage-critical -- a zero-hit grep gate proved 100% coverage).
+FRONTEND rename sites: `boqTypes.ts` `WizardStatus` union; `SheetCard.tsx` `STATUS_PILL` keys + labels ("Config
+Done"/"Finalized") + all effectiveStatus branches/canReparse/dirty-badge; `BoqHubPage.tsx` every
+getEffectiveStatus comparison + the hub footer label **"Export reviewed" -> "Export Finalized"**;
+`SheetReviewPage.tsx` `isChecked` + the "Mark Finalized" button + teal banner copy; `ParseRunDialog.tsx` the two
+`wizard_status === "Finalized"` comparisons + copy; `SheetConfigPanel.tsx` the `statusAtOpenRef` compare + the
+`set_sheet_status("Config Done")` write; `ExportWorkbookDialog.tsx` copy. **Identifiers carrying the old name
+were renamed for a zero-justification grep** (`newlyDesignatedReviewed`->`newlyDesignatedConfigDone`,
+`pendingReviewedNames`->`pendingConfigDoneNames`, `dropIfReviewed`->`dropIfConfigDone`, `handleMarkReviewed`->
+`handleMarkConfigDone`). **NEW Finalized config-freeze + un-mark-and-edit (SheetConfigPanel):** when
+`wizardStatus === "Finalized"`, a TEAL ShieldCheck banner + an "Un-mark and edit" button -> a confirm
+`AlertDialog` -> the EXISTING `unmark_sheet_parsed_check_done` endpoint (function name unchanged; sets status
+back to "Parsed") -> `onSaveSuccess()` re-fetch unlocks the panel; the whole form is wrapped in `<fieldset
+disabled={isParsing || finalized}>` so ONE flag locks Sections 1-4 + Save + Mark; **banner precedence: parsing
+amber beats finalized teal**; the un-mark AlertDialog is rendered OUTSIDE the fieldset (portals to body).
+`SheetCard.tsx` Finalized branch gains an **"Edit config" -> spoke** button so the un-mark affordance is
+reachable without URL surgery. BACKEND backstop: `_guard_sheet_not_finalized` rejects config writes to a
+Finalized sheet (supersedes the old dirty-marker asymmetry); see root CLAUDE.md. `SheetSpokePage.tsx` already
+passes `wizardStatus` + `isParsing` (A3) -- unchanged this slice. `ReviewTree.tsx` OUT OF SCOPE (its `readOnly`
+gating already freezes the tree; its "Reviewed -- looks OK" flag-dismissal text is NOT a status -- left as-is).
+tsc 0 wizard-file errors (3177 baseline) + in-container build exit 0 (`✓ built in 9m 17s`, PWA 168 entries).
+Live-cert pending Nitesh. See the "Slice A1 status-rename + Finalized config-freeze conventions" section below.
+
+// prior: **Status (2026-06-13 -- §9 #164 Slice A3-frontend parse-lock UI + check_parse_status wiring + SheetConfigPanel getFrappeError migration COMPLETE -- FRONTEND ONLY, feat 6be90efd):**
 The frontend half of the parse-lifecycle lock (backend floor: feat 004f80a8). While a sheet is under active
 parse/re-parse (`BoQ Sheet Draft.parse_in_progress === 1`, which rides the `useFrappeGetDoc("BOQs")` payload),
 its hub card actions are disabled + show a "Parsing..." indicator, its spoke config panel is fully locked,
@@ -952,6 +977,46 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**Slice A1 status-rename + Finalized config-freeze conventions (all 7 wizard frontend files + backend + migration):**
+
+- **The rename is LITERAL-coverage-critical (THE rule).** `wizard_status` is compared `===` against string
+  literals across backend AND frontend, so "Reviewed"->"Config Done" / "Parsed Check Done"->"Finalized" had to
+  hit EVERY site or a branch silently breaks. The gate was a zero-hit `grep -rn "Reviewed"|"Parsed Check Done"`
+  over the python package + `frontend/src`; the ONLY justified residuals are the migration map, two
+  intentional-old-name regression tests, `ReviewTree.tsx`'s "Reviewed -- looks OK" flag text (NOT a status),
+  and docstrings. **A naive quoted-`"Reviewed"` grep MISSES the doctype options token** (`\nReviewed`, no
+  surrounding quotes) -- edit `boq_sheet_draft.json` options FIRST and read it back.
+- **Identifiers carrying the old name were renamed too (zero-justification goal).** Capital-`Reviewed`
+  identifiers match the gate grep, so they were renamed: `newlyDesignatedReviewed`/`pendingReviewedNames`
+  (BoqHubPage), `dropIfReviewed`/`handleMarkReviewed` (SheetConfigPanel) -> `*ConfigDone`. Lowercase
+  identifiers (`reviewedDraftsForDialog`, `reviewedCount`, `reviewedDrafts` prop) are NOT matched by the
+  case-sensitive grep and were left.
+- **STATUS_PILL keys are the lookup -- rename the KEY (SheetCard).** `STATUS_PILL["Config Done"]` /
+  `STATUS_PILL["Finalized"]`; labels set to "Config Done"/"Finalized" (the old "Checked" label is gone). The
+  pill is keyed by the effective status string, so a stale key would silently fall back to the Pending pill.
+- **Finalized config-freeze = `_guard_sheet_not_finalized` (backend) + a `<fieldset>` lock (frontend).** A
+  Finalized sheet's config write is REJECTED backend-side in all five writers (after the parse guard); the
+  frontend mirrors this: SheetConfigPanel derives `finalized = wizardStatus === "Finalized"` and wraps the form
+  in `<fieldset disabled={isParsing || finalized}>` (native cascade locks every control). This SUPERSEDES the
+  old dirty-marker asymmetry (the Parsed->Config-Done drop is untouched; a Finalized sheet is rejected before
+  reaching it).
+- **Un-mark-and-edit (the reversibility affordance).** When `finalized`, a TEAL ShieldCheck banner shows an
+  "Un-mark and edit" button -> a confirm `AlertDialog` ("returns to Parsed, must be re-finalized") -> the
+  EXISTING `unmark_sheet_parsed_check_done` endpoint (**function name unchanged** -- only the status strings
+  moved) -> `onSaveSuccess()` re-fetches so `wizardStatus` flips to "Parsed" and the fieldset unlocks. The
+  AlertDialog renders OUTSIDE the fieldset (portals to body, so it stays interactive). **Banner precedence:
+  parsing amber beats finalized teal** (`{isParsing ? amber : finalized ? teal : null}`). SheetCard's Finalized
+  branch gains an "Edit config" -> `onOpenSpoke` button so the affordance is reachable (the Finalized card
+  previously had no spoke route).
+- **Data migration is mandatory + one-column.** Option-string rename does NOT touch stored rows; the idempotent
+  patch `v3_0/migrate_boq_sheet_draft_status_rename` rewrites `BoQ Sheet Draft.wizard_status` (the ONLY field
+  storing these strings -- edit_log/exports embed none). `bench migrate` verified 0 old-value rows.
+- **Verification.** tsc 0 wizard-file errors (3177 baseline unchanged) + in-container build exit 0 (`✓ built in
+  9m 17s`, PWA 168 entries); backend parser 588 + test_parse_run 86 + test_update_sheet_draft 82 +
+  test_review_screen 152 green. Live-cert pending Nitesh: pill labels + every status branch render under the new
+  names; Finalized card -> Edit config -> teal lock + Un-mark-and-edit round-trip -> panel unlocks + edits land;
+  the hub "Export Finalized" button + dialog gate on Finalized sheets; a re-finalize after editing.
 
 **§9 #164 A3-frontend parse-lock conventions (`boqTypes.ts` + `SheetCard.tsx` + `SheetReviewPage.tsx` + `SheetSpokePage.tsx` + `SheetConfigPanel.tsx` + `BoqHubPage.tsx`):**
 
