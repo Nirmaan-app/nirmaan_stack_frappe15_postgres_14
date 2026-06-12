@@ -246,51 +246,92 @@ def on_approval_revision(revision_name, _internal=False):
         frappe.throw(_("Approval failed: {0}").format(str(e)))
 
 
+def _get_available_po_credit(po_id):
+    """Usable overpaid credit (₹) on a PO's adjustment, regardless of its status.
+
+    Reads the *number* (remaining_impact), NOT the status — so a 'Done' adjustment
+    that still carries a negative balance is reused exactly like a 'Pending' one.
+    Returns 0.0 when there is no adjustment or no credit.
+    """
+    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
+    if not adj_name:
+        return 0.0
+    remaining = flt(frappe.db.get_value("PO Adjustments", adj_name, "remaining_impact"))
+    return max(0.0, -remaining)
+
+
 def _auto_add_payment_term(original_po, diff, revision_id):
     """
-    For positive diff: adds a single 'Created' payment term labeled
-    'Revision Adjustment - {revision_id}' and rebalances percentages.
-    Returns list of auto-entry dicts for PO Adjustment child table.
+    For positive diff: first consume any existing overpaid credit on this PO's
+    adjustment, then create a single 'Created' payment term labeled
+    'Revision Adjustment - {revision_id}' for the *uncovered* balance only.
+    Rebalances percentages. Returns auto-entry dicts for the PO Adjustment child table.
+
+    Credit-aware AND status-agnostic: credit is looked up by remaining_impact
+    (see `_get_available_po_credit`), so a 'Done' adjustment holding leftover credit
+    is still reused on the next increase. See PO/068/00103/26-27 regression.
+
+    Backward compatible: with no existing credit, available_credit == 0, so the full
+    diff becomes a new term and the entries net to zero exactly as before.
     """
-    existing_payment_type = "Cash"
-    if original_po.payment_terms:
-        existing_payment_type = original_po.payment_terms[0].payment_type
+    diff = flt(diff)
 
-    new_term_data = {
-        "label": frappe.utils.cstr(f"Revision Adjustment - {revision_id}")[:140],
-        "amount": flt(diff),
-        "vendor": original_po.vendor,
-        "project": original_po.project,
-        "term_status": "Created",
-        "payment_type": existing_payment_type,
-    }
+    available_credit = _get_available_po_credit(original_po.name)
+    covered = min(diff, available_credit)
+    uncovered = flt(diff - covered, 2)
 
-    if existing_payment_type == "Credit":
-        new_term_data["due_date"] = frappe.utils.add_days(frappe.utils.nowdate(), 2)
+    # The increase itself always reduces the overpayment / records the new obligation.
+    entries = [{
+        "entry_type": "Revision Impact",
+        "amount": diff,
+        "description": f"PO amount increased by ₹{diff:,.2f} due to revision {revision_id}",
+        "revision_id": revision_id,
+    }]
 
-    original_po.append("payment_terms", new_term_data)
+    # Audit-only marker (amount 0) showing credit was applied — keeps the ledger legible.
+    if covered > 0.01:
+        entries.append({
+            "entry_type": "Credit Applied",
+            "amount": 0.0,
+            "description": f"Applied ₹{flt(covered):,.2f} existing overpaid credit toward revision {revision_id}",
+            "revision_id": revision_id,
+        })
 
-    # Rebalance percentages
+    # Only the part not covered by existing credit needs a fresh payable term.
+    if uncovered > 0.01:
+        existing_payment_type = "Cash"
+        if original_po.payment_terms:
+            existing_payment_type = original_po.payment_terms[0].payment_type
+
+        new_term_data = {
+            "label": frappe.utils.cstr(f"Revision Adjustment - {revision_id}")[:140],
+            "amount": uncovered,
+            "vendor": original_po.vendor,
+            "project": original_po.project,
+            "term_status": "Created",
+            "payment_type": existing_payment_type,
+        }
+
+        if existing_payment_type == "Credit":
+            new_term_data["due_date"] = frappe.utils.add_days(frappe.utils.nowdate(), 2)
+
+        original_po.append("payment_terms", new_term_data)
+
+        entries.append({
+            "entry_type": "Term Addition",
+            "amount": -uncovered,
+            "description": f"Auto-created payment term (₹{uncovered:,.2f}) to cover revision {revision_id}",
+            "revision_id": revision_id,
+        })
+
+    # Rebalance percentages (PO total changed because items were synced)
     original_po.calculate_totals_from_items()
     new_total = flt(original_po.total_amount)
     if new_total > 0:
         for term in original_po.get("payment_terms", []):
             term.percentage = flt((flt(term.amount) / new_total) * 100, 2)
 
-    return [
-        {
-            "entry_type": "Revision Impact",
-            "amount": flt(diff),
-            "description": f"PO amount increased by ₹{flt(diff):,.2f} due to revision {revision_id}",
-            "revision_id": revision_id,
-        },
-        {
-            "entry_type": "Term Addition",
-            "amount": -flt(diff),
-            "description": f"Auto-created payment term to cover revision {revision_id}",
-            "revision_id": revision_id,
-        },
-    ]
+    return entries
 
 
 def _auto_absorb_created_terms(original_po, abs_diff, revision_id):

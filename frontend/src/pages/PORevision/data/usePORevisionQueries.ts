@@ -164,6 +164,11 @@ interface POLockCheckResult {
   payment_lock_source?: string; // "PO Revision" | "PO Adjustment"
   role?: string;
   revision_id?: string;
+  // Soft advisory: a 'Done' adjustment still holding small overpaid credit.
+  // Informational only — does NOT block payment terms.
+  has_credit_notice?: boolean;
+  credit_notice_id?: string;
+  remaining_credit?: number;
   [key: string]: any;
 }
 
