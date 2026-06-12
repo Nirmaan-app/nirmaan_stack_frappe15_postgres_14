@@ -1,6 +1,41 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-11 (Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark
+**Last updated:** 2026-06-13 (§9 #164 Slice A3-backend -- per-sheet parse-lifecycle state + double-fire
+guard + self-heal + write guards -- BACKEND ONLY, feat 004f80a8: a sheet under active parse/re-parse is
+marked in-flight so its config + review writes are rejected until the parse finishes. SCHEMA: `BoQ Sheet
+Draft.parse_in_progress` (Check, default 0); `BOQs.parse_job_id` (Data, hidden, read-only) + `BOQs.
+parse_enqueued_at` (Datetime, hidden, read-only) -- `BOQs.parse_in_progress` (BoQ-level) UNCHANGED. `bench
+migrate` landed all three columns (get_meta verified). parse_run.py: `run_parse` gains a DOUBLE-FIRE guard
+(if `BOQs.parse_in_progress==1`, call `_maybe_self_heal_parse_state`; a genuinely-live job -> throw "A parse
+is already running", a stuck remnant -> self-heal + proceed), stores a RAW uuid `job_id` in `parse_job_id`
+(NOT the namespaced `job.id` -- get_job_status re-namespaces, Recon #2 Q4) + `parse_enqueued_at`, and
+SUPERSET-marks `parse_in_progress=1` at enqueue (named subset, else every Rule-3-admissible
+{Reviewed,Parsed}+force_reparse{Parsed Check Done} sheet -- mirrors assemble_mapping_config). WORKER:
+reconciles markers after `assemble_mapping_config`/`eligible_data_sheets` resolve (clears marked-but-
+ineligible, marks the truly-eligible set, commits so the UI sees it mid-parse); `_publish_parse_event`
+BLANKET-clears `parse_in_progress` on ALL drafts + blanks job_id/enqueued_at alongside the existing BoQ-flag
+clear (correct on all 7 exit paths incl. the rollback-then-clear top-level-exception path). `_maybe_self_heal
+_parse_state(boq)` reads job status via `frappe.utils.background_jobs.get_job_status(raw_id)`:
+None/finished/failed -> clear (returns "cleared"); queued/started within 1200s -> "running" (NO mutation);
+past 1200s or legacy-no-job-id -> clear (returns "cleared_stale"/"cleared"); a clear ALWAYS blanks
+job_id+enqueued_at + all per-sheet markers. NEW endpoint `check_parse_status(boq)` (whitelist bare/GET) ->
+{state: idle|running|cleared|cleared_stale} -- ships UNWIRED (the hub-mount call is a later frontend slice).
+GUARDS: shared `_guard_sheet_not_parsing(boq, sheet)` (canonical home update_sheet_draft.py -- the leaf;
+review_screen.py imports it, avoiding the circular import the reverse would cause; throws "This sheet is
+being parsed..." iff the draft's parse_in_progress==1; missing draft -> pass-through), called AFTER the
+existing guard sequence in the four review_screen write endpoints (`save_review_edit`,
+`save_review_restructure`, `save_review_remark`, `dismiss_row_flags`) and after the child-exists check in the
+five update_sheet_draft writers (`set_sheet_status`/`set_sheet_label`/`set_sheet_config`/`set_sheet_work
+_packages`, plus per-named-sheet in `set_general_specs_sheet`). TESTS +27: test_parse_run 69->85
+(TestParseEnqueueMarking [double-fire reject, subset+None superset marking, raw-not-namespaced id],
+TestSelfHealParseState [None/finished/stale/legacy/idle + the non-mutating "running" check],
+TestPerSheetParseMarkersWorker [reconcile clears ineligible, clears on success/global-fail/top-level-
+exception]); test_update_sheet_draft 66->72 (TestParseInProgressGuard, 5 rejects + control);
+test_review_screen 147->152 (TestParseInProgressWriteGuard, 4 rejects + control). Parser suite 588 unchanged.
+ALL FRONTEND DEFERRED to a separate slice (the parse-lock UI + wiring check_parse_status); frontend/CLAUDE.md
+deliberately NOT touched this slice (S5 backend-only lock). Recon-ref correction: wizard tests live at
+`api/boq/wizard/test_*.py`, NOT a `tests/` subdir. Full detail in boq-upload-plan.md.
+// prior: Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark
 COMPLETE -- BACKEND + FRONTEND: a sheet at "Parsed Check Done" is FROZEN -- all four BoQ Review Row write
 endpoints (`save_review_edit`, `save_review_restructure`, `save_review_remark`, `dismiss_row_flags`) reject
 writes, enforced BACKEND + FRONTEND. BACKEND (review_screen.py): a shared `_get_sheet_wizard_status(boq,
