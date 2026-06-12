@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(docker exec frappe_docker_devcontainer-frappe-1:*)",
+      "Bash(docker exec -u root frappe_docker_devcontainer-frappe-1:*)",
+      "Bash(docker cp:*)",
+      "Bash(docker ps)",
+      "Bash(docker ps:*)",
+      "Bash(Get-Location)",
+      "Bash(Get-ChildItem:*)",
+      "Bash(Get-Content:*)",
+      "Bash(Select-String:*)",
+      "Bash(Test-Path:*)",
+      "Bash(Write-Host:*)",
+      "Bash(Write-Output:*)",
+      "Bash(Copy-Item:*)",
+      "Bash(Remove-Item *.txt)",
+      "Bash(Remove-Item $env:TEMP\\*)",
+      "Edit(CLAUDE.md)",
+      "Edit(frontend/.claude/plans/boq-upload-plan.md)",
+      "Edit(nirmaan_stack/services/boq_parser/keyword_audit.py)",
+      "Edit(nirmaan_stack/services/boq_parser/test_config.py)",
+      "Edit(nirmaan_stack/services/boq_parser/test_multi_area_detection.py)",
+      "Edit(nirmaan_stack/services/boq_parser/test_classifier.py)",
+      "Edit(nirmaan_stack/services/boq_parser/test_hierarchy.py)",
+      "Edit(nirmaan_stack/services/boq_parser/test_orchestrator.py)",
+      "Edit(nirmaan_stack/services/boq_parser/test_reader.py)",
+      "Read(**)",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(rm -rf:*)",
+      "Bash(Remove-Item -Recurse:*)"
+    ]
+  }
+}

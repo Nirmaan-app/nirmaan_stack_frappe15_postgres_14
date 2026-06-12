@@ -1,0 +1,9 @@
+# Enforce LF line endings on all text files in the repository
+# Prevents CRLF pollution from Windows-checkout sessions
+* text=auto eol=lf
+
+# Explicit overrides for files that should stay binary
+*.xlsx binary
+*.png binary
+*.pdf binary
+*.jpg binary

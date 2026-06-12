@@ -1,0 +1,290 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "BOQ-.YY.-.#####",
+ "creation": "2026-05-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "details_section",
+  "project",
+  "parent_boq",
+  "boq_name",
+  "version",
+  "status",
+  "tax_treatment",
+  "upload_section",
+  "uploaded_by",
+  "uploaded_at",
+  "parsed_at",
+  "notes",
+  "parser_metadata_section",
+  "source_sheet_name",
+  "source_file_url",
+  "area_dimensions",
+  "general_specs_sheets",
+  "wizard_state",
+  "parse_in_progress",
+  "sheet_drafts"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Projects",
+   "search_index": 1
+  },
+  {
+   "description": "If this BoQ is a sub-package under a master BoQ, link to the master here.",
+   "fieldname": "parent_boq",
+   "fieldtype": "Link",
+   "label": "Parent BoQ",
+   "options": "BOQs"
+  },
+  {
+   "fieldname": "boq_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "BoQ Name"
+  },
+  {
+   "default": "1",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Version",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nApproved\nSuperseded"
+  },
+  {
+   "default": "Pre-tax",
+   "fieldname": "tax_treatment",
+   "fieldtype": "Select",
+   "label": "Tax Treatment",
+   "options": "Pre-tax\nPost-tax"
+  },
+  {
+   "fieldname": "upload_section",
+   "fieldtype": "Section Break",
+   "label": "Upload Info"
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Link",
+   "label": "Uploaded By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uploaded_at",
+   "fieldtype": "Datetime",
+   "label": "Uploaded At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parsed_at",
+   "fieldtype": "Datetime",
+   "label": "Parsed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "parser_metadata_section",
+   "fieldtype": "Section Break",
+   "label": "Parser Metadata"
+  },
+  {
+   "description": "The Excel sheet name this BoQ was parsed from. Set automatically by the parser; blank for manually created BoQs.",
+   "fieldname": "source_sheet_name",
+   "fieldtype": "Data",
+   "label": "Source Sheet Name",
+   "read_only": 1
+  },
+  {
+   "description": "Path to the uploaded Excel file.",
+   "fieldname": "source_file_url",
+   "fieldtype": "Small Text",
+   "label": "Source File URL",
+   "read_only": 1
+  },
+  {
+   "description": "JSON array of area names this BoQ uses, e.g. [\"B1\", \"B3\", \"B6\"]. Empty for single-qty BoQs.",
+   "fieldname": "area_dimensions",
+   "fieldtype": "Small Text",
+   "label": "Area Dimensions (JSON)"
+  },
+  {
+   "description": "General-specifications sheets for this workbook. Each row stores the source sheet name and the extracted preamble text. Replaces the former scalar general_specs_sheet + master_preamble fields (Slice 2c).",
+   "fieldname": "general_specs_sheets",
+   "fieldtype": "Table",
+   "label": "General Specifications Sheets",
+   "options": "BoQ General Specs Sheet"
+  },
+  {
+   "fieldname": "wizard_state",
+   "fieldtype": "Select",
+   "label": "Wizard State",
+   "options": "\nIn progress\nConfigured\nParsed"
+  },
+  {
+   "default": "0",
+   "fieldname": "parse_in_progress",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Parse In Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sheet_drafts",
+   "fieldtype": "Table",
+   "label": "Sheet Drafts",
+   "options": "BoQ Sheet Draft"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BOQs",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

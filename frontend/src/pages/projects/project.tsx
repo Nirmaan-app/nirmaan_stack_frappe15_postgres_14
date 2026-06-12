@@ -50,7 +50,8 @@ import {
   FilePenLine,
   Hand,
   HardHat,
-  OctagonMinus
+  OctagonMinus,
+  Award
 } from "lucide-react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -61,6 +62,7 @@ import { useReactToPrint } from "react-to-print";
 // import { Component as ProjectEstimates } from './add-project-estimates';
 import { CustomHoverCard } from "./CustomHoverCard";
 import { EditProjectForm } from "./edit-project-form";
+import TenderingProjectView from "./tendering/TenderingProjectView";
 // import { ProjectFinancialsTab } from "./ProjectFinancialsTab";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 // import { ProjectMakesTab } from "./ProjectMakesTab";
@@ -93,6 +95,7 @@ import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
 const ProjectTransferMemosTab = React.lazy(() => import("./components/ProjectTransferMemosTab"));
+const BoqProjectTab = React.lazy(() => import("@/pages/boq-wizard/BoqProjectTab"));
 
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
@@ -135,6 +138,14 @@ const projectStatuses = [
     label: "Handover",
     color: "text-blue-600",
     icon: ArrowRightLeft,
+  },
+  // "Won" is the initial status of a real project: shown for display only.
+  // It is set at creation/convert, never chosen via the manual status dropdown.
+  {
+    value: "Won",
+    label: "Won",
+    color: "text-indigo-600",
+    icon: Award,
   },
 ];
 
@@ -186,6 +197,14 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
+  // Tendering stubs are lightweight bid/prospect records (only Name/City/State/
+  // Customer — no address, work packages, team, or timeline). Early-return a
+  // dedicated lightweight view BEFORE the heavy role-based tab machinery in
+  // <ProjectView /> ever mounts, so a stub never runs operational tabs. (ADR
+  // 0001 decision #10; PRD module F6.)
+  if (data && data.status === "Tendering") {
+    return <TenderingProjectView data={data} onRefresh={() => project_mutate()} />;
+  }
 
   return (
     data && (
@@ -253,6 +272,7 @@ export const PROJECT_PAGE_TABS = {
   DC_MIR: 'projectdcmir',
   BULK_DOWNLOAD: 'bulkdownload',
   COMMISSION_REPORT: 'commission-report',
+  BOQ: 'boq',
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -367,7 +387,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isProjectManager = role === "Nirmaan Project Manager Profile";
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
-  const nonPrivilegedAllowedTabs = useMemo(() => new Set([
+  const nonPrivilegedAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.WORK_REPORT,
     PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
@@ -378,10 +398,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
   // Allowed tabs for Procurement Executive
-  const procurementExecutiveAllowedTabs = useMemo(() => new Set([
+  const procurementExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.SCHEDULE,
     PROJECT_PAGE_TABS.PO_SUMMARY,
@@ -394,6 +415,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -413,6 +435,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
   // Redirect users to allowed tab if on restricted tab
@@ -463,6 +486,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "DC & MIR",
           key: PROJECT_PAGE_TABS.DC_MIR,
         }] : []),
+        {
+          label: "BoQ",
+          key: PROJECT_PAGE_TABS.BOQ,
+        },
         {
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
@@ -516,6 +543,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "DC & MIR",
           key: PROJECT_PAGE_TABS.DC_MIR,
+        },
+        {
+          label: "BoQ",
+          key: PROJECT_PAGE_TABS.BOQ,
         },
         {
           label: "Bulk Download",
@@ -582,6 +613,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "DC & MIR",
           key: PROJECT_PAGE_TABS.DC_MIR,
+        },
+        {
+          label: "BoQ",
+          key: PROJECT_PAGE_TABS.BOQ,
         },
         {
           label: "Bulk Download",
@@ -675,6 +710,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "Project Estimates",
         key: PROJECT_PAGE_TABS.ESTIMATES,
+      }] : []),
+      // Hide BoQ from Accountant
+      ...(!isAccountant ? [{
+        label: "BoQ",
+        key: PROJECT_PAGE_TABS.BOQ,
       }] : []),
       {
         label: "Bulk Download",
@@ -1486,6 +1526,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <Suspense fallback={<LoadingFallback />}><ProjectDCMIRTab projectId={projectId} projectName={data?.project_name} /></Suspense>;
       case PROJECT_PAGE_TABS.TDS_REPOSITORY:
         return <TDSRepositoryTab projectId={projectId} />;
+      case PROJECT_PAGE_TABS.BOQ:
+        return <BoqProjectTab projectId={projectId} />;
       case PROJECT_PAGE_TABS.BULK_DOWNLOAD:
         return <Suspense fallback={<LoadingFallback />}><BulkDownloadPage projectId={projectId} projectName={data?.project_name} /></Suspense>;
       default:
@@ -1544,7 +1586,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <CommandList>
                       <CommandGroup>
                         {projectStatuses
-                          .filter((s) => s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER)
+                          .filter((s) => s.value !== "Won" && (s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER))
                           .map((s) => (
                             <CommandItem
                               key={s.value}
