@@ -103,6 +103,10 @@ export function SheetCard({
 
   const pill = STATUS_PILL[effectiveStatus] ?? STATUS_PILL["Pending"];
 
+  // #164: this sheet is under active parse/re-parse -- disable its actions + show a
+  // "Parsing..." indicator. Reads the per-sheet flag that rides the BOQs doc payload.
+  const isParsing = draft.parse_in_progress === 1;
+
   // ── Re-parse eligibility (Force Re-parse slice) ──────────────────────────
   // A sheet is re-parse-eligible iff it has a prior parse AND its effective status
   // is one the backend force_reparse path admits (Parsed / Parsed Check Done / Reviewed).
@@ -204,6 +208,13 @@ export function SheetCard({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          {/* #164: transient parsing indicator (matches the hub footer's Parsing... pattern). */}
+          {isParsing && (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 whitespace-nowrap">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Parsing&hellip;
+            </span>
+          )}
           <span className={cn(
             "rounded-full px-2.5 py-0.5 text-sm font-medium whitespace-nowrap",
             pill.className
@@ -240,17 +251,17 @@ export function SheetCard({
         {effectiveStatus === "Reviewed" && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
-            <Button size="sm" variant="ghost" disabled={isSaving}
+            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Edit
             </Button>
-            <Button size="sm" variant="outline" disabled={isSaving}
+            <Button size="sm" variant="outline" disabled={isSaving || isParsing}
               onClick={() => void handleStatusChange("Pending")}>
               Set pending
             </Button>
             {/* Re-parse: only on a dirty Reviewed card (has_prior_parse === 1). */}
             {canReparse && (
-              <Button size="sm" variant="outline" disabled={isSaving}
+              <Button size="sm" variant="outline" disabled={isSaving || isParsing}
                 onClick={() => onReparse?.(draft.sheet_name)}>
                 Re-parse
               </Button>
@@ -291,12 +302,14 @@ export function SheetCard({
         {/* ── Parse failed ────────────────────────────────────────────────── */}
         {effectiveStatus === "Parse failed" && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {/* Review: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
-            <Button size="sm" variant="ghost" disabled={isSaving}
+            {/* Review: navigates to the per-sheet spoke (Module 3 Slice 3b-ii).
+                #164: Parse-failed is force-re-parse eligible (v5.46), so it can be
+                superset-marked mid-parse -- disable + indicate while parsing. */}
+            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Review
             </Button>
-            <Button size="sm" variant="outline" disabled={isSaving}
+            <Button size="sm" variant="outline" disabled={isSaving || isParsing}
               onClick={() => void handleStatusChange("Skip")}>
               Skip
             </Button>
@@ -307,13 +320,13 @@ export function SheetCard({
         {effectiveStatus === "Parsed" && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {/* Edit: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
-            <Button size="sm" variant="ghost" disabled={isSaving}
+            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
               onClick={() => onOpenSpoke?.(draft.sheet_name)}>
               Edit
             </Button>
             {/* Re-parse: discards this Parsed sheet's rows + any review-screen edits. */}
             {canReparse && (
-              <Button size="sm" variant="outline" disabled={isSaving}
+              <Button size="sm" variant="outline" disabled={isSaving || isParsing}
                 onClick={() => onReparse?.(draft.sheet_name)}>
                 Re-parse
               </Button>
@@ -330,13 +343,13 @@ export function SheetCard({
         {/* Review navigates to the review screen (not the config spoke). */}
         {effectiveStatus === "Parsed Check Done" && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Button size="sm" variant="ghost" disabled={isSaving}
+            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
               onClick={() => onOpenReview?.(draft.sheet_name)}>
               Review
             </Button>
             {/* Export CSV (Slice D2b): single-sheet .csv via the hub-owned fetch. */}
             {onExportCsv && (
-              <Button size="sm" variant="outline" disabled={isSaving || exporting}
+              <Button size="sm" variant="outline" disabled={isSaving || exporting || isParsing}
                 onClick={() => void handleExportCsv()}>
                 {exporting ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -348,7 +361,7 @@ export function SheetCard({
             )}
             {/* Re-parse: discards a hand-reviewed+checked sheet's rows + all review work. */}
             {canReparse && (
-              <Button size="sm" variant="outline" disabled={isSaving}
+              <Button size="sm" variant="outline" disabled={isSaving || isParsing}
                 onClick={() => onReparse?.(draft.sheet_name)}>
                 Re-parse
               </Button>

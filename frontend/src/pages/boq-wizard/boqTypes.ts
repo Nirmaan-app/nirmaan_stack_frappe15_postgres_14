@@ -101,6 +101,13 @@ export interface BoQSheetDraft {
   has_prior_parse?: 0 | 1;
   /** UTC datetime of the most recent successful parse for this sheet. Never cleared. */
   last_parsed_at?: string | null;
+  /**
+   * #164: 1 while this sheet is under active parse / re-parse (set at enqueue,
+   * reconciled at worker start, blanket-cleared on completion). The frontend
+   * parse-lock reads this to disable card actions, the spoke config panel, and
+   * the review screen for the duration. Flows automatically on useFrappeGetDoc("BOQs").
+   */
+  parse_in_progress?: 0 | 1;
 }
 
 // ── Preview response types (Slice 3b-i endpoint, feat bf1a2e64) ───────────────

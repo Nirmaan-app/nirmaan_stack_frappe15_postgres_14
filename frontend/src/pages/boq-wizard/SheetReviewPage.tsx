@@ -101,10 +101,14 @@ const SheetReviewPage = () => {
   // ── Slice D1: Parsed Check Done marking + read-only freeze ──────────────────
   // Sheet status rides the BOQs doc payload (boq.sheet_drafts is a one-level child
   // table -> serializes). sheetName is VERBATIM (no trim -- #152 trailing-space guard).
-  const sheetStatus = boq?.sheet_drafts?.find(
+  const sheetDraft = boq?.sheet_drafts?.find(
     (d) => d.sheet_name === (sheetName ?? ""),
-  )?.wizard_status;
+  );
+  const sheetStatus = sheetDraft?.wizard_status;
   const isChecked = sheetStatus === "Parsed Check Done";
+  // #164: the sheet is under active parse/re-parse -> the screen is transiently
+  // read-only (the worker is rebuilding these rows). Same draft lookup, new flag.
+  const isParsing = sheetDraft?.parse_in_progress === 1;
 
   const { call: markCall, loading: markLoading } = useFrappePostCall<{
     message: MarkParsedCheckDoneResponse;
@@ -317,8 +321,21 @@ const SheetReviewPage = () => {
         </div>
       </div>
 
-      {/* ── Slice D1: read-only banner (shown only when the sheet is checked) ──── */}
-      {isChecked && (
+      {/* ── #164: parsing banner -- takes precedence over the checked banner ──── */}
+      {isParsing && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet is being parsed. The review screen is read-only until the parse finishes.
+          </p>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      )}
+
+      {/* ── Slice D1: read-only banner (shown when checked AND not parsing) ────── */}
+      {isChecked && !isParsing && (
         <div className="flex flex-col gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
           <div className="flex items-start gap-2">
             <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-teal-700 dark:text-teal-300" />
@@ -385,7 +402,8 @@ const SheetReviewPage = () => {
           // save anchor + mutates) via the SAME SWR revalidate path as value/text edits.
           onRestructured={handleSaved}
           // Slice D1: a checked sheet freezes ALL write affordances in the tree.
-          readOnly={isChecked}
+          // #164: a sheet under active parse is likewise read-only (transient).
+          readOnly={isChecked || isParsing}
         />
       )}
 

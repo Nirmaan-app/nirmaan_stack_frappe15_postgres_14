@@ -161,6 +161,12 @@ const BoqHubPage = () => {
     "nirmaan_stack.api.boq.wizard.review_screen.get_review_rows"
   );
 
+  // #164: imperative self-heal of a stuck parse flag, called once on hub mount.
+  // GET-capable endpoint via useFrappePostCall (the wizard's imperative-call form).
+  const { call: callCheckParseStatus } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.parse_run.check_parse_status"
+  );
+
   // Socket for "boq:parse_run_done" (mirrors BoqUploadScreen.tsx pattern).
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
@@ -229,6 +235,25 @@ const BoqHubPage = () => {
     if (!boq) return;
     setParseInFlight(boq.parse_in_progress === 1);
   }, [boq]);
+
+  // #164: on mount / boqId change, ask the backend to self-heal a stuck parse flag
+  // (a dead-worker remnant). On a heal ("cleared"/"cleared_stale") re-fetch the doc
+  // so the recovery effect above re-reads the now-cleared BoQ + per-sheet flags.
+  // Non-fatal by contract: any failure is logged only -- the hub renders regardless.
+  useEffect(() => {
+    if (!boqId) return;
+    let cancelled = false;
+    callCheckParseStatus({ boq_name: boqId })
+      .then((res) => {
+        if (cancelled) return;
+        const state = (res?.message as { state?: string } | undefined)?.state;
+        if (state === "cleared" || state === "cleared_stale") void mutate();
+      })
+      .catch((e) => { console.error("check_parse_status failed", e); });
+    return () => { cancelled = true; };
+    // callCheckParseStatus + mutate are stable refs; run once per boqId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boqId]);
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {

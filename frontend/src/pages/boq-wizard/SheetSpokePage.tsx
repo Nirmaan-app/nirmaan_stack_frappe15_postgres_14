@@ -56,6 +56,8 @@ const SheetSpokePage = () => {
   const decodedSheetName = sheetName ?? "";
   const displaySheetName = decodedSheetName.trim() || decodedSheetName;
   const draft = boq?.sheet_drafts?.find((d) => d.sheet_name === decodedSheetName);
+  // #164: this sheet is under active parse/re-parse -> lock the config panel.
+  const isSheetParsing = draft?.parse_in_progress === 1;
 
   // Work-header list for the current sheet (Slice 3f-readback).
   // Pass undefined while wpMapData is still loading so SheetConfigPanel's
@@ -325,6 +327,7 @@ const SheetSpokePage = () => {
           rows={previewRows}
           wizardStatus={draft.wizard_status}
           workPackages={sheetWorkHeaders}
+          isParsing={isSheetParsing}
           onSaveSuccess={() => { void mutate(); void mutateWpMap(); }}
         />
       )}

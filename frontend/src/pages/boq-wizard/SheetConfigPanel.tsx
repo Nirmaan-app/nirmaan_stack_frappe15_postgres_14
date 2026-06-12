@@ -55,6 +55,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 // ── Role vocabulary ───────────────────────────────────────────────────────────
 // 21 roles from config.py (qty_by_area excluded -- deprecated).
@@ -160,6 +161,12 @@ interface SheetConfigPanelProps {
    * assignments (seed locks, selectedWorkHeaders stays empty).
    */
   workPackages?: string[];
+  /**
+   * #164: true while this sheet is under active parse/re-parse. When set, the
+   * whole panel is locked (a <fieldset disabled> + an amber banner) and
+   * dropIfReviewed is short-circuited -- no config write may fire mid-parse.
+   */
+  isParsing?: boolean;
   onSaveSuccess: () => void;
 }
 
@@ -234,6 +241,7 @@ export function SheetConfigPanel({
   rows,
   wizardStatus,
   workPackages,
+  isParsing = false,
   onSaveSuccess,
 }: SheetConfigPanelProps) {
   const parsedConfig = useMemo(() => parseConfig(draftConfig), [draftConfig]);
@@ -405,11 +413,17 @@ export function SheetConfigPanel({
   // Fires at most once per spoke open (dropFiredRef). Change events only -- NOT
   // onFocus/onClick/onOpenChange (those do not represent a value edit).
   const dropIfReviewed = () => {
+    // #164: never fire a write while the sheet is parsing (belt-and-braces -- the
+    // controls are disabled by the fieldset, but guard the programmatic path too).
+    if (isParsing) return;
     if (dropFiredRef.current) return;
     if (statusAtOpenRef.current !== "Reviewed") return;
     dropFiredRef.current = true;
     setAttestChecked(false);
-    void callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Pending" });
+    // §9 #161: surface a real backend reject (e.g. the parse-lock guard) instead of
+    // swallowing it -- route through getFrappeError into the inline error line.
+    void callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Pending" })
+      .catch((e: unknown) => setSaveError(getFrappeError(e) || "Could not drop sheet to Pending."));
   };
 
   // ── Derived values ────────────────────────────────────────────────────────
@@ -658,13 +672,9 @@ export function SheetConfigPanel({
 
       onSaveSuccess();
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Save failed. Please try again.";
-      setSaveError(msg);
+      // §9 #161: decode the real frappe.throw text (_server_messages) instead of
+      // the SDK's generic .message, so the parse-lock guard message surfaces.
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -695,9 +705,9 @@ export function SheetConfigPanel({
           sheet_name: sheetName,
           work_headers: selectedWorkHeaders,
         });
-      } catch {
+      } catch (e: unknown) {
         setSaveError(
-          "Config saved but work packages update failed. Click Mark as reviewed again to retry."
+          `Config saved but work packages update failed. ${getFrappeError(e)} Click Mark as reviewed again to retry.`.trim()
         );
         setIsSaving(false);
         return;
@@ -706,9 +716,9 @@ export function SheetConfigPanel({
       // Step 3: flip status.
       try {
         await callSetStatus({ boq_name: boqName, sheet_name: sheetName, status: "Reviewed" });
-      } catch {
+      } catch (e: unknown) {
         setSaveError(
-          "Config and work packages saved but status update failed. Click Mark as reviewed again to retry."
+          `Config and work packages saved but status update failed. ${getFrappeError(e)} Click Mark as reviewed again to retry.`.trim()
         );
         setIsSaving(false);
         return;
@@ -717,13 +727,9 @@ export function SheetConfigPanel({
       setConfirmedFields(new Set(SAVE_ALL_FIELDS));
       onSaveSuccess();
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Save failed. Please try again.";
-      setSaveError(msg);
+      // §9 #161: decode the real frappe.throw text (_server_messages) instead of
+      // the SDK's generic .message, so the parse-lock guard message surfaces.
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -736,6 +742,20 @@ export function SheetConfigPanel({
     // Mounted here (not globally) -- consistent with BoqHubPage/SheetCard/BoqUploadScreen pattern.
     <TooltipProvider delayDuration={300}>
     <div className="rounded-lg border border-border bg-card p-4 space-y-5">
+
+      {/* ── #164: parse-lock banner -- the fieldset below disables every control ── */}
+      {isParsing && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100">
+            This sheet is being parsed. Configuration is locked until the parse finishes.
+          </p>
+        </div>
+      )}
+
+      {/* #164: native <fieldset disabled> cascades to every descendant button/input/
+          select, so a single flag locks Sections 1-4 + Save + Mark-as-reviewed. */}
+      <fieldset disabled={isParsing} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">
 
       {/* ── Zone A: Parsing configuration ────────────────────────────────── */}
       <div className="rounded-md border border-border p-3">
@@ -1396,6 +1416,7 @@ export function SheetConfigPanel({
           {saveError && <p className="text-xs text-destructive">{saveError}</p>}
         </div>
       </div>
+      </fieldset>
     </div>
     </TooltipProvider>
   );
