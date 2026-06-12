@@ -288,12 +288,31 @@ def _auto_add_payment_term(original_po, diff, revision_id):
         "revision_id": revision_id,
     }]
 
-    # Audit-only marker (amount 0) showing credit was applied — keeps the ledger legible.
+    # Audit-only marker (amount 0) showing the increase was covered from overpaid credit.
+    # Message leads with the total increase, then the split, so the numbers reconcile on the card.
     if covered > 0.01:
+        if uncovered > 0.01:
+            credit_desc = (
+                f"Revision raised this PO by ₹{diff:,.2f} — "
+                f"₹{flt(covered):,.2f} adjusted from overpaid credit, "
+                f"₹{uncovered:,.2f} added as a new payment term."
+            )
+        else:
+            remaining_credit = flt(available_credit - covered, 2)
+            if remaining_credit > 0.01:
+                credit_desc = (
+                    f"Revision raised this PO by ₹{diff:,.2f} — fully covered by "
+                    f"overpaid credit (₹{remaining_credit:,.2f} still available). No new payment."
+                )
+            else:
+                credit_desc = (
+                    f"Revision raised this PO by ₹{diff:,.2f} — "
+                    f"fully covered by overpaid credit. No new payment."
+                )
         entries.append({
-            "entry_type": "Credit Applied",
+            "entry_type": "Auto Adjustment",
             "amount": 0.0,
-            "description": f"Applied ₹{flt(covered):,.2f} existing overpaid credit toward revision {revision_id}",
+            "description": credit_desc,
             "revision_id": revision_id,
         })
 

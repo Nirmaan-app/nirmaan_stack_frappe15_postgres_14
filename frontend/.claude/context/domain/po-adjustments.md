@@ -20,8 +20,10 @@ PO Adjustments is a **standalone payment reconciliation system** that tracks and
 
 ### Status Calculation
 `recalculate_remaining_impact()` sums all child item amounts:
-- If `|remaining_impact| < 1` -> "Done"
+- If `|remaining_impact| < 100` -> "Done"  (a **display tolerance**, NOT "credit gone")
 - Otherwise -> "Pending"
+
+> **`Done` is a display label only.** Any *negative* `remaining_impact` (overpaid credit) is still usable. Downstream logic reads the **number** (`remaining_impact`), never the status — so a `Done` adjustment can still hold up to ₹99 of reusable credit that gets consumed on the next revision increase. Do **not** treat `status == "Done"` as "fully settled / no credit". (Regression that drove this: `PO/068/00103/26-27`.)
 
 ---
 
@@ -32,14 +34,19 @@ Each financial event creates entries that sum to track the running balance:
 | Entry Type | Sign | When Created | Description |
 |-----------|------|-------------|-------------|
 | **Revision Impact** | +/-  | Revision approval | Records the raw PO amount change |
-| **Term Addition** | negative | Positive revision | Offsets positive impact (auto-created term covers it) |
+| **Auto Adjustment** | 0 (audit) | Positive revision | Audit marker: overpaid credit auto-applied to cover the increase. Stored as `entry_type = "Auto Adjustment"` (was "Credit Applied"). Its message states the total raised + the split (covered from credit / new term) |
+| **Term Addition** | negative | Positive revision | Offsets the **uncovered** part of a positive impact (new term covers only what credit didn't) |
 | **Auto Absorb** | positive | Negative revision | Absorption from Created payment terms |
 | **Against PO** | positive | Manual adjustment | Credit transferred to another PO |
 | **Adhoc** | positive | Manual adjustment | Written off as project expense |
 | **Vendor Refund** | positive | Manual adjustment | Vendor returned money |
 
-**Positive diff example:** "Revision Impact" +5000 + "Term Addition" -5000 = net 0 -> Done
-**Negative diff example:** "Revision Impact" -8000 + "Auto Absorb" +3000 = remaining -5000 -> Pending (user must allocate 5000)
+**Positive diff is CREDIT-AWARE** (`_auto_add_payment_term` + `_get_available_po_credit`): an increase first consumes any existing overpaid credit (`max(0, -remaining_impact)`, read by number/status-agnostic), and only the *uncovered* balance becomes a new `Created` term.
+
+- **No prior credit:** "Revision Impact" +5000 + "Term Addition" -5000 = net 0 -> Done  *(unchanged legacy behaviour)*
+- **Credit ≥ increase:** existing credit -200, increase +50 -> "Revision Impact" +50 + "Auto Adjustment" (0) = remaining -150, **NO new term created**. Card message: *"Revision raised this PO by ₹50.00 — fully covered by overpaid credit (₹150.00 still available). No new payment."*
+- **Credit < increase:** existing credit -50, increase +150 -> "Revision Impact" +150 + "Auto Adjustment" (0) + "Term Addition" -100 = remaining 0, new term only for the **uncovered ₹100**. Card message: *"Revision raised this PO by ₹150.00 — ₹50.00 adjusted from overpaid credit, ₹100.00 added as a new payment term."*
+- **Negative diff example:** "Revision Impact" -8000 + "Auto Absorb" +3000 = remaining -5000 -> Pending (user must allocate 5000)
 
 ---
 
@@ -76,12 +83,13 @@ PO Revision Approved
 
 ## Lock Mechanism
 
-A PO with a Pending PO Adjustment has **payment operations locked** (but items are NOT locked):
+The lock keys on the adjustment's **balance + status**, not status alone (`revision_po_check.py`):
 
-- `revision_po_check.py` checks for Pending adjustments -> `is_payment_locked = True`
-- `get_all_locked_po_names()` includes POs with Pending adjustments
-- This prevents: payment term edits, payment requests, creating new revisions (since those would also create adjustments)
-- This does NOT prevent: DN operations, dispatch operations
+- **Pending adjustment (≥ ₹100 unresolved)** -> **HARD lock**: `is_payment_locked = True`. Blocks payment term edits, payment requests, and new revisions (items are NOT locked — DN/dispatch still allowed).
+- **`Done` adjustment still holding small credit (`remaining_impact <= -1`)** -> **SOFT advisory only**: returns `has_credit_notice = True` + `remaining_credit` (NOT `is_payment_locked`). The PO detail page shows an **amber "Overpaid credit available — ₹X"** note (via `PORevisionWarning`) and payment terms **stay usable**. The credit still auto-applies to the next revision increase.
+- `get_all_locked_po_names()` includes both Pending adjustments **and** `Done`-with-credit POs — but the Done-with-credit inclusion is used **only for merge/transfer candidate exclusion** (not for payment-term locking).
+
+> **Threshold note:** the `Done` display band is `|remaining_impact| < 100`, while the lock/credit band is `remaining_impact <= -1`. So a balance of −1…−99 reads `Done` yet is still a soft credit notice; only ≥ ₹100 is a hard lock.
 
 ---
 
@@ -92,7 +100,7 @@ A PO with a Pending PO Adjustment has **payment operations locked** (but items a
 src/pages/POAdjustment/
 ├── POAdjustmentButton.tsx         # Button on PO overview (shows when Pending adjustment exists)
 ├── POAdjustmentDialog.tsx         # Main dialog for manual payment allocation
-├── POAdjustmentHistory.tsx        # Accordion showing adjustment entries on PO detail
+├── POAdjustmentHistory.tsx        # ⚠️ DEAD CODE — imported nowhere; live cards render in ProcurementOrders/.../PORevisionsAndAdjustments.tsx
 ├── data/
 │   ├── poAdjustment.constants.ts  # Cache keys, API endpoints, doctype names
 │   ├── usePOAdjustmentQueries.ts  # usePOAdjustment(poId), useAdjustmentCandidatePOs(vendor, po)
@@ -106,15 +114,17 @@ src/pages/POAdjustment/
 - Shows "Adjust Payments" with the remaining amount as a badge
 - Red styling for negative impact (extra paid), orange for positive
 
+> ⚠️ **Known limitation (gates on `status === "Pending"`):** because a sub-₹100 leftover credit is now `Done`, the "Adjust Payments" button (and the "₹X remaining" badge in `PORevisionsAndAdjustments.tsx`) is **hidden** for it — so such credit is not *manually* resolvable, only auto-applied on the next increase. To restore manual resolution, gate on `remaining_impact !== 0` instead of `status === "Pending"`.
+
 ### POAdjustmentDialog
 - Header shows "Extra Amount Paid" with the absolute impact amount
 - **Positive adjustment:** Info alert -- "auto-created payment term, no action needed"
 - **Negative adjustment:** Three method pills + allocation form
 
-### POAdjustmentHistory
-- Accordion component on PO detail showing all adjustment entries
-- Color-coded badges per entry type
-- Shows running status (Pending/Done) and remaining amount
+### POAdjustmentHistory — ⚠️ UNUSED (dead code)
+- Imported nowhere (confirmed via grep). The **live** adjustment UI is `pages/ProcurementOrders/purchase-order/components/PORevisionsAndAdjustments.tsx` (rendered from `PurchaseOrder.tsx`), which has its own `ENTRY_TYPE_COLORS`, `SYSTEM_ENTRY_TYPES`, and adjustment-card rendering (badge, "Triggered by", `amount !== 0` guard).
+- Safe to delete. **Any badge / label / colour / message edits must go to `PORevisionsAndAdjustments.tsx`, not here.**
+- (Historically this file mirrored the cards; it color-coded badges per entry type and showed status + remaining amount.)
 
 ### Cache Keys -- `poAdjustmentKeys`
 - `adjustmentDoc(poId)` -- SWR key for the adjustment document

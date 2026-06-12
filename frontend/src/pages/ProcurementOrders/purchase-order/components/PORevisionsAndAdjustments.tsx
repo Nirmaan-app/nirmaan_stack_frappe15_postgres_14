@@ -76,6 +76,7 @@ const ENTRY_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
   "Against PO": { bg: "bg-indigo-50", text: "text-indigo-700" },
   Adhoc: { bg: "bg-yellow-50", text: "text-yellow-800" },
   "Vendor Refund": { bg: "bg-rose-50", text: "text-rose-700" },
+  "Auto Adjustment": { bg: "bg-blue-50", text: "text-blue-700" },
 };
 
 // Auto-created during revision approval — attributed as "Triggered by {user}".
@@ -85,6 +86,7 @@ const SYSTEM_ENTRY_TYPES = new Set([
   "Auto Absorb",
   "Term Addition",
   "Term Rebalance",
+  "Auto Adjustment",
 ]);
 
 export const PORevisionsAndAdjustments: React.FC<
@@ -601,12 +603,14 @@ const AdjustmentsList: React.FC<{ adjustment: POAdjustmentDoc }> = ({
                   </p>
                 )}
               </div>
-              <span
-                className={`text-xs font-bold tabular-nums shrink-0 ml-3 ${isNeg ? "text-rose-600" : "text-emerald-600"}`}
-              >
-                {isNeg ? "-" : "+"}
-                {formatToIndianRupee(Math.abs(item.amount))}
-              </span>
+              {item.amount !== 0 && (
+                <span
+                  className={`text-xs font-bold tabular-nums shrink-0 ml-3 ${isNeg ? "text-rose-600" : "text-emerald-600"}`}
+                >
+                  {isNeg ? "-" : "+"}
+                  {formatToIndianRupee(Math.abs(item.amount))}
+                </span>
+              )}
             </div>
           );
         })}
