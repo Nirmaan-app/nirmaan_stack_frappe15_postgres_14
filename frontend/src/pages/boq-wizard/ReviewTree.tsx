@@ -297,10 +297,12 @@ const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
 
 // C-v2d: the 3 per-area JSON value fields editable inline (mirrors backend
 // _AREA_JSON_FIELDS). A descriptor is per-area-editable iff value_key !== null (it
-// targets one area cell) AND its value_field is one of these. qty_by_area /
-// amount_by_area are flat one-hop; rate_by_area is nested (descriptor carries the
-// rate_subkey). These commit through the SAME confirm dialog as flat numeric edits;
-// blank -> 0.0 (the area key stays). save_review_edit takes area (+ rate_subkey).
+// targets one area cell) AND its value_field is one of these. qty_by_area is flat
+// one-hop; rate_by_area AND amount_by_area are nested two-hop (Slice 2b) -- the
+// descriptor carries the inner kind in the generic rate_subkey slot (for amount it is
+// the amount kind supply/install/total). These commit through the SAME confirm dialog as
+// flat numeric edits; blank -> 0.0 (the area key stays). save_review_edit takes area
+// (+ rate_subkey for the two nested fields).
 const EDITABLE_AREA_FIELDS = new Set<string>(["qty_by_area", "amount_by_area", "rate_by_area"]);
 
 // C-v2c: per-row human-only remark cap (mirrors backend _REMARK_MAX_LEN). Enforced

@@ -1035,13 +1035,16 @@ class TestDismissRowFlags(FrappeTestCase):
 
 class TestSaveReviewEditPerArea(FrappeTestCase):
     """
-    Verifies the per-area JSON write path on save_review_edit (Slice C-v2d):
-      - FLAT one-hop fields (qty_by_area / amount_by_area): set one area cell, key stays;
-      - NESTED two-hop field (rate_by_area + rate_subkey): set one inner kind, others intact;
+    Verifies the per-area JSON write path on save_review_edit (Slice C-v2d; amount made
+    nested in Slice 2b):
+      - FLAT one-hop field (qty_by_area): set one area cell, key stays;
+      - NESTED two-hop fields (rate_by_area + amount_by_area, with rate_subkey carrying the
+        inner kind): set one inner kind, the area's other kinds + other areas stay intact;
       - blank value -> 0.0 with the key kept (NEVER deleted);
-      - structured edit_log entry carries area (+ rate_subkey for rate);
+      - structured edit_log entry carries area (+ rate_subkey for the nested fields);
       - provenance (edited_at) is stamped exactly like a flat edit;
-      - validation: nonexistent area / missing rate_subkey / illegal rate_subkey rejected;
+      - validation: nonexistent area / missing subkey / illegal subkey rejected
+        (per-field legal-kind set: rate kinds for rate, amount kinds for amount);
       - the flat-field path (area=None) is unchanged (regression) and its edit_log entry
         carries NO area / rate_subkey keys (old entries stay valid).
 
@@ -1087,7 +1090,11 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
         # Per-area JSON dict fields (passed as Python dicts -- NOT pre-serialized;
         # they are dict-JSON, not list-JSON, so _insert_rows leaves them alone).
         row["qty_by_area"] = {"Zone A": 10.0, "Zone B": 20.0}
-        row["amount_by_area"] = {"Zone A": 100.0, "Zone B": 200.0}
+        # amount_by_area is NESTED two-hop (field-set Slice 2b), mirroring rate_by_area.
+        row["amount_by_area"] = {
+            "Zone A": {"supply": 40.0, "install": 60.0, "total": 100.0},
+            "Zone B": {"total": 200.0},
+        }
         row["rate_by_area"] = {
             "Zone A": {"supply_rate": 5.0, "install_rate": 3.0, "combined_rate": 8.0},
             "Zone B": {"combined_rate": 12.0},
@@ -1131,18 +1138,29 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
                          "a flat per-area entry must not carry rate_subkey")
         self.assertEqual(log[-1]["to"], 15.0)
 
-    def test_amount_by_area_sets_one_cell(self):
+    def test_amount_by_area_sets_one_subkey_others_intact(self):
+        """Slice 2b: a per-area amount edit is two-hop -- it writes ONE kind and leaves the
+        area's OTHER kinds AND the OTHER areas intact. This is the B2 anti-corruption proof
+        (the old flat one-hop write clobbered the whole nested area dict with a bare float)."""
         result = save_review_edit(
             boq_name=self.boq_name, sheet_name=self.sheet_name,
-            row_index=0, field="amount_by_area", value=250, area="Zone B",
+            row_index=0, field="amount_by_area", value=250,
+            area="Zone A", rate_subkey="supply",
         )
         self.assertTrue(result["ok"])
+        self.assertEqual(result["area"], "Zone A")
+        self.assertEqual(result["rate_subkey"], "supply")
+        self.assertEqual(result["from"], 40.0, "from must be the inner kind value before the edit")
         doc = self._get_doc(0)
         aba = self._as_dict(doc.amount_by_area)
-        self.assertEqual(aba["Zone B"], 250.0)
-        self.assertEqual(aba["Zone A"], 100.0, "other area untouched")
+        self.assertEqual(aba["Zone A"]["supply"], 250.0, "edited kind updated")
+        self.assertEqual(aba["Zone A"]["install"], 60.0, "other kind in the area intact")
+        self.assertEqual(aba["Zone A"]["total"], 100.0, "other kind in the area intact")
+        self.assertEqual(aba["Zone B"]["total"], 200.0, "other area intact")
         log = self._as_dict(doc.edit_log)
-        self.assertEqual(log[-1]["area"], "Zone B")
+        self.assertEqual(log[-1]["field"], "amount_by_area")
+        self.assertEqual(log[-1]["area"], "Zone A")
+        self.assertEqual(log[-1]["rate_subkey"], "supply")
 
     # -- nested per-area (rate) --
 
@@ -1218,6 +1236,25 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
                 area="Zone A", rate_subkey="bogus_rate",
             )
 
+    def test_amount_without_subkey_rejected(self):
+        """Slice 2b: amount_by_area is now nested -- an edit with NO subkey is rejected."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="amount_by_area", value=250, area="Zone A",
+            )
+
+    def test_illegal_amount_subkey_rejected(self):
+        """A subkey not in {supply, install, total} is rejected for amount_by_area.
+        Uses 'combined_rate' -- a legal RATE kind but NOT a legal amount kind, proving the
+        per-field legal-subkey selection (rate set is not accepted for amount)."""
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(
+                boq_name=self.boq_name, sheet_name=self.sheet_name,
+                row_index=0, field="amount_by_area", value=250,
+                area="Zone A", rate_subkey="combined_rate",
+            )
+
     def test_non_area_field_with_area_rejected(self):
         """A non-per-area field passed WITH an area is rejected (qty_total is flat-only)."""
         with self.assertRaises(frappe.ValidationError):
@@ -1278,16 +1315,18 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
         self.assertIsNone(log[-1]["from"], "newly-created key records from=None")
 
     def test_amount_create_key_on_defined_area(self):
-        """amount_by_area={}, area IS in area_dimensions -> key created."""
+        """amount_by_area={}, area IS in area_dimensions -> nested key path created (Slice 2b)."""
         self._reset_row_with_empty_areas()
         result = save_review_edit(
             boq_name=self.boq_name, sheet_name=self.sheet_name,
-            row_index=0, field="amount_by_area", value=250, area="Zone B",
+            row_index=0, field="amount_by_area", value=250,
+            area="Zone B", rate_subkey="total",
         )
         self.assertTrue(result["ok"])
+        self.assertIsNone(result["from"], "from must be None for a newly-created nested key")
         doc = self._get_doc(0)
         aba = self._as_dict(doc.amount_by_area)
-        self.assertEqual(aba["Zone B"], 250.0, "key created + value set")
+        self.assertEqual(aba["Zone B"]["total"], 250.0, "nested key created + value set")
 
     def test_rate_create_path_on_defined_area(self):
         """rate_by_area has Zone A only; creating Zone B's combined_rate builds the

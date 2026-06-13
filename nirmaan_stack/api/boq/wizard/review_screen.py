@@ -71,24 +71,39 @@ _VALUE_FIELDS: frozenset[str] = frozenset({
 _TEXT_FIELDS: frozenset[str] = frozenset({"unit", "make_model"})
 _ALLOWED_EDIT_FIELDS: frozenset[str] = _HUMAN_FIELDS | _VALUE_FIELDS | _TEXT_FIELDS
 
-# Per-area JSON fields editable inline (Slice C-v2d). These are NOT scalar fields --
-# each is a dict keyed by area name. A per-area edit is addressed by the `area`
-# (+ `rate_subkey` for rate_by_area) params on save_review_edit, NOT through
-# _ALLOWED_EDIT_FIELDS (which gates the flat-field path). Shapes:
-#   qty_by_area / amount_by_area -- FLAT one-hop  {area: float}
-#   rate_by_area                 -- NESTED two-hop {area: {supply_rate, install_rate,
-#                                                          combined_rate}} (rate_subkey required)
+# Per-area JSON fields editable inline (Slice C-v2d; amount made nested in Slice 2b).
+# These are NOT scalar fields -- each is a dict keyed by area name. A per-area edit is
+# addressed by the `area` (+ `rate_subkey` for nested fields) params on save_review_edit,
+# NOT through _ALLOWED_EDIT_FIELDS (which gates the flat-field path). Shapes:
+#   qty_by_area    -- FLAT one-hop  {area: float}
+#   rate_by_area   -- NESTED two-hop {area: {supply_rate, install_rate, combined_rate}}
+#   amount_by_area -- NESTED two-hop {area: {supply, install, total}}  (Slice 2b)
+# The wire param + edit-log key for the inner hop is `rate_subkey` for BOTH nested fields
+# (reused generically; for amount it carries the amount kind -- an accepted, pre-existing
+# naming misnomer logged as Phase-4 naming debt, NOT renamed in this slice).
 # Both shapes round-trip through doc.save() with a BARE dict assign (no json.dumps).
 # C-v2d-fix: the sent `area` is validated against the SHEET'S defined areas
 # (sheet_config.area_dimensions), NOT this row's existing dict keys. A defined-but-empty
 # area is a valid value-edit target -- the key is CREATED if absent. Only an UNDEFINED
 # area (or a sheet with no area_dimensions) is rejected. Blank value -> 0.0 with the key
 # kept (never deleted -- deleting a key is a structure change, not a value edit).
-_FLAT_AREA_FIELDS: frozenset[str] = frozenset({"qty_by_area", "amount_by_area"})
+_FLAT_AREA_FIELDS: frozenset[str] = frozenset({"qty_by_area"})
 _RATE_AREA_FIELD = "rate_by_area"
-_AREA_JSON_FIELDS: frozenset[str] = _FLAT_AREA_FIELDS | {_RATE_AREA_FIELD}
-# Legal inner rate-kind keys -- reuse the parser's authoritative map, do NOT re-copy.
+_AMOUNT_AREA_FIELD = "amount_by_area"
+# NESTED two-hop per-area fields {area: {kind: float}} -- the write + validation branches
+# key on membership HERE, not on a literal field name (Slice 2b).
+_NESTED_AREA_FIELDS: frozenset[str] = frozenset({_RATE_AREA_FIELD, _AMOUNT_AREA_FIELD})
+_AREA_JSON_FIELDS: frozenset[str] = _FLAT_AREA_FIELDS | _NESTED_AREA_FIELDS
+# Legal inner subkeys per nested field -- reuse the parser's authoritative maps, do NOT
+# re-copy. rate kinds = {supply_rate, install_rate, combined_rate}; amount kinds =
+# {supply, install, total}.
 _LEGAL_RATE_SUBKEYS: frozenset[str] = frozenset(_RATE_ROLE_TO_KIND.values())
+_LEGAL_AMOUNT_SUBKEYS: frozenset[str] = frozenset(_AMOUNT_ROLE_TO_KIND.values())
+# Per-field legal-subkey selection for the nested per-area write/validation path.
+_NESTED_FIELD_LEGAL_SUBKEYS: dict[str, frozenset[str]] = {
+    _RATE_AREA_FIELD: _LEGAL_RATE_SUBKEYS,
+    _AMOUNT_AREA_FIELD: _LEGAL_AMOUNT_SUBKEYS,
+}
 
 # Per-row human-only remark cap (Slice C-v2c). Enforced in save_review_remark on
 # both sides (frontend live-counter + this hard guard). The remarks field is a
@@ -802,8 +817,10 @@ def _apply_and_save_row_edit(
                 frappe.throw(
                     f"Value for '{field}' must be a number.", title="Invalid value"
                 )
-        if field == _RATE_AREA_FIELD:
-            # Two-hop: rate_by_area[area][rate_subkey].
+        if field in _NESTED_AREA_FIELDS:
+            # Two-hop nested: <field>[area][rate_subkey] -- rate_by_area or amount_by_area
+            # (Slice 2b). Locate/create the inner dict, set ONE kind, leave the area's
+            # other kinds + the other areas intact (the B2 anti-corruption guarantee).
             inner = current.get(area)
             if not isinstance(inner, dict):
                 inner = {}
@@ -811,7 +828,7 @@ def _apply_and_save_row_edit(
             inner[rate_subkey] = new_val
             current[area] = inner
         else:
-            # One-hop: qty_by_area / amount_by_area [area].
+            # One-hop flat: qty_by_area[area].
             from_val = current.get(area)
             current[area] = new_val
         # Bare dict assign -- Frappe auto-serializes the JSON column on save (proven).
@@ -1095,20 +1112,25 @@ def save_review_edit(
                 f"Field '{field}' is not a per-area editable field. Allowed: {allowed}.",
                 title="Invalid field",
             )
-        if field == _RATE_AREA_FIELD:
+        if field in _NESTED_AREA_FIELDS:
+            # Nested two-hop fields (rate_by_area / amount_by_area, Slice 2b) require a
+            # subkey, validated against THIS field's legal-kind set. The wire param is
+            # `rate_subkey` for both (reused generically; for amount it carries the amount
+            # kind -- accepted naming debt, see the constants comment).
+            legal = _NESTED_FIELD_LEGAL_SUBKEYS[field]
             if not rate_subkey:
                 frappe.throw(
-                    "rate_subkey is required when editing rate_by_area.",
+                    f"rate_subkey is required when editing {field}.",
                     title="Missing field: rate_subkey",
                 )
-            if rate_subkey not in _LEGAL_RATE_SUBKEYS:
-                allowed = ", ".join(sorted(_LEGAL_RATE_SUBKEYS))
+            if rate_subkey not in legal:
+                allowed = ", ".join(sorted(legal))
                 frappe.throw(
-                    f"'{rate_subkey}' is not a valid rate kind. Allowed: {allowed}.",
+                    f"'{rate_subkey}' is not a valid kind for {field}. Allowed: {allowed}.",
                     title="Invalid rate_subkey",
                 )
         else:
-            # qty_by_area / amount_by_area are flat one-hop -- rate_subkey is meaningless.
+            # qty_by_area is flat one-hop -- rate_subkey is meaningless.
             rate_subkey = None
     else:
         if field not in _ALLOWED_EDIT_FIELDS:
