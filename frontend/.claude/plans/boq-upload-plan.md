@@ -16,7 +16,18 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Field-set rationalisation Slice 2b -- per-area amount EDIT path made NESTED (BACKEND + frontend
+LATEST: Detail-panel data-value field width (FRONTEND ONLY, CSS-only, 2026-06-14). The review-screen ROW
+DETAIL PANEL's data-value `<Input>` fields (the three edit blocks: "Edit values" flat numeric / "Edit text"
+unit+make_model / "Edit per-area values") were flex-filling their grid cell (shadcn `Input`'s baked-in
+`w-full`), making them too wide for the short numbers/text they hold. Pinned to a FIXED narrow width
+`w-24` (96px) by appending `w-24` to each value Input's `className="h-7 text-xs"` (now `"h-7 text-xs w-24"`),
+across ALL THREE blocks in `ReviewTree.tsx`. Owner-confirmed value. The shadcn primitive
+(`components/ui/input.tsx`, `w-full` default) is UNTOUCHED -- width added ONLY at the call site. The main-grid
+data cells (`renderDescriptorCell` / `<td>` path) and the Remarks `<Textarea>` (`max-w-md`) are unaffected.
+NO grid/column/Apply-button/label/logic change. tsc 0 new wizard errors; Vite build exit 0 (`built in 4m 35s`,
+PWA 168 entries). Live-cert pending Nitesh (open a row detail panel -> value fields narrow ~96px fixed, not
+stretching, content not clipped incl. a long per-area amount); one-step nudge if needed (w-20=80px / w-28=112px).
+// prior: Field-set rationalisation Slice 2b -- per-area amount EDIT path made NESTED (BACKEND + frontend
 comment, feat ad99ebf7, 2026-06-14). Slice 2a shipped per-area amount STORED nested {area: {supply, install,
 total}} on the READ path but left the EDIT path FLAT, so a per-area amount edit CORRUPTED data (backend
 discarded the subkey + did a flat one-hop write `current[area]=float`, clobbering the area's nested dict). 2b

@@ -317,7 +317,27 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-14 -- Field-set rationalisation Slice 2b -- per-area amount EDIT path made NESTED COMPLETE -- BACKEND (+ frontend comment), feat ad99ebf7):**
+**Status (2026-06-14 -- Detail-panel data-value field width pinned narrow COMPLETE -- FRONTEND ONLY, CSS-only):**
+A one-class width fix to the review-screen ROW DETAIL PANEL (`ReviewTree.tsx` ONLY; no backend, no doctype, no
+`boqTypes.ts`; root CLAUDE.md not touched -- pure frontend CSS). The three edit blocks' data-value `<Input>`
+fields -- "Edit values" (flat numeric qty/rate/amount), "Edit text" (unit / make_model), "Edit per-area values"
+(qty/amount/rate by area) -- were flex-filling their responsive grid cell because the shadcn `Input` primitive
+(`components/ui/input.tsx`) bakes in `w-full`, so each field stretched far wider than the short numbers/text it
+holds. **THE CHANGE:** appended `w-24` (96px, owner-confirmed) to each value Input's `className="h-7 text-xs"`
+-> `"h-7 text-xs w-24"`, on ALL THREE `<Input>` sites (the three identical strings were a `replace_all`; the
+`Apply` buttons use a DISTINCT `"h-7 px-2 text-xs shrink-0"` string and were NOT touched). `w-24` overrides the
+inherited `w-full` flex-fill and pins the field; the `Apply` button is already `shrink-0` and the field item is
+`flex flex-col`, so the pinned input simply left-aligns in its cell -- no layout fight. **HARD BOUNDARIES kept:**
+the shadcn primitive `input.tsx` is UNTOUCHED (the app-wide `w-full` default stays -- width added ONLY at the
+three call sites); the main-grid data cells (`renderDescriptorCell` / the `<td>` render path -- a separate path)
+and the Remarks `<Textarea>` (`max-w-md`) + the read-only classification/parent display are unaffected; NO
+grid-column-count / Apply-button / label / logic change. tsc 0 NEW wizard-file errors (filtered
+`ReviewTree|boqTypes|boq-wizard|SheetConfigPanel` -> empty) + in-container Vite build exit 0 (`built in 4m 35s`,
+PWA 168 entries). No Frappe unit tests (CSS-only). Live-cert pending Nitesh: open a row's detail panel -> the
+value input fields are narrow + fixed (~96px), do NOT stretch to fill the panel, and do NOT clip their content
+(check a long per-area amount). If too wide/narrow it is a one-step Tailwind nudge (`w-20`=80px / `w-28`=112px).
+
+// prior: **Status (2026-06-14 -- Field-set rationalisation Slice 2b -- per-area amount EDIT path made NESTED COMPLETE -- BACKEND (+ frontend comment), feat ad99ebf7):**
 The second half of the amount field-set work. Slice 2a shipped per-area amount STORED nested
 `{area: {supply, install, total}}` on the read path but left the EDIT path FLAT, so a per-area amount edit
 CORRUPTED data (the backend discarded the subkey and did a flat one-hop write, clobbering the area's whole
