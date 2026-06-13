@@ -16,7 +16,14 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice D2b -- hub-level XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat
+LATEST: Slice A2 -- edit-log clarity pass (FRONTEND ONLY, render-time, feat cefaf3c0, 2026-06-13). ReviewTree's
+row-detail "Edit history" block now renders parent moves as Excel row numbers (via the same `byIdx` map the
+Parent column uses), an honest verb (Reclassified / Moved parent / Edited) instead of the raw field name, and a
+`YYYY-MM-DD HH:MM` timestamp; the #162 no-op same-value reclassify entry is SUPPRESSED. The stored `edit_log`
+shape is UNCHANGED -- render-only, no backend/doctype/migration; `ReviewTree.tsx` is the only file touched. tsc 0
+new wizard errors (3177 baseline) + build exit 0 (`✓ built in 4m 50s`). The "Slice A2 ..." section is at the
+bottom of this doc. Prior latest:
+Slice D2b -- hub-level XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat
 91bf255d). A global "Export reviewed" button in the hub footer opens a selection modal of every "Parsed
 Check Done" sheet (all pre-ticked); confirming fetches each ticked sheet's rows SEQUENTIALLY via
 `get_review_rows` and builds ONE .xlsx workbook -- one TAB per sheet, always .xlsx even for one sheet,
@@ -7225,3 +7232,50 @@ baseline) + build exit 0 (`✓ built in 9m 17s`, PWA 168 entries). Live-cert LC1
 patches.txt + patches/v3_0/migrate_boq_sheet_draft_status_rename.py, the 3 test modules; frontend boqTypes.ts,
 SheetCard.tsx, BoqHubPage.tsx, SheetReviewPage.tsx, SheetConfigPanel.tsx, ParseRunDialog.tsx,
 ExportWorkbookDialog.tsx. SheetSpokePage.tsx unchanged (no status literals). ReviewTree.tsx out of scope.
+
+## Slice A2 — edit-log clarity pass (FRONTEND ONLY, render-time, feat cefaf3c0, 2026-06-13)
+
+**Goal.** Make ReviewTree's row-detail "Edit history" block readable: (1) parent moves show Excel row numbers
+instead of internal `row_index`; (2) an honest verb instead of the raw field name; (3) a `YYYY-MM-DD HH:MM`
+timestamp. **Render-only** -- the stored `edit_log` entry shape (`{field, from, to, by, at, reason[, area]
+[, rate_subkey]}`) is UNCHANGED. NO backend, NO doctype, NO migration. `ReviewTree.tsx` is the ONLY file
+touched (root CLAUDE.md deliberately not touched -- no backend change; boqTypes.ts not touched -- `EditLogEntry`
+already exists + is exported, only ReviewTree's import line gained it).
+
+**Recon basis.** A2 edit-log recon 2026-06-13: stored entry shape confirmed; `human_parent` from/to are INTERNAL
+`row_index` (from = effective_parent_index, to = raw value, null = root); the Parent COLUMN already translates
+index -> Excel row via the component-scoped `byIdx` map (`byIdx.get(pIdx)?.source_row_number`); `CLS_LABELS`
+module-level; `at` = `frappe.utils.now()` local `"YYYY-MM-DD HH:MM:SS.ffffff"` string; the #162 standalone
+Change-parent door writes a no-op same-value `human_classification` entry alongside the real `human_parent` move.
+
+**CHANGE 1 -- Excel-row parents.** New in-component `editParentLabel(v)` (closes over the SAME `byIdx` map the
+Parent column uses): `null`/`undefined`/negative -> `root`; number with a `byIdx` hit -> `row {source_row_number}`;
+number with no hit -> raw number (defensive). Root copy = lowercase `root` to MATCH the detail panel's own
+`origParentLabel`/`effParentLabel` (the Parent COLUMN renders BLANK for root -- unusable in a `from -> to`
+phrase, so the in-panel sibling copy was matched). Applied ONLY to `human_parent` entries; non-parent fields
+keep raw from/to.
+
+**CHANGE 2 -- honest verb + #162 suppression.** New in-component `describeEditEntry(entry) -> {verb, detail,
+showField} | null`: `human_classification` + from!==to -> "Reclassified" (detail = CLS_LABELS[from] -> [to]);
+`human_classification` + from===to -> **null (SUPPRESS -- the #162 no-op)**; `human_parent` -> "Moved parent"
+(detail = editParentLabel from -> to); else -> "Edited" (detail = raw from->to, showField=true so the field name
+still shows). The render IIFE reverses the log (latest-first), maps to `{entry, d}`, and a type-guarded `.filter`
+drops `d === null` BEFORE the `.map`, so the suppressed no-op never produces an `<li>`; "No edits yet." reflects
+the post-suppression list. The area/rate_subkey suffix render is kept verbatim.
+
+**CHANGE 3 -- timestamp.** New module-level `formatEditAt(at)` = `typeof at === "string" ? at.slice(0,16) : ""`
+-> `"YYYY-MM-DD HH:MM"`. String slice (no date library, no TZ reparse); no `formatDate` import added.
+
+**Backwards-compat.** Old entries read unchanged (old indices translate or raw-number fallback; odd/missing `at`
+-> empty string; non-parent -> "Edited" + raw). Purely how existing data is displayed.
+
+**Verification.** tsc 0 NEW wizard errors (filtered `boq-wizard|boqTypes` -> empty; 3177 baseline unchanged) +
+in-container Vite build exit 0 (`✓ built in 4m 50s`, PWA 168 entries). No Frappe unit tests (frontend
+render-only -- agreement #50). Manual live-cert LC1-LC7 pending Nitesh: LC1 parent-move shows "Moved parent" +
+Excel rows matching the Parent column; LC2 real reclassify -> "Reclassified" + class labels; LC3 #162
+Change-parent entry suppressed (move shown once); LC4 move-to-root reads `root`; LC5 value/text/per-area raw
+from->to unchanged; LC6 timestamps no seconds/micros; LC7 old entries don't crash.
+
+**Files (feat cefaf3c0):** frontend ReviewTree.tsx ONLY. Helpers added: module-level `formatEditAt` +
+`DescribedEditEntry` interface; in-component `editParentLabel` + `describeEditEntry`. `EditLogEntry` added to the
+existing `./boqTypes` type import. No backend, no doctype, no migration, no tests.

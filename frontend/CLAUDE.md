@@ -317,7 +317,30 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-13 -- Slice A1 status rename + Finalized config-freeze (un-mark-and-edit) COMPLETE -- BACKEND + FRONTEND + DATA MIGRATION, feat 6001e36e):**
+**Status (2026-06-13 -- Slice A2 edit-log clarity pass COMPLETE -- FRONTEND ONLY, render-time, feat cefaf3c0):**
+Three render-time improvements to ReviewTree's edit-history block (`ReviewTree.tsx` ONLY; the stored `edit_log`
+shape is UNCHANGED -- NO backend, NO doctype, NO migration; root CLAUDE.md deliberately NOT touched this slice).
+(1) **Excel-row parents:** a `human_parent` entry's `from`/`to` (stored as INTERNAL `row_index`) now render as
+Excel/source row numbers via the SAME component-scoped `byIdx` map the Parent column uses (`byIdx.get(n)?.
+source_row_number`); root/cleared -> `root` (matching the detail panel's own `origParentLabel`/`effParentLabel`
+copy, since the Parent COLUMN renders blank for root -- not usable in a `from -> to` phrase); an index not in the
+current set -> raw-number fallback (no crash). (2) **Honest verb** (from `entry.field`): `human_classification`
+with `from !== to` -> "Reclassified" (+ from->to via `CLS_LABELS`); `human_parent` -> "Moved parent";
+value/text/per-area -> "Edited" (field name + the existing area/rate_subkey suffix retained, raw from->to
+unchanged). **The #162 no-op same-value reclassify** (`human_classification`, `from === to`, written by the
+standalone Change-parent door alongside the real `human_parent` move) is **SUPPRESSED** -- `describeEditEntry`
+returns null and a type-guarded `.filter` drops it before the `.map`, so it never produces an `<li>` (the
+"No edits yet." fallback reflects the post-suppression list). (3) **Timestamp** `YYYY-MM-DD HH:MM` via a
+module-level `formatEditAt` string slice (`at.slice(0,16)`; no date library, no TZ reparse). New helpers:
+module-level `formatEditAt` + `DescribedEditEntry` interface; in-component `editParentLabel` + `describeEditEntry`
+(close over `byIdx`). `EditLogEntry` added to the existing type import (boqTypes.ts UNTOUCHED -- the type already
+exists + is exported). tsc 0 NEW wizard errors (3177 baseline unchanged) + in-container build exit 0 (`built in
+4m 50s`, PWA 168 entries). Live-cert LC1-LC7 pending Nitesh (LC1 parent-move Excel rows match the Parent column;
+LC2 real reclassify labels; LC3 #162 entry suppressed/reads as the move only; LC4 move-to-root reads `root`;
+LC5 value/text/per-area raw from->to unchanged; LC6 timestamps no seconds/micros; LC7 old entries don't crash).
+See the "Slice A2 edit-log clarity conventions" section below.
+
+// prior: **Status (2026-06-13 -- Slice A1 status rename + Finalized config-freeze (un-mark-and-edit) COMPLETE -- BACKEND + FRONTEND + DATA MIGRATION, feat 6001e36e):**
 The `wizard_status` values **"Reviewed" -> "Config Done"** and **"Parsed Check Done" -> "Finalized"** (compared
 LITERALLY everywhere, so the rename was coverage-critical -- a zero-hit grep gate proved 100% coverage).
 FRONTEND rename sites: `boqTypes.ts` `WizardStatus` union; `SheetCard.tsx` `STATUS_PILL` keys + labels ("Config
@@ -977,6 +1000,43 @@ Two owner-locked fixes. Files touched: `RestructureModal.tsx` ONLY (no `SheetSea
   No Frappe unit tests (frontend slice). Manual live-cert LC1 (outside-click inert, selections preserved) / LC2
   (ESC + Cancel + Save + close-X still close) / LC3-LC4 (pick buttons above the grid + pick still works in all
   three sites) / LC5 (full reclassify-with-children round + §9 #162 door regression) pending Nitesh.
+
+**Slice A2 edit-log clarity conventions (`ReviewTree.tsx` ONLY; render-time, edit_log shape UNCHANGED):**
+
+Three render-time improvements to the row-detail panel's "Edit history" block. FRONTEND ONLY -- no backend, no
+doctype, no migration; the stored `edit_log` entry shape (`{field, from, to, by, at, reason[, area][, rate_subkey]}`)
+is untouched. boqTypes.ts is NOT edited (the `EditLogEntry` type already exists + is exported -- only the import
+line in ReviewTree gained it). root CLAUDE.md is NOT touched (no backend change).
+
+- **Excel-row parents -- REUSE `byIdx`, never build a second map (THE rule).** A stored `human_parent` entry's
+  `from`/`to` are INTERNAL `row_index` (recon Q1: from = effective_parent_index, to = raw value, null = root).
+  The new `editParentLabel(v)` (in-component, closes over the SAME `byIdx` map the Parent column uses at its
+  cell render) returns: `null`/`undefined`/negative -> `root`; a number with a `byIdx` hit -> `row {source_row_number}`;
+  a number with NO hit -> `String(n)` (raw-number defensive fallback, no crash). **Root copy = lowercase `root`
+  to match the detail panel's own `origParentLabel`/`effParentLabel`** -- the Parent COLUMN renders BLANK for
+  root, which is unusable inside a `from -> to` phrase, so the closest in-panel sibling copy was matched instead.
+- **Honest verb from `entry.field` (`describeEditEntry`).** Returns `{ verb, detail, showField } | null`:
+  `human_classification` + `from !== to` -> `{verb:"Reclassified", detail: CLS_LABELS[from] -> CLS_LABELS[to]}`;
+  `human_classification` + `from === to` -> **`null` (SUPPRESS)**; `human_parent` -> `{verb:"Moved parent",
+  detail: editParentLabel(from) -> editParentLabel(to)}`; everything else (value/text/per-area) -> `{verb:"Edited",
+  detail: raw from->to, showField:true}` so the field name is still shown. The area/rate_subkey suffix render is
+  KEPT verbatim for per-area entries.
+- **The #162 no-op reclassify is DROPPED before the `.map`, not rendered blank.** The standalone "Change parent"
+  door (§9 #162) writes a no-op same-value `human_classification` entry ALONGSIDE the real `human_parent` move;
+  rendering it would duplicate the move. `describeEditEntry` returns `null` for it; the render IIFE does
+  `[...edit_log].reverse().map(e => ({entry:e, d:describeEditEntry(e)})).filter((x): x is {...} => x.d !== null)`
+  (type-guarded filter) so suppressed entries never produce an `<li>`. **"No edits yet." reflects the
+  POST-suppression list** (an all-suppressed log shows the empty fallback -- a defensive edge; in practice the
+  no-op always rides with a real human_parent entry).
+- **Timestamp -- string slice, no library (`formatEditAt`).** `at` is a local `"YYYY-MM-DD HH:MM:SS.ffffff"`
+  string; `formatEditAt(at)` = `typeof at === "string" ? at.slice(0,16) : ""` -> `"YYYY-MM-DD HH:MM"`. Chosen
+  over a date formatter to avoid any timezone reparse surprise; no `formatDate` import added.
+- **Backwards-compat.** Old entries read unchanged: old `human_parent` indices translate (or raw-number
+  fallback); a missing/odd `at` -> empty string; non-parent entries -> "Edited" + raw values. No write-path or
+  shape dependency -- purely how existing data is displayed.
+- **Verification.** tsc 0 NEW wizard-file errors (filtered `boq-wizard|boqTypes` -> empty; 3177 baseline
+  unchanged) + in-container Vite build exit 0 (`built in 4m 50s`, PWA 168 entries). No Frappe unit tests
+  (frontend render-only). Manual live-cert LC1-LC7 pending Nitesh (see the A2 status block above).
 
 **Slice A1 status-rename + Finalized config-freeze conventions (all 7 wizard frontend files + backend + migration):**
 
