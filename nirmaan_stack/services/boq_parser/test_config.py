@@ -64,7 +64,7 @@ class TestMappingConfig(unittest.TestCase):
                         "H": ColumnRole(role="rate_supply"),
                         "I": ColumnRole(role="rate_install"),
                         "J": ColumnRole(role="rate_combined"),
-                        "K": ColumnRole(role="amount_supply", area="B1"),
+                        "K": ColumnRole(role="amount_supply"),
                         "L": ColumnRole(role="amount_total"),
                         "M": ColumnRole(role="make_model"),
                         "N": ColumnRole(role="row_notes"),
@@ -267,6 +267,33 @@ class TestMappingConfig(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             ColumnRole(role="amount_combined", area="B1")
+
+    # ------------------------------------------------------------------ #
+    # Test 19b — scalar amount roles are NOT area-compatible (Finding 1)   #
+    # ------------------------------------------------------------------ #
+
+    def test_scalar_amount_roles_reject_area(self):
+        """amount_supply/install/total are scalar roles -- they reject an area.
+
+        Finding 1 (field-set rationalisation Slice 1): these three were removed
+        from _AREA_COMPATIBLE_ROLES because the descriptor builder routes them as
+        scalars and silently drops any area. They now fail validation if an area
+        is supplied, while qty and a genuine *_by_area role still accept theirs.
+        """
+        # The three scalar amount roles reject an area.
+        for role in ("amount_supply", "amount_install", "amount_total"):
+            # No area -> valid.
+            cr = ColumnRole(role=role)
+            self.assertIsNone(cr.area)
+            # Area supplied -> rejected.
+            with self.assertRaises(ValidationError):
+                ColumnRole(role=role, area="B1")
+
+        # Control: genuine area-compatible roles still ACCEPT an area.
+        self.assertEqual(ColumnRole(role="qty", area="B1").area, "B1")
+        self.assertEqual(
+            ColumnRole(role="amount_by_area", area="B1").area, "B1"
+        )
 
     # ------------------------------------------------------------------ #
     # Test 20 — GlobalSettings default reserved keywords                   #

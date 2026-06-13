@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ------------------------------------------------------------------
 
 _AREA_COMPATIBLE_ROLES = {
-    "qty", "amount_supply", "amount_install", "amount_total",
+    "qty",
     "amount_by_area",
     "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 }

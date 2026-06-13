@@ -124,9 +124,11 @@ const ROLES_BY_GROUP: { group: string; roles: { value: string; label: string }[]
   },
 ];
 
-// 8 roles where area may be assigned (area dropdown shown when sheet is multi-area).
+// 5 roles where area may be assigned (area dropdown shown when sheet is multi-area).
+// Scalar amount roles (amount_supply/install/total) were removed -- the descriptor
+// builder routes them as scalars and ignores any area, so offering one was meaningless.
 const AREA_COMPATIBLE_ROLES = new Set([
-  "qty", "amount_supply", "amount_install", "amount_total",
+  "qty",
   "amount_by_area", "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 ]);
 
