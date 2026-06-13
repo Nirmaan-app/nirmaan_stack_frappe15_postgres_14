@@ -105,8 +105,9 @@ const ROLES_BY_GROUP: { group: string; roles: { value: string; label: string }[]
       { value: "amount_supply", label: ROLE_LABELS["amount_supply"] },
       { value: "amount_install", label: ROLE_LABELS["amount_install"] },
       { value: "amount_total", label: ROLE_LABELS["amount_total"] },
-      { value: "amount_combined", label: ROLE_LABELS["amount_combined"] },
-      { value: "amount_by_area", label: ROLE_LABELS["amount_by_area"] },
+      { value: "amount_supply_by_area", label: ROLE_LABELS["amount_supply_by_area"] },
+      { value: "amount_install_by_area", label: ROLE_LABELS["amount_install_by_area"] },
+      { value: "amount_total_by_area", label: ROLE_LABELS["amount_total_by_area"] },
     ],
   },
   {
@@ -129,19 +130,21 @@ const ROLES_BY_GROUP: { group: string; roles: { value: string; label: string }[]
 // builder routes them as scalars and ignores any area, so offering one was meaningless.
 const AREA_COMPATIBLE_ROLES = new Set([
   "qty",
-  "amount_by_area", "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
+  "amount_supply_by_area", "amount_install_by_area", "amount_total_by_area",
+  "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 ]);
 
-// 4 *_by_area roles where area is REQUIRED (empty area is flagged as error).
+// *_by_area roles where area is REQUIRED (empty area is flagged as error).
 const AREA_REQUIRED_ROLES = new Set([
-  "amount_by_area", "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
+  "amount_supply_by_area", "amount_install_by_area", "amount_total_by_area",
+  "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 ]);
 
-// 12 roles of which at most ONE column may hold each (disabled in other rows' dropdowns).
+// Roles of which at most ONE column may hold each (disabled in other rows' dropdowns).
 const SINGLETON_ROLES = new Set([
   "sl_no", "description", "unit", "qty_total",
   "rate_supply", "rate_install", "rate_combined",
-  "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
+  "amount_total", "make_model", "row_notes", "reference_images",
 ]);
 
 // Decision-oriented help text for the 6 confusable roles (Part 3b).
@@ -149,8 +152,7 @@ const SINGLETON_ROLES = new Set([
 const ROLE_HELP_TEXT: Partial<Record<string, string>> = {
   qty:             "Use for a normal quantity column.",
   qty_total:       "Use ONLY when the column is a sum of other quantity columns -- usually the 'total' area in a multi-area sheet that adds up the individual areas.",
-  amount_total:    "Standard amount column. Same result as Amount (Combined) -- pick the one whose header label matches your sheet.",
-  amount_combined: "Same result as Amount (Total). Choose this if your column header says 'SITC', 'S&I', or 'Combined'.",
+  amount_total:    "Standard total-amount column. Also use this if your header says 'SITC', 'S&I', or 'Combined'.",
   row_notes:       "Use for a single remarks/notes column. Replaces the notes field.",
   append_to_notes: "Use when several columns should be combined together into the notes field.",
 };
@@ -238,7 +240,8 @@ const _RATE_ROLES = new Set([
   "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 ]);
 const _AMOUNT_ROLES = new Set([
-  "amount_supply", "amount_install", "amount_total", "amount_combined", "amount_by_area",
+  "amount_supply", "amount_install", "amount_total",
+  "amount_supply_by_area", "amount_install_by_area", "amount_total_by_area",
 ]);
 
 // ── Component ─────────────────────────────────────────────────────────────────

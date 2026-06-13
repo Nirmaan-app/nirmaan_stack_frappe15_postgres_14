@@ -137,12 +137,12 @@ class TestAutoGuessPattern2(unittest.TestCase):
         self.assertEqual(crm["E"].role, "qty")
         self.assertEqual(crm["E"].area, "Block B")
 
-    def test_pattern_2_assigns_amount_by_area_per_area(self):
-        """Pattern 2: amount columns get role='amount_by_area' with the correct area name."""
+    def test_pattern_2_assigns_amount_total_by_area_per_area(self):
+        """Pattern 2: amount columns get role='amount_total_by_area' with the correct area name."""
         crm = self.sc.column_role_map
-        self.assertEqual(crm["D"].role, "amount_by_area")
+        self.assertEqual(crm["D"].role, "amount_total_by_area")
         self.assertEqual(crm["D"].area, "Block A")
-        self.assertEqual(crm["F"].role, "amount_by_area")
+        self.assertEqual(crm["F"].role, "amount_total_by_area")
         self.assertEqual(crm["F"].area, "Block B")
 
     def test_pattern_2_preserves_universal_roles_outside_area_spans(self):
@@ -207,12 +207,12 @@ class TestAutoGuessPattern2Rate(unittest.TestCase):
         self.assertEqual(crm["G"].role, "rate_combined_by_area")
         self.assertEqual(crm["G"].area, "PHASE-2")
 
-    def test_pattern_2_rate_assigns_amount_by_area_per_area(self):
-        """Pattern 2-rate: amount columns get role='amount_by_area' with area set."""
+    def test_pattern_2_rate_assigns_amount_total_by_area_per_area(self):
+        """Pattern 2-rate: amount columns get role='amount_total_by_area' with area set."""
         crm = self.sc.column_role_map
-        self.assertEqual(crm["E"].role, "amount_by_area")
+        self.assertEqual(crm["E"].role, "amount_total_by_area")
         self.assertEqual(crm["E"].area, "PHASE-1")
-        self.assertEqual(crm["H"].role, "amount_by_area")
+        self.assertEqual(crm["H"].role, "amount_total_by_area")
         self.assertEqual(crm["H"].area, "PHASE-2")
 
 
@@ -248,8 +248,8 @@ class TestAutoGuessPattern3(unittest.TestCase):
         self.reader = _make_reader({1: self.top, 2: self.bottom})
         self.sc = _call(self.reader, header_row=2, header_row_count=2)
 
-    def test_pattern_3_assigns_qty_and_amount_by_area_no_rate(self):
-        """Pattern 3: area-name column gets role='qty'+area; AMOUNT column gets amount_by_area; no rate_by_area."""
+    def test_pattern_3_assigns_qty_and_amount_total_by_area_no_rate(self):
+        """Pattern 3: area-name column gets role='qty'+area; AMOUNT column gets amount_total_by_area; no rate_by_area."""
         crm = self.sc.column_role_map
         # Per-area qty (area-name column acts as qty column)
         self.assertEqual(crm["C"].role, "qty")
@@ -257,9 +257,9 @@ class TestAutoGuessPattern3(unittest.TestCase):
         self.assertEqual(crm["E"].role, "qty")
         self.assertEqual(crm["E"].area, "Zone B")
         # Per-area amount
-        self.assertEqual(crm["D"].role, "amount_by_area")
+        self.assertEqual(crm["D"].role, "amount_total_by_area")
         self.assertEqual(crm["D"].area, "Zone A")
-        self.assertEqual(crm["F"].role, "amount_by_area")
+        self.assertEqual(crm["F"].role, "amount_total_by_area")
         self.assertEqual(crm["F"].area, "Zone B")
         # No per-area rate (Pattern 3 has no rate columns)
         rate_area_roles = {
@@ -328,7 +328,7 @@ class TestAutoGuessEdgeCases(unittest.TestCase):
 
         Pattern 2-rate: Phase 1 assigns rate_combined (singleton) to D and
         amount_total (singleton) to E from the bottom row. Phase 3 then
-        overrides D → rate_combined_by_area/PHASE-1 and E → amount_by_area/PHASE-1.
+        overrides D → rate_combined_by_area/PHASE-1 and E → amount_total_by_area/PHASE-1.
         """
         top = _make_row(1, {
             "C": {"value": "PHASE-1", "is_merged_origin": True, "merged_range": "C1:E1"},
@@ -355,12 +355,12 @@ class TestAutoGuessEdgeCases(unittest.TestCase):
         self.assertEqual(crm["D"].role, "rate_combined_by_area")
         self.assertEqual(crm["D"].area, "PHASE-1")
         # E was amount_total singleton; Phase 3 overrides with per-area amount
-        self.assertEqual(crm["E"].role, "amount_by_area")
+        self.assertEqual(crm["E"].role, "amount_total_by_area")
         self.assertEqual(crm["E"].area, "PHASE-1")
         # G and H: Phase 1 skipped them (singletons taken), but Phase 3 assigns them
         self.assertEqual(crm["G"].role, "rate_combined_by_area")
         self.assertEqual(crm["G"].area, "PHASE-2")
-        self.assertEqual(crm["H"].role, "amount_by_area")
+        self.assertEqual(crm["H"].role, "amount_total_by_area")
         self.assertEqual(crm["H"].area, "PHASE-2")
 
     def test_no_pattern_detected_no_per_area_roles(self):
@@ -863,15 +863,15 @@ class TestPhase1_9oTierAMergedAutoGuess(unittest.TestCase):
         self.assertEqual(h_role.area, "Area 2")
 
     def test_v1_shape_amount_columns_paired(self):
-        """v1 shape: I->amount_by_area/Area1, J->amount_by_area/Area2."""
+        """v1 shape: I->amount_total_by_area/Area1, J->amount_total_by_area/Area2."""
         sc = auto_guess_sheet_config(self._v1_reader(), _SHEET, header_row=2, header_row_count=2, reserved_keywords=_KWS)
         i_role = sc.column_role_map.get("I")
         j_role = sc.column_role_map.get("J")
         self.assertIsNotNone(i_role)
         self.assertIsNotNone(j_role)
-        self.assertEqual(i_role.role, "amount_by_area")
+        self.assertEqual(i_role.role, "amount_total_by_area")
         self.assertEqual(i_role.area, "Area 1")
-        self.assertEqual(j_role.role, "amount_by_area")
+        self.assertEqual(j_role.role, "amount_total_by_area")
         self.assertEqual(j_role.area, "Area 2")
 
     def test_v1_shape_singleton_cols_still_assigned(self):

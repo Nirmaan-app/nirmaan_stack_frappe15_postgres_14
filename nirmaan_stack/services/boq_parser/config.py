@@ -16,14 +16,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 _AREA_COMPATIBLE_ROLES = {
     "qty",
-    "amount_by_area",
+    "amount_supply_by_area", "amount_install_by_area", "amount_total_by_area",
     "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 }
 
 _SINGLETON_ROLES = {
     "sl_no", "description", "unit", "qty_total",
     "rate_supply", "rate_install", "rate_combined",
-    "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
+    "amount_total", "make_model", "row_notes", "reference_images",
 }
 
 _VALID_COL_LETTER = re.compile(r"^[A-Z]+$")
@@ -33,9 +33,14 @@ class ColumnRole(BaseModel):
     role: Literal[
         "sl_no", "description", "unit", "qty", "qty_total",
         "rate_supply", "rate_install", "rate_combined",
-        "amount_supply", "amount_install", "amount_total", "amount_combined",
+        "amount_supply", "amount_install", "amount_total",
         # qty_by_area deprecated Phase 2c §9 #42 — use role="qty" with area= instead
-        "amount_by_area",
+        # per-area amount roles (field-set Slice 2a); always require area= to be set.
+        # The old combined-amount scalar role was dropped Slice 2a — its keywords were
+        # re-homed into amount_total. The old single per-area amount role was renamed ->
+        # amount_total_by_area (the per-area combined amount; deliberately differs from
+        # rate's amount_combined_by_area — see CLAUDE.md).
+        "amount_supply_by_area", "amount_install_by_area", "amount_total_by_area",
         # per-area rate roles (Phase 1.9a); always require area= to be set
         "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
         # notes-field family
@@ -53,8 +58,8 @@ class ColumnRole(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def area_required_for_amount_by_area_role(self) -> "ColumnRole":
-        if self.role == "amount_by_area" and not self.area:
+    def area_required_for_amount_by_area_roles(self) -> "ColumnRole":
+        if self.role in {"amount_supply_by_area", "amount_install_by_area", "amount_total_by_area"} and not self.area:
             raise ValueError(f"role {self.role} requires area")
         return self
 

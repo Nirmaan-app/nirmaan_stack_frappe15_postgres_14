@@ -641,11 +641,11 @@ class TestAmountByAreaRaw(unittest.TestCase):
         include_qty_areas: bool = False,
     ) -> SheetConfig:
         """
-        Build a SheetConfig with amount_by_area columns for each area.
+        Build a SheetConfig with amount_total_by_area columns for each area.
 
         Columns layout:
           A → sl_no, B → description, C → unit
-          D, E, F, ... → amount_by_area for each area in order
+          D, E, F, ... → amount_total_by_area for each area in order
           If include_qty_areas: parallel qty columns start after amount cols
         """
         col_map: dict[str, ColumnRole] = {
@@ -656,7 +656,7 @@ class TestAmountByAreaRaw(unittest.TestCase):
         # Amount-by-area columns: D, E, F, ...
         amt_letters = [chr(ord("D") + i) for i in range(len(areas))]
         for letter, area in zip(amt_letters, areas):
-            col_map[letter] = ColumnRole(role="amount_by_area", area=area)
+            col_map[letter] = ColumnRole(role="amount_total_by_area", area=area)
 
         if include_qty_areas:
             # Qty-by-area (role="qty" with area): after amount cols
@@ -685,14 +685,14 @@ class TestAmountByAreaRaw(unittest.TestCase):
             "D": {"value": 1500.0},  # amount for Block A
         })
         result = classify_row(row, config, _GS)
-        self.assertEqual(result.amount_by_area_raw, {"Block A": 1500.0})
+        self.assertEqual(result.amount_by_area_raw, {"Block A": {"total": 1500.0}})
 
     # ---------------------------------------------------------------- #
     # Test 2 — multiple areas (Pattern 3 shape: 3 areas)                #
     # ---------------------------------------------------------------- #
 
     def test_amount_by_area_raw_multiple_areas(self):
-        """amount_by_area columns for 3 areas → dict keyed by all area names."""
+        """amount_total_by_area columns for 3 areas → dict keyed by all area names."""
         config = self._make_area_config(["North Wing", "South Wing", "Terrace"])
         row = _make_row(2, {
             "A": {"value": "b."},
@@ -704,17 +704,17 @@ class TestAmountByAreaRaw(unittest.TestCase):
         })
         result = classify_row(row, config, _GS)
         self.assertEqual(result.amount_by_area_raw, {
-            "North Wing": 2000.0,
-            "South Wing": 1800.0,
-            "Terrace": 500.0,
+            "North Wing": {"total": 2000.0},
+            "South Wing": {"total": 1800.0},
+            "Terrace": {"total": 500.0},
         })
 
     # ---------------------------------------------------------------- #
-    # Test 3 — no amount_by_area ColumnRoles → empty dict               #
+    # Test 3 — no per-area amount ColumnRoles → empty dict              #
     # ---------------------------------------------------------------- #
 
     def test_amount_by_area_raw_empty_when_not_configured(self):
-        """Sheet with no amount_by_area columns → amount_by_area_raw defaults to {}."""
+        """Sheet with no per-area amount columns → amount_by_area_raw defaults to {}."""
         row = _make_row(3, {
             "A": {"value": "1."},
             "B": {"value": "Earthwork"},
@@ -743,7 +743,7 @@ class TestAmountByAreaRaw(unittest.TestCase):
             "G": {"value": 95.0},    # qty Zone 2
         })
         result = classify_row(row, config, _GS)
-        self.assertEqual(result.amount_by_area_raw, {"Zone 1": 3500.0, "Zone 2": 2800.0})
+        self.assertEqual(result.amount_by_area_raw, {"Zone 1": {"total": 3500.0}, "Zone 2": {"total": 2800.0}})
         self.assertEqual(result.qty_by_area_raw, {"Zone 1": 120.0, "Zone 2": 95.0})
 
     # ---------------------------------------------------------------- #
@@ -769,11 +769,11 @@ class TestAmountByAreaRaw(unittest.TestCase):
         self.assertEqual(note_result.amount_by_area_raw, {})
 
 
-class TestPolicyX(unittest.TestCase):
-    """Phase 2b.2 Part B2a — §7.25 zero-value Policy X for per-area dicts."""
+class TestNestedPerAreaAmountExtraction(unittest.TestCase):
+    """Field-set Slice 2a — nested amount_by_area_raw[area][kind] (supply/install/total)."""
 
-    def _single_area_config_with_qty_and_amount(self, area: str = "Zone A") -> SheetConfig:
-        """Config with one qty-area col (E) and one amount_by_area col (D), plus rate."""
+    def _config_supply_install_total(self, area: str = "Zone A") -> SheetConfig:
+        """One area with all three per-area amount roles mapped to D/E/F."""
         return SheetConfig(
             sheet_name="Test",
             header_row=1,
@@ -781,7 +781,97 @@ class TestPolicyX(unittest.TestCase):
                 "A": ColumnRole(role="sl_no"),
                 "B": ColumnRole(role="description"),
                 "C": ColumnRole(role="unit"),
-                "D": ColumnRole(role="amount_by_area", area=area),
+                "D": ColumnRole(role="amount_supply_by_area", area=area),
+                "E": ColumnRole(role="amount_install_by_area", area=area),
+                "F": ColumnRole(role="amount_total_by_area", area=area),
+            },
+            area_dimensions=[area],
+        )
+
+    def test_three_kinds_nest_under_one_area(self):
+        """supply/install/total columns for one area → nested dict with all three kinds."""
+        config = self._config_supply_install_total()
+        row = _make_row(1, {
+            "A": {"value": "a."},
+            "B": {"value": "Ducting"},
+            "D": {"value": 40.0},   # supply
+            "E": {"value": 50.0},   # install
+            "F": {"value": 90.0},   # total
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(
+            result.amount_by_area_raw,
+            {"Zone A": {"supply": 40.0, "install": 50.0, "total": 90.0}},
+        )
+
+    def test_supply_install_only_no_total_kind(self):
+        """Only supply+install columns present → nested dict has those two kinds, no 'total'."""
+        config = self._config_supply_install_total()
+        row = _make_row(2, {
+            "A": {"value": "b."},
+            "B": {"value": "Wiring"},
+            "D": {"value": 40.0},   # supply
+            "E": {"value": 50.0},   # install
+            # F (total) blank
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_by_area_raw, {"Zone A": {"supply": 40.0, "install": 50.0}})
+
+    def test_multiple_areas_each_nested(self):
+        """Two areas, each with supply+install+total → independent nested dicts."""
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "D": ColumnRole(role="amount_supply_by_area", area="P1"),
+                "E": ColumnRole(role="amount_install_by_area", area="P1"),
+                "F": ColumnRole(role="amount_total_by_area", area="P1"),
+                "G": ColumnRole(role="amount_supply_by_area", area="P2"),
+                "H": ColumnRole(role="amount_install_by_area", area="P2"),
+                "I": ColumnRole(role="amount_total_by_area", area="P2"),
+            },
+            area_dimensions=["P1", "P2"],
+        )
+        row = _make_row(3, {
+            "A": {"value": "c."},
+            "B": {"value": "MEP"},
+            "D": {"value": 10.0}, "E": {"value": 20.0}, "F": {"value": 30.0},
+            "G": {"value": 100.0}, "H": {"value": 200.0}, "I": {"value": 300.0},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_by_area_raw, {
+            "P1": {"supply": 10.0, "install": 20.0, "total": 30.0},
+            "P2": {"supply": 100.0, "install": 200.0, "total": 300.0},
+        })
+
+    def test_explicit_zero_kind_preserved(self):
+        """Policy X: an explicit 0.0 amount kind is preserved as a key."""
+        config = self._config_supply_install_total()
+        row = _make_row(4, {
+            "A": {"value": "d."},
+            "B": {"value": "Item"},
+            "D": {"value": 0.0},    # explicit zero supply
+            "F": {"value": 500.0},  # total
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.amount_by_area_raw, {"Zone A": {"supply": 0.0, "total": 500.0}})
+
+
+class TestPolicyX(unittest.TestCase):
+    """Phase 2b.2 Part B2a — §7.25 zero-value Policy X for per-area dicts."""
+
+    def _single_area_config_with_qty_and_amount(self, area: str = "Zone A") -> SheetConfig:
+        """Config with one qty-area col (E) and one amount_total_by_area col (D), plus rate."""
+        return SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="unit"),
+                "D": ColumnRole(role="amount_total_by_area", area=area),
                 "E": ColumnRole(role="qty", area=area),
                 "F": ColumnRole(role="rate_supply"),
             },
@@ -789,7 +879,7 @@ class TestPolicyX(unittest.TestCase):
         )
 
     def _config_with_qty_total(self, area: str = "Zone A") -> SheetConfig:
-        """Config with per-area qty col (E), qty_total col (F), amount_by_area col (D)."""
+        """Config with per-area qty col (E), qty_total col (F), amount_total_by_area col (D)."""
         return SheetConfig(
             sheet_name="Test",
             header_row=1,
@@ -797,7 +887,7 @@ class TestPolicyX(unittest.TestCase):
                 "A": ColumnRole(role="sl_no"),
                 "B": ColumnRole(role="description"),
                 "C": ColumnRole(role="unit"),
-                "D": ColumnRole(role="amount_by_area", area=area),
+                "D": ColumnRole(role="amount_total_by_area", area=area),
                 "E": ColumnRole(role="qty", area=area),
                 "F": ColumnRole(role="qty_total"),
             },
@@ -820,7 +910,7 @@ class TestPolicyX(unittest.TestCase):
         })
         result = classify_row(row, config, _GS)
         self.assertIn("Zone A", result.amount_by_area_raw)
-        self.assertEqual(result.amount_by_area_raw["Zone A"], 0.0)
+        self.assertEqual(result.amount_by_area_raw["Zone A"]["total"], 0.0)
 
     # ---------------------------------------------------------------- #
     # Test 2 — per-area amount cell empty → key absent                  #
@@ -1146,18 +1236,23 @@ class TestHeaderKwExpansionPhase2c(unittest.TestCase):
         self.assertEqual(result.classification, RowClassification.HEADER_REPEAT)
 
     # ---------------------------------------------------------------- #
-    # Test 3 — SITC Amount synonym for amount_combined                  #
+    # Test 3 — SITC Amount keyword re-homed into amount_total (Slice 2a) #
     # ---------------------------------------------------------------- #
 
-    def test_sitc_amount_synonym_matches_amount_combined(self):
-        """'SITC Amount' in amount_combined col triggers HEADER_REPEAT."""
+    def test_sitc_amount_synonym_matches_amount_total(self):
+        """'SITC Amount' in an amount_total col triggers HEADER_REPEAT.
+
+        Field-set Slice 2a: the amount_combined role was dropped and its 'sitc amount'
+        keyword re-homed into amount_total's _HEADER_KW set, so a SITC header on an
+        amount_total column still triggers header-repeat detection.
+        """
         config = SheetConfig(
             sheet_name="Test",
             header_row=1,
             column_role_map={
                 "A": ColumnRole(role="sl_no"),
                 "B": ColumnRole(role="description"),
-                "C": ColumnRole(role="amount_combined"),
+                "C": ColumnRole(role="amount_total"),
             },
         )
         row = _make_row(1, {
@@ -1936,7 +2031,7 @@ class TestBug6ConvenienceFieldSummation(unittest.TestCase):
             col_map["J"] = ColumnRole(role="amount_total")
         if areas:
             for idx, area in enumerate(areas):
-                col_map[chr(ord("K") + idx)] = ColumnRole(role="amount_by_area", area=area)
+                col_map[chr(ord("K") + idx)] = ColumnRole(role="amount_total_by_area", area=area)
         return SheetConfig(
             sheet_name="Test",
             header_row=1,
@@ -2199,32 +2294,30 @@ class TestBug6ConvenienceFieldSummation(unittest.TestCase):
 
 
 # -----------------------------------------------------------------------
-# Bug 9 (sec 9 #86) — amount_combined ColumnRole extraction fallback
+# Total-amount column cascade (SITC / combined headers map to amount_total)
 # -----------------------------------------------------------------------
 
-class TestBug9AmountCombinedExtraction(unittest.TestCase):
+class TestTotalAmountColumnCascade(unittest.TestCase):
     """
-    Bug 9 (sec 9 #86): amount_combined ColumnRole had no extraction path in classify_row().
-    Any column mapped as amount_combined was silently dropped (cr.amount_total always None).
-
-    Fix: OR-fallback in Bug 6 cascade Priority 1 step:
-      amount_total_raw = _cell_float("amount_total")
-      if amount_total_raw is None:
-          amount_total_raw = _cell_float("amount_combined")  # Bug 9
+    Field-set Slice 2a: the old combined-amount scalar role was dropped; a SITC / S&I /
+    combined-amount column is now mapped as amount_total (its keywords were re-homed there).
+    This class (formerly the Bug 9 amount_combined extraction tests, sec 9 #86) verifies the
+    total-amount column drives the Bug 6 amount_total cascade (Priority 1 column wins,
+    Priority 2 supply+install, Priority 3 nested per-area sum).
 
     Column layout used throughout:
       A=sl_no, B=description, C=unit, D=qty,
-      [E=rate_supply, F=rate_install optional],
       [H=amount_supply, I=amount_install optional],
-      J=amount_combined  (the test subject)
+      J=amount_total  (the SITC/combined column, now mapped here),
+      [K,L=amount_total_by_area per area, optional]
     """
 
-    def _config_with_combined(
+    def _config_with_total(
         self,
         has_supply_install: bool = False,
         areas: list[str] | None = None,
     ) -> SheetConfig:
-        """Config with amount_combined as the total-amount column."""
+        """Config with a SITC/combined column mapped as the amount_total column."""
         col_map: dict[str, ColumnRole] = {
             "A": ColumnRole(role="sl_no"),
             "B": ColumnRole(role="description"),
@@ -2234,10 +2327,10 @@ class TestBug9AmountCombinedExtraction(unittest.TestCase):
         if has_supply_install:
             col_map["H"] = ColumnRole(role="amount_supply")
             col_map["I"] = ColumnRole(role="amount_install")
-        col_map["J"] = ColumnRole(role="amount_combined")
+        col_map["J"] = ColumnRole(role="amount_total")
         if areas:
             for idx, area in enumerate(areas):
-                col_map[chr(ord("K") + idx)] = ColumnRole(role="amount_by_area", area=area)
+                col_map[chr(ord("K") + idx)] = ColumnRole(role="amount_total_by_area", area=area)
         return SheetConfig(
             sheet_name="Test",
             header_row=1,
@@ -2245,30 +2338,30 @@ class TestBug9AmountCombinedExtraction(unittest.TestCase):
             area_dimensions=areas or [],
         )
 
-    # B9-1: amount_combined column alone populates cr.amount_total
+    # B9-1: a combined/SITC total column alone populates cr.amount_total
 
-    def test_amount_combined_populates_amount_total(self):
-        """B9-1: Sheet has only amount_combined column (no supply/install). cr.amount_total = J."""
-        config = self._config_with_combined()
+    def test_total_column_populates_amount_total(self):
+        """B9-1: Sheet has only a SITC total column (no supply/install). cr.amount_total = J."""
+        config = self._config_with_total()
         row = _make_row(2, {
             "A": {"value": "1"},
             "B": {"value": "Supply and install of SITC works"},
             "C": {"value": "LS"},
             "D": {"value": 1.0},
-            "J": {"value": 100.0},  # amount_combined
+            "J": {"value": 100.0},  # SITC/combined column, mapped amount_total
         })
         result = classify_row(row, config, _GS)
         self.assertEqual(result.classification, RowClassification.LINE_ITEM)
         self.assertEqual(result.amount_total, 100.0,
-            "amount_combined value must propagate to cr.amount_total via Bug 9 fallback")
+            "total-amount column value must propagate to cr.amount_total (Priority 1)")
         self.assertEqual(result.amount_total_raw, 100.0,
-            "amount_total_raw must equal the amount_combined cell value")
+            "amount_total_raw must equal the total-amount cell value")
 
-    # B9-2: amount_combined wins over supply+install (Priority 1 > Priority 2)
+    # B9-2: total column wins over supply+install (Priority 1 > Priority 2)
 
-    def test_amount_combined_wins_over_supply_install(self):
-        """B9-2: J=amount_combined=100 present alongside H=supply=40 I=install=50 → total=100."""
-        config = self._config_with_combined(has_supply_install=True)
+    def test_total_column_wins_over_supply_install(self):
+        """B9-2: J=total=100 present alongside H=supply=40 I=install=50 → total=100."""
+        config = self._config_with_total(has_supply_install=True)
         row = _make_row(2, {
             "A": {"value": "1"},
             "B": {"value": "SITC item"},
@@ -2276,18 +2369,18 @@ class TestBug9AmountCombinedExtraction(unittest.TestCase):
             "D": {"value": 1.0},
             "H": {"value": 40.0},   # amount_supply
             "I": {"value": 50.0},   # amount_install
-            "J": {"value": 100.0},  # amount_combined — wins as Priority 1
+            "J": {"value": 100.0},  # total column — wins as Priority 1
         })
         result = classify_row(row, config, _GS)
         self.assertEqual(result.amount_total, 100.0,
-            "amount_combined (P1) must win over supply+install sum (P2) when non-None")
+            "total column (P1) must win over supply+install sum (P2) when non-None")
         self.assertEqual(result.amount_total_raw, 100.0)
 
-    # B9-3: blank amount_combined falls through to supply+install (P2)
+    # B9-3: blank total column falls through to supply+install (P2)
 
-    def test_blank_amount_combined_falls_to_supply_install(self):
+    def test_blank_total_column_falls_to_supply_install(self):
         """B9-3: J=None, H=40, I=50 → cr.amount_total=90 via P2; amount_total_raw=None."""
-        config = self._config_with_combined(has_supply_install=True)
+        config = self._config_with_total(has_supply_install=True)
         row = _make_row(2, {
             "A": {"value": "1"},
             "B": {"value": "SITC item"},
@@ -2295,46 +2388,39 @@ class TestBug9AmountCombinedExtraction(unittest.TestCase):
             "D": {"value": 1.0},
             "H": {"value": 40.0},
             "I": {"value": 50.0},
-            # J absent → amount_combined cell is None
+            # J absent → total cell is None
         })
         result = classify_row(row, config, _GS)
         self.assertEqual(result.amount_total, 90.0,
-            "When amount_combined is blank, P2 supply+install fallback must fire")
+            "When the total column is blank, P2 supply+install fallback must fire")
         self.assertIsNone(result.amount_total_raw,
-            "amount_total_raw must be None when amount_combined cell is blank")
+            "amount_total_raw must be None when the total cell is blank")
 
-    # B9-4: blank amount_combined falls through to per-area sum (P3)
+    # B9-4: blank total column falls through to nested per-area sum (P3)
 
-    def test_blank_amount_combined_falls_to_per_area(self):
-        """B9-4: J=None, no supply/install, per-area A=30 B=60 → cr.amount_total=90 via P3."""
-        config = self._config_with_combined(areas=["AreaA", "AreaB"])
+    def test_blank_total_column_falls_to_per_area(self):
+        """B9-4: J=None, no supply/install, per-area total A=30 B=60 → cr.amount_total=90 via P3."""
+        config = self._config_with_total(areas=["AreaA", "AreaB"])
         row = _make_row(2, {
             "A": {"value": "1"},
             "B": {"value": "SITC item"},
             "C": {"value": "LS"},
             "D": {"value": 1.0},
-            "K": {"value": 30.0},   # amount_by_area AreaA
-            "L": {"value": 60.0},   # amount_by_area AreaB
+            "K": {"value": 30.0},   # amount_total_by_area AreaA
+            "L": {"value": 60.0},   # amount_total_by_area AreaB
             # J absent
         })
         result = classify_row(row, config, _GS)
         self.assertEqual(result.amount_total, 90.0,
-            "When amount_combined and supply+install both blank, P3 per-area sum must fire")
+            "When the total column and supply+install are blank, P3 nested per-area sum must fire")
         self.assertIsNone(result.amount_total_raw)
 
-    # B9-5: SheetConfig with amount_combined role validates OK
+    # B9-5 (regression): the dropped combined-amount role is now rejected at validation.
 
-    def test_amount_combined_sheetconfig_validates_ok(self):
-        """B9-5: A SheetConfig with amount_combined ColumnRole must not raise ValidationError.
-
-        SheetConfig uses @model_validator(mode='after') — validation fires on construction.
-        We verify by re-constructing from the config's model data; no ValidationError expected.
-        """
-        config = self._config_with_combined()
-        try:
-            SheetConfig(**config.model_dump())
-        except Exception as exc:
-            self.fail(f"SheetConfig with amount_combined raised unexpectedly: {exc!r}")
+    def test_dropped_combined_amount_role_is_rejected(self):
+        """Field-set Slice 2a regression: a ColumnRole using the dropped role raises."""
+        with self.assertRaises(Exception):
+            ColumnRole(role="amount_combined")
 
 
 # ================================================================ #

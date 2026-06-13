@@ -39,11 +39,12 @@ _SINGLETON_ROLES: frozenset[str] = frozenset({
     "sl_no", "description", "unit", "qty_total",
     "rate_supply", "rate_install", "rate_combined",
     "amount_supply", "amount_install",
-    "amount_total", "amount_combined", "make_model", "row_notes", "reference_images",
+    "amount_total", "make_model", "row_notes", "reference_images",
 })
 
 _PER_AREA_ONLY_ROLES: frozenset[str] = frozenset({
-    "amount_by_area", "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
+    "amount_supply_by_area", "amount_install_by_area", "amount_total_by_area",
+    "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 })
 
 
@@ -148,14 +149,14 @@ def auto_guess_sheet_config(
     Phase 1 --- universal roles from bottom header row (always runs).
       Iterates bottom header cells left-to-right, substring-matching against
       _HEADER_KW. Singleton roles assigned at most once. Per-area-only roles
-      (amount_by_area, rate_*_by_area) are skipped here --- they need an area name.
+      (amount_*_by_area, rate_*_by_area) are skipped here --- they need an area name.
 
     Phase 2 --- per-area role assignment (only when effective_hrc >= 2 and
       detect_multi_area_pattern() returns a non-None result).
       Uses the MultiAreaPattern parallel lists (areas, qty_columns,
       amount_columns, rate_columns) to assign per-area roles directly:
         qty column under area  → ColumnRole(role="qty", area=<area>)
-        amount column under area → ColumnRole(role="amount_by_area", area=<area>)
+        amount column under area → ColumnRole(role="amount_total_by_area", area=<area>)
         rate column under area   → ColumnRole(role="rate_combined_by_area", area=<area>)
       Per-area assignments override any universal singleton assigned in Phase 1
       for the same column. area_dimensions is populated with all detected areas.
@@ -261,7 +262,10 @@ def auto_guess_sheet_config(
 
                     if mp.amount_columns is not None:
                         amt_col = get_column_letter(mp.amount_columns[i])
-                        column_role_map[amt_col] = ColumnRole(role="amount_by_area", area=area_name)
+                        # Detected single per-area amount column = the combined/total amount
+                        # (field-set Slice 2a): role amount_total_by_area (mirrors how a detected
+                        # per-area rate column maps to rate_combined_by_area).
+                        column_role_map[amt_col] = ColumnRole(role="amount_total_by_area", area=area_name)
 
                     if mp.rate_columns is not None:
                         rate_col = get_column_letter(mp.rate_columns[i])

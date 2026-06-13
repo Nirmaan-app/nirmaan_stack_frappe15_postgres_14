@@ -163,7 +163,7 @@ def _multi_area_config() -> MappingConfig:
     """MappingConfig for synthetic_multi_area.xlsx (2 areas: Floor 1, Floor 2; qty + amount cols).
 
     Per-area qty uses role='qty' with area set (classifier looks for role=='qty' with area).
-    Per-area amount uses role='amount_by_area' with area set.
+    Per-area amount uses role='amount_total_by_area' with area set (nested, field-set Slice 2a).
     """
     return MappingConfig(
         project="test",
@@ -180,8 +180,8 @@ def _multi_area_config() -> MappingConfig:
                 "E": ColumnRole(role="qty", area="Floor 2"),
                 "F": ColumnRole(role="qty_total"),
                 "G": ColumnRole(role="rate_supply"),
-                "H": ColumnRole(role="amount_by_area", area="Floor 1"),
-                "I": ColumnRole(role="amount_by_area", area="Floor 2"),
+                "H": ColumnRole(role="amount_total_by_area", area="Floor 1"),
+                "I": ColumnRole(role="amount_total_by_area", area="Floor 2"),
                 "J": ColumnRole(role="amount_total"),
             },
         )],
@@ -203,9 +203,9 @@ def _multi_area_2row_config() -> MappingConfig:
                 "B": ColumnRole(role="description"),
                 "C": ColumnRole(role="unit"),
                 "D": ColumnRole(role="qty", area="Block A"),
-                "E": ColumnRole(role="amount_by_area", area="Block A"),
+                "E": ColumnRole(role="amount_total_by_area", area="Block A"),
                 "F": ColumnRole(role="qty", area="Block B"),
-                "G": ColumnRole(role="amount_by_area", area="Block B"),
+                "G": ColumnRole(role="amount_total_by_area", area="Block B"),
                 "H": ColumnRole(role="rate_supply"),
                 "I": ColumnRole(role="amount_total"),
             },
@@ -257,13 +257,13 @@ class TestMultiAreaPostPass(unittest.TestCase):
         """LINE_ITEM with populated qty_by_area_raw → qty_by_area copied after post-pass."""
         row = self._line_item_row(
             qty_by_area_raw={"Floor 1": 5.0, "Floor 2": 3.0},
-            amount_by_area_raw={"Floor 1": 500.0, "Floor 2": 300.0},
+            amount_by_area_raw={"Floor 1": {"total": 500.0}, "Floor 2": {"total": 300.0}},
             qty_total=8.0,
             amount_total=800.0,
         )
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.qty_by_area, {"Floor 1": 5.0, "Floor 2": 3.0})
-        self.assertEqual(row.amount_by_area, {"Floor 1": 500.0, "Floor 2": 300.0})
+        self.assertEqual(row.amount_by_area, {"Floor 1": {"total": 500.0}, "Floor 2": {"total": 300.0}})
 
     # ---------------------------------------------------------------- #
     # Test 2 — Policy X: explicit 0.0 preserved in resolved dicts      #
@@ -273,7 +273,7 @@ class TestMultiAreaPostPass(unittest.TestCase):
         """Explicit 0.0 in raw dict → 0.0 key present in resolved dict (Policy X)."""
         row = self._line_item_row(
             qty_by_area_raw={"Floor 1": 0.0, "Floor 2": 5.0},
-            amount_by_area_raw={"Floor 1": 0.0, "Floor 2": 500.0},
+            amount_by_area_raw={"Floor 1": {"total": 0.0}, "Floor 2": {"total": 500.0}},
             qty_total=5.0,
             amount_total=500.0,
         )
@@ -281,7 +281,7 @@ class TestMultiAreaPostPass(unittest.TestCase):
         self.assertIn("Floor 1", row.qty_by_area)
         self.assertEqual(row.qty_by_area["Floor 1"], 0.0)
         self.assertIn("Floor 1", row.amount_by_area)
-        self.assertEqual(row.amount_by_area["Floor 1"], 0.0)
+        self.assertEqual(row.amount_by_area["Floor 1"]["total"], 0.0)
 
     # ---------------------------------------------------------------- #
     # Test 3 — non-LINE_ITEM rows untouched                            #
@@ -316,7 +316,7 @@ class TestMultiAreaPostPass(unittest.TestCase):
     def test_amount_total_fallback_when_none_no_warning(self):
         """amount_total=None with populated per-area dict → computed from sum; no warning."""
         row = self._line_item_row(
-            amount_by_area_raw={"Floor 1": 200.0, "Floor 2": 300.0},
+            amount_by_area_raw={"Floor 1": {"total": 200.0}, "Floor 2": {"total": 300.0}},
             amount_total=None,
         )
         _apply_multi_area_post_pass([row])
@@ -359,7 +359,7 @@ class TestMultiAreaPostPass(unittest.TestCase):
     def test_amount_sum_outside_tolerance_emits_warning(self):
         """amount per-area sum differs from total by >1 → warning appended."""
         row = self._line_item_row(
-            amount_by_area_raw={"A": 100.0, "B": 200.0},  # sum=300
+            amount_by_area_raw={"A": {"total": 100.0}, "B": {"total": 200.0}},  # sum=300
             amount_total=305.0,                             # diff=5 > ±1
         )
         _apply_multi_area_post_pass([row])
@@ -374,7 +374,7 @@ class TestMultiAreaPostPass(unittest.TestCase):
         """Both qty and amount mismatches → two warnings, one each."""
         row = self._line_item_row(
             qty_by_area_raw={"A": 5.0, "B": 3.0},       # sum=8
-            amount_by_area_raw={"A": 100.0, "B": 200.0},  # sum=300
+            amount_by_area_raw={"A": {"total": 100.0}, "B": {"total": 200.0}},  # sum=300
             qty_total=10.0,     # diff=2
             amount_total=400.0,  # diff=100
         )
@@ -382,6 +382,59 @@ class TestMultiAreaPostPass(unittest.TestCase):
         self.assertEqual(len(row.validation_warnings), 2)
         self.assertTrue(any("qty" in w for w in row.validation_warnings))
         self.assertTrue(any("amount" in w for w in row.validation_warnings))
+
+
+class TestNestedAmountTotalDerivation(unittest.TestCase):
+    """Field-set Slice 2a — the scalar amount_total derivation rule over nested per-area amounts.
+
+    Rule: explicit total column wins (amount_total already set upstream); else derive =
+    sum over areas of (area's 'total' kind if present, else supply + install).
+    """
+
+    @staticmethod
+    def _row(amount_by_area_raw, amount_total=None):
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+        classified = ClassifiedRow(
+            raw_row=RawRow(row_number=1, cells={}),
+            classification=RowClassification.LINE_ITEM,
+        )
+        return ResolvedRow(
+            classified_row=classified,
+            amount_by_area_raw=amount_by_area_raw,
+            amount_total=amount_total,
+        )
+
+    def test_total_kind_used_when_present(self):
+        """Area with a 'total' kind → that value feeds the derived scalar total."""
+        row = self._row({"A": {"supply": 10.0, "install": 20.0, "total": 30.0}})
+        _apply_multi_area_post_pass([row])
+        self.assertEqual(row.amount_total, 30.0)
+
+    def test_supply_plus_install_when_no_total_kind(self):
+        """Area with only supply+install (no 'total') → supply + install feeds the scalar."""
+        row = self._row({"A": {"supply": 10.0, "install": 20.0}})
+        _apply_multi_area_post_pass([row])
+        self.assertEqual(row.amount_total, 30.0)
+
+    def test_mixed_areas_sum_per_rule(self):
+        """Area A uses its total (30); area B has only supply+install (300) → 330."""
+        row = self._row({
+            "A": {"supply": 10.0, "install": 20.0, "total": 30.0},
+            "B": {"supply": 100.0, "install": 200.0},
+        })
+        _apply_multi_area_post_pass([row])
+        self.assertEqual(row.amount_total, 330.0)
+
+    def test_explicit_total_column_not_overridden(self):
+        """An explicit amount_total (column) is NOT overridden by the per-area derivation."""
+        row = self._row(
+            {"A": {"total": 30.0}, "B": {"total": 60.0}},
+            amount_total=999.0,  # explicit column value already set upstream
+        )
+        _apply_multi_area_post_pass([row])
+        self.assertEqual(row.amount_total, 999.0)
 
 
 class TestMultiAreaIntegration(unittest.TestCase):
@@ -419,7 +472,7 @@ class TestMultiAreaIntegration(unittest.TestCase):
 
         # Row 2 — clean row: dicts populated, totals match, no warnings
         self.assertEqual(painting.qty_by_area, {"Floor 1": 5.0, "Floor 2": 3.0})
-        self.assertEqual(painting.amount_by_area, {"Floor 1": 500.0, "Floor 2": 300.0})
+        self.assertEqual(painting.amount_by_area, {"Floor 1": {"total": 500.0}, "Floor 2": {"total": 300.0}})
         self.assertEqual(painting.qty_total, 8.0)
         self.assertEqual(painting.amount_total, 800.0)
         self.assertEqual(painting.validation_warnings, [])
@@ -876,7 +929,7 @@ class TestRateByAreaPostPass(unittest.TestCase):
                 "B1": {"combined_rate": 100.0},
                 "B2": {"combined_rate": 110.0},
             },
-            amount_by_area_raw={"B1": 1000.0, "B2": 2200.0},
+            amount_by_area_raw={"B1": {"total": 1000.0}, "B2": {"total": 2200.0}},
         )
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.rate_by_area, {
@@ -899,8 +952,9 @@ class TestRateByAreaPostPass(unittest.TestCase):
             # amount_by_area_raw intentionally empty → auto-compute triggered
         )
         _apply_multi_area_post_pass([row])
-        self.assertAlmostEqual(row.amount_by_area.get("B1"), 1000.0)   # 10 × 100
-        self.assertAlmostEqual(row.amount_by_area.get("B2"), 2200.0)   # 20 × 110
+        # Auto-computed amount lands in the nested "total" kind (field-set Slice 2a).
+        self.assertAlmostEqual(row.amount_by_area["B1"]["total"], 1000.0)   # 10 × 100
+        self.assertAlmostEqual(row.amount_by_area["B2"]["total"], 2200.0)   # 20 × 110
 
 
 # ================================================================ #
@@ -923,10 +977,10 @@ def _pattern_2_rate_config() -> MappingConfig:
                 "C": ColumnRole(role="unit"),
                 "D": ColumnRole(role="qty", area="PHASE-1"),
                 "E": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
-                "F": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                "F": ColumnRole(role="amount_total_by_area", area="PHASE-1"),
                 "G": ColumnRole(role="qty", area="PHASE-2"),
                 "H": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
-                "I": ColumnRole(role="amount_by_area", area="PHASE-2"),
+                "I": ColumnRole(role="amount_total_by_area", area="PHASE-2"),
             },
         )],
     )
@@ -985,9 +1039,9 @@ class TestPattern2RateIntegration(unittest.TestCase):
         self.assertAlmostEqual(row.rate_by_area["PHASE-1"].get("combined_rate"), 200.0)
         self.assertAlmostEqual(row.rate_by_area["PHASE-2"].get("combined_rate"), 200.0)
 
-        # Per-area amount (directly stored in fixture: 1000.0 and 1600.0)
-        self.assertAlmostEqual(row.amount_by_area.get("PHASE-1"), 1000.0)
-        self.assertAlmostEqual(row.amount_by_area.get("PHASE-2"), 1600.0)
+        # Per-area amount (directly stored in fixture: 1000.0 and 1600.0; nested "total" kind)
+        self.assertAlmostEqual(row.amount_by_area["PHASE-1"]["total"], 1000.0)
+        self.assertAlmostEqual(row.amount_by_area["PHASE-2"]["total"], 1600.0)
 
         # No spurious combined!=supply+install warnings (only combined_rate present)
         self.assertEqual(row.validation_warnings, [])
@@ -1032,10 +1086,10 @@ class TestPhase19cRealFixturesRaheja(unittest.TestCase):
                     "C": ColumnRole(role="unit"),
                     "D": ColumnRole(role="qty", area="PHASE-1"),
                     "E": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
-                    "F": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                    "F": ColumnRole(role="amount_total_by_area", area="PHASE-1"),
                     "G": ColumnRole(role="qty", area="PHASE-2"),
                     "H": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
-                    "I": ColumnRole(role="amount_by_area", area="PHASE-2"),
+                    "I": ColumnRole(role="amount_total_by_area", area="PHASE-2"),
                 },
             )],
         )
@@ -1120,10 +1174,10 @@ class TestPhase19cRealFixturesRahejaHVAC(unittest.TestCase):
                     "C": ColumnRole(role="unit"),
                     "D": ColumnRole(role="qty", area="PHASE-1"),
                     "E": ColumnRole(role="rate_combined_by_area", area="PHASE-1"),
-                    "F": ColumnRole(role="amount_by_area", area="PHASE-1"),
+                    "F": ColumnRole(role="amount_total_by_area", area="PHASE-1"),
                     "G": ColumnRole(role="qty", area="PHASE-2"),
                     "H": ColumnRole(role="rate_combined_by_area", area="PHASE-2"),
-                    "I": ColumnRole(role="amount_by_area", area="PHASE-2"),
+                    "I": ColumnRole(role="amount_total_by_area", area="PHASE-2"),
                 },
             )],
         )

@@ -43,7 +43,8 @@ class ResolvedRow:
     # Per-area raw data passed through from ClassifiedRow for LINE_ITEM rows.
     # Populated by resolve_hierarchy(); defaults {} for all other row types.
     qty_by_area_raw: dict[str, float] = field(default_factory=dict)
-    amount_by_area_raw: dict[str, float] = field(default_factory=dict)
+    # NESTED dict[area][kind] (field-set Slice 2a), mirrors rate_by_area_raw.
+    amount_by_area_raw: dict[str, dict[str, float | None]] = field(default_factory=dict)
     # File-declared totals from ClassifiedRow (LINE_ITEM rows only).
     # qty_total comes from qty_total_raw (the qty_total column cell specifically).
     # amount_total comes from classified_row.amount_total.
@@ -52,7 +53,9 @@ class ResolvedRow:
     amount_total: float | None = None
     # Post-pass resolved per-area dicts (populated by _apply_multi_area_post_pass).
     qty_by_area: dict[str, float] = field(default_factory=dict)
-    amount_by_area: dict[str, float] = field(default_factory=dict)
+    # NESTED dict[area][kind] (field-set Slice 2a): {area: {supply, install, total}},
+    # mirrors rate_by_area. Stored to BoQ Review Row.amount_by_area (field name kept).
+    amount_by_area: dict[str, dict[str, float | None]] = field(default_factory=dict)
     # Per-area rates (populated by _apply_multi_area_post_pass for Phase 1.9a rate columns).
     # Outer keys: area names. Inner keys: rate kind ("supply_rate", "install_rate", "combined_rate").
     rate_by_area: dict[str, dict[str, float | None]] = field(default_factory=dict)

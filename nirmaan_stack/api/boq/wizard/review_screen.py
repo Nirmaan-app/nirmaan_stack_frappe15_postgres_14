@@ -27,7 +27,11 @@ from typing import Any
 
 import frappe
 
-from nirmaan_stack.services.boq_parser.classifier import RowClassification, _RATE_ROLE_TO_KIND
+from nirmaan_stack.services.boq_parser.classifier import (
+    RowClassification,
+    _AMOUNT_ROLE_TO_KIND,
+    _RATE_ROLE_TO_KIND,
+)
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     _guard_sheet_not_parsing,
     get_boq_work_packages,
@@ -603,14 +607,18 @@ def _build_column_descriptors(sheet_config: dict | None) -> list:
                 "value_key": area,
                 "rate_subkey": None,
             })
-        elif role == "amount_by_area":
+        elif role in _AMOUNT_ROLE_TO_KIND:
+            # Per-area amount roles (field-set Slice 2a): nested amount_by_area[area][kind].
+            # Mirrors the rate branch; the generic third-hop key reuses `rate_subkey`
+            # (resolveDescriptorValue walks it generically) -> here it carries the amount
+            # kind ("supply"/"install"/"total"), not a rate kind.
             descriptors.append({
                 "col": col,
                 "role": role,
                 "area": area,
                 "value_field": "amount_by_area",
                 "value_key": area,
-                "rate_subkey": None,
+                "rate_subkey": _AMOUNT_ROLE_TO_KIND[role],
             })
         elif role in _RATE_ROLE_TO_KIND:
             descriptors.append({

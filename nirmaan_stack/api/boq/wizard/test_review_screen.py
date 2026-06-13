@@ -1593,10 +1593,10 @@ _COLUMN_DESCRIPTORS_SHEET_CONFIG = {
         "C": {"role": "unit", "area": None},
         "D": {"role": "qty", "area": "Area1"},
         "E": {"role": "rate_combined_by_area", "area": "Area1"},
-        "F": {"role": "amount_by_area", "area": "Area1"},
+        "F": {"role": "amount_total_by_area", "area": "Area1"},
         "G": {"role": "qty", "area": "Area2"},
         "H": {"role": "rate_combined_by_area", "area": "Area2"},
-        "I": {"role": "amount_by_area", "area": "Area2"},
+        "I": {"role": "amount_total_by_area", "area": "Area2"},
         "J": {"role": "append_to_notes", "area": None},   # non-display
         "K": {"role": "ignore", "area": None},             # non-display
     },
@@ -1651,12 +1651,15 @@ class TestBuildColumnDescriptors(unittest.TestCase):
         self.assertIsNone(d_desc["rate_subkey"])
 
     def test_amount_by_area_descriptor_shape(self):
+        """Per-area amount role (field-set Slice 2a): nested descriptor mirroring rate.
+        value_field is the kept storage field `amount_by_area`; the generic third-hop key
+        (`rate_subkey`) carries the amount kind ("total")."""
         descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
         f_desc = next(d for d in descs if d["col"] == "F")
-        self.assertEqual(f_desc["role"], "amount_by_area")
+        self.assertEqual(f_desc["role"], "amount_total_by_area")
         self.assertEqual(f_desc["value_field"], "amount_by_area")
         self.assertEqual(f_desc["value_key"], "Area1")
-        self.assertIsNone(f_desc["rate_subkey"])
+        self.assertEqual(f_desc["rate_subkey"], "total")
 
     def test_multi_col_excel_sort(self):
         """Multi-letter columns sort after single-letter ones: Z < AA < AB."""

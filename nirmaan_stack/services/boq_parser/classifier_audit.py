@@ -100,8 +100,8 @@ _CLASSIFIER_HEADER_KW: dict[str, frozenset[str]] = {
         "amount", "total amount", "amount in", "amount (", "amt",
         "as per boq total amount",
         "amount total",  # Bug 7 (sec 9 #85) — reverse word order
-    }),
-    "amount_combined": frozenset({
+        # Re-homed from the dropped combined-amount scalar role (field-set Slice 2a).
+        # This replica MUST mirror classifier._HEADER_KW (agreement #21 sync test).
         "sitc amount",
         "s&i amount", "s+i amount",
         "supply & installation amount", "supply and installation amount",

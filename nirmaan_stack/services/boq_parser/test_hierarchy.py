@@ -911,7 +911,8 @@ class TestResolvedRowMultiAreaFields(unittest.TestCase):
             qty_total_raw=10.0,  # deliberately different from qty to verify field selection
             amount_total=800.0,
             qty_by_area_raw={"Floor 1": 5.0, "Floor 2": 3.0},
-            amount_by_area_raw={"Floor 1": 500.0, "Floor 2": 300.0},
+            # NESTED dict[area][kind] (field-set Slice 2a)
+            amount_by_area_raw={"Floor 1": {"total": 500.0}, "Floor 2": {"total": 300.0}},
         )
 
         config = SheetConfig(
@@ -929,7 +930,7 @@ class TestResolvedRowMultiAreaFields(unittest.TestCase):
             if rr.classified_row.classification == RowClassification.LINE_ITEM
         )
         self.assertEqual(line_item_row.qty_by_area_raw, {"Floor 1": 5.0, "Floor 2": 3.0})
-        self.assertEqual(line_item_row.amount_by_area_raw, {"Floor 1": 500.0, "Floor 2": 300.0})
+        self.assertEqual(line_item_row.amount_by_area_raw, {"Floor 1": {"total": 500.0}, "Floor 2": {"total": 300.0}})
         self.assertEqual(line_item_row.qty_total, 10.0)   # from qty_total_raw, not qty
         self.assertEqual(line_item_row.amount_total, 800.0)
 

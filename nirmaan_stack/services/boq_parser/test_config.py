@@ -219,7 +219,7 @@ class TestMappingConfig(unittest.TestCase):
 
 
     # ------------------------------------------------------------------ #
-    # Tests 15-16 — qty_by_area and amount_by_area require area            #
+    # Tests 15-16 — qty_by_area and per-area amount require area           #
     # ------------------------------------------------------------------ #
 
     def test_qty_by_area_requires_area(self):
@@ -227,13 +227,14 @@ class TestMappingConfig(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ColumnRole(role="qty_by_area")
 
-    def test_amount_by_area_requires_area(self):
-        """ColumnRole with role='amount_by_area' and no area raises ValidationError."""
-        with self.assertRaises(ValidationError):
-            ColumnRole(role="amount_by_area")
+    def test_amount_by_area_roles_require_area(self):
+        """The three per-area amount roles (field-set Slice 2a) raise ValidationError with no area."""
+        for role in ("amount_supply_by_area", "amount_install_by_area", "amount_total_by_area"):
+            with self.assertRaises(ValidationError):
+                ColumnRole(role=role)
 
     # ------------------------------------------------------------------ #
-    # Tests 17-18 — qty_by_area and amount_by_area valid in SheetConfig    #
+    # Tests 17-18 — qty_by_area and per-area amount valid in SheetConfig   #
     # ------------------------------------------------------------------ #
 
     def test_qty_by_area_with_area_succeeds_in_full_sheetconfig(self):
@@ -247,24 +248,29 @@ class TestMappingConfig(unittest.TestCase):
         self.assertEqual(s.column_role_map["D"].area, "B1")
 
     def test_amount_by_area_with_area_succeeds_in_full_sheetconfig(self):
-        """SheetConfig with amount_by_area column referencing a declared area succeeds."""
+        """SheetConfig with the three per-area amount roles referencing declared areas succeeds."""
         s = SheetConfig(
             sheet_name="MultiArea",
             header_row=1,
             area_dimensions=["B1", "B3", "B6"],
-            column_role_map={"E": ColumnRole(role="amount_by_area", area="B1")},
+            column_role_map={
+                "E": ColumnRole(role="amount_total_by_area", area="B1"),
+                "F": ColumnRole(role="amount_supply_by_area", area="B3"),
+                "G": ColumnRole(role="amount_install_by_area", area="B6"),
+            },
         )
         self.assertEqual(s.column_role_map["E"].area, "B1")
+        self.assertEqual(s.column_role_map["F"].area, "B3")
+        self.assertEqual(s.column_role_map["G"].area, "B6")
 
     # ------------------------------------------------------------------ #
-    # Test 19 — amount_combined is not area-compatible                     #
+    # Test 19 — amount_combined is now an INVALID role (field-set 2a)      #
     # ------------------------------------------------------------------ #
 
-    def test_amount_combined_role_does_not_accept_area(self):
-        """amount_combined accepts no area (positive) and rejects area='B1' (negative)."""
-        cr = ColumnRole(role="amount_combined")
-        self.assertIsNone(cr.area)
-
+    def test_amount_combined_role_is_invalid(self):
+        """amount_combined was dropped (field-set Slice 2a) -- any ColumnRole using it raises."""
+        with self.assertRaises(ValidationError):
+            ColumnRole(role="amount_combined")
         with self.assertRaises(ValidationError):
             ColumnRole(role="amount_combined", area="B1")
 
@@ -292,7 +298,7 @@ class TestMappingConfig(unittest.TestCase):
         # Control: genuine area-compatible roles still ACCEPT an area.
         self.assertEqual(ColumnRole(role="qty", area="B1").area, "B1")
         self.assertEqual(
-            ColumnRole(role="amount_by_area", area="B1").area, "B1"
+            ColumnRole(role="amount_total_by_area", area="B1").area, "B1"
         )
 
     # ------------------------------------------------------------------ #
@@ -331,9 +337,9 @@ class TestMappingConfig(unittest.TestCase):
                         "A": ColumnRole(role="description"),
                         "B": ColumnRole(role="unit"),
                         "C": ColumnRole(role="qty", area="Office"),
-                        "D": ColumnRole(role="amount_by_area", area="Office"),
+                        "D": ColumnRole(role="amount_total_by_area", area="Office"),
                         "E": ColumnRole(role="qty", area="Common Area"),
-                        "F": ColumnRole(role="amount_by_area", area="Common Area"),
+                        "F": ColumnRole(role="amount_total_by_area", area="Common Area"),
                         "G": ColumnRole(role="rate_supply"),
                         "H": ColumnRole(role="rate_install"),
                         "I": ColumnRole(role="amount_supply"),

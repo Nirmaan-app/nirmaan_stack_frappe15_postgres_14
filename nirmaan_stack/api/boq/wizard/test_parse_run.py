@@ -89,8 +89,8 @@ def _multi_area_config(boq_name: str = "test_boq", project: str = "test") -> Map
                 "E": ColumnRole(role="qty", area="Floor 2"),
                 "F": ColumnRole(role="qty_total"),
                 "G": ColumnRole(role="rate_supply"),
-                "H": ColumnRole(role="amount_by_area", area="Floor 1"),
-                "I": ColumnRole(role="amount_by_area", area="Floor 2"),
+                "H": ColumnRole(role="amount_total_by_area", area="Floor 1"),
+                "I": ColumnRole(role="amount_total_by_area", area="Floor 2"),
                 "J": ColumnRole(role="amount_total"),
             },
         )],
@@ -657,12 +657,12 @@ class TestFlattenFaithfulness(unittest.TestCase):
         self.assertAlmostEqual(painting["qty_by_area"]["Floor 2"], 3.0)
 
     def test_multi_area_amount_by_area_preserved(self):
-        """amount_by_area for 'Painting works' carries the per-area amounts."""
+        """amount_by_area for 'Painting works' carries the nested per-area amounts (field-set 2a)."""
         parsed = parse_boq(_p("synthetic_multi_area.xlsx"), _multi_area_config())
         flat = flatten_parsed_boq(parsed, "FAKE-BOQ-002")
         painting = next(d for d in flat if d.get("description") == "Painting works")
-        self.assertAlmostEqual(painting["amount_by_area"]["Floor 1"], 500.0)
-        self.assertAlmostEqual(painting["amount_by_area"]["Floor 2"], 300.0)
+        self.assertAlmostEqual(painting["amount_by_area"]["Floor 1"]["total"], 500.0)
+        self.assertAlmostEqual(painting["amount_by_area"]["Floor 2"]["total"], 300.0)
 
     def test_multi_area_tiling_has_validation_warning(self):
         """

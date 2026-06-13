@@ -20,6 +20,7 @@ from nirmaan_stack.services.boq_parser.classifier import (
     _apply_priced_preamble_promotion,
     _apply_section_header_note_promotion_post_pass,
     _apply_unit_based_demotion_post_pass,
+    _sum_area_amounts,
     classify_row,
     populate_preamble_candidate_scores,
 )
@@ -90,7 +91,9 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
 
         # Policy X: straight copy, zeros preserved
         row.qty_by_area = dict(row.qty_by_area_raw)
-        row.amount_by_area = dict(row.amount_by_area_raw)
+        # amount_by_area is NESTED dict[area][kind] (field-set Slice 2a) — deep-copy the
+        # inner kind dicts, mirroring the rate_by_area copy below.
+        row.amount_by_area = {area: dict(kinds) for area, kinds in row.amount_by_area_raw.items()}
 
         # Per-area rates (Phase 1.9a) — read from ClassifiedRow.rate_by_area_raw
         rate_by_area_raw = row.classified_row.rate_by_area_raw
@@ -98,7 +101,9 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
             row.rate_by_area = {area: dict(rates) for area, rates in rate_by_area_raw.items()}
 
             # Compute per-area amounts for areas that have a rate but no direct amount.
-            # Priority: combined_rate → supply_rate → install_rate.
+            # Priority: combined_rate → supply_rate → install_rate. The computed value is
+            # the area's combined/total amount, so it lands in the nested "total" kind
+            # (field-set Slice 2a); only fired for areas with no amount column at all.
             for area, rates in row.rate_by_area.items():
                 if area not in row.amount_by_area:
                     area_qty = row.qty_by_area.get(area)
@@ -108,7 +113,7 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
                     if area_rate is None:
                         area_rate = rates.get("install_rate")
                     if area_qty is not None and area_rate is not None:
-                        row.amount_by_area[area] = area_qty * area_rate
+                        row.amount_by_area[area] = {"total": area_qty * area_rate}
 
             # Soft validation: combined_rate should equal supply_rate + install_rate.
             for area, rates in row.rate_by_area.items():
@@ -124,11 +129,14 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
                             f"({expected:.4g})"
                         )
 
-        # Empty-total fallback (no warning)
+        # Empty-total fallback (no warning). amount_total derivation rule (field-set
+        # Slice 2a): explicit total column already won upstream (cr.amount_total); only
+        # when it is None do we derive = sum over areas of (per-area total, else
+        # supply + install) via _sum_area_amounts.
         if row.qty_total is None and row.qty_by_area:
             row.qty_total = sum(row.qty_by_area.values())
         if row.amount_total is None and row.amount_by_area:
-            row.amount_total = sum(row.amount_by_area.values())
+            row.amount_total = _sum_area_amounts(row.amount_by_area)
 
         # Sum validation — qty
         if row.qty_by_area and row.qty_total is not None:
@@ -139,9 +147,9 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
                     f"qty_total {row.qty_total:.2f} (outside ±1 tolerance)"
                 )
 
-        # Sum validation — amount
+        # Sum validation — amount (collapse nested per-area amounts first)
         if row.amount_by_area and row.amount_total is not None:
-            per_area_sum = sum(row.amount_by_area.values())
+            per_area_sum = _sum_area_amounts(row.amount_by_area)
             if abs(per_area_sum - row.amount_total) > 1.0:
                 row.validation_warnings.append(
                     f"amount per-area sum {per_area_sum:.2f} differs from "

@@ -21,8 +21,9 @@ export const ROLE_LABELS: Record<string, string> = {
   amount_supply: "Amount (Supply)",
   amount_install: "Amount (Install)",
   amount_total: "Amount (Total)",
-  amount_combined: "Amount (Combined)",
-  amount_by_area: "Amount (per area)",
+  amount_supply_by_area: "Amount Supply (per area)",
+  amount_install_by_area: "Amount Install (per area)",
+  amount_total_by_area: "Amount Total (per area)",
   make_model: "Make / Model",
   row_notes: "Row Notes",
   append_to_notes: "Append to Notes",
@@ -215,6 +216,18 @@ export interface RateByAreaCell {
   combined_rate?: number | null;
 }
 
+/**
+ * One per-area amount cell: amount_by_area[area] is this nested object (field-set
+ * Slice 2a). Inner keys mirror the parser's _AMOUNT_ROLE_TO_KIND values. All optional --
+ * a sheet may surface only one amount kind. The storage field stays `amount_by_area`
+ * (the analog of `rate_by_area`); only the per-area ROLE was renamed/split.
+ */
+export interface AmountByAreaCell {
+  supply?: number | null;
+  install?: number | null;
+  total?: number | null;
+}
+
 /** One entry in a BoQ Review Row's edit_log JSON list. */
 export interface EditLogEntry {
   field: string;
@@ -276,7 +289,11 @@ export interface ReviewRow {
   amount_total: number | null;
   amount_supply: number | null;
   amount_install: number | null;
-  amount_by_area: Record<string, number> | null;
+  // amount_by_area is NESTED (field-set Slice 2a): {area: {supply, install, total}} --
+  // NOT a flat {area: number}. The storage field name is kept (analog of rate_by_area);
+  // resolveDescriptorValue walks the extra amount-kind hop. No static read site indexes
+  // it directly. The per-area amount EDIT path is Slice 2b.
+  amount_by_area: Record<string, AmountByAreaCell> | null;
   // notes / warnings
   row_notes: string | null;
   append_notes_raw: Record<string, unknown> | null;

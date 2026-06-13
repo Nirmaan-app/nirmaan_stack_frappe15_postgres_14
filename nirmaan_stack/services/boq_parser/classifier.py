@@ -68,9 +68,11 @@ class ClassifiedRow:
     # (splitting is deferred to Phase 2b.2).  Keys = area_name, values = float.
     qty_by_area_raw: dict[str, float] = field(default_factory=dict)
 
-    # Per-area raw amount captured from amount_by_area ColumnRoles.
-    # Parallel structure to qty_by_area_raw.  Keys = area_name, values = float.
-    amount_by_area_raw: dict[str, float] = field(default_factory=dict)
+    # Per-area raw amount captured from amount_*_by_area ColumnRoles (field-set
+    # Slice 2a). NESTED, parallel to rate_by_area_raw. Outer keys: area names. Inner
+    # keys: amount kind ("supply", "install", "total"). Policy X: explicit 0.0
+    # preserved; blank produces no inner key.
+    amount_by_area_raw: dict[str, dict[str, float | None]] = field(default_factory=dict)
 
     # Per-area raw rate captured from rate_*_by_area ColumnRoles (Phase 1.9a).
     # Outer keys: area names. Inner keys: rate kind ("supply_rate", "install_rate",
@@ -169,8 +171,8 @@ _HEADER_KW: dict[str, frozenset[str]] = {
         "amount", "total amount", "amount in", "amount (", "amt",
         "as per boq total amount",
         "amount total",  # Bug 7 (sec 9 #85) — reverse word order
-    }),
-    "amount_combined": frozenset({
+        # Re-homed from the dropped combined-amount scalar role (field-set Slice 2a):
+        # SITC / S&I / combined-amount headers now auto-detect as amount_total.
         "sitc amount",
         "s&i amount", "s+i amount",
         "supply & installation amount", "supply and installation amount",
@@ -230,6 +232,39 @@ _RATE_ROLE_TO_KIND: dict[str, str] = {
     "rate_install_by_area": "install_rate",
     "rate_combined_by_area": "combined_rate",
 }
+
+# Maps amount_*_by_area ColumnRole → inner dict key used in amount_by_area_raw
+# (field-set Slice 2a). Parallel to _RATE_ROLE_TO_KIND; the nested per-area amount
+# shape mirrors rate_by_area_raw. "total" is the per-area combined amount (the
+# amount_total_by_area role); supply/install are the split kinds.
+_AMOUNT_ROLE_TO_KIND: dict[str, str] = {
+    "amount_supply_by_area": "supply",
+    "amount_install_by_area": "install",
+    "amount_total_by_area": "total",
+}
+
+
+def _collapse_area_amount(kinds: dict[str, float | None]) -> float:
+    """
+    Collapse one area's nested per-area amount dict to a single scalar.
+
+    Rule (field-set Slice 2a, owner-confirmed): the area's per-area total if it has a
+    "total" kind, else its supply + install. Missing/None inner values count as 0.0.
+    Used by the scalar amount_total derivation (classifier Priority 3 + orchestrator
+    empty-total fallback + sum-validation) so the nested shape collapses identically
+    everywhere.
+    """
+    total = kinds.get("total")
+    if total is not None:
+        return total
+    supply = kinds.get("supply") or 0.0
+    install = kinds.get("install") or 0.0
+    return supply + install
+
+
+def _sum_area_amounts(nested: dict[str, dict[str, float | None]]) -> float:
+    """Sum _collapse_area_amount over every area in a nested per-area amount dict."""
+    return sum(_collapse_area_amount(kinds) for kinds in nested.values())
 
 
 # ------------------------------------------------------------------
@@ -824,7 +859,7 @@ def classify_row(
     # ---------------------------------------------------------------- #
     warnings: list[str] = []
     qty_by_area_raw: dict[str, float] = {}
-    amount_by_area_raw: dict[str, float] = {}
+    amount_by_area_raw: dict[str, dict[str, float | None]] = {}
     qty_total_raw: float | None = None
     is_rate_only = False
 
@@ -906,16 +941,19 @@ def classify_row(
             is_rate_only = True
         qty = raw_qty  # may still be None for a blank cell
 
-    # Per-area amount extraction — parallel to qty_by_area_raw
-    amount_area_cols: list[tuple[str, str]] = []  # (col_letter, area_name)
+    # Per-area amount extraction — NESTED dict[area][kind], mirrors rate_by_area_raw
+    # (field-set Slice 2a). amount_*_by_area roles -> supply/install/total kinds.
     for col_letter, col_role in col_map.items():
-        if col_role.role == "amount_by_area" and col_role.area:
-            amount_area_cols.append((col_letter, col_role.area))
-
-    for col_letter, area_name in amount_area_cols:
-        amt_val = _to_float(raw_row.get_cell(col_letter).value if raw_row.get_cell(col_letter) else None)
-        if amt_val is not None:  # Policy X: preserve explicit zeros
-            amount_by_area_raw[area_name] = amt_val
+        kind = _AMOUNT_ROLE_TO_KIND.get(col_role.role)
+        if kind is None or not col_role.area:
+            continue
+        area_name = col_role.area
+        cell = raw_row.get_cell(col_letter)
+        if cell is None or cell.value is None:
+            continue  # blank — Policy X: no entry
+        amt_val = _to_float(cell.value)
+        if amt_val is not None:  # Policy X: explicit 0.0 preserved
+            amount_by_area_raw.setdefault(area_name, {})[kind] = amt_val
 
     # Per-area rate extraction — parallel to amount_by_area_raw (Phase 1.9a)
     rate_by_area_raw: dict[str, dict[str, float | None]] = {}
@@ -980,22 +1018,20 @@ def classify_row(
 
     amount_supply = _cell_float("amount_supply")
     amount_install = _cell_float("amount_install")
+    # The combined-amount scalar role was dropped (field-set Slice 2a): its keywords were
+    # re-homed into _HEADER_KW["amount_total"], so a SITC/S&I/Combined header now maps there.
     amount_total_raw = _cell_float("amount_total")
-    if amount_total_raw is None:
-        # Bug 9 (sec 9 #86): amount_combined ColumnRole had no extraction path.
-        # Per sec 7.14, amount_total and amount_combined are semantically equivalent.
-        amount_total_raw = _cell_float("amount_combined")
     # Bug 6 (sec 9 #84): priority cascade for cr.amount_total.
     # Priority 1: column value wins when present.
     # Priority 2: supply + install sum (both components required).
-    # Priority 3: sum of per-area amounts when both components absent.
+    # Priority 3: collapsed sum of nested per-area amounts when both components absent.
     # Warning emitted when Priority 2 fires but per-area source disagrees by > 1.0.
     if amount_total_raw is not None:
         amount_total: float | None = amount_total_raw
     elif amount_supply is not None and amount_install is not None:
         amount_total = amount_supply + amount_install
         if amount_by_area_raw:
-            _per_area_sum = sum(amount_by_area_raw.values())
+            _per_area_sum = _sum_area_amounts(amount_by_area_raw)
             if abs(amount_total - _per_area_sum) > 1.0:
                 warnings.append(
                     f"amount_total mismatch: supply+install={amount_total}, "
@@ -1003,7 +1039,7 @@ def classify_row(
                     f"diff={amount_total - _per_area_sum}; using supply+install"
                 )
     elif amount_by_area_raw:
-        amount_total = sum(amount_by_area_raw.values())
+        amount_total = _sum_area_amounts(amount_by_area_raw)
     else:
         amount_total = None
 
