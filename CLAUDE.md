@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-03-12 (Field-set rationalisation Slice 1 -- Finding 1: scalar amount roles NOT
+**Last updated:** 2026-06-13 (Field-set rationalisation Slice 1 -- Finding 1: scalar amount roles NOT
 area-compatible -- BACKEND + FRONTEND, feat 83985079: removed `amount_supply`/`amount_install`/`amount_total`
 from `_AREA_COMPATIBLE_ROLES` (`services/boq_parser/config.py:17`) AND `AREA_COMPATIBLE_ROLES`
 (`SheetConfigPanel.tsx:128`). The descriptor builder already routes these three as SCALARS and silently drops

@@ -17,7 +17,7 @@ into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-b
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
 LATEST: Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible (BACKEND +
-FRONTEND, feat 83985079, 2026-03-12). Removed `amount_supply`/`amount_install`/`amount_total` from
+FRONTEND, feat 83985079, 2026-06-13). Removed `amount_supply`/`amount_install`/`amount_total` from
 `_AREA_COMPATIBLE_ROLES` (`boq_parser/config.py:17`) + `AREA_COMPATIBLE_ROLES` (`SheetConfigPanel.tsx:128`).
 These three are routed as SCALARS by the descriptor builder, which silently drops any area set on them, so the
 config UI's area sub-selector for them was meaningless. PURE SUBTRACTION -- no new roles, no rename, no

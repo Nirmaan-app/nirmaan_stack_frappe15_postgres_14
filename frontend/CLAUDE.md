@@ -317,7 +317,7 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-03-12 -- Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible COMPLETE -- BACKEND + FRONTEND, feat 83985079):**
+**Status (2026-06-13 -- Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible COMPLETE -- BACKEND + FRONTEND, feat 83985079):**
 Removed `amount_supply` / `amount_install` / `amount_total` from `AREA_COMPATIBLE_ROLES` in
 `SheetConfigPanel.tsx:128` (the matching backend `_AREA_COMPATIBLE_ROLES` in `boq_parser/config.py` was
 trimmed the same way -- see root CLAUDE.md). FRONTEND EFFECT: on a multi-area sheet the Section-3 area
