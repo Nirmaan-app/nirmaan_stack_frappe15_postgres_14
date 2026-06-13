@@ -53,11 +53,42 @@ export interface VendorInvoice {
   autofill_confidence_json?: string;
   /** JSON string of full Document AI entity list `[{type, value, confidence}, ...]` */
   autofill_all_entities_json?: string;
+  /** JSON string of the line items the extractor read (audit snapshot). */
+  autofill_line_items_json?: string;
+  /** JSON string of the AI's original proposed line→PO mapping (audit snapshot). */
+  autofill_line_match_json?: string;
+  /** Verified invoice-line → PO-item mapping (queryable child rows). */
+  line_mappings?: VendorInvoiceLine[];
 
   /** Auto-approve audit fields (set when the system auto-approved this invoice). */
   auto_approved?: 0 | 1;
   /** Comma-separated reason tokens for invoices that did NOT auto-approve. */
   auto_approve_skip_reasons?: string;
+}
+
+/**
+ * One verified invoice line ↔ PO item mapping (child of Vendor Invoices).
+ * The source of truth for item-level billing aggregation and recon display.
+ */
+export interface VendorInvoiceLine {
+  name?: string;
+  /** Line as read from the invoice */
+  description?: string;
+  uom?: string;
+  quantity?: number;
+  rate?: number;
+  amount?: number;
+  tax_rate?: number;
+  /** Mapping outcome */
+  match_status: "Matched" | "Unmatched" | "Non-Item";
+  match_source?: "" | "Fuzzy" | "AI" | "Manual";
+  match_score?: number;
+  /** Mapped PO item (set when Matched) */
+  po_item_id?: string;
+  po_item_row?: string;
+  po_item_name?: string;
+  /** This line alone exceeds the mapped PO item (snapshot at save time). */
+  is_over_billed?: 0 | 1;
 }
 
 /**

@@ -1,0 +1,138 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-06-13 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "line_section",
+  "description",
+  "uom",
+  "quantity",
+  "rate",
+  "amount",
+  "tax_rate",
+  "mapping_section",
+  "match_status",
+  "po_item_id",
+  "po_item_row",
+  "po_item_name",
+  "column_break_mapping",
+  "match_source",
+  "match_score",
+  "is_over_billed"
+ ],
+ "fields": [
+  {
+   "fieldname": "line_section",
+   "fieldtype": "Section Break",
+   "label": "Invoice Line"
+  },
+  {
+   "description": "Line description as read from the invoice.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "UOM"
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Quantity"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate"
+  },
+  {
+   "description": "Taxable line amount as read from the invoice.",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "fieldname": "tax_rate",
+   "fieldtype": "Float",
+   "label": "Tax Rate (%)"
+  },
+  {
+   "fieldname": "mapping_section",
+   "fieldtype": "Section Break",
+   "label": "PO Mapping"
+  },
+  {
+   "default": "Unmatched",
+   "description": "Matched = mapped to a PO item; Non-Item = freight/charge/round-off; Unmatched = no PO item assigned.",
+   "fieldname": "match_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Match Status",
+   "options": "Matched\nUnmatched\nNon-Item"
+  },
+  {
+   "description": "Items-master id of the mapped PO item. This is the aggregation key for item-level billing.",
+   "fieldname": "po_item_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "PO Item ID"
+  },
+  {
+   "description": "Exact Purchase Order Item child-row name (item_id can repeat across makes).",
+   "fieldname": "po_item_row",
+   "fieldtype": "Data",
+   "label": "PO Item Row"
+  },
+  {
+   "fieldname": "po_item_name",
+   "fieldtype": "Data",
+   "label": "PO Item Name"
+  },
+  {
+   "fieldname": "column_break_mapping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "How the mapping was decided: Fuzzy (local match), AI (Gemini residue), Manual (reviewer).",
+   "fieldname": "match_source",
+   "fieldtype": "Select",
+   "label": "Match Source",
+   "options": "\nFuzzy\nAI\nManual"
+  },
+  {
+   "description": "Fuzzy confidence 0–1 (blank for manual / AI).",
+   "fieldname": "match_score",
+   "fieldtype": "Float",
+   "label": "Match Score",
+   "precision": "3"
+  },
+  {
+   "default": "0",
+   "description": "This line on its own exceeds the mapped PO item (snapshot at save time). Cumulative over-billing across all invoices is computed by get_po_item_billing.",
+   "fieldname": "is_over_billed",
+   "fieldtype": "Check",
+   "label": "Over Billed"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-13 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Vendor Invoice Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

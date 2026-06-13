@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import CUSTOMER_PO, INVOICE, Entity
+from .base import INVOICE, Entity, LineItem
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -50,6 +50,14 @@ _NUMERIC = {
     "customer_po_value_inctax", "customer_po_value_exctax",
 }
 
+# Per-row fields of an invoice's line-item table. `amount` is the line's taxable
+# value (pre-tax) so it reconciles against net_amount and the PO item's `amount`.
+# `discount` lets per-line arithmetic survive a discount column (qty*rate-discount).
+_LINE_ITEM_FIELDS = (
+    "description", "unit", "quantity", "rate", "amount", "tax_rate", "discount",
+)
+_LINE_NUMERIC = {"quantity", "rate", "amount", "tax_rate", "discount"}
+
 _MEDIA_RESOLUTION = {
     "low": "MEDIA_RESOLUTION_LOW",
     "medium": "MEDIA_RESOLUTION_MEDIUM",
@@ -64,6 +72,13 @@ _INVOICE_PROMPT = (
     "total_amount = grand total including GST and any other charges.\n"
     "- round_off, other_charges (freight/packing/insurance), tcs_amount: include "
     "only if shown on the invoice.\n"
+    "- line_items = one object per row of the item/particulars table. For each row: "
+    "description (item text), unit (UOM as printed, e.g. Nos/Kg/Sqm), quantity, "
+    "rate (per-unit price before tax), amount (the row's taxable value BEFORE GST), "
+    "tax_rate (GST % for the row if shown), discount (row discount amount if shown). "
+    "Do NOT include header rows, sub-totals, tax rows, or charge rows (freight/round-off) "
+    "as line_items — those belong in the scalar fields above. If the invoice has no "
+    "itemised table, return an empty array.\n"
     "- Dates in YYYY-MM-DD format.\n"
     "- If a field is not clearly present, return JSON null. Do NOT guess and do "
     'NOT output the string "null".'
@@ -134,6 +149,15 @@ def _customer_po_schema():
         },
     }
     return schema
+    
+def _line_items_schema():
+    # Same nullable/no-required discipline, one level down: a nullable array of
+    # objects whose cells may each be JSON null rather than fabricated.
+    props = {
+        f: {"type": "number" if f in _LINE_NUMERIC else "string", "nullable": True}
+        for f in _LINE_ITEM_FIELDS
+    }
+    return {"type": "array", "nullable": True, "items": {"type": "object", "properties": props}}
 
 
 @lru_cache(maxsize=4)
@@ -188,7 +212,7 @@ def _thinking_level(settings) -> str:
 
 
 class GeminiExtractor:
-    def extract(self, content, file_ext, settings, doc_kind) -> tuple[str, list[Entity]]:
+    def extract(self, content, file_ext, settings, doc_kind) -> tuple[str, list[Entity], list[LineItem]]:
         from google.genai import types
 
         mime = MIME_TYPES.get(file_ext)
@@ -205,6 +229,10 @@ class GeminiExtractor:
             fields = _INVOICE_FIELDS if is_invoice else _PAYMENT_FIELDS
             prompt = _INVOICE_PROMPT if is_invoice else _PAYMENT_PROMPT
             schema = _schema(fields)
+
+        schema = _schema(fields)
+        if is_invoice:
+            schema["properties"]["line_items"] = _line_items_schema()
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -225,7 +253,8 @@ class GeminiExtractor:
         model = settings.get("gemini_model") or "gemini-3.1-pro-preview"
 
         data = self._generate(client, model, [part, prompt], config)
-        return "", self._to_entities(data, fields)
+        line_items = self._to_line_items(data.get("line_items")) if is_invoice else []
+        return "", self._to_entities(data, fields), line_items
 
     def _build_client(self, settings):
         mode = "api_key" if "api" in (settings.get("auth_mode") or "").lower() else "vertex"
@@ -272,4 +301,35 @@ class GeminiExtractor:
             out.append(
                 {"type": f, "mention_text": value, "normalized_text": value, "confidence": 1.0}
             )
+        return out
+
+    def _to_line_items(self, raw) -> list[LineItem]:
+        """Normalize the raw line_items array → list[LineItem].
+
+        Absent cells become None (never fabricated). Numeric cells are coerced to
+        float; unparseable → None. Fully-empty rows (no description AND no amount)
+        are dropped as table noise so the downstream reconcile/mapping isn't fed
+        ghost rows.
+        """
+        out: list[LineItem] = []
+        if not isinstance(raw, list):
+            return out
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            item: LineItem = {}
+            for f in _LINE_ITEM_FIELDS:
+                value = row.get(f)
+                if is_absent(value):
+                    item[f] = None
+                elif f in _LINE_NUMERIC:
+                    try:
+                        item[f] = float(value)
+                    except (TypeError, ValueError):
+                        item[f] = None
+                else:
+                    item[f] = str(value).strip()
+            if not item.get("description") and not item.get("amount"):
+                continue
+            out.append(item)
         return out
