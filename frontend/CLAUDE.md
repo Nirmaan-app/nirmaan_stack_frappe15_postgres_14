@@ -317,7 +317,30 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-14 -- Slice 3 (Strand A) single-area config gate COMPLETE -- FRONTEND ONLY, `SheetConfigPanel.tsx`):**
+**Status (2026-06-14 -- Detail-panel edit-field repack COMPLETE -- FRONTEND ONLY, CSS/layout, `ReviewTree.tsx`):**
+A layout + width fix to the review-screen ROW DETAIL PANEL's three edit blocks ("Edit values" flat numeric /
+"Edit text" unit+make_model / "Edit per-area values"). They laid fields in an EQUAL-WIDTH responsive grid
+(`grid-cols-1 sm:2 md:3 lg:4`) that stretched across the panel; after the prior width slice pinned each value
+`<Input>` to `w-24`, every narrow input floated at the LEFT of a wide equal column, leaving large inter-field
+GAPS (owner screenshot of the per-area block). **TWO changes, applied to ALL THREE blocks** (the three
+container strings + the three input strings were each identical -> `replace_all`; the Apply `<Button>` carries
+a DISTINCT `h-7 px-2 text-xs shrink-0`, so the input `replace_all` never touched it): (1) value `<Input>`
+`w-24` -> `w-36` (96px -> 144px, +50%, owner-confirmed); (2) container `grid grid-cols-1 sm:grid-cols-2
+md:grid-cols-3 lg:grid-cols-4 gap-2` -> **`grid grid-cols-[repeat(4,max-content)] gap-2 justify-start`** -- a
+FIXED 4-per-row, CONTENT-SIZED, LEFT-PACKED grid: the four fixed-width fields sit close together then wrap to
+the next row of 4, with no equal-grid dead space spreading them apart. Used the OWNER-PREFERRED fixed-4
+arbitrary-value Tailwind grid template (it compiled fine in the in-container Vite build -- the `flex flex-wrap
+gap-2` fallback was NOT needed). `gap-2` kept. The field item stays `flex flex-col gap-1` (label + the
+`flex items-center gap-1` Input+Apply row). **UNTOUCHED:** labels, Apply buttons, the Input `h-7 text-xs`
+height/text classes (only the `w-` token changed), the shadcn primitive (`components/ui/input.tsx`, app-wide
+`w-full`), the main-grid `<td>` cells (`renderDescriptorCell` path), and the Remarks `<Textarea>` (`max-w-md`).
+NO logic change. tsc 0 NEW wizard-file errors (filtered `ReviewTree|boqTypes|boq-wizard|SheetConfigPanel` ->
+empty, 3177 baseline) + in-container Vite build exit 0 (`built in 7m 39s`, PWA 168 entries). No Frappe unit
+tests (CSS/layout-only). Live-cert pending Nitesh: open a row's detail panel -> in each edit block the fields
+sit 4-per-row packed close together (not spread edge-to-edge), inputs ~144px wide, content not clipped; if the
+4-up packing looks off on a narrow panel the gap or column count is a one-step nudge.
+
+// prior: **Status (2026-06-14 -- Slice 3 (Strand A) single-area config gate COMPLETE -- FRONTEND ONLY, `SheetConfigPanel.tsx`):**
 Closes the review-screen `[object Object]` leak at its CONFIG source (prevention layer). ROOT CAUSE (Slice 3 recon):
 a per-area role (`qty` per-area route + the six `rate_*_by_area`/`amount_*_by_area` roles -- the
 `AREA_COMPATIBLE_ROLES` set) mapped on a SINGLE-area sheet saves `area=null`; `_build_column_descriptors`

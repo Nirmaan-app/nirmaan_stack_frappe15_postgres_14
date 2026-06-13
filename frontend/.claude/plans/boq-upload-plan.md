@@ -16,7 +16,21 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice 3 (Strand A) -- single-area config gate (FRONTEND ONLY, `SheetConfigPanel.tsx`, 2026-06-14).
+LATEST: Detail-panel edit-field repack (FRONTEND ONLY, CSS/layout, `ReviewTree.tsx`, 2026-06-14). The row
+DETAIL PANEL's three edit blocks ("Edit values" flat numeric / "Edit text" / "Edit per-area values") laid
+their fields in an EQUAL-WIDTH responsive grid (`grid-cols-1 sm:2 md:3 lg:4`) that stretched across the panel;
+after the prior width fix pinned each value `<Input>` to `w-24`, each narrow input floated at the left of a
+wide equal column, leaving big inter-field GAPS. TWO changes (all THREE blocks): (1) value `<Input>` width
+`w-24` -> `w-36` (96px -> 144px, +50%, owner-confirmed); (2) container `grid grid-cols-1 sm:grid-cols-2
+md:grid-cols-3 lg:grid-cols-4 gap-2` -> `grid grid-cols-[repeat(4,max-content)] gap-2 justify-start` -- a
+FIXED 4-per-row, CONTENT-SIZED, LEFT-PACKED grid (the four fixed-width fields sit close together then wrap to
+the next row of 4, no dead space). Used the owner-preferred fixed-4 grid (arbitrary-value Tailwind template;
+compiled fine -- the `flex flex-wrap` fallback was NOT needed). gap-2 kept. Labels / Apply buttons / Input
+height+text classes / the shadcn primitive (`components/ui/input.tsx`) / the main-grid `<td>` cells / the
+Remarks `<Textarea>` are all UNTOUCHED. tsc 0 new wizard errors; Vite build exit 0 (`built in 7m 39s`, PWA 168
+entries). Live-cert pending Nitesh (open a row detail panel -> per-area + value + text edit fields sit
+4-per-row packed close together, inputs ~144px, content not clipped; gap/column-count is a one-step nudge).
+// prior: Slice 3 (Strand A) -- single-area config gate (FRONTEND ONLY, `SheetConfigPanel.tsx`, 2026-06-14).
 Prevents the review-screen `[object Object]` leak at its CONFIG source: a per-area role mapped on a
 SINGLE-area sheet stores `area=null`, which `_build_column_descriptors` emits with `value_key=null`, which
 `resolveDescriptorValue` resolves to the whole per-area dict -> `String(dict)` = "[object Object]". THE GATE:
