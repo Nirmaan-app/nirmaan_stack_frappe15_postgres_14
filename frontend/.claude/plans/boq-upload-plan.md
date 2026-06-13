@@ -1,6 +1,6 @@
 # BoQ Upload & Management — Implementation Plan
 
-**Status:** Phases 0-2 (parser) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE; 588 parser tests.
+**Status:** Phases 0-2 (parser) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE; 589 parser tests.
 The running phase-by-phase completion log (Phase 2a-2c, Phase 1.8-1.9x, Bugs 6-24, Module 1a/1b/2a,
 Module 2b-i..iii, Module 3 Slice 3a-fix/3b-i..iii/3c, prefill auto_guess) has been collapsed here --
 per-slice as-built detail lives in the dedicated sections below and in the handover doc.
@@ -16,7 +16,22 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice A2 -- edit-log clarity pass (FRONTEND ONLY, render-time, feat cefaf3c0, 2026-06-13). ReviewTree's
+LATEST: Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible (BACKEND +
+FRONTEND, feat 83985079, 2026-03-12). Removed `amount_supply`/`amount_install`/`amount_total` from
+`_AREA_COMPATIBLE_ROLES` (`boq_parser/config.py:17`) + `AREA_COMPATIBLE_ROLES` (`SheetConfigPanel.tsx:128`).
+These three are routed as SCALARS by the descriptor builder, which silently drops any area set on them, so the
+config UI's area sub-selector for them was meaningless. PURE SUBTRACTION -- no new roles, no rename, no
+parser-logic/descriptor/classifier/serialization change; `qty` + the genuine `*_by_area` roles untouched. Both
+config.py consumers DERIVE from the set (the `area_only_for_qty_amount_roles` model validator + the
+config.py:134 per-area uniqueness loop) so they tighten automatically -- scalar amount roles now REJECT an area
+at ColumnRole validation. Frontend area-dropdown gate (`SheetConfigPanel.tsx:1099`) + serialization (`:599`/
+`:655`) all key off the same Set; no second path renders an area control for these roles. Tests: new
+`test_scalar_amount_roles_reject_area` + fixed the `test_valid_full_config_parses_cleanly` fixture (col K
+amount_supply lost its area); parser 588->589, wizard suites unchanged (86/82/152); tsc 0 new wizard errors
+(3177), no Vite build (runtime Set subtraction). This is Slice 1 of the field-set rationalisation arc.
+Owner check: on a multi-area sheet, an Amount (Supply/Install/Total) column shows NO area dropdown; Qty + the
+per-area roles still do. Prior latest:
+Slice A2 -- edit-log clarity pass (FRONTEND ONLY, render-time, feat cefaf3c0, 2026-06-13). ReviewTree's
 row-detail "Edit history" block now renders parent moves as Excel row numbers (via the same `byIdx` map the
 Parent column uses), an honest verb (Reclassified / Moved parent / Edited) instead of the raw field name, and a
 `YYYY-MM-DD HH:MM` timestamp; the #162 no-op same-value reclassify entry is SUPPRESSED. The stored `edit_log`

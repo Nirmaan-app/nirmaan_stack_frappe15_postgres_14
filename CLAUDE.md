@@ -1,6 +1,24 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-13 (Slice A1 status rename + Finalized config-freeze + dirty-marker fix --
+**Last updated:** 2026-03-12 (Field-set rationalisation Slice 1 -- Finding 1: scalar amount roles NOT
+area-compatible -- BACKEND + FRONTEND, feat 83985079: removed `amount_supply`/`amount_install`/`amount_total`
+from `_AREA_COMPATIBLE_ROLES` (`services/boq_parser/config.py:17`) AND `AREA_COMPATIBLE_ROLES`
+(`SheetConfigPanel.tsx:128`). The descriptor builder already routes these three as SCALARS and silently drops
+any area set on them, so the config UI's area sub-selector for them was meaningless (a user could attach an
+area and it was dropped at render). PURE SUBTRACTION -- no new roles, no rename, no parser-logic / descriptor /
+classifier / serialization change; `qty` + the genuine `*_by_area` roles stay area-compatible and are
+untouched. BOTH config.py consumers DERIVE from the set so they tighten automatically: the
+`area_only_for_qty_amount_roles` model validator (config.py:46) AND the per-area uniqueness loop
+(config.py:134) -- so scalar amount roles now REJECT an area at ColumnRole validation (the uniqueness loop over
+them becomes vacuous, correct). Frontend: the area-dropdown gate (`SheetConfigPanel.tsx:1099` --
+`AREA_COMPATIBLE_ROLES.has(role) && isMulti && activeAreas.length>0`) + the serialization sites (`:599`/`:655`
+force `area:null` for non-compatible roles) all key off the same set; no second code path renders an area
+control for these roles. TESTS: new `TestMappingConfig.test_scalar_amount_roles_reject_area` (the three reject
+an area; `qty` + `amount_by_area` still accept) + fixed the pre-existing `test_valid_full_config_parses_cleanly`
+fixture (column K `amount_supply` no longer carries `area="B1"`). Parser 588->589 green; wizard suites unchanged
+(test_parse_run 86 / test_update_sheet_draft 82 / test_review_screen 152); tsc 0 new wizard errors (3177
+baseline), no Vite build run (runtime Set subtraction cannot affect bundling). Full detail in boq-upload-plan.md.
+// prior: 2026-06-13 (Slice A1 status rename + Finalized config-freeze + dirty-marker fix --
 BACKEND + FRONTEND + DATA MIGRATION, feat 6001e36e: the `BoQ Sheet Draft.wizard_status` values
 **"Reviewed" -> "Config Done"** and **"Parsed Check Done" -> "Finalized"** (compared LITERALLY across backend
 + frontend, so the rename is coverage-critical -- a zero-hit grep gate confirmed 100% coverage). The doctype

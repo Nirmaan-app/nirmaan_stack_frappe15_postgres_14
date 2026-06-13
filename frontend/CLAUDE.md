@@ -317,7 +317,23 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-13 -- Slice A2 edit-log clarity pass COMPLETE -- FRONTEND ONLY, render-time, feat cefaf3c0):**
+**Status (2026-03-12 -- Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible COMPLETE -- BACKEND + FRONTEND, feat 83985079):**
+Removed `amount_supply` / `amount_install` / `amount_total` from `AREA_COMPATIBLE_ROLES` in
+`SheetConfigPanel.tsx:128` (the matching backend `_AREA_COMPATIBLE_ROLES` in `boq_parser/config.py` was
+trimmed the same way -- see root CLAUDE.md). FRONTEND EFFECT: on a multi-area sheet the Section-3 area
+sub-selector no longer appears for these three roles -- the gate at `SheetConfigPanel.tsx:1099`
+(`AREA_COMPATIBLE_ROLES.has(entry.role) && isMulti && activeAreas.length > 0`) is the SINGLE source of the
+dropdown's visibility, so removing them from the Set is SUFFICIENT (no other code path renders an area control
+for these roles). The serialization sites (`:599` `changeRole` + `:655` `handleSave`) already force `area:null`
+for non-area-compatible roles, so any stale area on these roles is cleaned on next save (harmless -- the
+descriptor builder ignored it anyway). PURE SUBTRACTION -- `qty` + the genuine `*_by_area` roles stay
+area-compatible; no other UI/behaviour change. tsc 0 new wizard-file errors (3177 baseline unchanged); no Vite
+build run (a 3-string runtime Set subtraction cannot affect bundling). No frontend live-cert blocker -- the
+one owner check is below. Backend tests: parser 588->589 (new `test_scalar_amount_roles_reject_area`); wizard
+suites unchanged. Manual check (owner): on a multi-area sheet, mapping a column to Amount (Supply/Install/Total)
+shows NO area dropdown, while Qty and the per-area roles still do.
+
+// prior: **Status (2026-06-13 -- Slice A2 edit-log clarity pass COMPLETE -- FRONTEND ONLY, render-time, feat cefaf3c0):**
 Three render-time improvements to ReviewTree's edit-history block (`ReviewTree.tsx` ONLY; the stored `edit_log`
 shape is UNCHANGED -- NO backend, NO doctype, NO migration; root CLAUDE.md deliberately NOT touched this slice).
 (1) **Excel-row parents:** a `human_parent` entry's `from`/`to` (stored as INTERNAL `row_index`) now render as
