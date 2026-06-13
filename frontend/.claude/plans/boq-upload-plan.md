@@ -16,7 +16,30 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Detail-panel data-value field width (FRONTEND ONLY, CSS-only, 2026-06-14). The review-screen ROW
+LATEST: Slice 3 (Strand A) -- single-area config gate (FRONTEND ONLY, `SheetConfigPanel.tsx`, 2026-06-14).
+Prevents the review-screen `[object Object]` leak at its CONFIG source: a per-area role mapped on a
+SINGLE-area sheet stores `area=null`, which `_build_column_descriptors` emits with `value_key=null`, which
+`resolveDescriptorValue` resolves to the whole per-area dict -> `String(dict)` = "[object Object]". THE GATE:
+on a single-area sheet (`!isMulti || activeAreas.length === 0`) the role `<Select>` HIDES the entire
+`AREA_COMPATIBLE_ROLES` set (qty + the six rate_*_by_area / amount_*_by_area roles) -- `qty_total` is offered as
+the single-area quantity role (owner-decided: qty_total, NOT qty). The scalar roles stay. Reactive: keys off the
+SAME live `isMulti && activeAreas.length > 0` state `showAreaDropdown` uses, so it updates on the Single/Multi
+toggle + area-box edits mid-config. STRANDED-ROLE HANDLING = OPTION 3 (flag, do NOT auto-clear): a row holding a
+per-area role after a multi->single flip is FLAGGED invalid -- reusing the EXISTING area-required pattern
+(`border-destructive` on the role SelectTrigger + a `text-destructive` inline message naming the offending role,
+since its option is now hidden) -- and `hasStrandedRoles` is folded into the EXISTING attestation gate (AND-ed
+into the `attest-checkbox` disabled, exactly like `parserRequiredSatisfied`/`hasWorkPackage`), so **Mark as Config
+Done is BLOCKED** until the user re-picks a valid role (a `text-destructive` helper line explains why). The role is
+NOT silently cleared/converted. NO new error-display system invented -- both reused patterns are pre-existing.
+Plain "Save config" stays permissive (consistent with existing semantics; a plain-Saved-but-not-Marked sheet stays
+Pending -> not parse-eligible -> never reaches review, so blocking Mark is sufficient). STRAND B (a render guard in
+ReviewTree) DELIBERATELY NOT DONE -- `[object Object]` is retained as the visible alarm if A ever leaks (owner
+decision: a loud failure beats a silent blank). ReviewTree.tsx / backend / parser / role definitions UNTOUCHED.
+tsc 0 new wizard errors; Vite build exit 0 (`built in 4m 24s`, PWA 168 entries). Live-cert pending Nitesh
+(single-area BOQ-26-00150 ALORICA: no per-area roles offered, qty_total is; multi-area BOQ-26-00166/-00165: per-area
+roles incl. qty offered; flip multi->single after mapping a per-area role -> row flagged + Mark blocked; flip back
+-> roles reappear).
+// prior: Detail-panel data-value field width (FRONTEND ONLY, CSS-only, 2026-06-14). The review-screen ROW
 DETAIL PANEL's data-value `<Input>` fields (the three edit blocks: "Edit values" flat numeric / "Edit text"
 unit+make_model / "Edit per-area values") were flex-filling their grid cell (shadcn `Input`'s baked-in
 `w-full`), making them too wide for the short numbers/text they hold. Pinned to a FIXED narrow width

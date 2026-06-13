@@ -317,7 +317,43 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-14 -- Detail-panel data-value field width pinned narrow COMPLETE -- FRONTEND ONLY, CSS-only):**
+**Status (2026-06-14 -- Slice 3 (Strand A) single-area config gate COMPLETE -- FRONTEND ONLY, `SheetConfigPanel.tsx`):**
+Closes the review-screen `[object Object]` leak at its CONFIG source (prevention layer). ROOT CAUSE (Slice 3 recon):
+a per-area role (`qty` per-area route + the six `rate_*_by_area`/`amount_*_by_area` roles -- the
+`AREA_COMPATIBLE_ROLES` set) mapped on a SINGLE-area sheet saves `area=null`; `_build_column_descriptors`
+(review_screen.py) emits that with `value_key=null`; `resolveDescriptorValue` (ReviewTree.tsx:255) returns the
+WHOLE per-area dict; `renderDescriptorCell` (:268) `String(dict)` -> "[object Object]". **THE GATE:** on a
+single-area sheet (`!isMulti || activeAreas.length === 0`, the live `perAreaRolesAllowed = isMulti &&
+activeAreas.length > 0` -- the SAME state `showAreaDropdown` keys off) the role `<Select>` HIDES the entire
+`AREA_COMPATIBLE_ROLES` set; the `SelectGroup` map now computes `visibleRoles = roles.filter(r =>
+perAreaRolesAllowed || !AREA_COMPATIBLE_ROLES.has(r.value))` and `return null`s an emptied group (none empty in
+practice). `qty_total` + the scalar roles stay offered. **Owner-decided: single-area uses `qty_total`, NOT `qty`**
+(qty routes through `qty_by_area`, the prime offender, so it is hidden too). Reactive to the Single/Multi toggle +
+area-box edits mid-config (the filter recomputes each render off `perAreaRolesAllowed`). **STRANDED-ROLE = OPTION 3
+(flag, do NOT auto-clear):** a new `strandedCols` memo = the set of rows whose role is in `AREA_COMPATIBLE_ROLES`
+while single-area (i.e. a row left stranded by a multi->single flip; the existing `useEffect([validAreas])` only
+nulls a stale `area`, never the role). Each stranded row is flagged invalid REUSING the EXISTING area-required
+pattern: `border-destructive` on the role `<SelectTrigger>` (`cn("w-52", isStranded && "border-destructive")`) +
+an inline `text-destructive` message that NAMES the offending role via `ROLE_LABELS[entry.role]` (the role's option
+is now hidden, so the trigger shows the placeholder -- the message preserves what to replace). `hasStrandedRoles`
+is folded into the EXISTING attestation gate (AND-ed into the `attest-checkbox` `disabled` + label-opacity `cn`,
+exactly like `parserRequiredSatisfied`/`hasWorkPackage`), so **Mark as Config Done is BLOCKED** until resolved,
+with a `text-destructive` helper line (shown first, unconditional on section state). The role is NEVER silently
+cleared/converted -- the user resolves it. **NO new error-display system invented** -- both patterns
+(per-row `border-destructive`+message, attestation AND-gate) are pre-existing (V3). Plain "Save config" stays
+permissive (existing semantics; a plain-Saved-but-not-Marked sheet stays Pending -> not parse-eligible -> never
+reaches review, so blocking the Mark/attestation path is sufficient to keep a stranded mapping out of the
+`[object Object]` path). **STRAND B (a render guard in `renderDescriptorCell`) DELIBERATELY NOT DONE** --
+`[object Object]` is RETAINED as the visible alarm if A ever leaks (owner decision: a loud failure beats a silent
+blank). `ReviewTree.tsx` / backend / parser / role definitions UNTOUCHED. tsc 0 NEW wizard-file errors (filtered
+`ReviewTree|boqTypes|boq-wizard|SheetConfigPanel` -> empty, 3177 baseline) + in-container Vite build exit 0
+(`built in 4m 24s`, PWA 168 entries). No Frappe unit tests (config panel is frontend-only; wizard convention).
+Live-cert pending Nitesh: single-area BOQ-26-00150 (ALORICA) -> NO per-area roles offered (qty NOT offered),
+`qty_total` is; multi-area BOQ-26-00166 / -00165-derived -> per-area roles incl. `qty` ARE offered; flip
+multi->single after mapping a per-area role -> the stranded row is flagged invalid + Mark blocked (NOT silently
+cleared); flip back single->multi -> per-area roles reappear.
+
+// prior: **Status (2026-06-14 -- Detail-panel data-value field width pinned narrow COMPLETE -- FRONTEND ONLY, CSS-only):**
 A one-class width fix to the review-screen ROW DETAIL PANEL (`ReviewTree.tsx` ONLY; no backend, no doctype, no
 `boqTypes.ts`; root CLAUDE.md not touched -- pure frontend CSS). The three edit blocks' data-value `<Input>`
 fields -- "Edit values" (flat numeric qty/rate/amount), "Edit text" (unit / make_model), "Edit per-area values"
