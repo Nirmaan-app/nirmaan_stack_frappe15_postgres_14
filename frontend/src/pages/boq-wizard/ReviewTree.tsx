@@ -1671,7 +1671,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                           onChange={(e) =>
                                             setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
                                           }
-                                          className="h-7 text-xs"
+                                          className="h-7 text-xs w-24"
                                         />
                                         <Button
                                           type="button"
@@ -1721,7 +1721,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                           onChange={(e) =>
                                             setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
                                           }
-                                          className="h-7 text-xs"
+                                          className="h-7 text-xs w-24"
                                         />
                                         <Button
                                           type="button"
@@ -1773,7 +1773,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                           onChange={(e) =>
                                             setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
                                           }
-                                          className="h-7 text-xs"
+                                          className="h-7 text-xs w-24"
                                         />
                                         <Button
                                           type="button"
