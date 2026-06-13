@@ -1647,8 +1647,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {!readOnly && editableDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                              {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                              {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                  fixed-width (w-36) fields sit close together then wrap to the next
+                                  row of 4, with no equal-grid dead space spreading them apart. */}
+                              <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
                                 {editableDescriptors.map(d => {
                                   const stored = (row as unknown as Record<string, unknown>)[d.value_field];
                                   const storedStr = stored === null || stored === undefined ? "" : String(stored);
@@ -1671,7 +1673,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                           onChange={(e) =>
                                             setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
                                           }
-                                          className="h-7 text-xs w-24"
+                                          className="h-7 text-xs w-36"
                                         />
                                         <Button
                                           type="button"
@@ -1697,8 +1699,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {!readOnly && editableTextDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                              {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                              {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                  fixed-width (w-36) fields sit close together then wrap to the next
+                                  row of 4, with no equal-grid dead space spreading them apart. */}
+                              <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
                                 {editableTextDescriptors.map(d => {
                                   const stored = (row as unknown as Record<string, unknown>)[d.value_field];
                                   const storedStr = stored === null || stored === undefined ? "" : String(stored);
@@ -1721,7 +1725,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                           onChange={(e) =>
                                             setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
                                           }
-                                          className="h-7 text-xs w-24"
+                                          className="h-7 text-xs w-36"
                                         />
                                         <Button
                                           type="button"
@@ -1748,8 +1752,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {!readOnly && editableAreaDescriptors.length > 0 && (
                             <div className="mb-2">
                               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
-                              {/* Obs 2: responsive grid (caps ~4-wide on lg) replaces flex-wrap. */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                              {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                  fixed-width (w-36) fields sit close together then wrap to the next
+                                  row of 4, with no equal-grid dead space spreading them apart. */}
+                              <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
                                 {editableAreaDescriptors.map(d => {
                                   const storedVal = resolveDescriptorValue(row, d);
                                   const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
@@ -1773,7 +1779,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                           onChange={(e) =>
                                             setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
                                           }
-                                          className="h-7 text-xs w-24"
+                                          className="h-7 text-xs w-36"
                                         />
                                         <Button
                                           type="button"
