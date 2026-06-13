@@ -528,6 +528,30 @@ export function SheetConfigPanel({
     [columnRoleMap]
   );
 
+  // ── Slice 3 (Strand A): single-area config gate ──────────────────────────
+  // Per-area roles (qty + the six *_by_area roles -- the AREA_COMPATIBLE_ROLES set)
+  // only make sense on a MULTI-area sheet with >=1 named area. Mapping one on a
+  // single-area sheet stores area=null, which the descriptor builder emits with
+  // value_key=null -> the review screen renders "[object Object]". perAreaRolesAllowed
+  // keys off the SAME live state as showAreaDropdown (isMulti && activeAreas.length>0),
+  // so the gate reacts to the Single/Multi toggle + area-box edits mid-config.
+  const perAreaRolesAllowed = isMulti && activeAreas.length > 0;
+
+  // Stranded mappings (Option 3 -- flag, do NOT auto-clear): a row holding a per-area
+  // role while the sheet is single-area. Surfaced as a per-row invalid flag (reusing
+  // the area-required border-destructive + inline message pattern) AND folded into the
+  // attestation gate (hasStrandedRoles), so Mark as Config Done is blocked until the
+  // user re-picks a single-area role. NOT silently cleared/converted -- the user resolves it.
+  const strandedCols = useMemo(() => {
+    const s = new Set<string>();
+    if (perAreaRolesAllowed) return s;
+    for (const [col, entry] of Object.entries(columnRoleMap)) {
+      if (entry.role && AREA_COMPATIBLE_ROLES.has(entry.role)) s.add(col);
+    }
+    return s;
+  }, [perAreaRolesAllowed, columnRoleMap]);
+  const hasStrandedRoles = strandedCols.size > 0;
+
   // ── Layer-1 section confirmation ──────────────────────────────────────────
   const allSectionsConfirmed =
     confirmedFields.has("section:rows") &&
@@ -1103,6 +1127,12 @@ export function SheetConfigPanel({
             const areaRequired = AREA_REQUIRED_ROLES.has(entry.role);
             const showAreaDropdown =
               AREA_COMPATIBLE_ROLES.has(entry.role) && isMulti && activeAreas.length > 0;
+            // Slice 3 (Strand A): this row holds a per-area role on a single-area sheet
+            // (a stranded mapping). Flag it invalid; the attestation gate is blocked until
+            // the user re-picks a single-area role. The per-area role option is hidden from
+            // the dropdown, so the trigger shows the placeholder -- the message below names
+            // the offending role so the user knows what to replace.
+            const isStranded = strandedCols.has(col);
 
             return (
               <div key={col} className="flex flex-wrap gap-2 items-start">
@@ -1137,14 +1167,24 @@ export function SheetConfigPanel({
                   onOpenChange={(open) => { if (open) touchS3("column_role_map"); }}
                   onValueChange={(newRole) => changeRole(col, newRole)}
                 >
-                  <SelectTrigger className="w-52">
+                  <SelectTrigger className={cn("w-52", isStranded && "border-destructive")}>
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ROLES_BY_GROUP.map(({ group, roles }) => (
+                    {ROLES_BY_GROUP.map(({ group, roles }) => {
+                      // Slice 3 (Strand A): on a single-area sheet, HIDE the per-area
+                      // roles (AREA_COMPATIBLE_ROLES = qty + the six *_by_area roles) --
+                      // they are meaningless without areas and produce the review-screen
+                      // "[object Object]" leak. qty_total + the scalar roles stay offered.
+                      // Reactive: perAreaRolesAllowed tracks the live area state.
+                      const visibleRoles = roles.filter(
+                        (r) => perAreaRolesAllowed || !AREA_COMPATIBLE_ROLES.has(r.value)
+                      );
+                      if (visibleRoles.length === 0) return null;
+                      return (
                       <SelectGroup key={group}>
                         <SelectLabel>{group}</SelectLabel>
-                        {roles.map((r) => {
+                        {visibleRoles.map((r) => {
                           const isDisabled =
                             SINGLETON_ROLES.has(r.value) &&
                             usedSingletons.has(r.value) &&
@@ -1192,7 +1232,8 @@ export function SheetConfigPanel({
                           );
                         })}
                       </SelectGroup>
-                    ))}
+                      );
+                    })}
                   </SelectContent>
                 </Select>
 
@@ -1232,6 +1273,15 @@ export function SheetConfigPanel({
                 {/* Required-area missing indicator */}
                 {areaRequired && !entry.area && !showAreaDropdown && isMulti && (
                   <span className="text-xs text-destructive self-center">area required</span>
+                )}
+
+                {/* Slice 3 (Strand A): stranded per-area role on a single-area sheet.
+                    Names the offending role (its option is hidden, so the trigger shows
+                    the placeholder) and tells the user to pick a single-area role. */}
+                {isStranded && (
+                  <span className="text-xs text-destructive self-center">
+                    {ROLE_LABELS[entry.role] ?? entry.role} needs areas — not valid on a single-area sheet. Pick a single-area role (e.g. Quantity Total).
+                  </span>
                 )}
 
                 {/* Remove */}
@@ -1404,7 +1454,7 @@ export function SheetConfigPanel({
             <Checkbox
               id="attest-checkbox"
               checked={attestChecked}
-              disabled={!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage}
+              disabled={!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage || hasStrandedRoles}
               onCheckedChange={(checked) => setAttestChecked(checked === true)}
               className="mt-0.5"
             />
@@ -1412,7 +1462,7 @@ export function SheetConfigPanel({
               htmlFor="attest-checkbox"
               className={cn(
                 "text-sm leading-snug cursor-pointer select-none",
-                (!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage)
+                (!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage || hasStrandedRoles)
                   ? "text-muted-foreground opacity-60"
                   : "text-foreground"
               )}
@@ -1420,6 +1470,13 @@ export function SheetConfigPanel({
               I&apos;ve reviewed this — the columns are mapped correctly.
             </label>
           </div>
+          {/* Slice 3 (Strand A): stranded per-area role blocks attestation -- shown first
+              (most urgent), unconditional on section state so the user knows why. */}
+          {hasStrandedRoles && (
+            <p className="text-xs text-destructive pl-6">
+              Resolve the highlighted per-area role(s) above — they are not valid on a single-area sheet.
+            </p>
+          )}
           {!allSectionsConfirmed && hasPrefill && (
             <p className="text-xs text-muted-foreground pl-6">
               Confirm all sections above (or use Accept all sections as-is) to enable attestation.
