@@ -16,6 +16,19 @@ def execute():
     Orphan guard: if the referenced Work Headers record no longer exists in the DB,
     that row is skipped and logged rather than failing the whole migration.
     """
+    # Fresh-install / already-migrated guard: a database that never carried the old
+    # single-Link `work_package` column (e.g. a clean install, or one seeded from a
+    # lineage where BoQ Sheet Draft was created directly with the work_packages child
+    # table) has nothing to migrate. Frappe leaves the orphaned column physically
+    # present only on the in-place upgrade path; on a fresh table the column is simply
+    # absent, so the raw SELECT below would raise UndefinedColumn.
+    if not frappe.db.has_column("BoQ Sheet Draft", "work_package"):
+        print(
+            "migrate_boq_sheet_draft_work_package_to_multi: legacy 'work_package' "
+            "column absent -- nothing to migrate (fresh install)"
+        )
+        return
+
     rows = frappe.db.sql(
         """
         SELECT name, work_package

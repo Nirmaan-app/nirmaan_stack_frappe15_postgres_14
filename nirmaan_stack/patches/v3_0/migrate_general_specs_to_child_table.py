@@ -18,6 +18,18 @@ def execute():
     frappe.reload_doc("nirmaan_stack", "doctype", "boq_general_specs_sheet")
     frappe.reload_doc("nirmaan_stack", "doctype", "boqs")
 
+    # Fresh-install / already-migrated guard: a database whose tabBOQs was created
+    # directly with the general_specs_sheets child table never had the old scalar
+    # columns (general_specs_sheet / master_preamble), so the raw SELECT below would
+    # raise UndefinedColumn. The orphaned scalars are present only on the in-place
+    # upgrade path.
+    if not frappe.db.has_column("BOQs", "general_specs_sheet"):
+        print(
+            "migrate_general_specs_to_child_table: legacy 'general_specs_sheet' "
+            "column absent -- nothing to migrate (fresh install)"
+        )
+        return
+
     rows = frappe.db.sql(
         """
         SELECT name, general_specs_sheet, master_preamble
