@@ -81,7 +81,7 @@ import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageS
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse } from "./boqTypes";
+import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -183,6 +183,22 @@ export const CLS_LABELS: Record<string, string> = {
   subtotal_marker: "Subtotal",
   header_repeat:   "Header",
 };
+
+// A2 edit-log clarity (render-time): the stored edit_log `at` is a local
+// "YYYY-MM-DD HH:MM:SS.ffffff" string (review_screen.py frappe.utils.now()).
+// Slice to "YYYY-MM-DD HH:MM" -- drop seconds + microseconds. A plain string
+// slice is the safest choice: no date library, no timezone reparse surprises.
+function formatEditAt(at: unknown): string {
+  return typeof at === "string" ? at.slice(0, 16) : "";
+}
+
+// A2 edit-log clarity: a described edit_log entry for render. `null` from
+// describeEditEntry means "suppress this entry" (the #162 no-op reclassify).
+interface DescribedEditEntry {
+  verb: string;
+  detail: string | null;
+  showField: boolean;
+}
 
 const CLS_PILL_CLASSES: Record<string, { bg: string; text: string }> = {
   preamble:        { bg: "bg-gray-200 dark:bg-gray-700",       text: "text-gray-700 dark:text-gray-200" },
@@ -470,6 +486,48 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
     return { depths, hasChildrenSet, byIdx };
   }, [rows]);
+
+  // A2 edit-log clarity (render-time): translate a stored parent value (internal
+  // row_index, or null/-1 for root) to an Excel-row label. Matches the detail
+  // panel's own parent-label copy (root / row N / raw-number fallback) for
+  // in-panel consistency. Defensive: an index not in the current set falls back
+  // to the raw number (no crash).
+  const editParentLabel = (v: unknown): string => {
+    if (v === null || v === undefined) return "root";
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n) || n < 0) return "root";
+    const src = byIdx.get(n)?.source_row_number;
+    return src !== undefined ? `row ${src}` : String(n);
+  };
+
+  // A2 edit-log clarity: derive an honest verb + display detail per edit_log entry.
+  // Returns null to SUPPRESS the entry entirely -- the #162 "Change parent" door
+  // writes a no-op same-value human_classification entry alongside the real
+  // human_parent move; rendering it would duplicate the move, so it is dropped.
+  const describeEditEntry = (entry: EditLogEntry): DescribedEditEntry | null => {
+    if (entry.field === "human_classification") {
+      if (entry.from !== entry.to) {
+        const f = CLS_LABELS[String(entry.from ?? "")] ?? String(entry.from ?? "—");
+        const t = CLS_LABELS[String(entry.to ?? "")] ?? String(entry.to ?? "—");
+        return { verb: "Reclassified", detail: `${f} → ${t}`, showField: false };
+      }
+      return null; // no-op reclassify (#162) -- suppress
+    }
+    if (entry.field === "human_parent") {
+      return {
+        verb: "Moved parent",
+        detail: `${editParentLabel(entry.from)} → ${editParentLabel(entry.to)}`,
+        showField: false,
+      };
+    }
+    // value / text / per-area edits: keep the raw from->to + field name (and the
+    // existing area / rate_subkey suffix at the render site) exactly as before.
+    return {
+      verb: "Edited",
+      detail: `${String(entry.from ?? "—")} → ${String(entry.to ?? "—")}`,
+      showField: true,
+    };
+  };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
   const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
@@ -1834,33 +1892,46 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           {/* Edit history from edit_log */}
                           <div className="mb-1">
                             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Edit history</p>
-                            {Array.isArray(row.edit_log) && row.edit_log.length > 0 ? (
-                              <ul className="mt-0.5 space-y-0.5">
-                                {/* Obs A: latest-first -- newest edit at the top (reverse a copy). */}
-                                {[...row.edit_log].reverse().map((entry, i) => (
-                                  <li key={i} className="text-xs text-foreground">
-                                    <span className="font-medium">{entry.field}</span>
-                                    {/* C-v2d: per-area target -- "(Zone A)" or "(Zone A / combined_rate)". */}
-                                    {entry.area ? (
-                                      <span className="text-muted-foreground">
-                                        {" "}({entry.area}{entry.rate_subkey ? ` / ${entry.rate_subkey}` : ""})
-                                      </span>
-                                    ) : null}
-                                    {": "}
-                                    {String(entry.from ?? "—")}
-                                    {" → "}
-                                    {String(entry.to ?? "—")}
-                                    {" — "}
-                                    <span className="text-muted-foreground">{entry.by} · {entry.at}</span>
-                                    {entry.reason ? (
-                                      <span className="text-muted-foreground"> · reason: {entry.reason}</span>
-                                    ) : null}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="mt-0.5 text-xs text-muted-foreground italic">No edits yet.</p>
-                            )}
+                            {(() => {
+                              // A2 edit-log clarity (render-only): latest-first, describe each
+                              // entry (honest verb + Excel-row parents + date+HH:MM), and DROP
+                              // suppressed entries (#162 no-op reclassify) before rendering, so
+                              // they never produce an <li>. "No edits yet." reflects the
+                              // post-suppression list.
+                              const described = (Array.isArray(row.edit_log) ? [...row.edit_log] : [])
+                                .reverse()
+                                .map((entry) => ({ entry, d: describeEditEntry(entry) }))
+                                .filter((x): x is { entry: EditLogEntry; d: DescribedEditEntry } => x.d !== null);
+                              return described.length > 0 ? (
+                                <ul className="mt-0.5 space-y-0.5">
+                                  {described.map(({ entry, d }, i) => (
+                                    <li key={i} className="text-xs text-foreground">
+                                      <span className="font-medium">{d.verb}</span>
+                                      {/* Non-parent edits keep the field name for context. */}
+                                      {d.showField ? (
+                                        <span className="text-muted-foreground">{" "}{entry.field}</span>
+                                      ) : null}
+                                      {/* C-v2d: per-area target -- "(Zone A)" or "(Zone A / combined_rate)". */}
+                                      {entry.area ? (
+                                        <span className="text-muted-foreground">
+                                          {" "}({entry.area}{entry.rate_subkey ? ` / ${entry.rate_subkey}` : ""})
+                                        </span>
+                                      ) : null}
+                                      {d.detail ? (
+                                        <>{": "}{d.detail}</>
+                                      ) : null}
+                                      {" — "}
+                                      <span className="text-muted-foreground">{entry.by} · {formatEditAt(entry.at)}</span>
+                                      {entry.reason ? (
+                                        <span className="text-muted-foreground"> · reason: {entry.reason}</span>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="mt-0.5 text-xs text-muted-foreground italic">No edits yet.</p>
+                              );
+                            })()}
                           </div>
                           {/* Reason slot -- laid out but empty; pending Slice C's 6th edit_log key */}
                           <p className="text-[11px] text-muted-foreground italic">Reason — (added in a later step)</p>
