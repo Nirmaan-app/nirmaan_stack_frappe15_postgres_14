@@ -317,7 +317,34 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-13 -- Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible COMPLETE -- BACKEND + FRONTEND, feat 83985079):**
+**Status (2026-06-13 -- Field-set rationalisation Slice 2a -- amount per-area SYMMETRIC with rate (READ path) COMPLETE -- BACKEND + FRONTEND, feat 33ec8361):**
+Made AMOUNT symmetric with RATE on the per-area READ path (extraction + storage + DISPLAY). The per-area
+amount EDIT path is Slice 2b and was NOT touched -- `EDITABLE_AREA_FIELDS` (`ReviewTree.tsx:304`) still lists
+the storage field `amount_by_area` and the per-area edit gating is unchanged; `resolveDescriptorValue` is
+already generic so it renders the nested amounts with NO change. FRONTEND edits (`boqTypes.ts` +
+`SheetConfigPanel.tsx` ONLY): `ROLE_LABELS` drops `amount_combined`, drops the single `amount_by_area` label,
+and ADDS `amount_supply_by_area` / `amount_install_by_area` / `amount_total_by_area` ("Amount Supply/Install/
+Total (per area)"); `SheetConfigPanel` `ROLES_BY_GROUP` Amount group, `AREA_COMPATIBLE_ROLES`,
+`AREA_REQUIRED_ROLES`, `SINGLETON_ROLES`, the `ROLE_HELP_TEXT` map (drops `amount_combined`, re-points
+`amount_total` help to "also use for SITC/S&I/Combined headers"), and the Layer-2 `_AMOUNT_ROLES` set are all
+updated to the three new roles + `amount_combined` removal. NEW `AmountByAreaCell` type (`{supply?, install?,
+total?}` -- mirrors `RateByAreaCell`); `ReviewRow.amount_by_area` retyped `Record<string, AmountByAreaCell>`
+(the STORAGE FIELD name is kept -- only the ROLE was renamed, the exact analog of rate's `rate_by_area` field
+vs `rate_*_by_area` roles). The descriptor for a per-area amount role carries `value_field:"amount_by_area"`,
+`value_key:area`, and reuses the generic `rate_subkey` third-hop to carry the amount kind ("supply"/"install"/
+"total") -- so the same `resolveDescriptorValue` walk renders amounts and rates identically (BACKEND
+`review_screen._build_column_descriptors` made generic via `_AMOUNT_ROLE_TO_KIND` -- see root CLAUDE.md).
+tsc 0 NEW wizard-file errors (filtered `ReviewTree|boqTypes|boq-wizard|SheetConfigPanel` -> empty; 3177
+baseline unchanged) + in-container Vite build exit 0 (`built in 6m 14s`, PWA 168 entries). No Frappe unit
+tests on the frontend; backend parser 589->597, wizard suites unchanged (152 / 86 / 82) green. Live-cert
+pending Nitesh: parse a multi-area workbook with per-area SUPPLY + INSTALL + TOTAL amount columns; confirm
+each renders in its own review-screen column with correct numbers and the derived row total is correct.
+**Job-7 note (cert checklist):** after this change, re-SAVE a sheet's config through the WIZARD (not just
+re-parse) to clear any old `amount_by_area`-role token from a stored config blob -- a re-parse alone does NOT
+rewrite the config, and a stale role token silently drops the sheet from the parse (logged warning, no visible
+failure).
+
+// prior: **Status (2026-06-13 -- Field-set rationalisation Slice 1 / Finding 1 -- scalar amount roles NOT area-compatible COMPLETE -- BACKEND + FRONTEND, feat 83985079):**
 Removed `amount_supply` / `amount_install` / `amount_total` from `AREA_COMPATIBLE_ROLES` in
 `SheetConfigPanel.tsx:128` (the matching backend `_AREA_COMPATIBLE_ROLES` in `boq_parser/config.py` was
 trimmed the same way -- see root CLAUDE.md). FRONTEND EFFECT: on a multi-area sheet the Section-3 area

@@ -1,6 +1,44 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-13 (Field-set rationalisation Slice 1 -- Finding 1: scalar amount roles NOT
+**Last updated:** 2026-06-13 (Field-set rationalisation Slice 2a -- amount per-area SYMMETRIC with rate,
+READ path -- BACKEND + FRONTEND, feat 33ec8361: made AMOUNT symmetric with RATE on the per-area READ path
+(extraction + storage + DISPLAY; the per-area amount EDIT path is deferred to Slice 2b and was NOT touched).
+ROLES: ADDED `amount_supply_by_area` / `amount_install_by_area` / `amount_total_by_area` (area-required,
+area-compatible -- mirror the `rate_*_by_area` roles); RENAMED `amount_by_area` -> `amount_total_by_area`
+(the per-area combined amount -- DELIBERATELY differs from rate's `amount_combined_by_area`; cross-family
+wording difference accepted + logged); DROPPED scalar role `amount_combined` -- its SITC / S&I /
+combined-amount keywords RE-HOMED into `_HEADER_KW["amount_total"]` (`classifier.py`; the `_cell_float`
+combined-cascade fallback removed), so a column that auto-detected as combined now auto-detects as
+`amount_total`. NESTED extraction/storage/display (mirrors `rate_by_area`): `classifier.amount_by_area_raw`
+is now nested `dict[area][kind]` (supply/install/total) via new `_AMOUNT_ROLE_TO_KIND` + helpers
+`_collapse_area_amount` / `_sum_area_amounts`; `hierarchy.ResolvedRow.amount_by_area_raw`+`amount_by_area`
+nested; `orchestrator` deep-copies nested, the qty*rate fallback writes the `"total"` kind, sum-validation
+collapses nested. SCALAR-TOTAL DERIVATION RULE (owner-confirmed, in `_apply_multi_area_post_pass`): the
+explicit total-amount column wins (`amount_total` already set upstream); ELSE derived = sum over areas of
+(that area's per-area total if it has a `total` kind, else its supply + install). `review_screen.
+_build_column_descriptors` per-area amount branch is now GENERIC via `_AMOUNT_ROLE_TO_KIND` (mirrors the rate
+branch); each per-area supply/install/total amount renders in its OWN column. **STORAGE FIELD `amount_by_area`
+is KEPT (now nested) -- ONLY the ROLE was renamed** (exact analog of rate's `rate_by_area` field coexisting
+with `rate_*_by_area` roles): `BoQ Review Row.amount_by_area` (JSON), `ResolvedRow`/`ClassifiedRow`
+attributes, the descriptor `value_field`, `get_review_rows` all_fields, `_FLAT_AREA_FIELDS`/`_JSON_DICT_FIELDS`,
+and `flatten_resolved_row`'s JSON key all retain the name; no doctype-JSON change, no migration (JSON value
+shape only). `_auto_guess` BOTH duplicate role sets updated; a detected per-area amount column maps to
+`amount_total_by_area`. FRONTEND (read/display only): `ROLE_LABELS` + `ROLES_BY_GROUP` + `AREA_COMPATIBLE_ROLES`
++ `AREA_REQUIRED_ROLES` + `SINGLETON_ROLES` + the Layer-2 `_AMOUNT_ROLES` set updated; new `AmountByAreaCell`
+type; `ReviewRow.amount_by_area` typed nested; `resolveDescriptorValue` already generic (no change);
+`EDITABLE_AREA_FIELDS` + the per-area edit gating NOT touched (Slice 2b). ZERO-HIT GREP GATE: `amount_combined`
+fully gone from live code (remaining hits = dead-scratch scripts + rename-documenting/regression tests only);
+`amount_by_area` retains ONLY storage-field usages (classified ROLE-usage=0). TESTS: parser 589->597 (new
+`TestNestedPerAreaAmountExtraction` + `TestNestedAmountTotalDerivation`; the old amount_combined extraction
+class repurposed to `TestTotalAmountColumnCascade` with a dropped-role-rejected regression; config/classifier/
+orchestrator/hierarchy/parse_run/auto_guess fixtures re-nested + roles renamed; `classifier_audit.
+_CLASSIFIER_HEADER_KW` synced for the agreement-#21 live sync test); wizard suites unchanged (test_review_screen
+152 / test_parse_run 86 / test_update_sheet_draft 82) green; tsc 0 new wizard errors; Vite build exit 0
+(`built in 6m 14s`, PWA 168 entries). Live-cert pending Nitesh (multi-area workbook with per-area supply/install/
+total amounts; Job-7 note: re-SAVE the sheet config through the WIZARD, not just re-parse, to clear any stored
+`amount_by_area`-role token from an old config blob -- a stale token silently drops the sheet from the parse).
+Full detail in boq-upload-plan.md + frontend/CLAUDE.md.
+// prior: 2026-06-13 (Field-set rationalisation Slice 1 -- Finding 1: scalar amount roles NOT
 area-compatible -- BACKEND + FRONTEND, feat 83985079: removed `amount_supply`/`amount_install`/`amount_total`
 from `_AREA_COMPATIBLE_ROLES` (`services/boq_parser/config.py:17`) AND `AREA_COMPATIBLE_ROLES`
 (`SheetConfigPanel.tsx:128`). The descriptor builder already routes these three as SCALARS and silently drops
