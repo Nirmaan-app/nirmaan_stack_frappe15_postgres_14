@@ -17,56 +17,7 @@ import { formatDate } from 'date-fns';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import SITEURL from "@/constants/siteURL";
 import { parseNumber } from "@/utils/parseNumber";
-
-/**
- * Maps Document AI entity types (snake_case) to human-readable labels.
- */
-const ENTITY_LABELS: Record<string, string> = {
-    invoice_id: "Invoice Number",
-    invoice_number: "Invoice Number",
-    invoice_date: "Invoice Date",
-    total_amount: "Total Amount",
-    net_amount: "Net Amount",
-    total_tax_amount: "Total Tax Amount",
-    amount_due: "Amount Due",
-    supplier_name: "Supplier Name",
-    supplier_gstin: "Supplier GSTIN",
-    receiver_gstin: "Receiver GSTIN",
-    purchase_order: "Purchase Order",
-    due_date: "Due Date",
-    currency: "Currency",
-};
-
-const ACRONYMS = new Set(["gstin", "po", "wo", "pr", "sr", "id", "no"]);
-
-const humanizeEntityType = (type: string): string => {
-    if (ENTITY_LABELS[type]) return ENTITY_LABELS[type];
-    return type
-        .split(/[_\s]+/)
-        .filter(Boolean)
-        .map((word) => {
-            const lower = word.toLowerCase();
-            if (ACRONYMS.has(lower)) return lower.toUpperCase();
-            return lower.charAt(0).toUpperCase() + lower.slice(1);
-        })
-        .join(" ");
-};
-
-const formatEntityValue = (type: string, value: string): string => {
-    if (!value) return value;
-    // Format date-like fields as dd-MMM-yyyy (project standard).
-    if (/date/i.test(type)) {
-        const d = new Date(value);
-        if (!isNaN(d.getTime())) {
-            try {
-                return formatDate(d, "dd-MMM-yyyy");
-            } catch {
-                // fall through and return raw value
-            }
-        }
-    }
-    return value;
-};
+import { humanizeEntityType, formatEntityValue, confColorClass } from "@/pages/tasks/invoices/utils/autofillEntityDisplay";
 
 /**
  * Renders a small info icon that, on hover, displays all entities Document AI
@@ -116,12 +67,7 @@ const AutofillEntitiesHoverCard: React.FC<{ invoice: VendorInvoice }> = ({ invoi
                         <tbody>
                             {entities.map((entity, i) => {
                                 const conf = entity.confidence;
-                                const confColor =
-                                    conf >= 0.85
-                                        ? "text-green-700"
-                                        : conf >= 0.7
-                                            ? "text-amber-700"
-                                            : "text-red-700";
+                                const confColor = confColorClass(conf);
                                 const label = humanizeEntityType(entity.type);
                                 const displayValue = formatEntityValue(entity.type, entity.value);
                                 return (

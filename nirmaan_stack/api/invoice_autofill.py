@@ -1,10 +1,12 @@
 import frappe
 
+from nirmaan_stack.api.invoices._line_match import match_invoice_lines_to_po
 from nirmaan_stack.api.invoices._validation import (
     existing_invoiced_sum,
     gstin_match,
 )
 from nirmaan_stack.services.extraction import extract
+from nirmaan_stack.services.extraction.mapping import gemini_map_residue
 from nirmaan_stack.services.extraction.files import (
     SUPPORTED_EXTS,
     fetch_file_content,
@@ -18,6 +20,7 @@ from nirmaan_stack.services.extraction.helpers import (
 )
 from nirmaan_stack.services.extraction.validation import (
     reconcile_amounts,
+    reconcile_line_items,
     validate_date,
     validate_gstin,
 )
@@ -41,13 +44,17 @@ TCS_KEYS = ("tcs_amount",)
 
 
 @frappe.whitelist()
-def extract_invoice_fields(file_url):
-    """Extract invoice number, date, and total amount from an uploaded invoice file.
+def extract_invoice_fields(file_url, docname=None):
+    """Extract invoice number, date, total amount and line items from an invoice.
 
     Called from the Add Invoice dialog when the user picks a file in Auto-fill
     mode. Extracted values populate the form; a deterministic validation layer
-    (GSTIN checksum, amount reconciliation) surfaces soft warnings and gates
-    auto-approval. The response is never persisted server-side.
+    (GSTIN checksum, amount reconciliation, line-item self-reconcile) surfaces soft
+    warnings and gates auto-approval. The response is never persisted server-side.
+
+    When `docname` is a Procurement Order, the response also includes `line_match`
+    (each invoice line mapped to a PO item — fuzzy-first, Gemini-resolved residue)
+    and `po_items` (the PO's items, so the dialog can render/correct the mapping).
     """
     if not file_url:
         frappe.throw("file_url is required")
@@ -71,7 +78,7 @@ def extract_invoice_fields(file_url):
     if not content:
         frappe.throw("Could not read file content.")
 
-    _, entities = extract(content, file_ext, settings, doc_kind="invoice")
+    _, entities, line_items = extract(content, file_ext, settings, doc_kind="invoice")
 
     invoice_no, invoice_no_conf = pick_entity(entities, INVOICE_NO_KEYS)
     invoice_date, invoice_date_conf = pick_entity(entities, INVOICE_DATE_KEYS, prefer_normalized=True)
@@ -115,6 +122,26 @@ def extract_invoice_fields(file_url):
         tcs=tcs_amount,
     )
 
+    # Self-consistency scorecard for the extracted line-item table (per-line
+    # qty*rate ≈ amount + Σ ≈ net_amount). Computed trust, not model-reported —
+    # surfaced for the Review UI. net_amount is the raw extracted subtotal.
+    line_item_validation = reconcile_line_items(line_items, net_amount)
+
+    # PO line-item mapping — only when the invoice is attached to a PO and we got
+    # line items. Fuzzy-match locally first; Gemini resolves the leftover residue
+    # (re-verified numerically). po_items is returned so the dialog can render the
+    # mapping + power the per-row correction dropdown without a second fetch.
+    line_match = None
+    po_items_out = []
+    if docname and line_items and frappe.db.exists("Procurement Orders", docname):
+        po_items_out = _po_items_for_match(docname)
+        if po_items_out:
+            line_match = match_invoice_lines_to_po(
+                line_items,
+                po_items_out,
+                residue_mapper=lambda rl, cp: gemini_map_residue(rl, cp, settings),
+            )
+
     return {
         "invoice_no": invoice_no if invoice_no_conf >= MIN_CONFIDENCE else "",
         "invoice_date": normalize_date(invoice_date) if invoice_date_conf >= MIN_CONFIDENCE else "",
@@ -131,10 +158,38 @@ def extract_invoice_fields(file_url):
             "net_amount": round(net_amount_conf, 3),
         },
         "entities": all_entities,
+        "line_items": line_items,
+        "line_item_validation": line_item_validation,
+        "line_match": line_match,
+        "po_items": po_items_out,
         "min_confidence": MIN_CONFIDENCE,
         "processor_id": settings.get("gemini_model"),
         "validation": validation,
     }
+
+
+def _po_items_for_match(po_name):
+    """The PO's item rows, shaped for matching + the frontend correction dropdown.
+
+    Reads via the parent doc (get_doc) rather than get_all on the child table:
+    `Purchase Order Item` is an istable child with no DocPerm, so a direct child
+    read raises PermissionError for non-admin autofill users — but the parent PO
+    read respects the access the invoicing user already has. (Same approach as
+    api/procurement_orders.generate_po_summary.)
+    """
+    po = frappe.get_doc("Procurement Orders", po_name)
+    return [
+        {
+            "item_id": it.item_id,
+            "item_name": it.item_name,
+            "unit": it.unit,
+            "quantity": it.quantity,
+            "received_quantity": it.received_quantity,
+            "quote": it.quote,
+            "amount": it.amount,
+        }
+        for it in (po.items or [])
+    ]
 
 
 def _build_validation(

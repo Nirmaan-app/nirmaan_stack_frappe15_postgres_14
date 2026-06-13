@@ -20,6 +20,7 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "date-fns";
+import { MappingTableView } from "@/pages/ProcurementOrders/invoices-and-dcs/components/MappingTableView";
 
 /**
  * Robust amount parser. The shared `parseNumber` util uses bare `parseFloat`,
@@ -138,6 +139,16 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
         vendorId,
         vendorId ? `Approve-Compare-Vendor-${vendorId}` : null
     );
+
+    // The invoice prop comes from a list fetch (no child tables). Pull the full
+    // doc to get the verified line_mappings — only for autofilled PO invoices.
+    const wantMapping = isPO && !!invoice.autofill_used && !!invoice.name;
+    const { data: fullInvoice } = useFrappeGetDoc<VendorInvoice>(
+        "Vendor Invoices",
+        invoice.name,
+        wantMapping ? `Approve-Compare-Mapping-${invoice.name}` : null
+    );
+    const lineMappings = fullInvoice?.line_mappings ?? invoice.line_mappings ?? [];
 
     const entities = useMemo(
         () => parseEntities(invoice.autofill_all_entities_json),
@@ -315,6 +326,16 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
             {!usedAutofill && (
                 <div className="text-[11px] text-gray-500 italic px-1">
                     This invoice was entered manually — no AI extraction available to compare.
+                </div>
+            )}
+
+            {/* Verified line-item → PO-item mapping (decision-support for the approver). */}
+            {lineMappings.length > 0 && (
+                <div className="pt-1">
+                    <MappingTableView
+                        lines={lineMappings}
+                        title="Line-item mapping (verified at upload)"
+                    />
                 </div>
             )}
 

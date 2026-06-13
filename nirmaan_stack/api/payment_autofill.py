@@ -57,7 +57,8 @@ def extract_payment_fields(file_url):
     if not content:
         frappe.throw("Could not read file content.")
 
-    _, entities = extract(content, file_ext, settings, doc_kind="payment")
+    # Payment receipts have no line-item table — the third return value is always [].
+    _, entities, _ = extract(content, file_ext, settings, doc_kind="payment")
 
     utr, utr_conf = pick_entity(entities, UTR_KEYS)
     payment_date, payment_date_conf = pick_entity(entities, PAYMENT_DATE_KEYS, prefer_normalized=True)

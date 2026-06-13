@@ -51,6 +51,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LineItemMappingReview, LineMatch } from "./LineItemMappingReview";
 
 type DocumentType = ProcurementOrder | ServiceRequests;
 
@@ -107,7 +108,7 @@ export function InvoiceDialog<T extends DocumentType>({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Autofill state
-  const [stage, setStage] = useState<"upload" | "form">("upload");
+  const [stage, setStage] = useState<"upload" | "review" | "form">("upload");
   const [isAutofilling, setIsAutofilling] = useState(false);
   const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount">>(new Set());
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
@@ -135,6 +136,11 @@ export function InvoiceDialog<T extends DocumentType>({
     supplier_gstin?: { extracted: string; expected: string; match: boolean | null; message: string | null } | null;
     receiver_gstin?: { extracted: string; expected: string; match: boolean | null; message: string | null } | null;
   } | null>(null);
+  // Line-item extraction + PO mapping (PO invoices with a line-item table only).
+  const [lineItems, setLineItems] = useState<any[] | null>(null);
+  const [poItemsForMatch, setPoItemsForMatch] = useState<any[] | null>(null);
+  const [lineMatch, setLineMatch] = useState<LineMatch | null>(null);
+  const [rawExtraction, setRawExtraction] = useState<any | null>(null);
 
   // API hooks
   const { call: updateInvoiceApiCall, loading: updateInvoiceApiCallLoading } =
@@ -180,6 +186,10 @@ export function InvoiceDialog<T extends DocumentType>({
       setAutofillExtractedValues(null);
       setAutofillAllEntities(null);
       setAutofillValidation(null);
+      setLineItems(null);
+      setPoItemsForMatch(null);
+      setLineMatch(null);
+      setRawExtraction(null);
     }
   }, [isOpen, selectedInvoice]);
 
@@ -191,6 +201,10 @@ export function InvoiceDialog<T extends DocumentType>({
     setAutofillExtractedValues(null);
     setAutofillAllEntities(null);
     setAutofillValidation(null);
+    setLineItems(null);
+    setPoItemsForMatch(null);
+    setLineMatch(null);
+    setRawExtraction(null);
   }, [selectedAttachment]);
 
   // Handle closing manually to clear selectedInvoice
@@ -293,7 +307,11 @@ export function InvoiceDialog<T extends DocumentType>({
       const fileUrl = uploaded.file_url;
       setUploadedFileUrl(fileUrl);
 
-      const response = await extractInvoiceFieldsApi({ file_url: fileUrl });
+      const response = await extractInvoiceFieldsApi({
+        file_url: fileUrl,
+        // PO invoices get line-item extraction + PO mapping; SR invoices don't.
+        docname: docType === "Procurement Orders" ? docName : undefined,
+      });
       const extracted = response?.message;
       if (!extracted) {
         toast({
@@ -301,6 +319,7 @@ export function InvoiceDialog<T extends DocumentType>({
           description: "AI could not extract any fields. Please fill in manually.",
           variant: "default",
         });
+        setStage("form");
         return;
       }
 
@@ -352,6 +371,16 @@ export function InvoiceDialog<T extends DocumentType>({
         setAutofillValidation(extracted.validation);
       }
 
+      // Capture line items + the PO mapping (PO invoices only). When present we
+      // route through a dedicated Review step so the user can verify/correct the
+      // mapping before the final form.
+      setRawExtraction(extracted);
+      const hasLineItems = Array.isArray(extracted.line_items) && extracted.line_items.length > 0;
+      if (hasLineItems) setLineItems(extracted.line_items);
+      if (Array.isArray(extracted.po_items)) setPoItemsForMatch(extracted.po_items);
+      const hasMapping = !!extracted.line_match && Array.isArray(extracted.line_match.mappings);
+      if (hasMapping) setLineMatch(extracted.line_match);
+
       if (filled.size === 0) {
         toast({
           title: "No high-confidence fields found",
@@ -365,6 +394,9 @@ export function InvoiceDialog<T extends DocumentType>({
           variant: "success",
         });
       }
+      // When there's a PO mapping to verify, stop at the Review step; otherwise
+      // (SR invoice / no line items) go straight to the form as before.
+      setStage(hasMapping ? "review" : "form");
     } catch (error) {
       console.error("Auto-fill error:", error);
       toast({
@@ -375,11 +407,9 @@ export function InvoiceDialog<T extends DocumentType>({
             : "Could not extract fields from invoice. Please fill in manually.",
         variant: "destructive",
       });
+      setStage("form");
     } finally {
       setIsAutofilling(false);
-      // Advance to the form stage regardless of success/failure — user can
-      // always edit fields manually if extraction misses anything.
-      setStage("form");
     }
   }, [docName, docType, upload, extractInvoiceFieldsApi]);
 
@@ -453,6 +483,13 @@ export function InvoiceDialog<T extends DocumentType>({
           autofillUsed && autofillAllEntities && autofillAllEntities.length > 0
             ? JSON.stringify(autofillAllEntities)
             : null,
+        // Line items + the user-VERIFIED PO mapping (the corrected lineMatch).
+        autofill_line_items_json:
+          autofillUsed && lineItems && lineItems.length > 0
+            ? JSON.stringify(lineItems)
+            : null,
+        autofill_line_match_json:
+          autofillUsed && lineMatch ? JSON.stringify(lineMatch) : null,
         // Source file_url AI extracted from. Backend's auto-approve gate 13
         // confirms the saved invoice_attachment maps to the same file (no swap
         // between auto-fill and submit).
@@ -640,7 +677,7 @@ export function InvoiceDialog<T extends DocumentType>({
         open={isOpen}
         onOpenChange={(open) => !open && !isLoading && !isAutofilling ? handleClose() : undefined}
       >
-        <AlertDialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+        <AlertDialogContent className={cn("p-0 gap-0 overflow-hidden", stage === "review" ? "max-w-3xl" : "max-w-lg")}>
           {/* Header */}
           <div className="bg-gray-50/80 px-6 py-4 border-b">
             <AlertDialogHeader className="space-y-1">
@@ -706,8 +743,28 @@ export function InvoiceDialog<T extends DocumentType>({
                 </div>
               )}
             </div>
+          ) : stage === "review" && lineMatch ? (
+            // ───────── Stage 2: Review extraction + verify PO mapping ─────────
+            <>
+              <div className="px-6 py-4 max-h-[65vh] overflow-y-auto">
+                <LineItemMappingReview
+                  extracted={rawExtraction}
+                  poItems={poItemsForMatch || []}
+                  lineMatch={lineMatch}
+                  onChange={setLineMatch}
+                />
+              </div>
+              <div className="bg-gray-50/80 px-6 py-4 border-t flex items-center justify-between gap-3">
+                <Button variant="outline" onClick={() => setStage("upload")}>
+                  Back
+                </Button>
+                <Button onClick={() => setStage("form")}>
+                  Looks good — continue
+                </Button>
+              </div>
+            </>
           ) : (
-            // ───────── Stage 2: Form (prefilled if autofill ran) ─────────
+            // ───────── Stage 3: Form (prefilled if autofill ran) ─────────
             <>
           <div className="px-6 py-5 space-y-4">
             {!isEditMode && autofilledFields.size > 0 && (

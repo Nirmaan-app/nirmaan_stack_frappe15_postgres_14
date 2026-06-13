@@ -35,6 +35,8 @@ def update_invoice_data(
     autofill_extracted_supplier_gstin: str = None,
     autofill_extracted_receiver_gstin: str = None,
     autofill_all_entities_json: str = None,
+    autofill_line_items_json: str = None,
+    autofill_line_match_json: str = None,
     autofill_source_file_url: str = None,
 ):
     """
@@ -168,6 +170,8 @@ def update_invoice_data(
                     autofill_extracted_supplier_gstin=autofill_extracted_supplier_gstin,
                     autofill_extracted_receiver_gstin=autofill_extracted_receiver_gstin,
                     autofill_all_entities_json=autofill_all_entities_json,
+                    autofill_line_items_json=autofill_line_items_json,
+                    autofill_line_match_json=autofill_line_match_json,
                 )
 
                 # Auto-approve evaluation. Fires inline on fresh inserts (never
@@ -262,6 +266,76 @@ def create_attachment_doc(parent_doc: Document, file_url: str, attachment_type: 
     return attachment
 
 
+# Maps the frontend lineMatch vocabulary to the child-table Select options.
+_STATUS_MAP = {"matched": "Matched", "unmatched": "Unmatched", "non_item": "Non-Item"}
+_SOURCE_MAP = {"fuzzy": "Fuzzy", "gemini": "AI", "manual": "Manual"}
+
+
+def _num(v):
+    """Coerce to float; None/blank/non-numeric → None (so Currency/Float stay empty)."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_line_mapping_rows(autofill_line_match_json, parent_doc) -> list:
+    """Convert the user-VERIFIED lineMatch JSON into Vendor Invoice Line child rows.
+
+    The mapping targets a PO *row* (po_row index), and item_id can repeat across
+    makes — so we resolve po_row → the exact `Purchase Order Item.name` against the
+    live PO, and re-read po_item_id/po_item_name from the PO (authoritative, in case
+    the frontend payload was stale). Returns [] for non-PO parents or unparseable input.
+    """
+    if not autofill_line_match_json or parent_doc.doctype != "Procurement Orders":
+        return []
+    try:
+        data = json.loads(autofill_line_match_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    mappings = (data or {}).get("mappings") or []
+    if not isinstance(mappings, list):
+        return []
+
+    po_items = parent_doc.get("items") or []
+    rows = []
+    for m in mappings:
+        if not isinstance(m, dict):
+            continue
+        status = _STATUS_MAP.get((m.get("status") or "").lower(), "Unmatched")
+        source = _SOURCE_MAP.get((m.get("source") or "").lower(), "")
+
+        po_item_id = m.get("po_item_id")
+        po_item_name = m.get("po_item_name")
+        po_item_row = None
+        po_row = m.get("po_row")
+        if status == "Matched" and isinstance(po_row, int) and 0 <= po_row < len(po_items):
+            po = po_items[po_row]
+            po_item_row = po.name
+            po_item_id = po.get("item_id") or po_item_id
+            po_item_name = po.get("item_name") or po_item_name
+
+        over = m.get("over_billing") or {}
+        rows.append({
+            "description": m.get("description"),
+            "uom": m.get("unit"),
+            "quantity": _num(m.get("quantity")),
+            "rate": _num(m.get("rate")),
+            "amount": _num(m.get("amount")),
+            "tax_rate": _num(m.get("tax_rate")),
+            "match_status": status,
+            "match_source": source,
+            "match_score": _num(m.get("score")),
+            "po_item_id": po_item_id if status == "Matched" else None,
+            "po_item_row": po_item_row,
+            "po_item_name": po_item_name if status == "Matched" else None,
+            "is_over_billed": 1 if (status == "Matched" and over.get("would_exceed")) else 0,
+        })
+    return rows
+
+
 def create_vendor_invoice(
     parent_doc: Document,
     invoice_data: dict,
@@ -275,6 +349,8 @@ def create_vendor_invoice(
     autofill_extracted_supplier_gstin: Optional[str] = None,
     autofill_extracted_receiver_gstin: Optional[str] = None,
     autofill_all_entities_json: Optional[str] = None,
+    autofill_line_items_json: Optional[str] = None,
+    autofill_line_match_json: Optional[str] = None,
 ) -> Document:
     """
     Creates a new Vendor Invoices document.
@@ -304,6 +380,13 @@ def create_vendor_invoice(
         if frappe.db.exists("Nirmaan Users", current_user):
             uploaded_by = current_user
 
+    # Verified mapping → queryable child rows (the source of truth for
+    # item-level billing aggregation). JSON fields above stay as audit snapshots.
+    line_mapping_rows = (
+        build_line_mapping_rows(autofill_line_match_json, parent_doc)
+        if autofill_used else []
+    )
+
     invoice = frappe.new_doc("Vendor Invoices")
     invoice.update({
         "document_type": parent_doc.doctype,
@@ -325,6 +408,9 @@ def create_vendor_invoice(
         "autofill_extracted_supplier_gstin": autofill_extracted_supplier_gstin if autofill_used else None,
         "autofill_extracted_receiver_gstin": autofill_extracted_receiver_gstin if autofill_used else None,
         "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
+        "autofill_line_items_json": autofill_line_items_json if autofill_used else None,
+        "autofill_line_match_json": autofill_line_match_json if autofill_used else None,
+        "line_mappings": line_mapping_rows,
     })
     invoice.insert(ignore_permissions=True)
 
