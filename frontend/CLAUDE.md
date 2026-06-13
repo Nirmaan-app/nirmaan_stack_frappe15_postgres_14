@@ -317,7 +317,38 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-13 -- Field-set rationalisation Slice 2a -- amount per-area SYMMETRIC with rate (READ path) COMPLETE -- BACKEND + FRONTEND, feat 33ec8361):**
+**Status (2026-06-14 -- Field-set rationalisation Slice 2b -- per-area amount EDIT path made NESTED COMPLETE -- BACKEND (+ frontend comment), feat ad99ebf7):**
+The second half of the amount field-set work. Slice 2a shipped per-area amount STORED nested
+`{area: {supply, install, total}}` on the read path but left the EDIT path FLAT, so a per-area amount edit
+CORRUPTED data (the backend discarded the subkey and did a flat one-hop write, clobbering the area's whole
+nested dict). 2b makes the amount edit path NESTED two-hop, mirroring rate. **This is a NEAR-PURE BACKEND
+change (`review_screen.py`); the FRONTEND change is COMMENT-ONLY.** The reason: the frontend per-area edit path
+is ALREADY generic over the descriptor -- `editableAreaDescriptors` includes amount, `openAreaConfirm`/
+`confirmValueSave` forward `d.area` + `d.rate_subkey` (and for amount the descriptor's `rate_subkey` already
+carries the amount kind supply/install/total -- 2a's generic-third-hop decision), the seed loop +
+`resolveDescriptorValue` already walk the nested value. So `EDITABLE_AREA_FIELDS`, the edit cell, the handlers,
+the payload, and the value walk are ALL UNCHANGED. The ONLY frontend edit is the stale `ReviewTree.tsx:~300`
+comment (`EDITABLE_AREA_FIELDS`), corrected to state amount is nested two-hop (the inner kind rides the generic
+`rate_subkey` slot). BACKEND (root CLAUDE.md has full detail): `amount_by_area` moved into `_NESTED_AREA_FIELDS`;
+the write does a two-hop `amount_by_area[area][kind]` set that leaves the area's other kinds + other areas intact;
+validation requires + validates an amount subkey against `_LEGAL_AMOUNT_SUBKEYS` = {supply, install, total}.
+**DECISIONS (owner-locked): C2/C3 = Option A** -- reuse the generic `rate_subkey` plumbing + edit-log key for
+amount (NO `amount_subkey`, NO new descriptor hop, NO frontend remap); accepted Phase-4 naming debt. **C4 =
+accept staleness** -- the row scalar `amount_total` is NOT recomputed after a per-area edit (matches rate;
+calculations live in the future tendering module). The staleness USER-MESSAGE banner is a DEFERRED separate
+frontend slice (NOT here). The provenance "Edit history" panel renders `(entry.area / entry.rate_subkey)`
+generically, so an amount edit shows "(Zone A / total)" with NO render change; `EditLogEntry` type UNCHANGED.
+tsc 0 NEW wizard-file errors (comment-only change; filtered `ReviewTree|boqTypes|boq-wizard|SheetConfigPanel`
+-> empty, 3177 baseline) + in-container Vite build exit 0 (`Done in 377.99s`, PWA 168 entries). No Frappe unit
+tests on the frontend; backend test_review_screen 152 -> 154 (the B2 anti-corruption proof
+`test_amount_by_area_sets_one_subkey_others_intact` + 2 reject tests), parser 597 / test_parse_run 86 /
+test_update_sheet_draft 82 unchanged. Live-cert pending Nitesh: on a multi-area row (BOQ-26-00166 or the
+-00165-derived sheet) edit a per-area SUPPLY (or INSTALL) amount -> ONLY that kind+area changes, the area's
+other kinds + the other areas are intact, value persists on reload; the row's scalar total does NOT recompute
+(EXPECTED accepted staleness, NOT a bug). KNOWN DEBT: `rate_subkey` naming misnomer (Phase-4) + accepted total
+staleness (banner = later slice). Job-7 note still applies for sheets whose config predates the 2a rename.
+
+// prior: **Status (2026-06-13 -- Field-set rationalisation Slice 2a -- amount per-area SYMMETRIC with rate (READ path) COMPLETE -- BACKEND + FRONTEND, feat 33ec8361):**
 Made AMOUNT symmetric with RATE on the per-area READ path (extraction + storage + DISPLAY). The per-area
 amount EDIT path is Slice 2b and was NOT touched -- `EDITABLE_AREA_FIELDS` (`ReviewTree.tsx:304`) still lists
 the storage field `amount_by_area` and the per-area edit gating is unchanged; `resolveDescriptorValue` is

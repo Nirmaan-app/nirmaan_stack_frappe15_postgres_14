@@ -16,7 +16,35 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Field-set rationalisation Slice 2a -- amount per-area SYMMETRIC with rate, READ path (BACKEND +
+LATEST: Field-set rationalisation Slice 2b -- per-area amount EDIT path made NESTED (BACKEND + frontend
+comment, feat ad99ebf7, 2026-06-14). Slice 2a shipped per-area amount STORED nested {area: {supply, install,
+total}} on the READ path but left the EDIT path FLAT, so a per-area amount edit CORRUPTED data (backend
+discarded the subkey + did a flat one-hop write `current[area]=float`, clobbering the area's nested dict). 2b
+makes the amount edit path NESTED two-hop, mirroring rate. NEAR-PURE BACKEND (review_screen.py); frontend is
+COMMENT-ONLY because the edit path is already generic over the descriptor (the frontend sends the amount kind
+in the rate_subkey slot -- 2a's decision). BACKEND: amount_by_area moved OUT of _FLAT_AREA_FIELDS (now
+{qty_by_area}) INTO _NESTED_AREA_FIELDS={rate_by_area, amount_by_area}; _apply_and_save_row_edit write branch
+keys on `field in _NESTED_AREA_FIELDS` -> two-hop amount_by_area[area][kind] write (sets ONE kind, leaves the
+area's other kinds + other areas intact = the B2 anti-corruption guarantee), one-hop only for qty; validation
+requires + validates a subkey for amount against _LEGAL_AMOUNT_SUBKEYS={supply,install,total} via a per-field
+_NESTED_FIELD_LEGAL_SUBKEYS map. DECISIONS (owner-locked): C2/C3 = Option A -- reuse the generic rate_subkey
+wire param + edit-log key for amount (NO amount_subkey, NO new descriptor hop, NO frontend remap); rate_subkey
+carrying amount kinds is accepted Phase-4 naming debt. C4 = ACCEPT STALENESS -- the row scalar amount_total is
+NOT recomputed after a per-area edit (matches rate; calcs live in the future tendering module; the 2a
+derivation rule stays parse-time only -- NO recompute-on-edit added). The staleness USER-MESSAGE banner is a
+DEFERRED separate frontend slice. FRONTEND: only the stale ReviewTree.tsx:~300 EDITABLE_AREA_FIELDS comment
+corrected (amount is nested now); edit cell / openAreaConfirm / confirmValueSave / seed / resolveDescriptorValue
+all already generic, unchanged. edit_log entry for an amount edit carries field=amount_by_area + area +
+rate_subkey=<amount kind>; provenance panel renders it generically ("(Zone A / total)"), no type/render change.
+Tests: test_review_screen 152 -> 154 (fixture amount seed -> nested; the two flat amount edit tests reworked to
+nested -- test_amount_by_area_sets_one_subkey_others_intact is the B2 anti-corruption proof; +2 reject tests:
+amount edit with NO subkey, and an illegal amount subkey using a legal RATE kind 'combined_rate' to prove
+per-field selection). Parser 597 / test_parse_run 86 / test_update_sheet_draft 82 unchanged (no parser code
+touched). tsc 0 new wizard errors; Vite build exit 0. Owner live-cert: edit a per-area supply/install amount on
+a multi-area row (BOQ-26-00166) -> only that kind+area changes, other kinds/areas intact, persists on reload;
+the scalar total does NOT recompute (EXPECTED accepted staleness). KNOWN DEBT: rate_subkey naming (Phase-4) +
+accepted total staleness (banner = later slice). Prior latest:
+Field-set rationalisation Slice 2a -- amount per-area SYMMETRIC with rate, READ path (BACKEND +
 FRONTEND, feat 33ec8361, 2026-06-13). Made AMOUNT symmetric with RATE on the per-area READ path (extraction
 + storage + DISPLAY); the per-area amount EDIT path is deferred to Slice 2b and was NOT touched. ROLES: ADDED
 `amount_supply_by_area`/`amount_install_by_area`/`amount_total_by_area` (area-required, area-compatible --
