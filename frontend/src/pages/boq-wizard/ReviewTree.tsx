@@ -532,8 +532,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
     const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
+    // append-to-notes-as-columns: the mapped append-columns, already in Excel-letter
+    // order (the backend :649 sort). These ALSO render in-position as ordinary
+    // descriptor columns (they're in displayDescriptors); this subset additionally
+    // feeds the combined "Append Notes" column pinned LAST. Independent of visibleCols
+    // (the combined column always aggregates every append value).
+    const appendDescriptors = displayDescriptors.filter(d => d.role === "append_to_notes");
     const slNoLetter = columnDescriptors.find(d => d.role === "sl_no")?.col ?? null;
     const descriptionLetter = columnDescriptors.find(d => d.role === "description")?.col ?? null;
     const areas = [
@@ -557,6 +563,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     );
     return {
       displayDescriptors,
+      appendDescriptors,
       slNoLetter,
       descriptionLetter,
       areaColorMap: buildAreaColorMap(areas),
@@ -565,6 +572,28 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       editableAreaDescriptors,
     };
   }, [columnDescriptors]);
+
+  // append-to-notes-as-columns: render the combined "Append Notes" column only when
+  // the sheet actually maps append-columns (no empty trailing column otherwise).
+  const hasAppendCombined = appendDescriptors.length > 0;
+
+  // append-to-notes-as-columns: build the combined-cell string for one row -- every
+  // non-empty append value, in Excel-letter order, as "<header-else-letter>: <value>"
+  // joined by " | ". The prefix is the descriptor's value_key (= column_headers.get
+  // (col, col), the SAME header-else-letter key the parser stored), so it reads
+  // human-friendly when headers are mapped and falls back to the letter otherwise.
+  // Numeric-looking note strings are NOT coerced. Empty -> "" (blank cell).
+  const buildAppendCombined = (row: ReviewRow): string => {
+    const parts: string[] = [];
+    for (const d of appendDescriptors) {
+      const v = resolveDescriptorValue(row, d);
+      if (v === null || v === undefined) continue;
+      const s = String(v);
+      if (s.trim() === "") continue;
+      parts.push(`${d.value_key ?? d.col}: ${s}`);
+    }
+    return parts.join(" | ");
+  };
 
   // B1.1b-ii FEAT A: visible descriptor columns.
   // Lazy-initialized to all descriptor cols on mount; re-synced via useEffect when
@@ -1249,6 +1278,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                   </th>
                 );
               })}
+              {/* append-to-notes-as-columns: combined "Append Notes" column PINNED LAST.
+                  A hand-written trailing anchor (NOT a descriptor -- forcing last via a
+                  descriptor would fight the Excel-letter sort). Shown only when the sheet
+                  maps append-columns. NOT in the column-subset selector. */}
+              {hasAppendCombined && (
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[180px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  Append Notes
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -1287,8 +1325,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
               const remarkMarkerShown = hasRemark;
               // B2c: colSpan for flag-reasons + detail panel rows -- 7 fixed anchors (incl. expander, Status).
+              // append-to-notes-as-columns: +1 when the combined "Append Notes" column is shown.
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 7 + visibleDescriptorCount;
+              const totalCols = 7 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
 
@@ -1505,6 +1544,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                         </td>
                       );
                     })}
+                    {/* append-to-notes-as-columns: combined "Append Notes" cell (LAST).
+                        Read-only text blob; left-aligned + wrapping (unlike the numeric
+                        descriptor cells). Blank when the row has no append values. */}
+                    {hasAppendCombined && (
+                      <td className="px-2 py-1.5 align-top text-left border-l border-border text-muted-foreground break-words min-w-[180px]">
+                        {buildAppendCombined(row)}
+                      </td>
+                    )}
                   </tr>
 
                   {/* B2a-fix OBS-1: flag-reasons reveal row -- single-open or show-all */}

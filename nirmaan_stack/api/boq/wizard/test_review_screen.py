@@ -1636,11 +1636,11 @@ _COLUMN_DESCRIPTORS_SHEET_CONFIG = {
         "G": {"role": "qty", "area": "Area2"},
         "H": {"role": "rate_combined_by_area", "area": "Area2"},
         "I": {"role": "amount_total_by_area", "area": "Area2"},
-        "J": {"role": "append_to_notes", "area": None},   # non-display
+        "J": {"role": "append_to_notes", "area": None},   # DISPLAYS now (in-position)
         "K": {"role": "ignore", "area": None},             # non-display
     },
 }
-_EXPECTED_DISPLAY_COUNT = 9   # 11 mapped - 2 non-display
+_EXPECTED_DISPLAY_COUNT = 10   # 11 mapped - 1 non-display (ignore); append_to_notes now displays
 
 
 class TestBuildColumnDescriptors(unittest.TestCase):
@@ -1652,16 +1652,63 @@ class TestBuildColumnDescriptors(unittest.TestCase):
         self.assertEqual(_build_column_descriptors({"column_role_map": {}}), [])
 
     def test_non_display_roles_excluded(self):
+        # append-to-notes-as-columns: append_to_notes now DISPLAYS (in-position column);
+        # only ignore / reference_images remain non-display.
         descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
         roles = [d["role"] for d in descs]
-        self.assertNotIn("append_to_notes", roles)
+        self.assertIn("append_to_notes", roles)
         self.assertNotIn("ignore", roles)
+
+    def test_ignore_and_reference_images_still_excluded(self):
+        """Control: the two remaining non-display roles are still dropped."""
+        cfg = {
+            "column_role_map": {
+                "A": {"role": "description", "area": None},
+                "B": {"role": "ignore", "area": None},
+                "C": {"role": "reference_images", "area": None},
+                "D": {"role": "append_to_notes", "area": None},
+            }
+        }
+        roles = [d["role"] for d in _build_column_descriptors(cfg)]
+        self.assertNotIn("ignore", roles)
+        self.assertNotIn("reference_images", roles)
+        self.assertIn("append_to_notes", roles)
+        self.assertIn("description", roles)
+
+    def test_append_to_notes_descriptor_shape_letter_fallback(self):
+        """No column_headers -> value_key falls back to the Excel letter (the parser's
+        column_headers.get(col, col) rule). value_field is the storage dict; one-hop."""
+        descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
+        j_desc = next(d for d in descs if d["col"] == "J")
+        self.assertEqual(j_desc["role"], "append_to_notes")
+        self.assertEqual(j_desc["value_field"], "append_notes_raw")
+        self.assertEqual(j_desc["value_key"], "J")   # letter fallback (no column_headers)
+        self.assertIsNone(j_desc["area"])
+        self.assertIsNone(j_desc["rate_subkey"])
+
+    def test_append_to_notes_value_key_uses_header_when_mapped(self):
+        """column_headers maps the letter -> value_key is the header text, matching the
+        parser-stored append_notes_raw key (header-else-letter)."""
+        cfg = {
+            "column_headers": {"J": "Remarks", "K": "Make"},
+            "column_role_map": {
+                "J": {"role": "append_to_notes", "area": None},
+                "K": {"role": "append_to_notes", "area": None},
+                "L": {"role": "append_to_notes", "area": None},   # not in column_headers
+            },
+        }
+        descs = _build_column_descriptors(cfg)
+        by_col = {d["col"]: d for d in descs}
+        self.assertEqual(by_col["J"]["value_key"], "Remarks")
+        self.assertEqual(by_col["K"]["value_key"], "Make")
+        self.assertEqual(by_col["L"]["value_key"], "L")   # absent in column_headers -> letter
 
     def test_count_and_excel_order(self):
         descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
         self.assertEqual(len(descs), _EXPECTED_DISPLAY_COUNT)
         cols = [d["col"] for d in descs]
-        self.assertEqual(cols, ["A", "B", "C", "D", "E", "F", "G", "H", "I"])
+        # append_to_notes (J) now interleaves in Excel position; only ignore (K) dropped.
+        self.assertEqual(cols, ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
 
     def test_singleton_descriptor_shape(self):
         descs = _build_column_descriptors(_COLUMN_DESCRIPTORS_SHEET_CONFIG)
@@ -1775,7 +1822,7 @@ class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
         descs = result["column_descriptors"]
         self.assertEqual(len(descs), _EXPECTED_DISPLAY_COUNT)
         self.assertEqual([d["col"] for d in descs],
-                         ["A", "B", "C", "D", "E", "F", "G", "H", "I"])
+                         ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
         e_desc = next(d for d in descs if d["col"] == "E")
         self.assertEqual(e_desc["value_field"], "rate_by_area")
         self.assertEqual(e_desc["value_key"], "Area1")
@@ -1785,12 +1832,29 @@ class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
         self.assertIsNone(a_desc["value_key"])
         self.assertIsNone(a_desc["rate_subkey"])
 
-    def test_non_display_roles_excluded_from_endpoint(self):
-        """append_to_notes and ignore must not appear in column_descriptors from the endpoint."""
+    def test_append_displays_ignore_excluded_from_endpoint(self):
+        """append-to-notes-as-columns: append_to_notes now appears in column_descriptors
+        from the endpoint (in-position); ignore is still excluded."""
         result = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
-        roles = [d["role"] for d in result["column_descriptors"]]
-        self.assertNotIn("append_to_notes", roles)
+        descs = result["column_descriptors"]
+        roles = [d["role"] for d in descs]
+        self.assertIn("append_to_notes", roles)
         self.assertNotIn("ignore", roles)
+        j_desc = next(d for d in descs if d["col"] == "J")
+        self.assertEqual(j_desc["value_field"], "append_notes_raw")
+        self.assertEqual(j_desc["value_key"], "J")
+        self.assertIsNone(j_desc["rate_subkey"])
+
+    def test_append_notes_raw_shipped_parsed(self):
+        """Regression: get_review_rows still ships append_notes_raw as a parsed object
+        (a dict) on every row, never a raw JSON string."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
+        for r in result["rows"]:
+            self.assertIn("append_notes_raw", r)
+            self.assertTrue(
+                r["append_notes_raw"] is None or isinstance(r["append_notes_raw"], dict),
+                f"append_notes_raw must be dict|None, got {type(r['append_notes_raw'])}",
+            )
 
     def test_no_sheet_config_returns_empty_descriptors(self):
         """Sheet with no sheet_config must return column_descriptors: []."""

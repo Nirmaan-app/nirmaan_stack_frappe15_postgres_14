@@ -139,7 +139,11 @@ _JSON_DICT_FIELDS: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 # Roles that produce no direct display column in the review screen.
-_NON_DISPLAY_ROLES: frozenset[str] = frozenset({"append_to_notes", "ignore", "reference_images"})
+# NOTE (append-to-notes-as-columns slice): `append_to_notes` was REMOVED from this
+# set -- it now emits one display column per mapped append-column (in original Excel
+# position) via the explicit branch in _build_column_descriptors. `ignore` and
+# `reference_images` stay non-display.
+_NON_DISPLAY_ROLES: frozenset[str] = frozenset({"ignore", "reference_images"})
 
 # Maps singleton (non-by-area) ColumnRoles to their BoQ Review Row field names.
 _SINGLETON_ROLE_TO_FIELD: dict[str, str] = {
@@ -594,6 +598,13 @@ def _build_column_descriptors(sheet_config: dict | None) -> list:
     if not column_role_map:
         return []
 
+    # Letter -> human header label (may be absent/empty). The parser keys
+    # append_notes_raw via column_headers.get(col_letter, col_letter) -- header text
+    # when mapped, else the bare Excel letter (classifier.py). A per-area-append
+    # descriptor must use the SAME resolution for its value_key so the frontend
+    # resolveDescriptorValue walk (row["append_notes_raw"][value_key]) finds the value.
+    column_headers = sheet_config.get("column_headers") or {}
+
     descriptors = []
     for col, entry in column_role_map.items():
         if not isinstance(entry, dict):
@@ -643,6 +654,22 @@ def _build_column_descriptors(sheet_config: dict | None) -> list:
                 "value_field": "rate_by_area",
                 "value_key": area,
                 "rate_subkey": _RATE_ROLE_TO_KIND[role],
+            })
+        elif role == "append_to_notes":
+            # Per-column captured note (append-to-notes-as-columns slice). One display
+            # column per mapped append-column, in original Excel position (the :649 sort
+            # interleaves it). value_field is the kept storage dict `append_notes_raw`;
+            # value_key is column_headers.get(col, col) -- the SAME header-else-letter
+            # key the parser used to store the note (classifier.py), so the one-hop
+            # frontend walk resolves it whether or not headers are mapped. area is null
+            # (append columns are never area-scoped). rate_subkey null (one-hop).
+            descriptors.append({
+                "col": col,
+                "role": role,
+                "area": None,
+                "value_field": "append_notes_raw",
+                "value_key": column_headers.get(col, col),
+                "rate_subkey": None,
             })
         # else: unknown role -- skip silently
 

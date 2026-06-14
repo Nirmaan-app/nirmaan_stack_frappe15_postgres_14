@@ -359,6 +359,16 @@ const SheetReviewPage = () => {
         </div>
       )}
 
+      {/* ── Staleness banner (always-on, no status gate) ──────────────────────
+          Per-area edits + restructure do NOT recompute the row scalar totals; those
+          are finalized post-commit by the tendering module. This static note sets that
+          expectation. Muted-strip pattern (matches the flag/remark strips below). */}
+      <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
+        <span>
+          Totals shown are as originally parsed. Final calculations happen after the BoQ is committed.
+        </span>
+      </div>
+
       {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
       {!reviewLoading && !reviewError && flagSummaryParts.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
