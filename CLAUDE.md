@@ -1,6 +1,39 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-11 (Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark
+**Last updated:** 2026-06-14 (BoQ upload multi-container fix COMPLETE -- BACKEND + FRONTEND, branch
+`boq-nitesh`: live-found on test.nirmaan.app -- the Upload BoQ flow hung on "Parsing..." forever and
+NEVER created a BOQs row. Diagnosed via chrome-devtools: upload POST 200 + job_id, RQ job "finished" in
+~0.75s with 0 failures + no Error Log, `Nirmaan Attachments` created but `associated_docname=null`,
+`BOQs` count 0. THREE root causes fixed. (1) CROSS-CONTAINER TEMPFILE [`api/boq/wizard/upload_file.py`]:
+`upload_file` wrote the upload bytes to a `NamedTemporaryFile` in the WEB container's /tmp and passed that
+path to `_upload_file_worker`, which runs in a SEPARATE RQ-worker container (both workers report pid:1) with
+NO shared /tmp -> `BoqReader(tempfile_path)` raised FileNotFoundError -> the worker's controlled "corrupted"
+early-return (no raise) -> RQ "finished", no BOQs doc. FIX: the worker now re-fetches the file from S3 by
+URL IN ITS OWN container via `_fetch_boq_file_to_tempfile(file_url)` (imported from `sheet_preview.py` -- the
+already-proven path, NOT copied); the endpoint no longer writes/passes a tempfile; worker signature is now
+`_upload_file_worker(project_id, file_url, file_name, user)`. A fetch failure now -> "internal" + raise
+(lands in Error Log + a FAILED job, diagnosable) vs the old silent "corrupted". Local devcontainer is ALSO
+S3-backed but single-container (shared /tmp), which is why it never reproduced in dev. (2) MISSED REALTIME
+EVENT [infinite spinner]: `boq:wizard_parse_done` is room-targeted + NOT replayed, so a client not yet
+joined when the fast worker emits (e.g. right after login) never hears it -> permanent "Parsing". FIX
+(poll fallback): NEW whitelisted `get_upload_status(job_id)` + a `_publish_and_record(payload, user)` helper
+that publishes (now `user=`-targeted) AND records the terminal outcome in Redis keyed by RQ job id
+(`frappe.cache().set_value`, 1h TTL, job id via `rq.get_current_job().id`; the Redis write is outside the DB
+txn so it SURVIVES the internal-branch rollback). All four terminal branches route through it. `get_upload_status`
+returns `{state:"pending"}` or `{state:"done", ...payload}`. `after_commit=True` deliberately NOT used (would
+swallow the internal-error event on rollback + does not fix the client-readiness race). (3) REACT #300
+[frontend `BoqPickerPage.tsx`]: `useFrappeGetDocList` was called AFTER the `if (preSelectedId) return
+<BoqUploadScreen/>` early-return; on the picker->Continue SPA transition the same instance re-renders with
+preSelectedId flipping ""->id, dropping the hook count -> "rendered fewer hooks than expected" (ErrorBoundary;
+SPA-nav ONLY, not direct load). FIX: hoisted the hook above the early-return with a null swrKey when
+preselected (no wasted fetch). FRONTEND also: `BoqUploadScreen.tsx` polls `get_upload_status` every 3s while
+`parsing` (swrKey null + refreshInterval 0 otherwise); a shared `applyParseOutcome` serves BOTH the socket
+fast-path and the poll backstop -- first to resolve wins. Verified: in-container import + S3 fetch+open on
+real data; `get_upload_status` pending/success/error + cache round-trip; tsc 3180->3180 (0 new); in-container
+`yarn build` exit 0 (`Done in 77.12s`, PWA 164 entries). No new Frappe unit tests (no existing upload_file
+tests; units verified by script). LIVE re-cert on test.nirmaan.app pending DEPLOY. Full detail in
+frontend/CLAUDE.md + boq-upload-plan.md.)
+// prior: Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark
 COMPLETE -- BACKEND + FRONTEND: a sheet at "Parsed Check Done" is FROZEN -- all four BoQ Review Row write
 endpoints (`save_review_edit`, `save_review_restructure`, `save_review_remark`, `dismiss_row_flags`) reject
 writes, enforced BACKEND + FRONTEND. BACKEND (review_screen.py): a shared `_get_sheet_wizard_status(boq,

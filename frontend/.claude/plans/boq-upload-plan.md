@@ -16,7 +16,36 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice D2b -- hub-level XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat
+LATEST: BoQ upload multi-container fix (2026-06-14, branch boq-nitesh, BACKEND + FRONTEND) -- live-found on
+test.nirmaan.app via chrome-devtools: the Upload BoQ flow hung on "Parsing..." forever and NEVER created a
+BOQs row (upload POST 200 + job_id, RQ job "finished" in ~0.75s with 0 failures + no Error Log, Nirmaan
+Attachments created with associated_docname=null, BOQs count 0). THREE root causes fixed. (1) CROSS-CONTAINER
+TEMPFILE (api/boq/wizard/upload_file.py): the endpoint wrote upload bytes to a NamedTemporaryFile in the WEB
+container's /tmp and passed that path to _upload_file_worker, which runs in a SEPARATE RQ-worker container
+(both workers pid:1, no shared /tmp) -> BoqReader(tempfile_path) FileNotFoundError -> the worker's controlled
+"corrupted" early-return (no raise) -> RQ "finished", no BOQs doc. FIX: the worker now re-fetches from S3 by
+URL in its OWN container via _fetch_boq_file_to_tempfile(file_url) (imported from sheet_preview.py, the proven
+path); endpoint no longer writes/passes a tempfile; worker sig now (project_id, file_url, file_name, user); a
+fetch failure -> "internal"+raise (Error Log + failed job) vs the old silent "corrupted". Local dev is ALSO
+S3-backed but single-container (shared /tmp) -- which is why it never reproduced in dev. (2) MISSED REALTIME
+EVENT (infinite spinner): boq:wizard_parse_done is room-targeted + NOT replayed; a client not yet joined when
+the fast worker emits (e.g. right after login) hangs forever. FIX: NEW whitelisted get_upload_status(job_id)
++ a _publish_and_record(payload, user) helper that publishes (now user-targeted) AND records the terminal
+outcome in Redis keyed by rq.get_current_job().id (1h TTL; outside the DB txn so it survives the internal-branch
+rollback); all four terminal branches route through it; frontend BoqUploadScreen.tsx polls get_upload_status
+every 3s while parsing (swrKey null + refreshInterval 0 otherwise; reads store jobId); a shared
+applyParseOutcome serves BOTH the socket fast-path and the poll backstop, first to resolve wins. after_commit=True
+deliberately NOT used (would swallow the internal-error event on rollback + does not fix the client-readiness
+race). (3) REACT #300 (frontend BoqPickerPage.tsx): useFrappeGetDocList was called AFTER the
+`if (preSelectedId) return <BoqUploadScreen/>` early-return -> on the picker->Continue SPA transition the same
+instance re-renders with preSelectedId flipping ""->id, dropping the hook count -> "rendered fewer hooks than
+expected" (ErrorBoundary; SPA-nav ONLY, not direct load). FIX: hoisted the hook above the early-return with a
+null swrKey when preselected (no wasted fetch). Verified: in-container import + S3 fetch+open on real data;
+get_upload_status pending/success/error + cache round-trip; tsc 3180->3180 (0 new); in-container yarn build
+exit 0 (Done in 77.12s, PWA 164 entries). No new Frappe unit tests (no existing upload_file tests; units
+verified by script). LIVE re-cert on test.nirmaan.app pending DEPLOY. Full as-built detail in root CLAUDE.md
++ frontend/CLAUDE.md. Prior latest:
+Slice D2b -- hub-level XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat
 91bf255d). A global "Export reviewed" button in the hub footer opens a selection modal of every "Parsed
 Check Done" sheet (all pre-ticked); confirming fetches each ticked sheet's rows SEQUENTIALLY via
 `get_review_rows` and builds ONE .xlsx workbook -- one TAB per sheet, always .xlsx even for one sheet,

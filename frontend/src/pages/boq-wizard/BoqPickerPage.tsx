@@ -33,19 +33,30 @@ const BoqPickerPage = () => {
     setSelectedProjectId(preSelectedId);
   }, [preSelectedId]);
 
+  // Project list for the picker. This hook MUST run unconditionally and BEFORE
+  // the preSelectedId early-return below (Rules of Hooks). On the picker -> Continue
+  // SPA transition the SAME BoqPickerPage instance re-renders with preSelectedId
+  // flipping "" -> id; a hook placed after the early return would change the hook
+  // count between renders (React error #300 "rendered fewer hooks than expected",
+  // caught by the ErrorBoundary). The swrKey is null when a project is preselected,
+  // which disables the fetch (sdk gotcha) so we never load a list we won't render.
+  const { data: projects, isLoading } = useFrappeGetDocList(
+    "Projects",
+    {
+      fields: ["name", "project_name"],
+      filters: [["status", "!=", "Tendering"]],
+      limit: 1000,
+      orderBy: { field: "project_name", order: "asc" },
+    },
+    preSelectedId ? null : undefined
+  );
+
   // When a project is in the URL, hand off to the upload screen in-place.
   // No routing change: the picker page owns both the picker UI and the upload
   // screen; the transition is driven by the ?project= query param.
   if (preSelectedId) {
     return <BoqUploadScreen projectId={preSelectedId} />;
   }
-
-  const { data: projects, isLoading } = useFrappeGetDocList("Projects", {
-    fields: ["name", "project_name"],
-    filters: [["status", "!=", "Tendering"]],
-    limit: 1000,
-    orderBy: { field: "project_name", order: "asc" },
-  });
 
   const handleContinue = () => {
     if (!selectedProjectId) return;

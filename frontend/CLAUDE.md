@@ -317,7 +317,27 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-12 -- Slice D2b hub XLSX workbook export + per-card CSV export COMPLETE -- FRONTEND + dep, feat 91bf255d):**
+**Status (2026-06-14 -- BoQ upload multi-container fix COMPLETE -- BACKEND + FRONTEND, branch boq-nitesh):**
+Live-found on test.nirmaan.app: the Upload BoQ flow hung on "Parsing..." forever and never created a BOQs row.
+Three root causes fixed; the FRONTEND half is two files. (1) `BoqPickerPage.tsx` -- React #300 ("rendered fewer
+hooks than expected"): `useFrappeGetDocList` sat AFTER the `if (preSelectedId) return <BoqUploadScreen/>`
+early-return, so on the picker->Continue SPA transition the SAME instance re-rendered with preSelectedId
+flipping ""->id and the hook count dropped (caught by the ErrorBoundary; reproduces on SPA-nav ONLY, never on a
+direct URL load -- first-render-truthy is a consistent hook count). FIX: hoisted the hook ABOVE the early-return
+with a `null` swrKey when a project is preselected (Rules of Hooks satisfied, no wasted fetch). (2)
+`BoqUploadScreen.tsx` -- missed-realtime-event poll fallback: `boq:wizard_parse_done` is room-targeted + NOT
+replayed, so a client not yet joined when the fast (~0.75s) worker emits (e.g. right after login) hangs on
+"parsing" forever. NEW backend `get_upload_status(job_id)` (see root CLAUDE.md) is polled every 3s via
+`useFrappeGetCall` while `uploadStatus === "parsing"` (swrKey null + refreshInterval 0 stop it otherwise; reads
+the store's `jobId`); a shared `applyParseOutcome(status, boqName, errorCode)` serves BOTH the socket fast-path
+AND the poll backstop, each gated on uploadStatus==="parsing" so whichever resolves FIRST wins and the other
+no-ops. The socket handler was refactored to call it; the fill-from-parse effect is unchanged. Backend half
+(worker S3 re-fetch + `_publish_and_record` user-targeted publish + Redis-recorded outcome + the new endpoint)
+is in root CLAUDE.md + boq-upload-plan.md. tsc 0 new wizard-file errors (baseline 3180 unchanged) + in-container
+`yarn build` exit 0 (`Done in 77.12s`, PWA 164 entries). Live re-cert on test.nirmaan.app pending deploy.
+Full as-built detail in root CLAUDE.md + boq-upload-plan.md.
+
+// prior: **Status (2026-06-12 -- Slice D2b hub XLSX workbook export + per-card CSV export COMPLETE -- FRONTEND + dep, feat 91bf255d):**
 Two hub export entry points: a GLOBAL multi-sheet .xlsx workbook (footer "Export reviewed" button -> a selection
 modal of every "Parsed Check Done" sheet, all pre-ticked -> ONE .xlsx, one tab per sheet) and a PER-CARD
 single-sheet .csv (the EXISTING D2 writer, on each "Parsed Check Done" SheetCard). The global path fetches each
