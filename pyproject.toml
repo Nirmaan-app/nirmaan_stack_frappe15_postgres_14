@@ -20,7 +20,17 @@ dependencies = [
     # which conflicts with Frappe's google-auth~=2.40.3 pin. 1.55.x supports the
     # Gemini 3 APIs we use (thinking_level, media_resolution, vertexai). Bumping
     # this requires coordinating a Frappe google-auth bump.
-    "google-genai>=1.55.0,<1.56.0"
+    "google-genai>=1.55.0,<1.56.0",
+    # Pinned: Frappe pins pyOpenSSL~=26.0.0 (>=26.0.0,<26.1.0), whose deprecated
+    # X509Extension class eagerly evaluates _lib.GEN_EMAIL at import. Modern
+    # cryptography (>=35) removed that binding, so `import boto3` -> botocore ->
+    # urllib3.contrib.pyopenssl -> OpenSSL.crypto raises
+    # "AttributeError: module 'lib' has no attribute 'GEN_EMAIL'", which crashes
+    # Frappe core's s3_backup_settings during `bench new-site`. pyOpenSSL 26.2.0
+    # removed X509Extension entirely, fixing the import. This floor overrides
+    # Frappe's pin (pip emits a benign conflict warning). Remove once Frappe
+    # relaxes its pyOpenSSL constraint to allow >=26.2.0.
+    "pyOpenSSL>=26.2.0"
 ]
 
 [build-system]
