@@ -16,7 +16,39 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Detail-panel edit-field repack (FRONTEND ONLY, CSS/layout, `ReviewTree.tsx`, 2026-06-14). The row
+LATEST: Append-to-notes-as-columns + staleness banner (BACKEND + FRONTEND, 2026-06-14). Renders
+`append_to_notes` data as review-screen columns -- ADDITIVE (the commit-time notes-fold is untouched; the same
+content appearing in-position AND combined is BY DESIGN). (a) each mapped append-column as its OWN read-only
+column in ORIGINAL Excel position (interleaved by Excel letter); (b) ONE combined "Append Notes" column PINNED
+LAST. PLUS a static always-on staleness banner. BACKEND `review_screen._build_column_descriptors`:
+`append_to_notes` REMOVED from `_NON_DISPLAY_ROLES` (now `{ignore, reference_images}` only -- both still
+excluded) + a new branch emitting one descriptor per append-column: `value_field="append_notes_raw"`,
+`area=None`, `rate_subkey=None`, **`value_key = sheet_config.column_headers.get(col, col)`** (NOT bare `col`).
+STEP-0 KEY FACT: the parser stores `append_notes_raw` keyed by `column_headers.get(col_letter, col_letter)`
+(classifier.py:983) -- HEADER TEXT when `column_headers` maps the letter, ELSE the bare Excel LETTER; the
+descriptor `value_key` MUST mirror that resolution or the one-hop `resolveDescriptorValue` walk misses the value.
+(On BOQ-26-00166 `column_headers={}` so keys are letters "Z"/"AB"; the impl handles populated headers too.) The
+:649 Excel-letter sort interleaves the in-position columns for free. FRONTEND `ReviewTree.tsx`: combined column =
+hand-written trailing `<th>`/`<td>` AFTER the descriptor `.map()` (NOT a descriptor -- a sentinel would fight the
+sort), built from `appendDescriptors = displayDescriptors.filter(role==="append_to_notes")` joining
+`"<value_key>: <text>"` with `" | "` (value_key IS the header-else-letter prefix, already baked in -- no separate
+lookup; numeric-looking strings NOT coerced; empty -> blank), shown only when `hasAppendCombined`, NOT in the
+column-subset selector, left-aligned + wrapping; `totalCols = 7 + visibleDescriptorCount + (hasAppendCombined ?
+1 : 0)`. In-position columns ride the existing descriptor render path (read-only; naturally exempt from EDITABLE_*
+detail-panel blocks). STALENESS BANNER `SheetReviewPage.tsx`: static always-on muted strip (matches flag/remark
+strips) after the teal Finalized banner, before the flag-summary strip -- copy VERBATIM "Totals shown are as
+originally parsed. Final calculations happen after the BoQ is committed." `boqTypes.ts` UNTOUCHED (`ROLE_LABELS`
+already had `append_to_notes: "Append to Notes"`; `ColumnDescriptor` + `append_notes_raw` types already fit). The
+D2 writer `exportReviewCsv.ts` was NOT touched (docs DID correct its stale append-key note -- the keys are
+header-else-letter, empty columns omitted, values strings). tsc 0 NEW wizard-file errors (3177 baseline) +
+in-container Vite build exit 0; backend test_review_screen 154 -> 158 (+4: append_to_notes EMITS a descriptor in
+Excel position [letter-fallback + header-mapped value_key], ignore/reference_images control still excluded,
+get_review_rows still ships `append_notes_raw` parsed). **OWNER FLAG: this slice REVERSES the locked non-display
+design for `append_to_notes`** -- the PK doc `BoQ_Review_Screen_Locked_Design_v1_0` (NOT in the repo) needs an
+owner amendment to record append_to_notes as a DISPLAY role on the review screen. Live-cert pending Nitesh
+(BOQ-26-00166 "VRF System": Z/AA/AB show in-position read-only, combined "Append Notes" pinned last, banner at
+top).
+// prior: Detail-panel edit-field repack (FRONTEND ONLY, CSS/layout, `ReviewTree.tsx`, 2026-06-14). The row
 DETAIL PANEL's three edit blocks ("Edit values" flat numeric / "Edit text" / "Edit per-area values") laid
 their fields in an EQUAL-WIDTH responsive grid (`grid-cols-1 sm:2 md:3 lg:4`) that stretched across the panel;
 after the prior width fix pinned each value `<Input>` to `w-24`, each narrow input floated at the left of a

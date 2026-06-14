@@ -317,7 +317,43 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-14 -- Detail-panel edit-field repack COMPLETE -- FRONTEND ONLY, CSS/layout, `ReviewTree.tsx`):**
+**Status (2026-06-14 -- Append-to-notes-as-columns + staleness banner COMPLETE -- BACKEND + FRONTEND, `review_screen.py` + `ReviewTree.tsx` + `SheetReviewPage.tsx`):**
+Renders `append_to_notes` data as review-screen columns (additive -- the commit-time notes-fold is untouched;
+the same content appearing in-position AND in the combined column is BY DESIGN). TWO column surfaces: (a) each
+mapped append-column as its OWN read-only data column in its ORIGINAL Excel position (interleaved by Excel
+letter), PLUS (b) ONE combined "Append Notes" column PINNED LAST. PLUS a static always-on staleness banner.
+BACKEND (`_build_column_descriptors`): `append_to_notes` REMOVED from `_NON_DISPLAY_ROLES` (now
+`{ignore, reference_images}` only -- those two stay excluded) + a new explicit branch emitting one descriptor
+per append-column: `value_field="append_notes_raw"`, `area=None`, `rate_subkey=None`, and **`value_key =
+sheet_config.column_headers.get(col, col)`** -- NOT bare `col`. THE KEY FACT (Step-0 verify): the parser stores
+`append_notes_raw` keyed by `column_headers.get(col_letter, col_letter)` (classifier.py:983) -- header text when
+`column_headers` maps the letter, else the bare letter -- so the descriptor's `value_key` must mirror that exact
+resolution for the one-hop `resolveDescriptorValue` walk to find the value (on BOQ-26-00166 `column_headers={}`
+so keys are letters "Z"/"AB", but the robust impl handles populated headers too). The existing :649 Excel-letter
+sort interleaves the in-position columns for free. FRONTEND (`ReviewTree.tsx`): `appendDescriptors =
+displayDescriptors.filter(role==="append_to_notes")` (already Excel-sorted) drives the combined column;
+`buildAppendCombined(row)` joins each non-empty append value as `"<value_key>: <text>"` (the value_key IS the
+header-else-letter prefix the prompt wanted -- already baked in, no separate lookup) with `" | "`, numeric-looking
+strings NOT coerced, empty -> blank. Combined column = a hand-written trailing `<th>`/`<td>` AFTER the descriptor
+`.map()` (NOT a descriptor -- a sentinel descriptor would fight the :649 sort), shown only when
+`hasAppendCombined` (no empty trailing column otherwise), NOT in the column-subset selector, left-aligned +
+wrapping. `totalCols` = `7 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0)`. In-position append columns
+ride the existing descriptor render path (read-only; naturally exempt from the EDITABLE_* detail-panel blocks).
+STALENESS BANNER (`SheetReviewPage.tsx`): a static always-on muted strip (matches the flag/remark strips) after
+the teal Finalized banner, before the flag-summary strip -- copy verbatim: "Totals shown are as originally
+parsed. Final calculations happen after the BoQ is committed." `boqTypes.ts` UNTOUCHED (`ROLE_LABELS` already had
+`append_to_notes: "Append to Notes"`; `ColumnDescriptor` + `append_notes_raw` types already fit). The D2 export
+writer (`exportReviewCsv.ts`) was NOT touched (the slice's docs DO correct its stale append-key note). tsc 0 NEW
+wizard-file errors (filtered `ReviewTree|boqTypes|boq-wizard|SheetReviewPage` -> empty; 3177 baseline unchanged)
++ in-container Vite build exit 0. Backend test_review_screen 154 -> 158 (+4: append_to_notes now EMITS a
+descriptor in Excel position [letter-fallback + header-mapped value_key cases], ignore/reference_images control
+still excluded, get_review_rows still ships `append_notes_raw` parsed). **OWNER FLAG: this slice REVERSES the
+locked non-display design for `append_to_notes`** -- the PK doc `BoQ_Review_Screen_Locked_Design_v1_0` (NOT in the
+repo) needs an owner amendment. Live-cert pending Nitesh: open the review screen on BOQ-26-00166 ("VRF System")
+-> append columns Z/AA/AB show in-position read-only, a combined "Append Notes" column is pinned last joining
+their values, and the staleness banner shows at the top.
+
+// prior: **Status (2026-06-14 -- Detail-panel edit-field repack COMPLETE -- FRONTEND ONLY, CSS/layout, `ReviewTree.tsx`):**
 A layout + width fix to the review-screen ROW DETAIL PANEL's three edit blocks ("Edit values" flat numeric /
 "Edit text" unit+make_model / "Edit per-area values"). They laid fields in an EQUAL-WIDTH responsive grid
 (`grid-cols-1 sm:2 md:3 lg:4`) that stretched across the panel; after the prior width slice pinned each value
@@ -1370,10 +1406,15 @@ A per-sheet CSV export of the review screen's data. FRONTEND ONLY; no backend, n
   (`String(val)`, NOT the display formatter** -- thousands separators break Excel numeric parsing). Trailing:
   Row Notes (`row_notes`, single replace-semantics field) | Append Notes (`append_notes_raw`) | Remarks |
   Edited (Yes/No via the SAME isEdited predicate the tree's Status column uses) | Edited By | Edited At.
-- **`append_notes_raw` is a `dict[str,str]`, not an array.** VERIFIED client-side shape (2026-06-12): keys are
-  the source column's header label, values the note text. The writer flattens it to `"key: value"` pairs joined
-  `" | "` (flat, no JSON braces, preserves source-column context); it defensively also handles array (join
-  values) / string (verbatim) / null (""). Do NOT dump JSON into the cell (the §8 "no JSON blobs" rule).
+- **`append_notes_raw` is a `dict[str,str]`, not an array.** CORRECTED shape (append-to-notes-as-columns slice,
+  live-verified on BOQ-26-00166): keys are `column_headers.get(col_letter, col_letter)` -- the source column's
+  HEADER TEXT when `sheet_config.column_headers` maps that letter, ELSE the bare Excel COLUMN LETTER (the parser's
+  fallback, classifier.py:983). On BOQ-26-00166 `column_headers` is `{}`, so its keys are letters ("Z","AB").
+  Empty append columns are OMITTED entirely (absent key = no note; there is NO `"AA": ""`). Values are STRINGS even
+  when numeric-looking (`"152400"`). (The earlier "keys are the header label" note was only half-right -- it is
+  header-OR-letter.) The writer flattens it to `"key: value"` pairs joined `" | "` (flat, no JSON braces,
+  preserves source-column context); it defensively also handles array (join values) / string (verbatim) / null
+  (""). Do NOT dump JSON into the cell (the §8 "no JSON blobs" rule).
 - **Writer mechanics.** `Papa.unparse([headers, ...rows])`; prepend a UTF-8 BOM (`﻿`) before the Blob
   (`text/csv;charset=utf-8;`) so Excel renders rupee/unicode; anchor-click download + `revokeObjectURL`.
   Filename `${boqName}_${sanitize(sheetName)}_review_${yyyyMMdd_HHmmss}.csv` -- `sanitize` (trim + replace
