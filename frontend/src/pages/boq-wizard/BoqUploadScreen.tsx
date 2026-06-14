@@ -1,6 +1,11 @@
-import { useContext, useEffect } from "react";
+import { useCallback, useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { FrappeConfig, FrappeContext, useFrappeGetDoc } from "frappe-react-sdk";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeGetCall,
+  useFrappeGetDoc,
+} from "frappe-react-sdk";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { BOQsDoc } from "./boqTypes";
 import { Button } from "@/components/ui/button";
@@ -25,6 +30,15 @@ interface ProjectDoc {
 
 interface ParseDonePayload {
   status: string;
+  boq_name?: string;
+  error_code?: string;
+}
+
+// Response shape of get_upload_status (the polling fallback). Mirrors the
+// realtime payload (status/boq_name/error_code) so one handler serves both paths.
+interface UploadStatusResponse {
+  state: "pending" | "done";
+  status?: string;
   boq_name?: string;
   error_code?: string;
 }
@@ -59,6 +73,7 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
     droppedFile,
     confirmedFields,
     boqDocName,
+    jobId,
     setUploadStatus,
     setBoqDocName,
     fillFromParse,
@@ -75,34 +90,57 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
   // NOTE: 1b-ii-a boqName pre-fill from project_name intentionally removed.
   // Per §4.1 clarification: pre-parse = blank; post-parse = pre-filled-unconfirmed.
 
-  // Socket listener for boq:wizard_parse_done.
-  // Registered on mount, cleaned up on unmount (screen-scoped, not global).
-  // setUploadStatus/setBoqDocName are stable Zustand action refs.
-  useEffect(() => {
-    if (!socket) return;
-
-    const handler = (payload: ParseDonePayload) => {
-      // Guard: only act when we're waiting for our own parse result.
+  // Apply a parse outcome from EITHER the realtime event or the polling fallback.
+  // Guards on uploadStatus === "parsing" so whichever path resolves first wins and
+  // the other becomes a no-op. setUploadStatus/setBoqDocName are stable Zustand refs.
+  const applyParseOutcome = useCallback(
+    (status?: string, boqName?: string | null, errorCode?: string | null) => {
       if (useBoqWizardStore.getState().uploadStatus !== "parsing") return;
-
-      if (payload.status === "success" && payload.boq_name) {
-        setBoqDocName(payload.boq_name);
+      if (status === "success" && boqName) {
+        setBoqDocName(boqName);
         setUploadStatus("done");
-      } else if (payload.status === "error") {
-        const code = payload.error_code;
-        if (code === "corrupted") setUploadStatus("error-E");
-        else if (code === "zero_sheets") setUploadStatus("error-F");
+      } else if (status === "error") {
+        if (errorCode === "corrupted") setUploadStatus("error-E");
+        else if (errorCode === "zero_sheets") setUploadStatus("error-F");
         else setUploadStatus("error-internal");
       }
-    };
+    },
+    // store actions are stable Zustand refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
+  // Fast path: realtime boq:wizard_parse_done socket event.
+  // Registered on mount, cleaned up on unmount (screen-scoped, not global).
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: ParseDonePayload) =>
+      applyParseOutcome(payload.status, payload.boq_name, payload.error_code);
     socket.on("boq:wizard_parse_done", handler);
     return () => {
       socket.off("boq:wizard_parse_done", handler);
     };
-    // socket is a stable FrappeContext singleton ref; store actions are stable Zustand refs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
+  }, [socket, applyParseOutcome]);
+
+  // Fallback path: poll get_upload_status by job id while waiting. The realtime
+  // event is room-targeted and NOT replayed, so a client that wasn't connected/
+  // joined when the worker finished (e.g. right after login) would otherwise hang
+  // on "parsing" forever. Socket or poll -- first to resolve wins (both gate on
+  // uploadStatus === "parsing"). swrKey null + refreshInterval 0 stop the poll
+  // once we leave "parsing".
+  const shouldPoll = uploadStatus === "parsing" && !!jobId;
+  const { data: pollData } = useFrappeGetCall<{ message: UploadStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.upload_file.get_upload_status",
+    { job_id: jobId },
+    shouldPoll ? `boq-upload-status::${jobId}` : null,
+    { refreshInterval: shouldPoll ? 3000 : 0 }
+  );
+
+  useEffect(() => {
+    const msg = pollData?.message;
+    if (!msg || msg.state !== "done") return;
+    applyParseOutcome(msg.status, msg.boq_name, msg.error_code);
+  }, [pollData, applyParseOutcome]);
 
   // Fetch the BOQs doc once boqDocName is set (i.e. after socket success).
   // Third arg null disables SWR fetch until boqDocName is available (per sdk gotcha in CLAUDE.md).
