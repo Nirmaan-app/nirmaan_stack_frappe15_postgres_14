@@ -16,7 +16,43 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-1 -- committed "BoQ Sheet" doctype (BACKEND, 2026-06-15, feat pending). Creates the
+LATEST: Phase 4 Slice P4-2 -- re-point BOQ Nodes to the BoQ Sheet tier (BACKEND, 2026-06-16, feat pending).
+Inserts the P4-1 sheet tier into the committed node's upward ties: a node now links to a **BoQ Sheet** (the new
+PRIMARY tie) and the `boq` link to BOQs is KEPT DENORMALIZED. SURGICAL: adds ONE Link field + ONE sync validation
++ moves ONE required-guard + re-points test fixtures; touches NOTHING else (path logic, parent-chain validation,
+per-area roll-up, audit, on_trash, qty_by_area helpers ALL unchanged -- the recon proved them indifferent to the
+link change). No commit pipeline (Phase 5), no real-data write. **SCHEMA (`boq_nodes.json`):** new `sheet` field
+-- Link->"BoQ Sheet", `search_index:1`, `in_standard_filter:1`, NOT reqd at JSON level (required-ness is
+controller-enforced, matching how `boq` is handled), placed in field_order IMMEDIATELY AFTER `boq` (both upward
+links grouped). `boq` is left EXACTLY as-is (Link->BOQs, search_index + in_standard_filter intact). **WHY keep boq
+denormalized (locked, owner-ratified):** Frappe cannot filter/sort a list across two Link hops (`sheet.boq`), and
+`boq` carries search_index + in_standard_filter the Desk UI + index depend on; the idiomatic Frappe pattern for a
+queryable grandparent value is a denormalized field. Keeping `boq` leaves the 3 hot-path boq reads (the validate
+guard, on_trash status, qty_by_area area_dimensions) as cheap one-hops -- all UNCHANGED. **CONTROLLER
+(`boq_nodes.py` validate, top only):** (1) the old `if not doc.boq: throw("BoQ is required")` is REPLACED by `if
+not doc.sheet: throw("BoQ Sheet is required")` -- the sheet is now the single required upward tie; the standalone
+boq-required throw is DROPPED (redundant + would mis-fire on a sheet-only node before auto-fill). (2) NEW SYNC
+GUARD immediately after, the FIRST thing validate does (before `_validate_qty_by_area` reads `doc.boq`):
+`sheet_boq = frappe.db.get_value("BoQ Sheet", doc.sheet, "boq")`; if `doc.boq` set AND `!= sheet_boq` -> throw
+mismatch; if `doc.boq` blank -> **AUTO-FILL `doc.boq = sheet_boq`**. **DECISION = AUTO-FILL (not strict)**: the
+sheet is the one source of truth, so boq is derived from it and stays in sync by construction; auto-fill restores
+boq before any downstream read or before Frappe's `_validate_links` runs (validate-hook precedes link validation
+in the save flow), so a sheet-only insert populates boq cleanly. `_write_audit` tracked_fields UNCHANGED -- `sheet`
+deliberately NOT added (auditing the new link is a separate optional decision; flagged, not done). **TESTS
+(`test_boq_nodes.py`) fixture-first re-point:** setUpClass now creates a shared `BoQ Sheet` (`cls.sheet_name`,
+boq=cls.boq_name, sheet_name="_TEST", sheet_order=1) under the shared BOQs; the shared preamble + a `replace_all`
+of the ~42 inline `.boq = self.boq_name` sites -> `.sheet = self.sheet_name` (boq auto-fills); 3 own-boq tests
+(approved-trash + the two qty_by_area area-dimensions tests) each got a local BoQ Sheet under their own BOQs +
+`.sheet` wiring; tearDownClass also deletes `BoQ Sheet` by boq. `test_validate_requires_boq` -> RENAMED
+`test_validate_requires_sheet` (asserts a node with no sheet throws). NEW `test_node_sheet_boq_sync`: (a)
+sheet-set + boq-blank auto-fills boq to the sheet's boq; (b) boq set to a DIFFERENT boq than the sheet's -> throws.
+The 7 parent_node-based path-format assertions (L142/271/277/285/300/305/307-ish) survive UNCHANGED (path logic
+untouched). **VERIFICATION:** `bench --site localhost migrate` clean; BOQ Nodes suite 64 OK (was ~63; +1 net = the
+new sync test, the requires test renamed in place); BoQ Sheet suite 5 OK (still green -- node tests now create
+sheets); parser suite 597 UNCHANGED; runtime DB confirms the `sheet` column exists on `tabBOQ Nodes` (varchar,
+alongside `boq`). No hooks.py / boq_sheet.json / boqs.json / qty_by_area-controller / parser / frontend change.
+NEXT: P5 commit pipeline writes BoQ Sheet + re-pointed BOQ Nodes from a parse. Full detail in root CLAUDE.md.
+// prior: Phase 4 Slice P4-1 -- committed "BoQ Sheet" doctype (BACKEND, 2026-06-15, feat pending). Creates the
 missing SHEET tier of the committed model BOQs (workbook) -> BoQ Sheet (sheet) -> BOQ Nodes (rows); nodes today
 attach straight to BOQs. ADDITIVE + STANDALONE: ONE new doctype, nothing else touched (no BOQ Nodes / BOQs / BoQ
 Sheet Draft / controller / endpoint / hooks.py change). Nothing writes to it yet -- the commit pipeline is Phase 5,

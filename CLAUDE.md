@@ -1,6 +1,35 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-15 (Phase 4 Slice P4-1 -- committed "BoQ Sheet" doctype, the SHEET tier -- BACKEND,
+**Last updated:** 2026-06-16 (Phase 4 Slice P4-2 -- re-point BOQ Nodes to the BoQ Sheet tier -- BACKEND, feat
+pending. Inserts the P4-1 sheet tier into the committed node's upward ties: a node now links to a **BoQ Sheet**
+(new PRIMARY tie) and the `boq` Link->BOQs is KEPT DENORMALIZED. SURGICAL: +1 Link field, +1 sync validation, 1
+required-guard moved, test fixtures re-pointed. NOTHING ELSE touched -- `_compute_path` (parent_node-based),
+parent-chain node_type/level validation, `_recompute_parent_rates_from_areas`/`_process_qty_by_area_rows`,
+`_write_audit`, `on_trash`, the qty_by_area helpers are ALL unchanged (the P4-2 recon proved them indifferent: path
+never reads boq, the parent check has NO same-boq constraint to translate, the roll-up is intra-node). No commit
+pipeline (Phase 5), no real-data write. **SCHEMA (`boq_nodes.json`):** new `sheet` field -- Link->"BoQ Sheet",
+`search_index:1`, `in_standard_filter:1`, NOT reqd at JSON level (required-ness is controller-enforced, matching
+`boq`), placed in field_order IMMEDIATELY AFTER `boq`. `boq` is UNCHANGED (Link->BOQs, search_index +
+in_standard_filter intact). **WHY keep boq denormalized (locked, owner-ratified):** Frappe cannot filter/sort a
+list across two Link hops (`sheet.boq`), and `boq` carries search_index + in_standard_filter the Desk UI + index
+depend on; a denormalized field is the idiomatic Frappe pattern for a queryable grandparent. The 3 hot-path boq
+reads (validate guard, on_trash BOQs.status, `_validate_qty_by_area` BOQs.area_dimensions) stay cheap one-hops,
+unchanged. **CONTROLLER (`boq_nodes.py` validate, top only):** the old `if not doc.boq: throw("BoQ is required")`
+is REPLACED by `if not doc.sheet: throw("BoQ Sheet is required")` (sheet is now the single required upward tie;
+the standalone boq-required throw is DROPPED -- redundant + would mis-fire before auto-fill). A NEW SYNC GUARD runs
+FIRST (before `_validate_qty_by_area` reads doc.boq): `sheet_boq = frappe.db.get_value("BoQ Sheet", doc.sheet,
+"boq")`; doc.boq set AND `!= sheet_boq` -> throw mismatch; doc.boq blank -> **AUTO-FILL `doc.boq = sheet_boq`**.
+**DECISION = AUTO-FILL** (one source of truth = the sheet; runs before Frappe's `_validate_links`, so a sheet-only
+insert populates boq cleanly). `_write_audit` tracked_fields UNCHANGED -- `sheet` deliberately NOT added (auditing
+the link is a separate optional decision; flagged not done). **TESTS** fixture-first: setUpClass creates a shared
+`BoQ Sheet` (`cls.sheet_name`) under the shared BOQs; ~42 inline `.boq = self.boq_name` sites -> `.sheet =
+self.sheet_name` (boq auto-fills); 3 own-boq tests get a local sheet; tearDownClass deletes BoQ Sheet by boq;
+`test_validate_requires_boq` -> RENAMED `test_validate_requires_sheet`; NEW `test_node_sheet_boq_sync` (auto-fill +
+mismatch-throw); the 7 parent_node-based path-format assertions survive unchanged. **VERIFICATION:** migrate clean;
+BOQ Nodes suite **64 OK**; BoQ Sheet suite **5 OK**; parser **597 UNCHANGED**; runtime DB confirms `sheet` column on
+`tabBOQ Nodes` (varchar, alongside `boq`). No hooks.py / boq_sheet.json / boqs.json / qty_by_area-controller /
+parser / frontend change. NEXT: P5 commit pipeline. Full detail in boq-upload-plan.md.)
+// prior: 2026-06-15 (Phase 4 Slice P4-1 -- committed "BoQ Sheet" doctype, the SHEET tier -- BACKEND,
 feat pending. Creates the missing middle tier of the committed model BOQs (workbook) -> **BoQ Sheet** (sheet) ->
 BOQ Nodes (rows); committed nodes today attach straight to BOQs (BOQ Nodes has `boq` + `parent_node`, NO sheet
 field/Link). ADDITIVE + STANDALONE: ONE new doctype, NOTHING ELSE touched -- no BOQ Nodes / BOQs / BoQ Sheet Draft
@@ -571,7 +600,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 |---|---|---|---|
 | BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE. Review-screen arc COMPLETE: Slice A backend (feat fff26abd; -1 sentinel, resolve_effective / check_structural_integrity / append_edit_log_entry + 3 endpoints) -> B1/B1.1/B2a/B2b/B2c frontend (review tree + column descriptors + advisory flags + detail panel + Status column) -> C-values arc C-v1..C-v2d-fix (inline value/text/per-area editing + per-row Remarks). Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx`, FRONTEND-ONLY, feat 5ecf1820) LIVE-CERTIFIED 2026-06-09 (5/5 PASS on BOQ-26-00145). Slice 1b-alpha BACKEND (feat f7761415) -- shared write helper `_apply_and_save_row_edit` (save-inside/commit-outside) + transactional `save_review_restructure` (atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO assignable classes) + human-root via NEW `human_is_root` Check field (Option B, orthogonal to the -1 sentinel). CURRENT: Slice 1b-beta FRONTEND COMPLETE (feat e8eeab58) -- the restructure MODAL: detail-panel pill DropdownMenu -> childless light confirm OR staged `RestructureModal` (5 child-placement options, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as parent picker, row_number->row_index resolution + no-match guard), `onRestructured` reuses handleSaved; dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0; manual live-cert LC1-12 pending. Restructure-surface arc COMPLETE pending live-cert. Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND): four-endpoint write freeze on a checked sheet via `_guard_sheet_not_frozen`, mark precondition (Parsed-only), new `unmark_sheet_parsed_check_done`, `readOnly` ReviewTree gating + Mark button + teal banner; test_review_screen 137 -> 147. Slice D2 -- per-sheet review CSV export (FRONTEND ONLY, feat 27866a2e): NEW wizard-local writer `exportReviewCsv.ts` (flat columns, per-area = one column per area per role, numbers raw, UTF-8 BOM) + "Export CSV" header button (status- and view-independent); reuses ReviewTree `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` via export-keyword-only; the shared `src/utils/exportToCsv.ts` deliberately untouched. Slice D2b (latest) -- hub XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat 91bf255d): a global "Export reviewed" footer button -> `ExportWorkbookDialog` (pre-ticked checklist of "Parsed Check Done" sheets) -> SEQUENTIAL `get_review_rows` fetch -> ONE .xlsx (one tab/sheet, numbers numeric, abort-on-any-failure) via NEW `exportReviewXlsx.ts`; a per-card "Export CSV" button -> the existing D2 .csv. NEW dep `exceljs` DYNAMICALLY imported (own lazy chunk, absent from hub/entry chunks); npm `xlsx` forbidden (abandoned + 2 CVEs). The D2 writer refactored to share a `buildReviewSheet` typed-cell core -> .csv stays byte-identical; Excel tab names sanitized+de-duplicated (tab title only, Sheet Name column verbatim #152). `SheetReviewPage.tsx` untouched (writer signature unchanged). OWED: single-pass full-sheet-read endpoint; C-values rate-editing live-cert against a Pattern-2-rate vehicle. Full slice-by-slice history + as-built detail: see boq-upload-plan.md. Do not duplicate the changelog here. |
 
-Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BoQ Sheet` (Phase 4 P4-1 -- the committed sheet tier, standalone istable=0, Links up to BOQs, autoname `BQSH-.YY.-.#####`; reuses the `BoQ Sheet Work Package` child for work-header links; nothing writes to it until P4-2/P5), `BOQ Nodes`, `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
+Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BoQ Sheet` (Phase 4 P4-1 -- the committed sheet tier, standalone istable=0, Links up to BOQs, autoname `BQSH-.YY.-.#####`; reuses the `BoQ Sheet Work Package` child for work-header links; nothing writes to it until P5), `BOQ Nodes` (Phase 4 P4-2 -- now links to a `BoQ Sheet` via the new `sheet` Link [the PRIMARY upward tie]; the `boq` Link->BOQs is KEPT DENORMALIZED, controller-synced so `node.boq == sheet.boq` [auto-filled from the sheet when blank, throws on mismatch]; the required-guard moved from boq to sheet), `BOQ Node Qty By Area` (no separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
 ---
 
