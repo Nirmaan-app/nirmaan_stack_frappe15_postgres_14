@@ -5,8 +5,23 @@ from nirmaan_stack.integrations.controllers import boq_node_qty_by_area as _area
 
 
 def validate(doc, method):
+    # The BoQ Sheet is the primary upward tie (Phase 4 P4-2). The boq link is kept
+    # DENORMALIZED on the node (Frappe cannot filter/sort across two Link hops, and
+    # boq carries search_index + in_standard_filter the Desk UI + index depend on).
+    # Sync invariant: node.boq MUST equal its sheet's boq. We auto-fill boq from the
+    # sheet when blank (one source of truth = the sheet) and throw on a real mismatch.
+    # This runs FIRST so the denormalized boq is populated before any downstream read
+    # of doc.boq (e.g. _validate_qty_by_area's area_dimensions lookup).
+    if not doc.sheet:
+        frappe.throw(_("BoQ Sheet is required"))
+    sheet_boq = frappe.db.get_value("BoQ Sheet", doc.sheet, "boq")
+    if doc.boq and doc.boq != sheet_boq:
+        frappe.throw(
+            _("Node BoQ ({0}) does not match its sheet's BoQ ({1})").format(doc.boq, sheet_boq)
+        )
     if not doc.boq:
-        frappe.throw(_("BoQ is required"))
+        doc.boq = sheet_boq
+
     if not doc.node_type:
         frappe.throw(_("Node Type is required"))
     if not doc.description:

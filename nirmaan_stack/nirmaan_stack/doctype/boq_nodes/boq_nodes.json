@@ -9,6 +9,7 @@
  "field_order": [
   "links_section",
   "boq",
+  "sheet",
   "parent_node",
   "node_details_section",
   "node_type",
@@ -48,6 +49,15 @@
    "in_standard_filter": 1,
    "label": "BoQ",
    "options": "BOQs",
+   "search_index": 1
+  },
+  {
+   "description": "Primary upward tie: the committed BoQ Sheet this node belongs to. The boq link is kept denormalized and must equal this sheet's boq (enforced in the controller).",
+   "fieldname": "sheet",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "BoQ Sheet",
+   "options": "BoQ Sheet",
    "search_index": 1
   },
   {

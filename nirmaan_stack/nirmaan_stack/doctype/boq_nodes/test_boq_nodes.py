@@ -35,8 +35,17 @@ class TestBOQNodes(FrappeTestCase):
         boq.boq_name = "Shared Test BoQ"
         boq.insert(ignore_permissions=True, ignore_links=True)
 
+        # P4-2: nodes link to a BoQ Sheet (the sheet tier); boq is denormalized and
+        # auto-filled from the sheet by the controller. A shared sheet under the
+        # shared BoQ gives every test a valid sheet to link.
+        sheet = frappe.new_doc("BoQ Sheet")
+        sheet.boq = boq.name
+        sheet.sheet_name = "_TEST"
+        sheet.sheet_order = 1
+        sheet.insert(ignore_permissions=True)
+
         preamble = frappe.new_doc("BOQ Nodes")
-        preamble.boq = boq.name
+        preamble.sheet = sheet.name
         preamble.node_type = "Preamble"
         preamble.level = 1
         preamble.description = "Shared L1 Preamble for Line Item Tests"
@@ -44,12 +53,14 @@ class TestBOQNodes(FrappeTestCase):
 
         frappe.db.commit()
         cls.boq_name = boq.name
+        cls.sheet_name = sheet.name
         cls.default_preamble = preamble.name
 
     @classmethod
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
             frappe.db.delete("BOQ Nodes", {"boq": cls.boq_name})
+            frappe.db.delete("BoQ Sheet", {"boq": cls.boq_name})
             frappe.db.delete("BOQs", {"name": cls.boq_name})
             frappe.db.commit()
         super().tearDownClass()
@@ -60,7 +71,7 @@ class TestBOQNodes(FrappeTestCase):
 
     def _make_preamble(self, level=1, parent_node=None, description="Test Preamble"):
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = level
         node.description = description
@@ -72,7 +83,7 @@ class TestBOQNodes(FrappeTestCase):
                         qty=10, supply_rate=None, install_rate=None,
                         combined_rate=None, amount_override=0):
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = description
         node.parent_node = self.default_preamble if parent_node == "DEFAULT" else parent_node
@@ -88,26 +99,57 @@ class TestBOQNodes(FrappeTestCase):
     # validate: required-field guards                                      #
     # ------------------------------------------------------------------ #
 
-    def test_validate_requires_boq(self):
+    def test_validate_requires_sheet(self):
+        # P4-2: the BoQ Sheet is now the required upward tie (boq is denormalized and
+        # auto-filled from the sheet). A node with no sheet must be rejected.
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = ""
+            node.sheet = ""
             node.node_type = "Preamble"
             node.level = 1
-            node.description = "Missing boq"
+            node.description = "Missing sheet"
             node.insert(ignore_permissions=True, ignore_links=True)
+
+    def test_node_sheet_boq_sync(self):
+        # P4-2 sync invariant: node.boq must equal its sheet's boq.
+        # (a) boq blank + sheet set -> boq is auto-filled from the sheet.
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Sync auto-fill test"
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.boq, self.boq_name)
+
+        # (b) boq set to a DIFFERENT value than the sheet's boq -> rejected.
+        other_boq = frappe.new_doc("BOQs")
+        other_boq.project = _TEST_PROJECT
+        other_boq.boq_name = "Other BoQ for sync mismatch"
+        other_boq.insert(ignore_permissions=True, ignore_links=True)
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                bad = frappe.new_doc("BOQ Nodes")
+                bad.sheet = self.sheet_name      # sheet's boq == self.boq_name
+                bad.boq = other_boq.name         # deliberate mismatch
+                bad.node_type = "Preamble"
+                bad.level = 1
+                bad.description = "Sync mismatch test"
+                bad.insert(ignore_permissions=True, ignore_links=True)
+        finally:
+            frappe.db.delete("BOQs", {"name": other_boq.name})
+            frappe.db.commit()
 
     def test_validate_requires_node_type(self):
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.description = "Missing node_type"
             node.insert(ignore_permissions=True)
 
     def test_validate_requires_description(self):
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Preamble"
             node.level = 1
             node.insert(ignore_permissions=True)
@@ -120,7 +162,7 @@ class TestBOQNodes(FrappeTestCase):
         """Level 0 is not a positive integer and must be rejected."""
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Preamble"
             node.level = 0
             node.description = "Bad level"
@@ -132,7 +174,7 @@ class TestBOQNodes(FrappeTestCase):
         l2 = self._make_preamble(level=2, parent_node=l1.name, description="L2 for L4 test")
         l3 = self._make_preamble(level=3, parent_node=l2.name, description="L3 for L4 test")
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = 4
         node.description = "L4 preamble"
@@ -144,7 +186,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_preamble_level_six_warns_but_saves(self):
         """Level 6 exceeds the soft limit of 5; a warning is emitted but save succeeds."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = 6
         node.description = "Deep preamble level 6"
@@ -158,7 +200,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_line_item_with_level_set_is_rejected(self):
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Line Item"
             node.level = 1
             node.description = "Line Item with level"
@@ -170,7 +212,7 @@ class TestBOQNodes(FrappeTestCase):
         """qty left as None (not set) must be blocked — zero is valid, None is not."""
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Line Item"
             node.description = "Line Item without qty"
             node.supply_rate = 100
@@ -214,7 +256,7 @@ class TestBOQNodes(FrappeTestCase):
                                             description="Wrong Parent LI")
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Preamble"
             node.level = 2
             node.description = "L2 with Line Item parent"
@@ -226,7 +268,7 @@ class TestBOQNodes(FrappeTestCase):
         l1 = self._make_preamble(level=1, description="L1 for L3 parent test")
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Preamble"
             node.level = 3
             node.description = "L3 with L1 parent (wrong)"
@@ -239,7 +281,7 @@ class TestBOQNodes(FrappeTestCase):
                                          description="Line Item Parent")
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Line Item"
             node.description = "Line Item child of Line Item"
             node.qty = 3
@@ -253,7 +295,7 @@ class TestBOQNodes(FrappeTestCase):
         Standalone line items are allowed from Phase 1.5 onwards.
         """
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Standalone line item"
         node.qty = 5
@@ -341,7 +383,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_amount_override_preserves_manually_set_values(self):
         """With amount_override=1, _compute_amounts must not touch the amounts."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Amount override test"
         node.parent_node = self.default_preamble
@@ -360,7 +402,7 @@ class TestBOQNodes(FrappeTestCase):
         amounts computed — the old node_type guard has been removed.
         """
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = 1
         node.description = "Leaf preamble with amounts"
@@ -376,7 +418,7 @@ class TestBOQNodes(FrappeTestCase):
         warning but still save — the check is informational, not blocking.
         """
         parent = frappe.new_doc("BOQ Nodes")
-        parent.boq = self.boq_name
+        parent.sheet = self.sheet_name
         parent.node_type = "Preamble"
         parent.level = 1
         parent.description = "Non-leaf preamble with qty"
@@ -385,7 +427,7 @@ class TestBOQNodes(FrappeTestCase):
         parent.insert(ignore_permissions=True)
 
         child = frappe.new_doc("BOQ Nodes")
-        child.boq = self.boq_name
+        child.sheet = self.sheet_name
         child.node_type = "Preamble"
         child.level = 2
         child.description = "Child of non-leaf preamble"
@@ -400,7 +442,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_amount_override_skips_computation_for_preamble(self):
         """With amount_override=1, _compute_amounts returns early for any node type."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = 1
         node.description = "Preamble with override"
@@ -459,7 +501,7 @@ class TestBOQNodes(FrappeTestCase):
         """Rate consistency check fires for leaf preambles with mismatched combined_rate."""
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
-            node.boq = self.boq_name
+            node.sheet = self.sheet_name
             node.node_type = "Preamble"
             node.level = 1
             node.description = "Leaf preamble mismatched rate"
@@ -548,7 +590,7 @@ class TestBOQNodes(FrappeTestCase):
         insert), regardless of whether edit_reason is set.
         """
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Insert with reason test"
         node.parent_node = self.default_preamble
@@ -590,8 +632,14 @@ class TestBOQNodes(FrappeTestCase):
         approved_boq.insert(ignore_permissions=True, ignore_links=True)
         frappe.db.set_value("BOQs", approved_boq.name, "status", "Approved")
 
+        sheet = frappe.new_doc("BoQ Sheet")
+        sheet.boq = approved_boq.name
+        sheet.sheet_name = "_TEST_APPROVED"
+        sheet.sheet_order = 1
+        sheet.insert(ignore_permissions=True)
+
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = approved_boq.name
+        node.sheet = sheet.name
         node.node_type = "Preamble"
         node.level = 1
         node.description = "Node in approved BoQ"
@@ -619,7 +667,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_duplicate_area_name_rejected(self):
         """Two rows sharing the same area_name must raise ValidationError."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Duplicate area names"
         node.parent_node = self.default_preamble
@@ -632,7 +680,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_sum_matches_qty_saves_without_error(self):
         """Sum of qty_by_area rows equal to qty must save without error."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Matching qty_by_area sum"
         node.parent_node = self.default_preamble
@@ -645,7 +693,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_sum_mismatch_warns_but_saves(self):
         """Sum of qty_by_area != qty emits a warning but must not block save."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Mismatched qty_by_area sum"
         node.parent_node = self.default_preamble
@@ -663,7 +711,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_no_boq_dimensions_no_area_warning(self):
         """BOQ has no area_dimensions set — undeclared-area check must not fire."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name  # shared BOQ has no area_dimensions
+        node.sheet = self.sheet_name  # shared BOQ has no area_dimensions
         node.node_type = "Line Item"
         node.description = "BOQ without dims"
         node.parent_node = self.default_preamble
@@ -680,15 +728,21 @@ class TestBOQNodes(FrappeTestCase):
         boq.area_dimensions = '["B1", "B2"]'
         boq.insert(ignore_permissions=True, ignore_links=True)
 
+        sheet = frappe.new_doc("BoQ Sheet")
+        sheet.boq = boq.name
+        sheet.sheet_name = "_TEST_WARN"
+        sheet.sheet_order = 1
+        sheet.insert(ignore_permissions=True)
+
         preamble = frappe.new_doc("BOQ Nodes")
-        preamble.boq = boq.name
+        preamble.sheet = sheet.name
         preamble.node_type = "Preamble"
         preamble.level = 1
         preamble.description = "Preamble for undeclared area test"
         preamble.insert(ignore_permissions=True)
 
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = boq.name
+        node.sheet = sheet.name
         node.node_type = "Line Item"
         node.description = "Node with undeclared area"
         node.parent_node = preamble.name
@@ -705,15 +759,21 @@ class TestBOQNodes(FrappeTestCase):
         boq.area_dimensions = '["B1", "B2"]'
         boq.insert(ignore_permissions=True, ignore_links=True)
 
+        sheet = frappe.new_doc("BoQ Sheet")
+        sheet.boq = boq.name
+        sheet.sheet_name = "_TEST_CLEAN"
+        sheet.sheet_order = 1
+        sheet.insert(ignore_permissions=True)
+
         preamble = frappe.new_doc("BOQ Nodes")
-        preamble.boq = boq.name
+        preamble.sheet = sheet.name
         preamble.node_type = "Preamble"
         preamble.level = 1
         preamble.description = "Preamble for declared area test"
         preamble.insert(ignore_permissions=True)
 
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = boq.name
+        node.sheet = sheet.name
         node.node_type = "Line Item"
         node.description = "Node with declared area"
         node.parent_node = preamble.name
@@ -729,7 +789,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_make_model_persists(self):
         """Setting make_model on insert must persist the value."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Make model test"
         node.parent_node = self.default_preamble
@@ -748,7 +808,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_make_model_update_persists(self):
         """Updating make_model after initial save must persist the new value."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Make model update test"
         node.parent_node = self.default_preamble
@@ -765,7 +825,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_supply_rate_fallback_from_parent(self):
         """Child row with no supply_rate set inherits parent supply_rate on save."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Supply rate fallback test"
         node.parent_node = self.default_preamble
@@ -778,7 +838,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_install_rate_fallback_from_parent(self):
         """Child row with no install_rate set inherits parent install_rate on save."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Install rate fallback test"
         node.parent_node = self.default_preamble
@@ -791,7 +851,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_qty_by_area_combined_rate_fallback_from_parent(self):
         """Child row with no combined_rate set inherits parent combined_rate on save."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Combined rate fallback test"
         node.parent_node = self.default_preamble
@@ -804,7 +864,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_parent_supply_rate_weighted_average_when_per_area_diverges(self):
         """When per-area supply_rates diverge, parent supply_rate becomes weighted average."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Supply rate weighted avg test"
         node.parent_node = self.default_preamble
@@ -818,7 +878,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_parent_install_rate_weighted_average_independent_of_supply(self):
         """install_rate weighted-avg fires for divergent per-area values; uniform supply_rate unchanged."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Install rate independent weighted avg test"
         node.parent_node = self.default_preamble
@@ -836,7 +896,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_parent_combined_rate_weighted_average_independent(self):
         """combined_rate weighted-avg runs independently of supply/install rates."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Combined rate independent weighted avg test"
         node.parent_node = self.default_preamble
@@ -850,7 +910,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_child_combined_rate_consistency_rule_accepted_when_correct_sum(self):
         """Child row with combined_rate == supply_rate + install_rate saves without error."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Combined rate consistency valid test"
         node.parent_node = self.default_preamble
@@ -865,7 +925,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_child_combined_rate_consistency_rule_rejected_when_wrong_sum(self):
         """Child row with combined_rate != supply_rate + install_rate raises ValidationError."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Combined rate consistency invalid test"
         node.parent_node = self.default_preamble
@@ -880,7 +940,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_child_zero_cost_row_allowed_when_all_rates_none(self):
         """Child row with no rates saves without error; rates remain None when parent also has none."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Zero cost child row test"
         node.parent_node = self.default_preamble
@@ -896,7 +956,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_child_amount_override_skips_auto_compute(self):
         """Child row with amount_override=1 keeps manually set supply_amount unchanged."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Child amount override test"
         node.parent_node = self.default_preamble
@@ -912,7 +972,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_make_model_edit_generates_nirmaan_versions_audit_entry(self):
         """Editing make_model with edit_reason creates a Nirmaan Versions audit entry with the diff."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Make model audit test"
         node.parent_node = self.default_preamble
@@ -970,7 +1030,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_child_supply_only_no_consistency_error(self):
         """Child row with supply_rate set but install_rate=None, combined_rate=None saves without error."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Supply only partial rate"
         node.parent_node = self.default_preamble
@@ -984,7 +1044,7 @@ class TestBOQNodes(FrappeTestCase):
     def test_child_install_only_no_consistency_error(self):
         """Child row with install_rate set but supply_rate=None, combined_rate=None saves without error."""
         node = frappe.new_doc("BOQ Nodes")
-        node.boq = self.boq_name
+        node.sheet = self.sheet_name
         node.node_type = "Line Item"
         node.description = "Install only partial rate"
         node.parent_node = self.default_preamble
