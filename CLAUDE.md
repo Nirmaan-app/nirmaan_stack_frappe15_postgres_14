@@ -1,6 +1,31 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-14 (BoQ upload multi-container fix COMPLETE -- BACKEND + FRONTEND, branch
+**Last updated:** 2026-06-15 (BoQ PARSE-run hang fix COMPLETE -- BACKEND + FRONTEND, branch `boq-nitesh`:
+the SAME missed-realtime-event race as the upload fix, now on the parse-run flow. After upload + per-sheet
+config, clicking Parse (or Re-parse) hung the hub on "Parsing..." forever. ONLY ONE of the upload's three
+root causes applies here: the cross-container tempfile bug does NOT -- `_run_parse_worker` ALREADY re-fetches
+the workbook from S3 in its OWN container via parse_run's own `_fetch_boq_file_to_tempfile` (handles .xlsm),
+so the parse path was always container-correct. ROOT CAUSE: `boq:parse_run_done` is `user=`-targeted + NOT
+replayed; the hub (`BoqHubPage.tsx`) learned the outcome ONLY from that live socket event. It had on-mount
+`parse_in_progress` recovery + reconnect self-heal but NO POLL, so a client not joined when the fast worker
+emits (e.g. right after login) sat on "Parsing..." forever even though the worker had already set
+`parse_in_progress=0`. FIX (mirrors the upload poll fallback EXACTLY): BACKEND [`api/boq/wizard/parse_run.py`]
+-- `_publish_parse_event` (the single choke-point ALL six completion paths funnel through) now ALSO records
+its terminal payload in Redis keyed by RQ job id (`frappe.cache().set_value`, 1h TTL, job id via
+`rq.get_current_job().id`, best-effort, outside the DB txn so it survives the internal-branch rollback the
+caller may have done); NEW whitelisted `get_parse_status(job_id)` returns `{state:"pending"}` or
+`{state:"done", ...payload}`. FRONTEND [`BoqHubPage.tsx`] -- captures `job_id` from the `run_parse` response,
+cleared to null BEFORE each parse so the poll can NEVER read a previous parse's outcome (job-id keying is what
+makes it stale-safe; the poll only starts once the new id arrives); polls `get_parse_status` every 3s while
+`parseInFlight && jobId` (swrKey null + refreshInterval 0 stop it otherwise); the inline socket handler was
+refactored into a shared `applyParseOutcome` gated on a `parseInFlightRef` mirror (so socket-or-poll, first to
+resolve wins, the other no-ops) -- BOTH the `boq:parse_run_done` handler and the poll effect call it. The
+pre-existing `parse_in_progress` on-mount recovery + reconnect self-heal are UNCHANGED (cover the navigate-away
+case; the new poll covers the live-waiting case). Verified: in-container import + endpoint whitelist + cache
+round-trip (pending/done); test_parse_run 69 green; tsc 3180->3180 (0 new); in-container `yarn build` exit 0
+(`✓ built in 1m 20s`, `Done in 90.01s`, PWA 164 entries). LIVE re-cert on test.nirmaan.app pending DEPLOY.
+Full detail in frontend/CLAUDE.md + boq-upload-plan.md.)
+// prior: BoQ upload multi-container fix COMPLETE -- BACKEND + FRONTEND, branch
 `boq-nitesh`: live-found on test.nirmaan.app -- the Upload BoQ flow hung on "Parsing..." forever and
 NEVER created a BOQs row. Diagnosed via chrome-devtools: upload POST 200 + job_id, RQ job "finished" in
 ~0.75s with 0 failures + no Error Log, `Nirmaan Attachments` created but `associated_docname=null`,

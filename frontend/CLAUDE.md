@@ -317,7 +317,29 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-14 -- BoQ upload multi-container fix COMPLETE -- BACKEND + FRONTEND, branch boq-nitesh):**
+**Status (2026-06-15 -- BoQ PARSE-run hang fix COMPLETE -- BACKEND + FRONTEND, branch boq-nitesh):**
+The SAME missed-realtime-event race as the upload fix, now on the parse-run flow. After upload + per-sheet
+config, clicking Parse (or Re-parse) in the hub hung on "Parsing..." forever. The cross-container tempfile
+bug from the upload fix does NOT apply here -- `_run_parse_worker` ALREADY re-fetches the workbook from S3 in
+its OWN container via parse_run's own `_fetch_boq_file_to_tempfile` (handles .xlsm). ROOT CAUSE: the
+`boq:parse_run_done` socket event is `user=`-targeted + NOT replayed; `BoqHubPage` learned the outcome ONLY
+from that live event. It had on-mount `parse_in_progress` recovery + reconnect self-heal but NO POLL -- so a
+client not joined when the fast worker emits (e.g. right after login) hung forever even though the worker had
+set `parse_in_progress=0`. FIX (mirrors the upload poll fallback): `BoqHubPage.tsx` captures `job_id` from the
+`run_parse` response (CLEARED to null before each parse so the poll can never read a previous parse's outcome
+-- job-id keying is what makes it stale-safe; the poll begins only once the new id arrives), polls the NEW
+backend `get_parse_status(job_id)` (see root CLAUDE.md) every 3s via `useFrappeGetCall` while `parseInFlight &&
+jobId` (swrKey null + refreshInterval 0 stop it otherwise); the inline socket handler was refactored into a
+shared `applyParseOutcome(payload)` gated on a `parseInFlightRef` mirror so socket-or-poll, whichever resolves
+FIRST wins and the other no-ops -- BOTH the `boq:parse_run_done` handler and the poll effect call it. The
+pre-existing on-mount `parse_in_progress` recovery + reconnect self-heal are UNCHANGED (they cover the
+navigate-away case; the new poll covers live-waiting). Backend half (`_publish_parse_event` Redis-recorded
+outcome keyed by RQ job id + the `get_parse_status` endpoint) is in root CLAUDE.md + boq-upload-plan.md.
+tsc 0 new wizard-file errors (baseline 3180 unchanged) + in-container `yarn build` exit 0 (`✓ built in 1m
+20s`, `Done in 90.01s`, PWA 164 entries); backend test_parse_run 69 green. Live re-cert on test.nirmaan.app
+pending deploy. Full as-built detail in root CLAUDE.md + boq-upload-plan.md.
+
+// prior: **Status (2026-06-14 -- BoQ upload multi-container fix COMPLETE -- BACKEND + FRONTEND, branch boq-nitesh):**
 Live-found on test.nirmaan.app: the Upload BoQ flow hung on "Parsing..." forever and never created a BOQs row.
 Three root causes fixed; the FRONTEND half is two files. (1) `BoqPickerPage.tsx` -- React #300 ("rendered fewer
 hooks than expected"): `useFrappeGetDocList` sat AFTER the `if (preSelectedId) return <BoqUploadScreen/>`
