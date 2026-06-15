@@ -16,7 +16,63 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-5 -- reconcile per-area CHILD rate/amount fields Float -> Currency (match the parent)
+LATEST: Phase 4 Slice P4-6 -- §9 #135 Skip/Hidden filter = VERIFY-ONLY CLOSE (no build) + structural CHECKPOINT
+inserted + Phase-5 commit-set LOCKED (DOCUMENTATION ONLY, 2026-06-16). **P4-6 was scoped as "build the §135
+skip-filter" -- a read-only recon at HEAD found it is ALREADY BUILT + tested, so P4-6 closes as VERIFY-ONLY, not a
+build.** EVIDENCE the skip-filter is built (parse layer): `assemble_mapping_config` (parse_run.py, Rule 2)
+translates `wizard_status in {Hidden, Skip}` -> `SheetConfig(skip=True)`; `parse_boq()` (orchestrator.py) excludes
+those from output (`if sheet_config.skip: continue` -- the sheet produces NO ParsedSheet, hence no rows); the
+parser reads ONLY `sheet_config.skip` (a bool), never wizard_status. Passing tests exist at BOTH layers --
+assemble: `test_hidden_sheet_included_with_skip_true` / `test_skip_sheet_included_with_skip_true` /
+`test_pending_sheet_excluded_and_in_not_eligible`; parser-output: `test_skipped_sheet_excluded_from_output`
+(orchestrator) + the real-fixture `test_snitch_skip_sheets_filtered_out`. THREE coordinated exclusion mechanisms
+exist: `skip=True` (Skip/Hidden), `not_eligible` (Pending / Parse-failed / blank / Finalized-without-force), and
+`treat_as="master_preamble"` (General specs -> text blob, no rows). The gate is enforced at the PARSE layer, so a
+commit pipeline sourcing from parse output inherits skip/ineligible exclusion for free. **STALE-DOC CORRECTION:**
+the structural-audit gap table / rebuild plan (`BoQ_StructuralAudit_Phase3_GapTable_and_RebuildPlan`, not in repo)
+lists "§135 skip-filter" as a HARD pre-commit requirement STILL OUTSTANDING -- that is INCORRECT; it is built. The
+ParseRun Plan of Record (2026-06-03, "skip-filter built from day one in assemble_mapping_config") is the accurate
+side. FLAG for the next edit of that audit doc. **CHECKPOINT SLICE INSERTED (before P4-FINAL):** a read-only
+STRUCTURAL SIGN-OFF that lays the live assembled committed schema (BOQs -> BoQ Sheet -> BOQ Nodes -> BOQ Node Qty
+By Area) against the rebuild plan tier-by-tier and confirms the three-tier spine is continuous, the keep-set fully
+landed, no drift / accidental scope, and deferred-to-Phase-5 items clearly marked. It runs AFTER P4-6 and BEFORE
+P4-FINAL **specifically because P4-FINAL clears the 167 dev rows (the only thing currently populating the node
+tables) and retires `parent_boq`** -- the checkpoint wants a last look while a sample assembled node still exists to
+read, and it is the last clean point to catch a cross-slice structural mistake before the irreversible cleanup.
+NOTE: the checkpoint is STRUCTURAL ONLY (no real data exists until Phase 5) -- it is NOT a substitute for the
+Phase-5 end-to-end dogfood test. **REVISED Phase-4 tail sequence: P4-6 (done) -> CHECKPOINT -> P4-FINAL -> Phase 5.**
+**WORDING FIX (P4-5 entry):** the P4-5 block said "the Phase-4 committed-model arc ... is now COMPLETE" -- that meant
+the committed-model FIELD/TYPE arc (P4-1..P4-5); **Phase 4 is NOT complete** -- the CHECKPOINT + P4-FINAL still
+remain. No code/doctype/test touched this slice; ONLY this plan doc + root CLAUDE.md. (See the "PHASE 5 -- LOCKED
+INPUTS" block below for the commit-set decisions recorded this session.)
+
+PHASE 5 -- LOCKED INPUTS (decided in session 2026-06-16) -- the durable record the Phase-5 commit pipeline builds
+against. **COMMIT-SET (owner-decided): only TWO sheet dispositions commit to the DB.** (1) **Finalized** -- commits
+its LINE-ITEM data; "Finalized" is the user's explicit "reviewed, edited, ready for DB" signal and is THE commit
+gate for line items. (2) **General specs** -- commits as a FAITHFUL ROW-BY-ROW capture of the sheet's cells
+(rendered as-is in the tendering view); if MULTIPLE general-specs sheets exist, ALL of them commit. Everything else
+(Config Done, Parsed, Skip, Hidden, Pending, Parse failed, blank) does NOT commit. **CONFLICT 1 Phase 5 MUST
+RESOLVE -- Finalized is currently NOT the commit gate.** Today `assemble_mapping_config` treats "Finalized" as
+`not_eligible` BY DEFAULT (it parses only under `force_reparse=True`), and "Config Done"/"Parsed" are what currently
+produce rows -- so "what parses" != "what commits." The commit gate is a SEPARATE, NARROWER gate keyed on
+"Finalized", sitting DOWNSTREAM of parsing; it does NOT inherit the parse-eligibility filter and must be built
+explicitly. **CONFLICT 2 Phase 5 MUST RESOLVE -- general specs currently stores a LOSSY BLOB, not rows.** Today a
+general-specs sheet -> `get_master_preamble_text` flattens ALL non-empty cells row-major into ONE newline-joined
+text blob stored in `BoQ General Specs Sheet.preamble_text` (one Long Text per sheet) -- row/column structure
+DISCARDED. The target (faithful rows) requires NEW capture behavior. FEASIBILITY (recon-confirmed): the raw cell
+grid IS available upstream at extraction time -- the parser holds the full openpyxl worksheet (`_wb_values` /
+`iter_rows`) and merely CHOOSES to flatten it -- so faithful row-by-row capture is ROUTING EXISTING DATA, NOT new
+parse work and NOT re-reading the file. (Demonstrated this session: a faithful CSV of BOQ-26-00145 'SOW' produced a
+clean 39x3 label/description grid, vs the flattened `preamble_text` blob where label/value and row boundaries are
+indistinguishable.) **PHASE-5 DESIGN CONSTRAINT (commit sourcing):** the commit pipeline must enforce the commit-set
+gate EXPLICITLY (Finalized line items + general-specs faithful rows), NOT merely inherit the parse-layer
+skip-filter. If commit sources rows from parse output, the skip/ineligible exclusion flows through -- but the
+Finalized gate and the general-specs faithful-row capture are NOT in that output today and must be built. **CARRIED
+FORWARD (from P4-4, co-located here):** TENDERING-ERA AUDIT SCOPE is an OPEN Phase-5/tendering-boundary decision --
+tendering edits to a committed node (rates, per-area qty, SKU) need a full who/changed-what/when trail; today's
+`_write_audit` (15 scalar fields, no per-area child, lifecycle-only) is under-built; to be designed explicitly at
+the tendering boundary, NOT inherited.
+// prior: Phase 4 Slice P4-5 -- reconcile per-area CHILD rate/amount fields Float -> Currency (match the parent)
 (BACKEND, 2026-06-16, feat pending). TYPE-ONLY change: the SIX money fields on `BOQ Node Qty By Area`
 (`supply_rate` / `install_rate` / `combined_rate` / `supply_amount` / `install_amount` / `total_amount`) flip
 `Float` -> `Currency` to match the parent BOQ Nodes (which already had them Currency). **CLOSES the

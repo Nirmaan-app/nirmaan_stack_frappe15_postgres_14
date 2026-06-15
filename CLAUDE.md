@@ -1,6 +1,32 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-16 (Phase 4 Slice P4-5 -- reconcile per-area CHILD rate/amount fields Float -> Currency
+**Last updated:** 2026-06-16 (Phase 4 P4-6 close + structural CHECKPOINT inserted + Phase-5 commit-set LOCKED --
+DOCUMENTATION ONLY. **P4-6 = VERIFY-ONLY** (no build): a read-only recon found the §9 #135 Skip/Hidden filter is
+ALREADY BUILT at the PARSE layer + tested -- `assemble_mapping_config` Rule 2 maps `wizard_status in {Hidden,Skip}`
+-> `SheetConfig(skip=True)`; `parse_boq()` drops skip sheets from output (`if sheet_config.skip: continue`); passing
+tests at both layers (`test_skipped_sheet_excluded_from_output`, Snitch `test_snitch_skip_sheets_filtered_out`,
+assemble hidden/skip/pending tests). Three exclusion mechanisms: skip=True (Skip/Hidden), not_eligible (Pending/
+Parse-failed/blank/Finalized-without-force), master_preamble (General specs). **The audit gap-table entry for §135
+is STALE** (it lists the filter as outstanding -- it is built; corrected in the plan doc; the ParseRun Plan of
+Record is accurate). **CHECKPOINT slice inserted BEFORE P4-FINAL:** a read-only structural sign-off of the assembled
+committed schema (BOQs -> BoQ Sheet -> BOQ Nodes -> BOQ Node Qty By Area) vs the rebuild plan -- runs before
+P4-FINAL because P4-FINAL clears the 167 dev rows + retires `parent_boq` (last look while a sample assembled node
+exists; last clean point to catch cross-slice drift). STRUCTURAL ONLY -- NOT the Phase-5 dogfood test. Revised tail:
+P4-6 -> CHECKPOINT -> P4-FINAL -> Phase 5. (P4-5's "Phase-4 arc complete" meant the FIELD/TYPE arc P4-1..P4-5;
+Phase 4 is NOT complete.) **PHASE-5 COMMIT-SET LOCKED (owner-decided):** only TWO dispositions commit -- (1)
+**Finalized** -> its line-item data (Finalized is THE commit gate for line items), (2) **General specs** -> a
+FAITHFUL row-by-row capture of the sheet's cells (ALL general-specs sheets if multiple). Everything else (Config
+Done / Parsed / Skip / Hidden / Pending / Parse-failed / blank) does NOT commit. **TWO CONFLICTS Phase 5 must
+resolve:** (C1) Finalized is currently `not_eligible` BY DEFAULT (parses only under force_reparse) -- "what parses"
+!= "what commits"; the commit gate is a SEPARATE narrower gate keyed on Finalized, downstream of parsing, must be
+built. (C2) general specs is stored today as a LOSSY flattened `preamble_text` blob (row/column structure
+discarded) -- faithful rows need NEW capture behavior; FEASIBLE because the raw cell grid IS available upstream
+(parser holds the openpyxl worksheet via `_wb_values`/`iter_rows` and merely flattens it) -> routing existing data,
+not new parse work (demonstrated: a faithful 39x3 CSV of BOQ-26-00145 'SOW'). The commit pipeline must enforce the
+commit-set EXPLICITLY (Finalized + general-specs faithful rows), not merely inherit the parse skip-filter. CARRIED:
+the tendering-era audit scope stays an open Phase-5/tendering-boundary decision (P4-4). Pure-backend/data slice ->
+root CLAUDE.md, NOT frontend. Full detail + the "PHASE 5 -- LOCKED INPUTS" block in boq-upload-plan.md.)
+// prior: 2026-06-16 (Phase 4 Slice P4-5 -- reconcile per-area CHILD rate/amount fields Float -> Currency
 -- BACKEND, feat pending. TYPE-ONLY: the SIX money fields on `BOQ Node Qty By Area` (`supply_rate`/`install_rate`/
 `combined_rate`/`supply_amount`/`install_amount`/`total_amount`) flip `Float` -> `Currency` to match the parent
 BOQ Nodes. **CLOSES the Float-vs-Currency inconsistency P4-3 deferred here.** NOT a reshape (the normalized-child /
