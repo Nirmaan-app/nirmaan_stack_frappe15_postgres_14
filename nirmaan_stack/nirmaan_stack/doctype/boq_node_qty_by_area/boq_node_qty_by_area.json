@@ -31,32 +31,32 @@
   },
   {
    "fieldname": "supply_rate",
-   "fieldtype": "Float",
+   "fieldtype": "Currency",
    "label": "Supply Rate"
   },
   {
    "fieldname": "install_rate",
-   "fieldtype": "Float",
+   "fieldtype": "Currency",
    "label": "Install Rate"
   },
   {
    "fieldname": "combined_rate",
-   "fieldtype": "Float",
+   "fieldtype": "Currency",
    "label": "Combined Rate"
   },
   {
    "fieldname": "supply_amount",
-   "fieldtype": "Float",
+   "fieldtype": "Currency",
    "label": "Supply Amount"
   },
   {
    "fieldname": "install_amount",
-   "fieldtype": "Float",
+   "fieldtype": "Currency",
    "label": "Install Amount"
   },
   {
    "fieldname": "total_amount",
-   "fieldtype": "Float",
+   "fieldtype": "Currency",
    "label": "Total Amount"
   },
   {
