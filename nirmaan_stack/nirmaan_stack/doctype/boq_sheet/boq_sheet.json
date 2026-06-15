@@ -1,0 +1,250 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BQSH-.YY.-.#####",
+ "creation": "2026-06-15 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "sheet_order",
+  "sheet_label",
+  "work_header_section",
+  "work_packages",
+  "render_config_section",
+  "treat_as",
+  "header_row",
+  "header_row_count",
+  "column_role_map",
+  "column_headers",
+  "area_dimensions",
+  "parse_vintage_section",
+  "last_parsed_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this sheet belongs to.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "Workbook tab order; drives cross-sheet Excel-view ordering.",
+   "fieldname": "sheet_order",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sheet Order",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sheet_label",
+   "fieldtype": "Data",
+   "label": "Sheet Label"
+  },
+  {
+   "fieldname": "work_header_section",
+   "fieldtype": "Section Break",
+   "label": "Work Headers"
+  },
+  {
+   "fieldname": "work_packages",
+   "fieldtype": "Table",
+   "label": "Work Packages",
+   "options": "BoQ Sheet Work Package"
+  },
+  {
+   "fieldname": "render_config_section",
+   "fieldtype": "Section Break",
+   "label": "Render Config"
+  },
+  {
+   "default": "data",
+   "fieldname": "treat_as",
+   "fieldtype": "Select",
+   "label": "Treat As",
+   "options": "data\nmaster_preamble"
+  },
+  {
+   "description": "Excel header row index.",
+   "fieldname": "header_row",
+   "fieldtype": "Int",
+   "label": "Header Row"
+  },
+  {
+   "default": "1",
+   "description": "Number of header rows (1 or 2). Constraint enforced upstream by the parser; stored verbatim here.",
+   "fieldname": "header_row_count",
+   "fieldtype": "Int",
+   "label": "Header Row Count"
+  },
+  {
+   "description": "Opaque {COL: {role, area}} render map. Stored as-is; NOT re-validated against the parser ColumnRole enum (legacy maps may carry retired role tokens).",
+   "fieldname": "column_role_map",
+   "fieldtype": "JSON",
+   "label": "Column Role Map"
+  },
+  {
+   "description": "Opaque {COL: header_text} map; may be empty {}.",
+   "fieldname": "column_headers",
+   "fieldtype": "JSON",
+   "label": "Column Headers"
+  },
+  {
+   "description": "JSON array of area names; may be empty [].",
+   "fieldname": "area_dimensions",
+   "fieldtype": "JSON",
+   "label": "Area Dimensions"
+  },
+  {
+   "fieldname": "parse_vintage_section",
+   "fieldtype": "Section Break",
+   "label": "Parse Vintage"
+  },
+  {
+   "fieldname": "last_parsed_at",
+   "fieldtype": "Datetime",
+   "label": "Last Parsed At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Sheet",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
