@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import {
@@ -92,6 +92,19 @@ const PARSE_ERROR_FALLBACK = {
   severity: "destructive" as const,
 };
 
+// Response shape of get_parse_status (the polling fallback). Mirrors the realtime
+// boq:parse_run_done payload (status/boq_name/sheet lists/error_code) plus a `state`
+// discriminator, so one handler (applyParseOutcome) serves both the socket and poll.
+interface ParseStatusResponse {
+  state: "pending" | "done";
+  status?: ParseRunDonePayload["status"];
+  boq_name?: string;
+  parsed_sheets?: string[];
+  not_parsed_sheets?: string[];
+  failed_sheets?: string[];
+  error_code?: ParseRunDonePayload["error_code"];
+}
+
 const BoqHubPage = () => {
   const { boqId } = useParams<{ boqId: string }>();
   const navigate = useNavigate();
@@ -117,6 +130,13 @@ const BoqHubPage = () => {
   const [parseDialogMode, setParseDialogMode] = useState<"parse" | "reparse">("parse");
   const [reparseRestrictSheet, setReparseRestrictSheet] = useState<string | null>(null);
   const [parseInFlight, setParseInFlight] = useState(false);
+  // RQ job id of the in-flight parse, captured from the run_parse response. Drives
+  // the get_parse_status poll fallback (cleared before each new parse so the poll
+  // never reads a previous parse's recorded outcome).
+  const [parseJobId, setParseJobId] = useState<string | null>(null);
+  // Ref mirror of parseInFlight so applyParseOutcome (a stable callback shared by the
+  // socket handler and the poll) reads the current value without being recreated.
+  const parseInFlightRef = useRef(false);
   const [parseResult, setParseResult] = useState<{
     parsed: string[];
     notParsed: string[];
@@ -170,13 +190,20 @@ const BoqHubPage = () => {
   // Socket for "boq:parse_run_done" (mirrors BoqUploadScreen.tsx pattern).
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
+  // Keep the ref mirror of parseInFlight current for applyParseOutcome's gate.
   useEffect(() => {
-    if (!socket) return;
+    parseInFlightRef.current = parseInFlight;
+  }, [parseInFlight]);
 
-    const handler = (payload: ParseRunDonePayload) => {
-      // Guard: only act on events for THIS boq (a concurrent parse by the same
-      // user on a different boq must not trigger a refresh here).
+  // Apply a parse outcome from EITHER the realtime event or the polling fallback.
+  // Guards: (1) only this boq; (2) parseInFlightRef so socket-or-poll, first to
+  // resolve wins and the other no-ops. Reads inflight from a ref (not state) so the
+  // callback stays stable for the one-time socket registration. Setters/mutate are
+  // stable refs; boqId from useParams is stable.
+  const applyParseOutcome = useCallback(
+    (payload: ParseRunDonePayload) => {
       if (payload.boq_name !== boqId) return;
+      if (!parseInFlightRef.current) return;
 
       setParseInFlight(false);
       setParseDialogOpen(false);
@@ -193,7 +220,16 @@ const BoqHubPage = () => {
           PARSE_ERROR_MSGS[payload.error_code ?? ""] ?? PARSE_ERROR_FALLBACK
         );
       }
-    };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boqId]
+  );
+
+  // Fast path: realtime boq:parse_run_done socket event.
+  useEffect(() => {
+    if (!socket) return;
+
+    const handler = (payload: ParseRunDonePayload) => applyParseOutcome(payload);
 
     // Reconnect self-heal (#147 option-4): re-fetch the BoQ doc on socket (re)connect
     // so the existing useEffect([boq]) recovery can sync parseInFlight from the fresh
@@ -207,10 +243,39 @@ const BoqHubPage = () => {
       socket.off("boq:parse_run_done", handler);
       socket.off("connect", onReconnect);
     };
-    // socket is a stable FrappeContext singleton ref; boqId from useParams is stable;
-    // mutate is a stable useFrappeGetDoc SWR ref
+    // socket is a stable FrappeContext singleton ref; mutate is a stable SWR ref;
+    // applyParseOutcome is stable unless boqId changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
+  }, [socket, applyParseOutcome]);
+
+  // Fallback path: poll get_parse_status by job id while waiting. The realtime
+  // boq:parse_run_done event is room-targeted and NOT replayed, so a client that
+  // wasn't joined when the worker finished (e.g. right after login) would otherwise
+  // hang on "Parsing..." forever. Socket or poll -- first to resolve wins (both go
+  // through applyParseOutcome, gated on parseInFlightRef). parseJobId is captured
+  // from the run_parse response and cleared before each new parse, so the poll never
+  // reads a previous parse's outcome. swrKey null + refreshInterval 0 stop the poll
+  // once we leave the in-flight state.
+  const shouldPollParse = parseInFlight && !!parseJobId;
+  const { data: parsePollData } = useFrappeGetCall<{ message: ParseStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.parse_run.get_parse_status",
+    { job_id: parseJobId },
+    shouldPollParse ? `boq-parse-status::${parseJobId}` : null,
+    { refreshInterval: shouldPollParse ? 3000 : 0 }
+  );
+
+  useEffect(() => {
+    const msg = parsePollData?.message;
+    if (!msg || msg.state !== "done") return;
+    applyParseOutcome({
+      status: msg.status ?? "error",
+      boq_name: msg.boq_name ?? "",
+      parsed_sheets: msg.parsed_sheets,
+      not_parsed_sheets: msg.not_parsed_sheets,
+      failed_sheets: msg.failed_sheets,
+      error_code: msg.error_code,
+    });
+  }, [parsePollData, applyParseOutcome]);
 
   // Seed/re-sync the checklist ticked set from server state whenever boq changes.
   // mutate() after Save re-fetches boq, which fires this effect so ticks re-sync.
@@ -492,16 +557,24 @@ const BoqHubPage = () => {
     // Force Re-parse path adds force_reparse:true; normal Parse omits it entirely
     // (backend default False). The SDK serializes the bool; the backend coerces it.
     const force = parseDialogMode === "reparse";
+    // Clear any stale job id BEFORE starting so the poll (gated on parseInFlight &&
+    // parseJobId) cannot read a previous parse's recorded outcome -- it begins only
+    // once the new job id arrives from the response below.
+    setParseJobId(null);
     setParseInFlight(true);
     try {
-      // Enqueue the background worker; result arrives via "boq:parse_run_done".
-      await callRunParse({
+      // Enqueue the background worker; result arrives via "boq:parse_run_done" (fast
+      // path) or the get_parse_status poll keyed by this job id (fallback).
+      const res = await callRunParse({
         boq_name: boqId,
         sheet_names: sheetNames,
         ...(force ? { force_reparse: true } : {}),
       });
+      const newJobId = (res?.message as { job_id?: string | null })?.job_id ?? null;
+      setParseJobId(newJobId);
     } catch (_e) {
       setParseInFlight(false);
+      setParseJobId(null);
       setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
       setParseDialogOpen(false);
     }

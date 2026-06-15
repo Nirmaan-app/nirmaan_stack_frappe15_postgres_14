@@ -93,6 +93,17 @@ def _clear_all_sheet_parse_markers(boq_name: str) -> None:
     )
 
 
+# Fallback status cache: _publish_parse_event records the terminal outcome here keyed
+# by RQ job id so the hub can poll get_parse_status() if it misses the (room-targeted,
+# non-replayed) boq:parse_run_done realtime event. Mirrors upload_file's pattern.
+_PARSE_STATUS_CACHE_PREFIX = "boq_parse_status"
+_PARSE_STATUS_TTL_SEC = 3600  # 1 hour -- ample for a client to poll the fallback
+
+
+def _parse_status_key(job_id):
+    return f"{_PARSE_STATUS_CACHE_PREFIX}::{job_id}"
+
+
 def assemble_mapping_config(
     boq_name: str, force_reparse: bool = False
 ) -> tuple[MappingConfig, list[str]]:
@@ -518,6 +529,34 @@ def check_parse_status(boq_name: str = None) -> dict:
     return {"state": _maybe_self_heal_parse_state(boq_name)}
 
 
+@frappe.whitelist()
+def get_parse_status(job_id=None):
+    """Polling fallback for a parse-run outcome, keyed by RQ job id.
+
+    The hub normally learns the result via the realtime boq:parse_run_done event,
+    but that event is room-targeted and not replayed -- a client that missed it
+    (e.g. socket not joined yet right after login) would otherwise hang on
+    "Parsing...". _publish_parse_event records its terminal outcome here; this
+    returns it.
+
+    Shapes (mirrors the realtime payload so the client reuses one handler):
+      {"state": "pending"}                                       -- still running / unknown
+      {"state": "done", "status": "success", "boq_name": "<name>",
+       "parsed_sheets": [...], "not_parsed_sheets": [...], "failed_sheets": [...]}
+      {"state": "done", "status": "error", "boq_name": "<name>", "error_code": "<code>"}
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.parse_run.get_parse_status
+    """
+    if not job_id:
+        frappe.throw("job_id is required.", title="Missing field: job_id")
+
+    cached = frappe.cache().get_value(_parse_status_key(job_id))
+    if not cached:
+        return {"state": "pending"}
+
+    return {"state": "done", **cached}
+
+
 def _run_parse_worker(
     boq_name: str, sheet_names=None, user: str = None, force_reparse: bool = False
 ) -> None:
@@ -853,6 +892,25 @@ def _publish_parse_event(
     _clear_all_sheet_parse_markers(boq_name)
     frappe.db.commit()
     payload = {"status": status, "boq_name": boq_name, **kwargs}
+
+    # Record the outcome for the polling fallback, keyed by RQ job id. The realtime
+    # event below is room-targeted and NOT replayed, so a client that wasn't joined
+    # when this fires (e.g. right after login) never hears it and hangs on
+    # "Parsing..."; get_parse_status() reads this entry so the hub can recover by
+    # polling. Best-effort: it lives in Redis (independent of the DB transaction, so
+    # it survives the internal-error rollback the caller may have done) and must
+    # never fail the job.
+    try:
+        from rq import get_current_job  # noqa: PLC0415
+
+        job = get_current_job()
+        if job is not None:
+            frappe.cache().set_value(
+                _parse_status_key(job.id), payload, expires_in_sec=_PARSE_STATUS_TTL_SEC
+            )
+    except Exception:
+        pass
+
     publish_kwargs: dict[str, Any] = {}
     if user:
         publish_kwargs["user"] = user
