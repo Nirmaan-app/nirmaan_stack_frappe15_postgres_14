@@ -835,7 +835,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 !accountsPage &&
                 !po?.custom &&
                 !estimatesViewing &&
-                role !== "Nirmaan Accountant Profile" &&
+                role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
                 po?.status === "PO Approved" &&
                 !(poPayments?.length) && (
                   <Tooltip>
@@ -898,7 +898,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     )}
 
                   {/* Add Invoice - hidden for Project Manager and Accountant */}
-                  {!isProjectManager && role !== "Nirmaan Accountant Profile" && !estimatesViewing && (
+                  {!isProjectManager && role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" && !estimatesViewing && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -1017,7 +1017,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 po.status !== "PO Approved" &&
                 (po?.amount_paid ?? 0) <= 100 &&
                 !PoPaymentTermsValidationSafe &&
-                (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role)) && (
+                (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role)) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

@@ -534,7 +534,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         toolbarActions={
           (role === "Nirmaan Admin Profile" ||
             role === "Nirmaan PMO Executive Profile" ||
-            role === "Nirmaan Accountant Profile") && (
+            role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile") && (
             <Button onClick={toggleNewProjectExpenseDialog} size="sm">
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Project Expense

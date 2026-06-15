@@ -4,6 +4,7 @@ from frappe import _
 # Role to subject mapping
 ROLE_SUBJECT_MAP = {
     "Nirmaan Accountant Profile": "accountant_remark",
+    "Nirmaan Accountant Lead Profile": "accountant_remark",
     "Nirmaan Procurement Executive Profile": "procurement_remark",
     "Nirmaan Admin Profile": "admin_remark",
     "Nirmaan PMO Executive Profile": "admin_remark",

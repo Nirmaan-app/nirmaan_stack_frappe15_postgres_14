@@ -34,7 +34,7 @@ export const PORevisionHistory: React.FC<PORevisionHistoryProps> = ({ poId }) =>
   const { data: revisions, isLoading } = useRevisionHistory(poId);
   const { role } = useUserData();
 
-  const isAllowed = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile"].includes(role);
+  const isAllowed = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role);
 
   if (isLoading || !revisions || revisions.length === 0 || !isAllowed) {
     return null;

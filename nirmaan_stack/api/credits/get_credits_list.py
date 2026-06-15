@@ -205,6 +205,7 @@ def _get_user_allowed_projects(user: str):
         "Nirmaan Admin Profile",
         "Nirmaan PMO Executive Profile",
         "Nirmaan Accountant Profile",
+        "Nirmaan Accountant Lead Profile",
     ]
 
     if user == "Administrator":

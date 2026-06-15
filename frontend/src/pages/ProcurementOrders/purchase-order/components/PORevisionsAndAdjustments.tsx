@@ -41,6 +41,7 @@ const REVISION_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
   "Nirmaan Procurement Executive Profile",
 ];
 

@@ -18,7 +18,7 @@ export default function InvoiceReconciliationContainer() {
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY;
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role) ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY;
         return getUrlStringParam("tab", defaultTab);
     }, [role]); // Calculate only once based on role
     
@@ -47,7 +47,7 @@ export default function InvoiceReconciliationContainer() {
 
     // Filter task tabs based on role (only Admin/PMO/Accountant can see pending approvals)
     const taskTabs = useMemo(() => {
-        const canViewPending = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role);
+        const canViewPending = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
         return canViewPending
             ? INVOICE_TASK_TAB_OPTIONS
             : INVOICE_TASK_TAB_OPTIONS.filter(t => t.value !== INVOICE_TASK_TABS.PENDING);

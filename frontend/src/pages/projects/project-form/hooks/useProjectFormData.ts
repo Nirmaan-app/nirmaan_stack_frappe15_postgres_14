@@ -170,7 +170,7 @@ export const useProjectFormData = () => {
     })) || [];
 
     const accountantOptions: SelectOption[] = users?.filter(
-        item => item.role_profile === "Nirmaan Accountant Profile"
+        item => item.role_profile === "Nirmaan Accountant Profile" || item.role_profile === "Nirmaan Accountant Lead Profile"
     ).map(item => ({
         label: item.full_name,
         value: item.name

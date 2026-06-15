@@ -133,6 +133,7 @@ export const PORemarks: React.FC<PORemarksProps> = ({ poId }) => {
             "Nirmaan Admin Profile",
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
+            "Nirmaan Accountant Lead Profile",
             "Nirmaan Procurement Executive Profile",
             "Nirmaan Project Lead Profile",
         ];
