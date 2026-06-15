@@ -16,7 +16,36 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Append-to-notes-as-columns + staleness banner (BACKEND + FRONTEND, 2026-06-14). Renders
+LATEST: Phase 4 Slice P4-1 -- committed "BoQ Sheet" doctype (BACKEND, 2026-06-15, feat pending). Creates the
+missing SHEET tier of the committed model BOQs (workbook) -> BoQ Sheet (sheet) -> BOQ Nodes (rows); nodes today
+attach straight to BOQs. ADDITIVE + STANDALONE: ONE new doctype, nothing else touched (no BOQ Nodes / BOQs / BoQ
+Sheet Draft / controller / endpoint / hooks.py change). Nothing writes to it yet -- the commit pipeline is Phase 5,
+node re-pointing is P4-2. NEW `nirmaan_stack/nirmaan_stack/doctype/boq_sheet/` (boq_sheet.json + boq_sheet.py stub
+`class BoQSheet(Document): pass` + empty __init__.py + test_boq_sheet.py). KEY DESIGN (owner-locked): `istable=0`
+STANDALONE top-level doctype that Links UP to BOQs (NOT a child table -- the working-side BoQ Sheet Draft IS a
+child table; the committed BoQ Sheet is a real linked record so nodes can Link to it in P4-2). `track_changes=1`
+(mirrors BOQs / BOQ Nodes). **autoname `BQSH-.YY.-.#####`** -- deliberately NOT `BOQS-` (one char from BOQs'
+`BOQ-` + reads as a plural; `BQSH` = "BoQ SHeet", zero collision). FIELDS (16, grouped by Section Breaks):
+IDENTITY -- `boq` (Link->BOQs, reqd, in_list_view, search_index), `sheet_name` (Data, reqd, in_list_view),
+`sheet_order` (Int, reqd, in_list_view), `sheet_label` (Data); WORK HEADERS -- `work_packages` (Table, options
+**"BoQ Sheet Work Package"** -- REUSES the EXISTING child doctype, NOT a new one; sheet->many work-headers,
+real-data-confirmed e.g. BOQ-26-00145 "HVAC " -> 3 headers); RENDER CONFIG (the audit KEEP-set, full Excel view
+TLD-2) -- `treat_as` (Select data/master_preamble, default data), `header_row` (Int), `header_row_count` (Int,
+default 1 -- plain Int, the Literal[1,2] constraint stays upstream in the parser), `column_role_map` (JSON,
+**stored OPAQUE -- NO role validator**; legacy maps carry retired tokens e.g. `amount_by_area`), `column_headers`
+(JSON), `area_dimensions` (JSON); PARSE VINTAGE -- `last_parsed_at` (Datetime, read_only). The SPENT sheet_config
+keys are NOT carried (skip / top_header_rows_override / skip_top_rows_after_header / rate_only_markers_override /
+level_1_style_override / package_name / sheet_name-echo). PERMISSIONS mirror BOQs verbatim (10 roles: 6 full-RW +
+4 read/report/export/share). TESTS: test_boq_sheet 5/5 green in-container -- create+autoname (BQSH- prefix),
+work_packages accepts 2+ work-headers (read-back), JSON round-trip INCLUDING a retired `amount_by_area` token
+(proves opaque storage, not rejected), render-config + read-only last_parsed_at persist, treat_as/header_row_count
+defaults. **list-JSON caveat (re-confirmed, CLAUDE.md):** a JSON field rejects a raw Python LIST on insert
+(get_valid_dict "cannot be a list") -- `area_dimensions` must be `json.dumps()`'d by the caller before insert;
+dict-JSON fields (`column_role_map`/`column_headers`) pass as dicts. The test mirrors the `_LIST_JSON_FIELDS`
+pattern. `bench --site localhost migrate` clean (DocType + table + columns verified in the RUNTIME db: autoname
+`BQSH-.YY.-.#####`, istable=0); parser suite 597 UNCHANGED. Live-cert N/A (no UI; passive container). NEXT: P4-2
+re-points BOQ Nodes to a BoQ Sheet Link; P5 commit pipeline writes BoQ Sheet rows. Full detail in root CLAUDE.md.
+// prior: Append-to-notes-as-columns + staleness banner (BACKEND + FRONTEND, 2026-06-14). Renders
 `append_to_notes` data as review-screen columns -- ADDITIVE (the commit-time notes-fold is untouched; the same
 content appearing in-position AND combined is BY DESIGN). (a) each mapped append-column as its OWN read-only
 column in ORIGINAL Excel position (interleaved by Excel letter); (b) ONE combined "Append Notes" column PINNED
