@@ -1,6 +1,19 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-16 (Phase 4 P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive
+**Last updated:** 2026-06-16 (Phase-5 INPUT RECORD finalized -- DOCUMENTATION ONLY. Mirrors the PK audit doc v1.3
+session-end decisions into the in-repo "PHASE 5 -- LOCKED INPUTS" block ahead of the Phase-5 kickoff. **Checkpoint
+flags resolved:** Flag 1 -- general-specs gets a NEW doctype (CANNOT reuse BOQ Nodes; its node_type/qty/rate/parent
+invariants would fight a general-specs grid row -- target is a simple label/description grid). Flag 2 -- add a
+committed-to-DB marker AND a new hub "Committed" state (two coordinated changes, post-successful-commit). Flag 3 --
+BUILD a review-row -> node provenance link, with a DURABILITY question to settle at design (review rows are
+non-durable across re-parse -> store the review-row name [may dangle] vs a stable identifier). Flags 4/5
+(parent_boq retire + dev purge) CLOSED in P4-FINAL. **LOCKED SEQUENCING:** line-item commit + general-specs
+faithful-row capture built TOGETHER as ONE commit feature (NOT line-items-first) -- a real BoQ has both kinds; the
+commit action / committed status / hub state can't finish until both exist; splitting builds the machinery twice.
+**Phase 4 is CLOSED and pushed (9dae681d..35a8544c); PK audit doc at v1.3.** No code/schema/test touched; only the
+plan doc + this file. Pure-backend/data record -> root CLAUDE.md. Full detail in boq-upload-plan.md "PHASE 5 --
+LOCKED INPUTS".)
+// prior: 2026-06-16 (Phase 4 P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive
 Phase-4 CLOSE. **PHASE 4 COMPLETE** (P4-1 sheet tier -> P4-2 node re-point -> P4-3 mapping lock -> P4-4 missing
 fields -> P4-5 type reconciliation -> P4-6 skip-filter verify -> CHECKPOINT pass -> P4-FINAL). Owner-authorized
 destructive slice (local throwaway instance). **parent_boq RETIRED:** field dropped from `boqs.json` (def +
