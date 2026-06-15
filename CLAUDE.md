@@ -1,6 +1,28 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-16 (Phase 4 Slice P4-2 -- re-point BOQ Nodes to the BoQ Sheet tier -- BACKEND, feat
+**Last updated:** 2026-06-16 (Phase 4 Slice P4-3 -- LOCK the commit field-mapping + three-parent-fields design --
+DOCUMENTATION ONLY. No build, no schema change, no test churn: the committed BOQ Nodes already uses the target
+field names; the naming gap lives in the (unbuilt) Phase-5 commit pipeline, so P4-3 freezes the review-row ->
+committed-node mapping for Phase 5 to implement. **MAPPING:** `qty_total`->`qty` [NAME]; `rate_supply`->
+`supply_rate`, `rate_install`->`install_rate`, `rate_combined`->`combined_rate`, `amount_supply`->`supply_amount`,
+`amount_install`->`install_amount`, `amount_total`->`total_amount` [all NAME+TYPE]; `sl_no_value`->`code` [NAME];
+`row_index`->`sort_order` [NAME]; `source_row_number`/`unit`/`make_model`/`description` [SAME, no remap]. (Per-area
+`qty_by_area`/`rate_by_area`/`amount_by_area` JSON -> the committed `qty_by_area` CHILD table; Phase-5 shape work.)
+**TWO TRAPS:** (1) WORD-ORDER REVERSAL -- review is prefix-first (`rate_*`/`amount_*`), committed is suffix
+(`*_rate`/`*_amount`); Phase 5 must map FIELD-BY-FIELD, never by a name-match loop (a loop silently misses all six
+rate/amount fields). (2) FLOAT->CURRENCY on the six rate/amount fields (review=Float, committed parent=Currency);
+let Frappe COERCE on assignment, no manual rounding. `qty` stays Float on both sides. **FLOAT-VS-CURRENCY
+INCONSISTENCY deferred to P4-5 (NOT resolved here):** committed PARENT (BOQ Nodes) rate/amount = Currency, committed
+CHILD (BOQ Node Qty By Area) rate/amount = Float -- a parent/child mismatch; likely P4-5 fix = make the child
+Currency. `qty` = Float on both. **THREE PARENT FIELDS (design note, do NOT collapse):** BoQ Review Row stores
+THREE distinct layers -- `parent_index` (Int, parser truth), `human_parent` (Int, -1 sentinel = no override / >=0 =
+reparent), `human_is_root` (Check, human re-rooted to top). `effective_parent_index` is NOT stored -- it is
+COMPUTED by `resolve_effective()` at read time. The Phase-5 commit runs `resolve_effective()` and writes the single
+resolved parent to the node's `parent_node` Link (the node's ONLY parent field); it does NOT copy the three
+review-side fields. The three-layer separation is load-bearing (a human edit never destroys the parser's original
+parent) and must not be refactored into one field. CORRECTION: the Phase-3 gap table had listed
+`effective_parent_index` as stored -- it is computed, not stored. Only the plan doc + this file updated.)
+// prior: 2026-06-16 (Phase 4 Slice P4-2 -- re-point BOQ Nodes to the BoQ Sheet tier -- BACKEND, feat
 pending. Inserts the P4-1 sheet tier into the committed node's upward ties: a node now links to a **BoQ Sheet**
 (new PRIMARY tie) and the `boq` Link->BOQs is KEPT DENORMALIZED. SURGICAL: +1 Link field, +1 sync validation, 1
 required-guard moved, test fixtures re-pointed. NOTHING ELSE touched -- `_compute_path` (parent_node-based),

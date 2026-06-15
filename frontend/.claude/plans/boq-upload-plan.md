@@ -16,7 +16,40 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-2 -- re-point BOQ Nodes to the BoQ Sheet tier (BACKEND, 2026-06-16, feat pending).
+LATEST: Phase 4 Slice P4-3 -- LOCK the commit field-mapping (review-row -> committed BOQ Node) + the
+three-parent-fields design note (DOCUMENTATION ONLY, 2026-06-16). NO build, NO schema change, NO test churn --
+the committed BOQ Nodes ALREADY uses the target field names; the naming gap lives entirely in the (not-yet-built)
+Phase-5 COMMIT PIPELINE, so P4-3 freezes the ground-truth mapping here for Phase 5 to implement against.
+**THE MAPPING (review-row source field -> committed BOQ Node target field; remap kind in brackets):**
+`qty_total` -> `qty` [NAME]; `rate_supply` -> `supply_rate` [NAME+TYPE]; `rate_install` -> `install_rate`
+[NAME+TYPE]; `rate_combined` -> `combined_rate` [NAME+TYPE]; `amount_supply` -> `supply_amount` [NAME+TYPE];
+`amount_install` -> `install_amount` [NAME+TYPE]; `amount_total` -> `total_amount` [NAME+TYPE]; `sl_no_value` ->
+`code` [NAME]; `row_index` -> `sort_order` [NAME]; `source_row_number` / `unit` / `make_model` / `description`
+[SAME -- identical name both sides, no remap]. (Per-area JSON blobs `qty_by_area` / `rate_by_area` /
+`amount_by_area` on the review row map to the committed `qty_by_area` CHILD TABLE -- Phase-5 shape work, not a
+scalar rename.) **TWO TRAPS Phase 5 MUST respect:** (1) **WORD-ORDER REVERSAL** -- the review side is PREFIX-first
+(`rate_*` / `amount_*`), the committed side is SUFFIX (`*_rate` / `*_amount`), so a naive name-match copy loop
+SILENTLY MISSES all six rate/amount fields; Phase 5 must map FIELD-BY-FIELD against this table, never by a
+matching-name loop. (2) **FLOAT -> CURRENCY** on the six rate/amount fields -- the review row stores them `Float`,
+the committed PARENT stores them `Currency`; let Frappe COERCE on assignment (set the attr, Frappe casts), NO
+manual rounding. `qty` stays `Float` on BOTH sides (no coercion). **FLOAT-VS-CURRENCY INCONSISTENCY logged for
+P4-5 (NOT resolved here):** the committed PARENT (BOQ Nodes) rate/amount fields are `Currency` while the committed
+CHILD (BOQ Node Qty By Area) rate/amount fields are `Float` -- a parent/child type mismatch; likely P4-5 resolution
+= make the CHILD `Currency` to match the parent. `qty` is `Float` on both (not part of the inconsistency). P4-3
+only LOGS it. **THREE PARENT FIELDS (design note -- do NOT "clean up" the apparent duplication):** the review row
+stores THREE distinct parent layers -- `parent_index` (Int, the PARSER TRUTH = parent row's row_index from the
+parse), `human_parent` (Int, the HUMAN OVERRIDE; -1 sentinel = no override, >=0 = reparent to that row_index),
+`human_is_root` (Check, the human RE-ROOTED this row to top-level; orthogonal to human_parent, Option B).
+**`effective_parent_index` is NOT a stored field** -- it is COMPUTED by `resolve_effective()` (review_screen.py) at
+read time by collapsing those three layers. The Phase-5 commit runs `resolve_effective()` and writes the SINGLE
+resolved parent to the committed node's `parent_node` Link -- it does NOT copy the three review-side fields onto
+the node (the committed BOQ Nodes has `parent_node` as its ONLY node-parent field; `path` is derived from the
+parent_node chain). The three-layer separation is LOAD-BEARING (a human edit never destroys the parser's original
+parent), so it must NOT be refactored into a single field. **CORRECTION captured:** the Phase-3 gap table had
+listed `effective_parent_index` as a STORED field -- it is COMPUTED, not stored (only `parent_index` +
+`human_parent` + `human_is_root` are columns on BoQ Review Row). No code/doctype/test touched this slice; ONLY this
+plan doc + root CLAUDE.md updated.
+// prior: Phase 4 Slice P4-2 -- re-point BOQ Nodes to the BoQ Sheet tier (BACKEND, 2026-06-16, feat pending).
 Inserts the P4-1 sheet tier into the committed node's upward ties: a node now links to a **BoQ Sheet** (the new
 PRIMARY tie) and the `boq` link to BOQs is KEPT DENORMALIZED. SURGICAL: adds ONE Link field + ONE sync validation
 + moves ONE required-guard + re-points test fixtures; touches NOTHING else (path logic, parent-chain validation,
