@@ -16,7 +16,35 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-4 -- add the 8 MISSING committed-node fields (human-layer + edit provenance + remarks
+LATEST: Phase 4 Slice P4-5 -- reconcile per-area CHILD rate/amount fields Float -> Currency (match the parent)
+(BACKEND, 2026-06-16, feat pending). TYPE-ONLY change: the SIX money fields on `BOQ Node Qty By Area`
+(`supply_rate` / `install_rate` / `combined_rate` / `supply_amount` / `install_amount` / `total_amount`) flip
+`Float` -> `Currency` to match the parent BOQ Nodes (which already had them Currency). **CLOSES the
+Float-vs-Currency inconsistency that P4-3 explicitly DEFERRED here.** The container decision (normalized child,
+one-level serialization, no grandchild) was already satisfied -- this is NOT a reshape, only a type alignment. NO
+field renamed / reordered / added / removed; NO `options`/currency-link or custom precision added (Frappe default
+Currency precision = 2dp, owner-confirmed sufficient for rates); NO controller logic touched (`_area_ctrl` +
+`boq_nodes.py` UNCHANGED); NO test changes. `qty` STAYS `Float` on BOTH parent and child (it is a quantity, not
+money -- deliberately NOT touched); `area_name` (Data) + `amount_override` (Check) unchanged. **RECON EVIDENCE that
+made this safe:** (1) all 436 existing child rows have ZERO rate/amount values >2dp -> Currency rounds NOTHING on
+existing data; (2) no existing qty_by_area test asserts >2dp precision -- the weighted-average tests use
+`assertAlmostEqual(places=2)`, the combined-rate-consistency + amount tests use integer/2dp values -> tests stay
+green UNCHANGED; (3) the two sub-cent behaviors that shift under Currency (the `_validate_combined_rate`
+`abs(cr-(sr+ir)) >= 0.01` tolerance check; the `_recompute_parent_rates_from_areas` `len(set(rates)) <= 1`
+uniform-rate-skip) shift ONLY at the 3rd+ decimal, which for money is correctly discarded -- ACCEPTED as correct
+money rounding, controller logic deliberately UNCHANGED. **VERIFICATION:** `bench migrate` clean (after clearing
+the recurring 10 stale Jun-15 zero-byte lock files -- same environmental Role-Profile-fixture-sync
+`DocumentLockedError` with NO live rq worker as P4-4; cleared + retried per the allowed recovery); BOQ Nodes suite
+**71 OK UNCHANGED** (every qty_by_area test -- weighted-average, combined-rate-consistency, per-area amount -- still
+passes with NO edit, proving the Currency change shifted nothing); BoQ Sheet **5 OK**; parser **597 UNCHANGED**.
+Runtime verify via `frappe.get_meta("BOQ Node Qty By Area")`: all six fields report fieldtype `Currency`, `qty`
+still `Float` (NOTE: the underlying SQL column type is unchanged -- Frappe stores Currency + Float as the same
+decimal/double SQL type, so the meta fieldtype is the authoritative check, not information_schema). No
+boq_node_qty_by_area.py / boq_nodes.py / test / parent-doctype / hooks.py / parser / frontend change. The Phase-4
+committed-model arc (P4-1 sheet tier -> P4-2 node re-point -> P4-3 mapping lock -> P4-4 missing fields -> P4-5
+type reconciliation) is now COMPLETE; the committed BOQ Nodes + child are structurally ready for the Phase-5
+commit pipeline. Full detail in root CLAUDE.md.
+// prior: Phase 4 Slice P4-4 -- add the 8 MISSING committed-node fields (human-layer + edit provenance + remarks
 + attached_notes) (BACKEND, 2026-06-16, feat pending). ADDITIVE STORAGE only on BOQ Nodes -- NO controller logic
 this slice (the commit pipeline that POPULATES these is Phase 5). The committed BOQ Nodes was missing 8 fields the
 audit keep-set requires; P4-4 adds them as columns so Phase 5 can write them at commit. **THE 8 FIELDS + types
