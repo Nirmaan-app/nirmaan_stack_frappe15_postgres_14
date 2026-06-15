@@ -16,7 +16,44 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-3 -- LOCK the commit field-mapping (review-row -> committed BOQ Node) + the
+LATEST: Phase 4 Slice P4-4 -- add the 8 MISSING committed-node fields (human-layer + edit provenance + remarks
++ attached_notes) (BACKEND, 2026-06-16, feat pending). ADDITIVE STORAGE only on BOQ Nodes -- NO controller logic
+this slice (the commit pipeline that POPULATES these is Phase 5). The committed BOQ Nodes was missing 8 fields the
+audit keep-set requires; P4-4 adds them as columns so Phase 5 can write them at commit. **THE 8 FIELDS + types
+(match the review-side source shapes):** HUMAN-LAYER (the why-is-this-line-here provenance) -- `human_classification`
+(Data; free Data NOT Select, the assignable vocab is enforced upstream not enumerated), `human_parent` (Int; the
+-1 sentinel convention -1/unset = no override, >=0 = reparent -- NO schema default, matches review side),
+`human_is_root` (Check, default 0; Option B layer, orthogonal to human_parent); EDIT PROVENANCE -- `edit_log`
+(JSON, stored OPAQUE -- the pre-commit review history, list of {field,from,to,by,at,reason} + optional area/
+rate_subkey on per-area edits; element shape not validated here), `edited_by` (Data), `edited_at` (Datetime)
+[edited_by/edited_at are SEPARATE stored scalars for the cheap isEdited/last-editor read without parsing edit_log;
+NOT read_only -- matches the review side]; ANNOTATION -- `remarks` (Small Text); ATTACHED NOTES -- `attached_notes`
+(JSON, stored OPAQUE -- a structured list carried verbatim from the review row; element shape parser-defined, not
+validated here -- same opaque pattern as the sheet's column_role_map). **PLACEMENT:** the 3 human-layer fields
+inserted into `node_details_section` immediately after `level` (grouped with the parser node_type/level they
+override); the 5 provenance/annotation fields in a NEW `review_provenance_section` appended after `edit_reason`
+(adjacent to notes/edit_reason). NO existing field reordered (pure inserts). NONE marked reqd (populated at commit,
+not user-required). **DESIGN NOTES (locked):** (1) `edit_log` is KEPT on the node, NOT derived from Nirmaan
+Versions -- Versions tracks only 15 post-commit scalar fields (lifecycle-only, no per-area child, no human-layer)
+and CANNOT reconstruct the pre-commit review history; edit_log = pre-commit provenance, Nirmaan Versions =
+post-commit edit trail, COMPLEMENTARY, both exist. (2) `attached_notes` gets its OWN JSON field -- folding a
+structured list into the flat `notes` Text would destroy its structure; it is semantically distinct from `notes`.
+(3) **`_write_audit` tracked_fields was deliberately NOT changed** -- none of the 8 added to it; auditing post-commit
+changes to these is a SEPARATE decision (see the carried decision below). **CARRIED DECISION -- TENDERING-ERA AUDIT
+SCOPE (open, Phase-5/tendering boundary):** tendering edits to a committed node (rates, per-area qty, SKU) must
+carry a full who/changed-what/when trail; today's `_write_audit` (15 scalar fields, no per-area child, lifecycle
+prev/new states only) is UNDER-BUILT for it; the tendering-era audit scope is to be designed EXPLICITLY at the
+tendering boundary, NOT inherited from the current node-edit audit. **VERIFICATION:** `bench migrate` clean (after
+clearing 10 stale zero-byte lock files dated Jun-15 from an interrupted prior run -- a Role Profile fixture-sync
+`DocumentLockedError` with NO live worker; environmental, unrelated to this change); BOQ Nodes suite 64 -> **71 OK**
+(+7: human-layer persist, -1 sentinel persist, edited_by/at persist, remarks persist, edit_log round-trip incl. a
+per-area area+rate_subkey entry, attached_notes round-trip, all-8-absent-still-saves); BoQ Sheet suite **5 OK**;
+parser **597 UNCHANGED**; runtime DB confirms all 8 columns on `tabBOQ Nodes` (human_classification varchar,
+human_parent bigint, human_is_root smallint, edit_log json, edited_by varchar, edited_at timestamp, remarks text,
+attached_notes json). list-JSON caveat applied in tests (edit_log + attached_notes json.dumps'd before insert).
+No boq_nodes.py / hooks.py / child / review / parser / frontend change. NEXT: P5 commit pipeline populates these
++ the resolved parent_node from a parse. Full detail in root CLAUDE.md.
+// prior: Phase 4 Slice P4-3 -- LOCK the commit field-mapping (review-row -> committed BOQ Node) + the
 three-parent-fields design note (DOCUMENTATION ONLY, 2026-06-16). NO build, NO schema change, NO test churn --
 the committed BOQ Nodes ALREADY uses the target field names; the naming gap lives entirely in the (not-yet-built)
 Phase-5 COMMIT PIPELINE, so P4-3 freezes the ground-truth mapping here for Phase 5 to implement against.
