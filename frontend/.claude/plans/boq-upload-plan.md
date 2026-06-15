@@ -106,6 +106,29 @@ FORWARD (from P4-4, co-located here):** TENDERING-ERA AUDIT SCOPE is an OPEN Pha
 tendering edits to a committed node (rates, per-area qty, SKU) need a full who/changed-what/when trail; today's
 `_write_audit` (15 scalar fields, no per-area child, lifecycle-only) is under-built; to be designed explicitly at
 the tendering boundary, NOT inherited.
+**STRUCTURAL-CHECKPOINT FLAG RESOLUTIONS (adjudicated session-end 2026-06-16; mirrors PK audit doc v1.3).**
+**Flag 1 -- general-specs needs a NEW doctype (CANNOT reuse BOQ Nodes).** BOQ Nodes requires `node_type` and
+enforces the qty/rate/parent-chain invariants (sheet-required + boq-sync, node_type Preamble/Line-Item, combined-
+rate consistency, L{n}->L{n-1} parent rules), all of which would FIGHT a general-specs grid row that is neither a
+preamble nor a line item. Phase 5 builds a NEW doctype to hold faithful general-specs rows; target shape is simple
+(a label/description grid -- row-by-row cells as demonstrated by the BOQ-26-00145 'SOW' 39x3 CSV), NOT the
+line-item node shape. **Flag 2 -- committed-to-DB status + hub "Committed" state (TWO coordinated changes).** Phase 5
+adds (a) a committed-side marker recording that a BoQ/sheet was committed to the DB (the committed schema has none
+today -- BOQs.status is Draft/Approved/Superseded, no commit marker; BoQ Sheet has no commit-status field), AND
+(b) updates the parser/wizard-side BoQ HUB status to a new "Committed" state after a successful commit. These move
+together -- the hub must reflect the post-commit reality. **Flag 3 -- review-row -> node provenance link: BUILD it.**
+Phase 5 adds a link from a committed BOQ Node back to its originating BoQ Review Row (absent today; only
+`source_row_number` + `edit_log` carry partial provenance). **DURABILITY QUESTION to resolve at design:** BoQ
+Review Rows are NON-DURABLE across re-parse (re-parse deletes + recreates them), so a stored review-row docname may
+DANGLE after a re-parse -- decide at design time whether to store the review-row name (accepting it may dangle) or
+a stable identifier that survives re-parse. **Flag 4 (parent_boq retire) + Flag 5 (dev-fixture purge): CLOSED in
+P4-FINAL** (field dropped, controller stripped, fixtures purged, 34 uploaded workbooks preserved). **LOCKED
+SEQUENCING (engineering call, owner-deferred): line-item commit + general-specs faithful-row capture are built
+TOGETHER as ONE commit feature -- NOT line-items-first.** Rationale: a real BoQ has BOTH kinds of sheet; the commit
+action, the committed-to-DB status (Flag 2a), and the hub "Committed" state (Flag 2b) cannot be finished until BOTH
+the line-item path and the general-specs path exist; splitting would build the commit machinery (gate, status, hub
+wiring) twice. **STATUS:** Phase 4 is COMPLETE and pushed (commits 9dae681d..35a8544c); the PK audit doc is at
+v1.3. This in-repo block now matches PK ahead of the Phase-5 kickoff.
 // prior: Phase 4 Slice P4-5 -- reconcile per-area CHILD rate/amount fields Float -> Currency (match the parent)
 (BACKEND, 2026-06-16, feat pending). TYPE-ONLY change: the SIX money fields on `BOQ Node Qty By Area`
 (`supply_rate` / `install_rate` / `combined_rate` / `supply_amount` / `install_amount` / `total_amount`) flip
