@@ -9,7 +9,6 @@
  "field_order": [
   "details_section",
   "project",
-  "parent_boq",
   "boq_name",
   "version",
   "status",
@@ -44,13 +43,6 @@
    "label": "Project",
    "options": "Projects",
    "search_index": 1
-  },
-  {
-   "description": "If this BoQ is a sub-package under a master BoQ, link to the master here.",
-   "fieldname": "parent_boq",
-   "fieldtype": "Link",
-   "label": "Parent BoQ",
-   "options": "BOQs"
   },
   {
    "fieldname": "boq_name",

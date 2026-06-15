@@ -5,7 +5,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_BOQS"
-_TEST_PROJECT_2 = "_TEST_BOQ_PROJECT_2"
 
 
 class TestBOQs(FrappeTestCase):
@@ -18,13 +17,10 @@ class TestBOQs(FrappeTestCase):
     automatically.
     """
 
-    def _make_boq(self, boq_name=_TEST_PROJECT + " BoQ", project=_TEST_PROJECT,
-                  parent_boq=None):
+    def _make_boq(self, boq_name=_TEST_PROJECT + " BoQ", project=_TEST_PROJECT):
         boq = frappe.new_doc("BOQs")
         boq.project = project
         boq.boq_name = boq_name
-        if parent_boq:
-            boq.parent_boq = parent_boq
         boq.insert(ignore_permissions=True, ignore_links=True)
         return boq
 
@@ -112,44 +108,8 @@ class TestBOQs(FrappeTestCase):
         boq.save(ignore_permissions=True)
         self.assertEqual(boq.status, "Approved")
 
-    # ------------------------------------------------------------------ #
-    # Group A — parent_boq linkage (5 tests)                              #
-    # ------------------------------------------------------------------ #
-
-    def test_parent_boq_same_project_is_valid(self):
-        """Sub-BoQ with same project as master must save without error."""
-        master = self._make_boq(boq_name="Master Same Project")
-        child = self._make_boq(boq_name="Child Same Project", parent_boq=master.name)
-        self.assertEqual(child.parent_boq, master.name)
-
-    def test_parent_boq_different_project_is_rejected(self):
-        """Sub-BoQ whose project differs from master must be rejected."""
-        master = self._make_boq(boq_name="Master Project Mismatch", project=_TEST_PROJECT)
-        with self.assertRaises(frappe.ValidationError):
-            self._make_boq(
-                boq_name="Child Project Mismatch",
-                project=_TEST_PROJECT_2,
-                parent_boq=master.name,
-            )
-
-    def test_standalone_boq_no_parent_is_valid(self):
-        """Phase 1 standalone path: parent_boq null must save fine."""
-        boq = self._make_boq(boq_name="Standalone BoQ")
-        self.assertFalse(boq.parent_boq)
-
-    def test_circular_parent_self_link_rejected(self):
-        """BoQ with parent_boq = its own name must be rejected."""
-        boq = self._make_boq(boq_name="Circular Self")
-        boq.parent_boq = boq.name
-        with self.assertRaises(frappe.ValidationError):
-            boq.save(ignore_permissions=True)
-
-    def test_grandchild_parent_rejected(self):
-        """BoQ whose parent is itself a sub-BoQ (two-level deep) must be rejected."""
-        master = self._make_boq(boq_name="Master Grandchild")
-        child = self._make_boq(boq_name="Child Grandchild", parent_boq=master.name)
-        with self.assertRaises(frappe.ValidationError):
-            self._make_boq(boq_name="Grandchild", parent_boq=child.name)
+    # parent_boq linkage tests (Group A) were removed in Phase 4 P4-FINAL when the
+    # parent_boq field + its master/sub validation were retired.
 
     # ------------------------------------------------------------------ #
     # Group B — area_dimensions validation (6 tests)                      #
@@ -201,82 +161,7 @@ class TestBOQs(FrappeTestCase):
             boq.save(ignore_permissions=True)
 
     # ------------------------------------------------------------------ #
-    # Group C — approval cascade (6 tests)                                #
+    # Group C — approval cascade: REMOVED in Phase 4 P4-FINAL             #
     # ------------------------------------------------------------------ #
-
-    def test_master_approved_cascades_to_single_child(self):
-        """Approving a master BoQ must cascade Draft→Approved to its child."""
-        master = self._make_boq(boq_name="Cascade Master Single")
-        child = self._make_boq(boq_name="Cascade Child Single", parent_boq=master.name)
-
-        master.status = "Approved"
-        master.save(ignore_permissions=True)
-
-        child_status = frappe.db.get_value("BOQs", child.name, "status")
-        self.assertEqual(child_status, "Approved")
-
-    def test_master_approved_cascades_to_multiple_children(self):
-        """Approving a master must cascade to all three Draft children."""
-        master = self._make_boq(boq_name="Cascade Master Multi")
-        c1 = self._make_boq(boq_name="Cascade Child Multi 1", parent_boq=master.name)
-        c2 = self._make_boq(boq_name="Cascade Child Multi 2", parent_boq=master.name)
-        c3 = self._make_boq(boq_name="Cascade Child Multi 3", parent_boq=master.name)
-
-        master.status = "Approved"
-        master.save(ignore_permissions=True)
-
-        for child in (c1, c2, c3):
-            self.assertEqual(
-                frappe.db.get_value("BOQs", child.name, "status"),
-                "Approved",
-            )
-
-    def test_approving_child_does_not_cascade_to_siblings(self):
-        """Approving one child must not change sibling status."""
-        master = self._make_boq(boq_name="No Sibling Cascade Master")
-        c1 = self._make_boq(boq_name="No Sibling C1", parent_boq=master.name)
-        c2 = self._make_boq(boq_name="No Sibling C2", parent_boq=master.name)
-
-        c1.status = "Approved"
-        c1.save(ignore_permissions=True)
-
-        self.assertEqual(frappe.db.get_value("BOQs", c2.name, "status"), "Draft")
-
-    def test_approving_child_does_not_cascade_to_master(self):
-        """Approving a sub-BoQ must not change master status."""
-        master = self._make_boq(boq_name="No Master Cascade Master")
-        child = self._make_boq(boq_name="No Master Cascade Child", parent_boq=master.name)
-
-        child.status = "Approved"
-        child.save(ignore_permissions=True)
-
-        self.assertEqual(frappe.db.get_value("BOQs", master.name, "status"), "Draft")
-
-    def test_cascade_skips_superseded_children(self):
-        """Cascade must approve Draft children but leave Superseded children untouched."""
-        master = self._make_boq(boq_name="Cascade Superseded Master")
-        c_superseded = self._make_boq(boq_name="Cascade Superseded Child", parent_boq=master.name)
-        c_draft = self._make_boq(boq_name="Cascade Draft Child", parent_boq=master.name)
-
-        frappe.db.set_value("BOQs", c_superseded.name, "status", "Superseded")
-
-        master.status = "Approved"
-        master.save(ignore_permissions=True)
-
-        self.assertEqual(frappe.db.get_value("BOQs", c_superseded.name, "status"), "Superseded")
-        self.assertEqual(frappe.db.get_value("BOQs", c_draft.name, "status"), "Approved")
-
-    def test_cascade_is_idempotent(self):
-        """Re-saving an already-Approved master must not raise and must not double-cascade."""
-        master = self._make_boq(boq_name="Idempotent Cascade Master")
-        child = self._make_boq(boq_name="Idempotent Cascade Child", parent_boq=master.name)
-
-        master.status = "Approved"
-        master.save(ignore_permissions=True)
-
-        # Save master again — already Approved, no transition → no cascade, no error
-        master.reload()
-        master.save(ignore_permissions=True)
-
-        self.assertEqual(frappe.db.get_value("BOQs", master.name, "status"), "Approved")
-        self.assertEqual(frappe.db.get_value("BOQs", child.name, "status"), "Approved")
+    # The master/sub approval cascade was retired with parent_boq; on_update is now a
+    # no-op. The 6 cascade tests were removed along with the parent_boq linkage tests.

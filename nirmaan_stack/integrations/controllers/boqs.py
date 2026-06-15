@@ -22,7 +22,6 @@ def before_insert(doc, method):
 
 
 def validate(doc, method):
-    _validate_parent_boq(doc)
     _validate_area_dimensions(doc)
 
     old_doc = doc.get_doc_before_save()
@@ -40,49 +39,15 @@ def validate(doc, method):
 
 
 def on_update(doc, method):
-    if doc.flags.get("cascade_in_progress"):
-        return
-    old_doc = doc.get_doc_before_save()
-    if old_doc is None:
-        return
-    if old_doc.status == "Draft" and doc.status == "Approved" and not doc.parent_boq:
-        _cascade_approval_to_children(doc)
+    # parent_boq (the master/sub BoQ link) was retired in Phase 4 P4-FINAL, and the
+    # Draft->Approved approval cascade it drove was removed with it. on_update has no
+    # remaining work; kept as a wired no-op so hooks.py needs no change.
+    pass
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _validate_parent_boq(doc):
-    if not doc.parent_boq:
-        return
-
-    # A. Same-project check
-    parent_project = frappe.db.get_value("BOQs", doc.parent_boq, "project")
-    if parent_project and parent_project != doc.project:
-        frappe.throw(_("Sub-BoQ project must match parent BoQ project."))
-
-    # B. Circular parent detection (cap at 10 levels)
-    visited = set()
-    current = doc.parent_boq
-    for _depth in range(10):
-        if not current:
-            break
-        if current == doc.name:
-            frappe.throw(_("Circular parent_boq link detected."))
-        if current in visited:
-            break
-        visited.add(current)
-        current = frappe.db.get_value("BOQs", current, "parent_boq")
-
-    # C. One-level hierarchy only — parent must not itself be a sub-BoQ
-    parent_parent = frappe.db.get_value("BOQs", doc.parent_boq, "parent_boq")
-    if parent_parent:
-        frappe.throw(_(
-            "Cannot link as sub-BoQ: target parent is itself a sub-BoQ. "
-            "Only one level of master/sub hierarchy is supported."
-        ))
-
 
 def _validate_area_dimensions(doc):
     if not doc.area_dimensions:
@@ -105,17 +70,3 @@ def _validate_area_dimensions(doc):
 
     if len(dims) != len(set(dims)):
         frappe.throw(_("area_dimensions must not contain duplicate area names."))
-
-
-def _cascade_approval_to_children(master):
-    children = frappe.get_all(
-        "BOQs",
-        filters={"parent_boq": master.name, "status": "Draft"},
-        fields=["name"],
-    )
-    for row in children:
-        child_doc = frappe.get_doc("BOQs", row.name)
-        child_doc.flags.cascade_in_progress = True
-        child_doc.flags.ignore_links = True
-        child_doc.status = "Approved"
-        child_doc.save(ignore_permissions=True)
