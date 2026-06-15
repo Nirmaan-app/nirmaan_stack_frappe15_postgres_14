@@ -16,7 +16,41 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-6 -- §9 #135 Skip/Hidden filter = VERIFY-ONLY CLOSE (no build) + structural CHECKPOINT
+LATEST: Phase 4 Slice P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive Phase-4 close
+(BACKEND + DATA, 2026-06-16, feat pending). **COMPLETES PHASE 4** (the committed BoQ-model rebuild: P4-1 sheet
+tier -> P4-2 node re-point -> P4-3 mapping lock -> P4-4 missing fields -> P4-5 type reconciliation -> P4-6
+skip-filter verify -> CHECKPOINT pass -> P4-FINAL cleanup). Owner-authorized destructive slice on the local
+throwaway instance. **parent_boq RETIRED:** the `parent_boq` Link field dropped from `boqs.json` (field def +
+field_order entry); controller logic stripped in `boqs.py` -- the `_validate_parent_boq(doc)` call removed from
+`validate()` (area-dimensions validation + the Superseded guards SURVIVE intact), and `_validate_parent_boq` +
+`_cascade_approval_to_children` helper functions DELETED. `on_update()` had only the master/sub approval-cascade
+logic, now a wired **no-op stub** (`pass` + comment) -- hooks.py UNCHANGED (the on_update hook stays wired to a
+harmless no-op, the lowest-risk choice; not unwired). **Frappe note:** `bench migrate` retired the FIELD
+(`get_meta` no longer has `parent_boq`; gone from UI/validation/field_order) but does NOT drop the physical DB
+column (Frappe never auto-drops columns, to prevent data loss) -- the orphaned `parent_boq` column lingers in
+`tabBOQs` harmlessly; a hard column-drop would need explicit SQL (out of scope, not how Frappe manages dropped
+fields). **TESTS:** the 11 parent_boq-dependent tests removed from `test_boqs.py` -- Group A parent_boq linkage
+(5) + Group C approval cascade (6); the `_make_boq` `parent_boq=` kwarg + the now-unused `_TEST_PROJECT_2` const
+cleaned; Group B (area_dimensions, 6) + the before_insert/version/status tests UNTOUCHED. test_boqs 28 -> **17**.
+**DEV-FIXTURE PURGE (legible before/after, owner-scoped):** owner chose **node-tier + test-fixture BOQs only**
+(NOT a blanket 141-BOQ delete -- the recon + a mid-slice owner decision preserved the ~34 hand-uploaded real
+client workbooks that are the live-cert corpus, incl. BOQ-26-00145/00150/00166). Purged via RAW `frappe.db.delete`
+(bypasses the on_trash Approved-BoQ guard -- required, fixture nodes hung off Approved BoQs -- and bypasses
+cascade, so child tables cleared explicitly, in child->node->sheet->BoQ order): **BOQ Node Qty By Area 456->0,
+BOQ Nodes 182->0, BoQ Sheet 9->0**, the 101 `_TEST_BOQ_PROJECT_NODES` fixture BOQs + the 6 master/sub dev rows
+(M1/M2 Master, C1 Child, C2a, c2b, Legacy standalone on BENGALURU-PROJ-00081) deleted with their child tables
+(scoped by parent so the kept workbooks' sheet_drafts/work_packages/general_specs were PRESERVED), **BOQs
+141->34**, + orphan `Nirmaan Versions` for BOQs/BOQ Nodes cleared. **Projects left UNTOUCHED (104, real app
+data).** A second re-purge pass cleared the transient test residue the Step-5 suite runs re-seeded -> clean end
+state **Nodes/Child/Sheet = 0/0/0, BOQs = 34**. **VERIFICATION:** migrate clean (after clearing the recurring
+stale Jun-15 lock files, no live rq worker -- the established recovery); test_boqs **17 OK** (28-11); BOQ Nodes
+**71 OK** + BoQ Sheet **5 OK** (both self-seed -- green despite the purge, proving no test depended on a purged
+row); parser **597 UNCHANGED**; runtime DB confirms `parent_boq` field gone from meta + the four BoQ-schema node
+tiers empty. No boq_nodes.py / boq_sheet.json / boq_node_qty_by_area.json / parser / frontend change; the on_trash
+Approved-guard on BOQ Nodes was NOT touched. **NEXT = Phase 5 (the commit arc):** build the Finalized commit gate
++ general-specs faithful-row capture (the two conflicts logged in "PHASE 5 -- LOCKED INPUTS"), sourcing from the
+review rows of the 34 preserved workbooks. Full detail in root CLAUDE.md.
+// prior: Phase 4 Slice P4-6 -- §9 #135 Skip/Hidden filter = VERIFY-ONLY CLOSE (no build) + structural CHECKPOINT
 inserted + Phase-5 commit-set LOCKED (DOCUMENTATION ONLY, 2026-06-16). **P4-6 was scoped as "build the §135
 skip-filter" -- a read-only recon at HEAD found it is ALREADY BUILT + tested, so P4-6 closes as VERIFY-ONLY, not a
 build.** EVIDENCE the skip-filter is built (parse layer): `assemble_mapping_config` (parse_run.py, Rule 2)
