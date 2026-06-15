@@ -1054,3 +1054,128 @@ class TestBOQNodes(FrappeTestCase):
         self.assertIsNotNone(node.name)
         self.assertIsNone(node.qty_by_area[0].supply_rate)
         self.assertIsNone(node.qty_by_area[0].combined_rate)
+
+    # ------------------------------------------------------------------ #
+    # Group H — Phase 4 P4-4: human-layer, edit-provenance, remarks,     #
+    # attached_notes storage fields (7 tests). Storage only; no controller #
+    # logic populates these yet (the commit pipeline is Phase 5).          #
+    # ------------------------------------------------------------------ #
+
+    def test_human_layer_fields_persist(self):
+        """human_classification / human_parent / human_is_root persist round-trip."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Human layer test"
+        node.human_classification = "note"
+        node.human_parent = 5
+        node.human_is_root = 1
+        node.insert(ignore_permissions=True)
+
+        reloaded = frappe.get_doc("BOQ Nodes", node.name)
+        self.assertEqual(reloaded.human_classification, "note")
+        self.assertEqual(reloaded.human_parent, 5)
+        self.assertEqual(reloaded.human_is_root, 1)
+
+    def test_human_parent_negative_sentinel_persists(self):
+        """human_parent=-1 (the no-override sentinel) is a real stored value, not 'empty'."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Sentinel persistence test"
+        node.human_parent = -1
+        node.insert(ignore_permissions=True)
+
+        reloaded = frappe.get_doc("BOQ Nodes", node.name)
+        self.assertEqual(reloaded.human_parent, -1)
+
+    def test_edited_by_at_persist(self):
+        """edited_by (Data) + edited_at (Datetime) persist round-trip."""
+        stamp = frappe.utils.now()
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Edited provenance test"
+        node.edited_by = "tester@nirmaan.app"
+        node.edited_at = stamp
+        node.insert(ignore_permissions=True)
+
+        reloaded = frappe.get_doc("BOQ Nodes", node.name)
+        self.assertEqual(reloaded.edited_by, "tester@nirmaan.app")
+        self.assertIsNotNone(reloaded.edited_at)
+
+    def test_remarks_persist(self):
+        """remarks (Small Text) persists round-trip."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Remarks test"
+        node.remarks = "Checked against drawing rev-2; qty confirmed."
+        node.insert(ignore_permissions=True)
+
+        reloaded = frappe.get_doc("BOQ Nodes", node.name)
+        self.assertEqual(reloaded.remarks, "Checked against drawing rev-2; qty confirmed.")
+
+    def test_edit_log_json_round_trip(self):
+        """edit_log stores the rich review-side shape opaquely, incl. a per-area entry
+        carrying area + rate_subkey -- read back unchanged."""
+        log = [
+            {"field": "qty", "from": 1, "to": 2, "by": "u", "at": "2026-06-16 10:00:00", "reason": "fix"},
+            {"field": "rate_by_area", "area": "Phase 1", "rate_subkey": "supply",
+             "from": 0, "to": 9, "by": "u", "at": "2026-06-16 10:01:00", "reason": "x"},
+        ]
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Edit log round-trip test"
+        # list-JSON caveat: a JSON field rejects a raw Python list on insert; pre-serialize.
+        node.edit_log = json.dumps(log)
+        node.insert(ignore_permissions=True)
+
+        reloaded = frappe.get_doc("BOQ Nodes", node.name)
+        stored = reloaded.edit_log
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        self.assertEqual(stored, log)
+        # explicit proof the per-area sub-keys survived opaquely
+        self.assertEqual(stored[1]["area"], "Phase 1")
+        self.assertEqual(stored[1]["rate_subkey"], "supply")
+
+    def test_attached_notes_json_round_trip(self):
+        """attached_notes stores a structured list opaquely -- read back unchanged."""
+        notes = ["See general spec clause 4.2", "Excludes painting", "Ref drawing A-101"]
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Attached notes round-trip test"
+        node.attached_notes = json.dumps(notes)
+        node.insert(ignore_permissions=True)
+
+        reloaded = frappe.get_doc("BOQ Nodes", node.name)
+        stored = reloaded.attached_notes
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        self.assertEqual(stored, notes)
+
+    def test_new_fields_absent_do_not_break_existing_save(self):
+        """A node with NONE of the 8 new fields set still saves cleanly (all optional)."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Line Item"
+        node.description = "No new fields set"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.supply_rate = 100
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        # the new fields default to empty/None, not erroring
+        self.assertFalse(node.human_classification)
+        self.assertFalse(node.remarks)
+        self.assertFalse(node.attached_notes)
+        self.assertEqual(node.human_is_root, 0)

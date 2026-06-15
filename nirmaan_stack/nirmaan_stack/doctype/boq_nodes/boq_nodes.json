@@ -14,6 +14,9 @@
   "node_details_section",
   "node_type",
   "level",
+  "human_classification",
+  "human_parent",
+  "human_is_root",
   "sort_order",
   "code",
   "description",
@@ -35,7 +38,13 @@
   "is_rate_only",
   "amount_override",
   "notes",
-  "edit_reason"
+  "edit_reason",
+  "review_provenance_section",
+  "edit_log",
+  "edited_by",
+  "edited_at",
+  "remarks",
+  "attached_notes"
  ],
  "fields": [
   {
@@ -85,6 +94,25 @@
    "fieldname": "level",
    "fieldtype": "Int",
    "label": "Level"
+  },
+  {
+   "description": "Human-override classification (the why-is-this-line-here provenance). Free Data; the assignable vocabulary is enforced upstream, not enumerated here. Populated at commit; the node's effective classification is resolved before write.",
+   "fieldname": "human_classification",
+   "fieldtype": "Data",
+   "label": "Human Classification"
+  },
+  {
+   "description": "Human-override parent (the -1 sentinel convention: -1 / unset = no override, >= 0 = reparent to that row index). Populated at commit; the resolved parent is written to parent_node.",
+   "fieldname": "human_parent",
+   "fieldtype": "Int",
+   "label": "Human Parent"
+  },
+  {
+   "default": "0",
+   "description": "Human re-rooted this node to top-level (Option B layer, orthogonal to human_parent).",
+   "fieldname": "human_is_root",
+   "fieldtype": "Check",
+   "label": "Human Root Override"
   },
   {
    "default": "0",
@@ -214,6 +242,39 @@
    "hidden": 1,
    "label": "Edit Reason",
    "no_copy": 1
+  },
+  {
+   "fieldname": "review_provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Review Provenance"
+  },
+  {
+   "description": "Pre-commit review edit history, carried verbatim from the review row. List of {field, from, to, by, at, reason} (+ optional area / rate_subkey on per-area edits). Stored opaque -- the element shape is not validated here. KEPT on the node: Nirmaan Versions tracks only post-commit scalar edits and cannot reconstruct this pre-commit history.",
+   "fieldname": "edit_log",
+   "fieldtype": "JSON",
+   "label": "Edit Log"
+  },
+  {
+   "fieldname": "edited_by",
+   "fieldtype": "Data",
+   "label": "Edited By"
+  },
+  {
+   "fieldname": "edited_at",
+   "fieldtype": "Datetime",
+   "label": "Edited At"
+  },
+  {
+   "description": "Human annotation carried from the review row (not an edit; no provenance side-effects).",
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "description": "Notes attached to this node, carried verbatim from the review row as a structured list. Stored opaque -- the element shape is parser-defined and not validated here. Distinct from the flat notes field; do not fold into notes.",
+   "fieldname": "attached_notes",
+   "fieldtype": "JSON",
+   "label": "Attached Notes"
   }
  ],
  "grid_page_length": 50,
