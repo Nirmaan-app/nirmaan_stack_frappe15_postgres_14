@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/popover";
 import { useToast } from "@/components/ui/use-toast";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 
 import {
@@ -48,6 +50,16 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   );
 
   const count = selectedPayments.length;
+
+  // Selection is keyed per visible page (server-side pagination, no stable row id),
+  // so the "(this page)" disclaimer only matters when more than one page exists.
+  const isMultiPage = table.getPageCount() > 1;
+
+  const totalReqAmount = useMemo(
+    () =>
+      selectedPayments.reduce((sum, p) => sum + parseNumber(p.amount), 0),
+    [selectedPayments]
+  );
 
   const openDialog = useCallback((action: BulkAction) => {
     setDialogAction(action);
@@ -108,9 +120,16 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-muted-foreground">
-        {count} selected (this page)
-      </span>
+      <div
+        className="flex h-8 items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 text-sm"
+        title={`${count} payment${count !== 1 ? "s" : ""} selected · Total Req. Amount ${formatToRoundedIndianRupee(totalReqAmount)}`}
+      >
+        <span className="text-muted-foreground">Req. Amt :</span>
+        <span className="font-bold tabular-nums text-foreground">
+          {formatToRoundedIndianRupee(totalReqAmount)}
+        </span>
+        <span className="font-semibold text-foreground tabular-nums">({count})</span>
+      </div>
       <Button
         size="sm"
         variant="default"

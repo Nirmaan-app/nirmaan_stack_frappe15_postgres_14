@@ -202,10 +202,10 @@
 
 
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useCallback, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { TailSpin } from "react-loader-spinner";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeDocTypeEventListener } from "frappe-react-sdk";
 import { Info, Wallet, Clock, CheckCircle2, AlertCircle, CreditCard } from "lucide-react";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
@@ -469,15 +469,15 @@ const RecentActivityTile: React.FC<{
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-slate-200 dark:divide-slate-700 gap-y-2">
                     {/* TODAY column */}
                     <div className="space-y-1 sm:pr-4">
-                        <BreakdownRow tone="amber" label="L1" labelLong="L1 Approval Today" amount={l1TodayAmount} count={l1TodayCount} />
-                        <BreakdownRow tone="blue" label="CEO" labelLong="CEO Approval Today" amount={ceoTodayAmount} count={ceoTodayCount} />
+                        <BreakdownRow tone="amber" label="L1 Approval Today" labelLong="L1 Approval Today" amount={l1TodayAmount} count={l1TodayCount} />
+                        <BreakdownRow tone="blue" label="CEO Approval Today" labelLong="CEO Approval Today" amount={ceoTodayAmount} count={ceoTodayCount} />
                         <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid Today" amount={paidTodayAmount} count={paidTodayCount} />
                     </div>
                     {/* 7 DAYS column */}
                     <div className="space-y-1 sm:pl-4">
-                        <BreakdownRow tone="amber" label="L1" labelLong="L1 Approval (7 days)" amount={l17dAmount} count={l17dCount} />
-                        <BreakdownRow tone="blue" label="CEO" labelLong="CEO Approval (7 days)" amount={ceo7dAmount} count={ceo7dCount} />
+                        <BreakdownRow tone="amber" label="L1 Approval (7 days)" labelLong="L1 Approval (7 days)" amount={l17dAmount} count={l17dCount} />
+                        <BreakdownRow tone="blue" label="CEO Approval (7 days)" labelLong="CEO Approval (7 days)" amount={ceo7dAmount} count={ceo7dCount} />
                         <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid (7 days)" amount={paid7dAmount} count={paid7dCount} />
                     </div>
@@ -532,6 +532,30 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
         }
     }, [totalCount, refetchPaymentSummary]);
     // --- END EFFECT ---
+
+    // --- REFETCH ON INFLOW / EXPENSE / NON-PROJECT-EXPENSE CHANGES ---
+    // Project Payments already refreshes via the totalCount effect above. The
+    // summary also folds in Project Inflows, Project Expenses, and Non Project
+    // Expenses (see get_payment_dashboard_stats) — but those live on separate
+    // pages, so their add/update/delete never moved totalCount and the summary
+    // went stale. Listen to Frappe's built-in list_update realtime for those
+    // three doctypes and refetch (debounced so a burst collapses to one call).
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scheduleRefetch = useCallback(() => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            refetchPaymentSummary();
+        }, 300);
+    }, [refetchPaymentSummary]);
+
+    useFrappeDocTypeEventListener("Project Inflows", scheduleRefetch);
+    useFrappeDocTypeEventListener("Project Expenses", scheduleRefetch);
+    useFrappeDocTypeEventListener("Non Project Expenses", scheduleRefetch);
+
+    useEffect(() => () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+    }, []);
+    // --- END REFETCH LISTENERS ---
 
 
     const stats = useMemo(() => statsApiResponse?.message || null, [statsApiResponse]);
