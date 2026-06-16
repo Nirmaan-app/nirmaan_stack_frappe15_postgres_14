@@ -317,6 +317,12 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Minimal touch (2026-06-16 -- Phase 5 Slice 1, BACKEND ONLY, feat 5fe61bff):** Added the committed
+general-specs faithful-grid doctype (`BoQ Committed General Specs` istable=0 + child `BoQ Committed General
+Specs Row` istable=1; schema + bare-stub controllers + tests only -- NOT the commit pipeline). NO FRONTEND
+CHANGE this slice; recorded here per the DOCS-UPDATE RULE. Full detail in root `CLAUDE.md` + `boq-upload-plan.md`
+"Phase 5 Slice 1".
+
 **Status (2026-06-14 -- Append-to-notes-as-columns + staleness banner COMPLETE -- BACKEND + FRONTEND, `review_screen.py` + `ReviewTree.tsx` + `SheetReviewPage.tsx`):**
 Renders `append_to_notes` data as review-screen columns (additive -- the commit-time notes-fold is untouched;
 the same content appearing in-position AND in the combined column is BY DESIGN). TWO column surfaces: (a) each
