@@ -229,20 +229,30 @@ class TestBOQNodes(FrappeTestCase):
     # is_rate_only auto-computation                                        #
     # ------------------------------------------------------------------ #
 
-    def test_is_rate_only_auto_set_for_zero_qty_with_rate(self):
-        """qty=0 plus at least one rate → is_rate_only must be set to 1."""
+    def test_is_rate_only_not_auto_set_for_zero_qty_with_rate(self):
+        """CAPTURE-ONLY: is_rate_only is NO LONGER auto-set. qty=0 + a rate, with
+        is_rate_only left unset, persists the default 0 -- the controller does not
+        derive it; the Slice-3 pipeline carries the parser's value through verbatim."""
         node = self._make_line_item(qty=0, supply_rate=100,
-                                    description="Rate only auto-set")
-        self.assertEqual(node.is_rate_only, 1)
-
-    def test_is_rate_only_zero_when_qty_positive(self):
-        """qty > 0 → is_rate_only stays 0 regardless of rates."""
-        node = self._make_line_item(qty=5, supply_rate=100,
-                                    description="Not rate only")
+                                    description="Rate only no longer auto-set")
         self.assertEqual(node.is_rate_only, 0)
 
-    def test_is_rate_only_zero_when_no_rate_set(self):
-        """qty=0 but no rate fields set → is_rate_only stays 0."""
+    def test_is_rate_only_persists_when_set_true(self):
+        """CAPTURE-ONLY: a written is_rate_only=1 persists even with qty>0 -- the
+        controller never resets it (no auto-derivation)."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Line Item"
+        node.description = "Rate only carried through"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.supply_rate = 100
+        node.is_rate_only = 1
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.is_rate_only, 1)
+
+    def test_is_rate_only_defaults_zero_when_unset(self):
+        """CAPTURE-ONLY: is_rate_only left unset stays at its 0 default (not derived)."""
         node = self._make_line_item(qty=0, description="No rate zero qty")
         self.assertEqual(node.is_rate_only, 0)
 
@@ -302,7 +312,8 @@ class TestBOQNodes(FrappeTestCase):
         node.supply_rate = 100
         node.insert(ignore_permissions=True)
         self.assertIsNotNone(node.name)
-        self.assertEqual(node.total_amount, 500.0)
+        # (capture-only: total_amount is no longer computed -- the structural
+        # "standalone Line Item saves" assertion is what this test certifies)
 
     # ------------------------------------------------------------------ #
     # Path computation                                                     #
@@ -349,68 +360,72 @@ class TestBOQNodes(FrappeTestCase):
         self.assertEqual(db_path, f"{l1_b.name}/{l2.name}")
 
     # ------------------------------------------------------------------ #
-    # Amount auto-computation                                              #
+    # Amount capture-only (no auto-computation -- Phase 5 Slice 2.5)       #
     # ------------------------------------------------------------------ #
 
-    def test_amount_supply_only(self):
+    def test_supply_amount_not_auto_computed(self):
+        """CAPTURE-ONLY: amounts are NOT derived from qty x rate. Rates set, amounts
+        left blank -> every amount field stays blank (None)."""
         node = self._make_line_item(qty=10, supply_rate=100,
-                                    description="Supply only")
-        self.assertEqual(node.supply_amount, 1000.0)
+                                    description="Supply only, amounts not computed")
+        self.assertIsNone(node.supply_amount)
         self.assertIsNone(node.install_amount)
-        self.assertEqual(node.total_amount, 1000.0)
+        self.assertIsNone(node.total_amount)
 
-    def test_amount_install_only(self):
+    def test_install_amount_not_auto_computed(self):
+        """CAPTURE-ONLY: install_rate set, amounts blank -> all amounts stay None."""
         node = self._make_line_item(qty=4, install_rate=50,
-                                    description="Install only")
-        self.assertIsNone(node.supply_amount)
-        self.assertEqual(node.install_amount, 200.0)
-        self.assertEqual(node.total_amount, 200.0)
-
-    def test_amount_combined_rate(self):
-        node = self._make_line_item(qty=5, combined_rate=200,
-                                    description="Combined rate")
+                                    description="Install only, amounts not computed")
         self.assertIsNone(node.supply_amount)
         self.assertIsNone(node.install_amount)
-        self.assertEqual(node.total_amount, 1000.0)
+        self.assertIsNone(node.total_amount)
 
-    def test_amount_supply_and_install(self):
+    def test_combined_amount_not_auto_computed(self):
+        """CAPTURE-ONLY: combined_rate set, amounts blank -> all amounts stay None."""
+        node = self._make_line_item(qty=5, combined_rate=200,
+                                    description="Combined only, amounts not computed")
+        self.assertIsNone(node.supply_amount)
+        self.assertIsNone(node.install_amount)
+        self.assertIsNone(node.total_amount)
+
+    def test_supply_install_amounts_not_auto_computed(self):
+        """CAPTURE-ONLY: supply + install rates set, amounts blank -> all stay None."""
         node = self._make_line_item(qty=3, supply_rate=100, install_rate=50,
-                                    description="Supply and install")
-        self.assertEqual(node.supply_amount, 300.0)
-        self.assertEqual(node.install_amount, 150.0)
-        self.assertEqual(node.total_amount, 450.0)
+                                    description="Supply+install, amounts not computed")
+        self.assertIsNone(node.supply_amount)
+        self.assertIsNone(node.install_amount)
+        self.assertIsNone(node.total_amount)
 
-    def test_amount_override_preserves_manually_set_values(self):
-        """With amount_override=1, _compute_amounts must not touch the amounts."""
+    def test_set_amounts_persist_verbatim(self):
+        """CAPTURE-ONLY: written amounts persist UNCHANGED for ALL writes (no
+        amount_override needed) -- even when they do NOT equal qty x rate (qty*supply
+        would be 1000, but the written 999 must survive)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Amount override test"
+        node.description = "Amounts persist verbatim"
         node.parent_node = self.default_preamble
         node.qty = 10
         node.supply_rate = 100
         node.supply_amount = 999.0
         node.total_amount = 999.0
-        node.amount_override = 1
         node.insert(ignore_permissions=True)
         self.assertEqual(node.supply_amount, 999.0)
         self.assertEqual(node.total_amount, 999.0)
 
-    def test_leaf_preamble_with_qty_and_rate_computes_amounts(self):
-        """
-        A leaf preamble (no children) with qty and supply_rate set must have
-        amounts computed — the old node_type guard has been removed.
-        """
+    def test_leaf_preamble_amounts_not_computed(self):
+        """CAPTURE-ONLY: a leaf preamble with qty + rate but blank amounts keeps the
+        amounts blank -- they are NOT computed."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = 1
-        node.description = "Leaf preamble with amounts"
+        node.description = "Leaf preamble, amounts not computed"
         node.qty = 5
         node.supply_rate = 100
         node.insert(ignore_permissions=True)
-        self.assertEqual(node.supply_amount, 500.0)
-        self.assertEqual(node.total_amount, 500.0)
+        self.assertIsNone(node.supply_amount)
+        self.assertIsNone(node.total_amount)
 
     def test_non_leaf_preamble_with_qty_emits_warning_but_saves(self):
         """
@@ -439,19 +454,19 @@ class TestBOQNodes(FrappeTestCase):
         parent.save(ignore_permissions=True)
         self.assertEqual(parent.description, "Non-leaf preamble with qty (saved again)")
 
-    def test_amount_override_skips_computation_for_preamble(self):
-        """With amount_override=1, _compute_amounts returns early for any node type."""
+    def test_preamble_set_amount_persists(self):
+        """CAPTURE-ONLY: a preamble's written amount persists verbatim -- there is no
+        compute to skip, and amount_override is no longer consulted for amounts."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Preamble"
         node.level = 1
-        node.description = "Preamble with override"
+        node.description = "Preamble amount persists"
         node.qty = 5
         node.supply_rate = 100
-        node.amount_override = 1
+        node.total_amount = 123.0
         node.insert(ignore_permissions=True)
-        self.assertIsNone(node.supply_amount)
-        self.assertIsNone(node.total_amount)
+        self.assertEqual(node.total_amount, 123.0)
 
     # ------------------------------------------------------------------ #
     # Combined Rate consistency validation                                 #
@@ -466,36 +481,40 @@ class TestBOQNodes(FrappeTestCase):
             )
 
     def test_combined_rate_matches_supply_plus_install_succeeds(self):
-        """combined_rate == supply_rate + install_rate must save; total uses combined path."""
+        """STRUCTURAL: combined_rate == supply_rate + install_rate passes the consistency
+        check and saves. (total_amount is no longer computed -- capture-only.)"""
         node = self._make_line_item(
             qty=10, supply_rate=400, install_rate=200, combined_rate=600,
             description="Exact match combined rate",
         )
-        self.assertEqual(node.total_amount, 6000.0)
+        self.assertIsNotNone(node.name)
 
     def test_only_combined_rate_set_succeeds(self):
-        """Only combined_rate set (no supply/install): no consistency check fires."""
+        """STRUCTURAL: only combined_rate set (no supply/install) -> no consistency check
+        fires; the node saves. (total_amount is no longer computed -- capture-only.)"""
         node = self._make_line_item(
             qty=10, combined_rate=500,
             description="Only combined rate",
         )
-        self.assertEqual(node.total_amount, 5000.0)
+        self.assertIsNotNone(node.name)
 
     def test_only_supply_install_set_succeeds(self):
-        """supply_rate + install_rate with no combined_rate: no consistency check fires."""
+        """STRUCTURAL: supply + install with no combined_rate -> no consistency check
+        fires; the node saves. (total_amount is no longer computed -- capture-only.)"""
         node = self._make_line_item(
             qty=10, supply_rate=400, install_rate=200,
             description="Supply and install only",
         )
-        self.assertEqual(node.total_amount, 6000.0)
+        self.assertIsNotNone(node.name)
 
     def test_combined_rate_zero_does_not_trigger_validation(self):
-        """combined_rate=0 is treated as not-set; supply+install path is used for total."""
+        """STRUCTURAL: combined_rate=0 is treated as not-set, so the consistency check
+        does not fire and the node saves. (total_amount is no longer computed.)"""
         node = self._make_line_item(
             qty=10, supply_rate=400, install_rate=200, combined_rate=0,
             description="Zero combined rate",
         )
-        self.assertEqual(node.total_amount, 6000.0)
+        self.assertIsNotNone(node.name)
 
     def test_leaf_preamble_combined_rate_validation(self):
         """Rate consistency check fires for leaf preambles with mismatched combined_rate."""
@@ -822,90 +841,95 @@ class TestBOQNodes(FrappeTestCase):
     # Group F — Phase 1.8: qty_by_area rates, amounts, audit (11 tests)  #
     # ------------------------------------------------------------------ #
 
-    def test_qty_by_area_supply_rate_fallback_from_parent(self):
-        """Child row with no supply_rate set inherits parent supply_rate on save."""
+    def test_qty_by_area_supply_rate_not_inherited(self):
+        """CAPTURE-ONLY: a child with a blank supply_rate STAYS blank -- it does NOT
+        inherit the parent's rate (the rate-fallback compute was removed)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Supply rate fallback test"
+        node.description = "Supply rate not inherited test"
         node.parent_node = self.default_preamble
         node.qty = 10
         node.supply_rate = 100
         node.append("qty_by_area", {"area_name": "B1", "qty": 10})
         node.insert(ignore_permissions=True)
-        self.assertEqual(node.qty_by_area[0].supply_rate, 100.0)
+        self.assertIsNone(node.qty_by_area[0].supply_rate)
 
-    def test_qty_by_area_install_rate_fallback_from_parent(self):
-        """Child row with no install_rate set inherits parent install_rate on save."""
+    def test_qty_by_area_install_rate_not_inherited(self):
+        """CAPTURE-ONLY: a child with a blank install_rate STAYS blank (no inheritance)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Install rate fallback test"
+        node.description = "Install rate not inherited test"
         node.parent_node = self.default_preamble
         node.qty = 10
         node.install_rate = 50
         node.append("qty_by_area", {"area_name": "B1", "qty": 10})
         node.insert(ignore_permissions=True)
-        self.assertEqual(node.qty_by_area[0].install_rate, 50.0)
+        self.assertIsNone(node.qty_by_area[0].install_rate)
 
-    def test_qty_by_area_combined_rate_fallback_from_parent(self):
-        """Child row with no combined_rate set inherits parent combined_rate on save."""
+    def test_qty_by_area_combined_rate_not_inherited(self):
+        """CAPTURE-ONLY: a child with a blank combined_rate STAYS blank (no inheritance)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Combined rate fallback test"
+        node.description = "Combined rate not inherited test"
         node.parent_node = self.default_preamble
         node.qty = 10
         node.combined_rate = 150
         node.append("qty_by_area", {"area_name": "B1", "qty": 10})
         node.insert(ignore_permissions=True)
-        self.assertEqual(node.qty_by_area[0].combined_rate, 150.0)
+        self.assertIsNone(node.qty_by_area[0].combined_rate)
 
-    def test_parent_supply_rate_weighted_average_when_per_area_diverges(self):
-        """When per-area supply_rates diverge, parent supply_rate becomes weighted average."""
+    def test_parent_supply_rate_persists_when_per_area_diverges(self):
+        """CAPTURE-ONLY: a written parent supply_rate is NOT overwritten by a per-area
+        weighted average, even when the child rows' supply_rates diverge."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Supply rate weighted avg test"
+        node.description = "Supply rate persists test"
         node.parent_node = self.default_preamble
         node.qty = 30
+        node.supply_rate = 150
         node.append("qty_by_area", {"area_name": "B1", "qty": 10, "supply_rate": 100})
         node.append("qty_by_area", {"area_name": "B2", "qty": 20, "supply_rate": 200})
         node.insert(ignore_permissions=True)
-        # Expected: (10*100 + 20*200) / 30 = 5000/30 = 166.666...
-        self.assertAlmostEqual(node.supply_rate, (10 * 100 + 20 * 200) / 30, places=2)
+        # The weighted average would be 166.67; capture-only keeps the written 150.
+        self.assertAlmostEqual(node.supply_rate, 150.0, places=2)
 
-    def test_parent_install_rate_weighted_average_independent_of_supply(self):
-        """install_rate weighted-avg fires for divergent per-area values; uniform supply_rate unchanged."""
+    def test_parent_install_rate_persists_when_per_area_diverges(self):
+        """CAPTURE-ONLY: written parent supply_rate AND install_rate both persist even
+        when the child rows' install_rates diverge (no weighted-average overwrite)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Install rate independent weighted avg test"
+        node.description = "Install rate persists test"
         node.parent_node = self.default_preamble
         node.qty = 30
-        node.supply_rate = 100  # uniform — child rows get this via fallback → no weighted avg
-        node.install_rate = 50  # diverges across areas → becomes weighted avg
+        node.supply_rate = 100
+        node.install_rate = 50
         node.append("qty_by_area", {"area_name": "B1", "qty": 10, "install_rate": 40})
         node.append("qty_by_area", {"area_name": "B2", "qty": 20, "install_rate": 70})
         node.insert(ignore_permissions=True)
-        # install_rate weighted avg: (10*40 + 20*70) / 30 = 1800/30 = 60.0
-        self.assertAlmostEqual(node.install_rate, 60.0, places=2)
-        # supply_rate: both child rows get 100 via fallback (uniform) → parent unchanged
+        # Weighted avg would be 60; capture-only keeps the written 50 (and 100).
+        self.assertAlmostEqual(node.install_rate, 50.0, places=2)
         self.assertAlmostEqual(node.supply_rate, 100.0, places=2)
 
-    def test_parent_combined_rate_weighted_average_independent(self):
-        """combined_rate weighted-avg runs independently of supply/install rates."""
+    def test_parent_combined_rate_persists_when_per_area_diverges(self):
+        """CAPTURE-ONLY: a written parent combined_rate persists when the child rows'
+        combined_rates diverge (no weighted-average overwrite)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Combined rate independent weighted avg test"
+        node.description = "Combined rate persists test"
         node.parent_node = self.default_preamble
         node.qty = 30
+        node.combined_rate = 150
         node.append("qty_by_area", {"area_name": "B1", "qty": 10, "combined_rate": 100})
         node.append("qty_by_area", {"area_name": "B2", "qty": 20, "combined_rate": 200})
         node.insert(ignore_permissions=True)
-        # Expected: (10*100 + 20*200) / 30 = 5000/30 = 166.666...
-        self.assertAlmostEqual(node.combined_rate, (10 * 100 + 20 * 200) / 30, places=2)
+        # Weighted avg would be 166.67; capture-only keeps the written 150.
+        self.assertAlmostEqual(node.combined_rate, 150.0, places=2)
 
     def test_child_combined_rate_consistency_rule_accepted_when_correct_sum(self):
         """Child row with combined_rate == supply_rate + install_rate saves without error."""
@@ -938,7 +962,8 @@ class TestBOQNodes(FrappeTestCase):
             node.insert(ignore_permissions=True)
 
     def test_child_zero_cost_row_allowed_when_all_rates_none(self):
-        """Child row with no rates saves without error; rates remain None when parent also has none."""
+        """CAPTURE-ONLY: a child row with no rates saves and its rates STAY None -- no
+        compute fills them (the rate-fallback was removed)."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
@@ -953,18 +978,20 @@ class TestBOQNodes(FrappeTestCase):
         self.assertIsNone(row.install_rate)
         self.assertIsNone(row.combined_rate)
 
-    def test_child_amount_override_skips_auto_compute(self):
-        """Child row with amount_override=1 keeps manually set supply_amount unchanged."""
+    def test_child_amounts_persist_verbatim(self):
+        """CAPTURE-ONLY: a child's written supply_amount persists UNCHANGED (no
+        amount_override needed) even though qty x rate would be 1000 -- the child amount
+        compute was removed."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
-        node.description = "Child amount override test"
+        node.description = "Child amounts persist verbatim test"
         node.parent_node = self.default_preamble
         node.qty = 10
         node.supply_rate = 100
         node.append("qty_by_area", {
             "area_name": "B1", "qty": 10,
-            "supply_rate": 100, "supply_amount": 999, "amount_override": 1,
+            "supply_rate": 100, "supply_amount": 999,
         })
         node.insert(ignore_permissions=True)
         self.assertEqual(node.qty_by_area[0].supply_amount, 999)
