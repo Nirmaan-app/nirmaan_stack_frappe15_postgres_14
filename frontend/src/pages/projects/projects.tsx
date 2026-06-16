@@ -61,6 +61,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import {
   useAllProjectsCount,
+  useTenderingProjectsCount,
   useProjectStatusCountCall,
   useProjectsListExpenses,
   useProjectsListInflows,
@@ -332,6 +333,7 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   const { call } = useProjectStatusCountCall();
   const { data: all_projects_count } = useAllProjectsCount();
+  const { data: tendering_projects_count } = useTenderingProjectsCount();
 
   const statusOptions = useMemo(() => {
     // v3: execution-status tabs. "Won" left the execution dimension — newly
@@ -994,8 +996,18 @@ export const Projects: React.FC<ProjectsProps> = ({
       {!customersView && canSeeTenderingTab && (
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList>
-            <TabsTrigger value="projects">Projects</TabsTrigger>
-            <TabsTrigger value="tendering">Tendering</TabsTrigger>
+            <TabsTrigger value="projects" className="gap-1.5">
+              Won Projects
+              <span className="inline-flex items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
+                {all_projects_count ?? 0}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="tendering" className="gap-1.5">
+              Tendering Projects
+              <span className="inline-flex items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
+                {tendering_projects_count ?? 0}
+              </span>
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       )}

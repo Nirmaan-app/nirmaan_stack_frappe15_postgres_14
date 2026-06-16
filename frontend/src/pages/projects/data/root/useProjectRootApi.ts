@@ -44,6 +44,7 @@ export interface ProjectPOItemDataItem {
 
 export const projectRootKeys = {
   allProjectsCount: () => ["project-root", "allProjectsCount"] as const,
+  tenderingProjectsCount: () => ["project-root", "tenderingProjectsCount"] as const,
   projectsListPOs: () => ["project-root", "projectsListPOs"] as const,
   projectsListSRs: () => ["project-root", "projectsListSRs"] as const,
   projectsListInflows: () => ["project-root", "projectsListInflows"] as const,
@@ -83,6 +84,26 @@ export const useAllProjectsCount = () => {
 
   useApiErrorLogger(response.error, {
     hook: "useAllProjectsCount",
+    api: "Projects Count",
+    feature: "project-root",
+  });
+
+  return response;
+};
+
+export const useTenderingProjectsCount = () => {
+  // Count of active pipeline stubs only (tendering_status = "Tendering").
+  // Lost stubs are excluded — they live under their own "Lost" sub-tab and are
+  // terminal, so the "Tendering Projects" tab badge reflects live prospects.
+  const response = useFrappeGetDocCount(
+    "Projects",
+    [["tendering_status", "=", "Tendering"]],
+    false,
+    projectRootKeys.tenderingProjectsCount()
+  );
+
+  useApiErrorLogger(response.error, {
+    hook: "useTenderingProjectsCount",
     api: "Projects Count",
     feature: "project-root",
   });
