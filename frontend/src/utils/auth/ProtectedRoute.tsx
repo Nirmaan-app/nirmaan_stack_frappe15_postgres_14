@@ -3,6 +3,7 @@ import { Navigate, Outlet, useParams } from 'react-router-dom'
 import { UserContext } from './UserProvider'
 import { TailSpin } from 'react-loader-spinner'
 import { useUserData } from '@/hooks/useUserData'
+import { canManageTendering } from '@/pages/projects/tendering/tenderingAuth'
 
 export const ProtectedRoute = () => {
 
@@ -132,6 +133,31 @@ export const InflowPaymentsRoute = () => {
             <div className="text-center">
                 <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
                 <p className="text-gray-600 mt-2">You don't have permission to access In-Flow Payments.</p>
+            </div>
+        </div>
+    )
+}
+
+/**
+ * Guards the "New Project" flow at /projects/new-project
+ * (choice screen → Won wizard → Tendering form → convert).
+ *
+ * Authorized users mirror the Tendering-management permission:
+ * Nirmaan Admin + PMO Executive, plus the hardcoded "Administrator" user.
+ * We reuse `canManageTendering` so the role set has a single source of truth.
+ */
+export const NewProjectRoute = () => {
+    const { role, user_id } = useUserData()
+
+    if (canManageTendering(role, user_id)) {
+        return <Outlet />
+    }
+
+    return (
+        <div className="flex items-center justify-center h-[50vh]">
+            <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
+                <p className="text-gray-600 mt-2">You don't have permission to create projects.</p>
             </div>
         </div>
     )
