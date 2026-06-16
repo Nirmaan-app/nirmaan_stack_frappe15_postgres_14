@@ -885,7 +885,7 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
                                                     Tpl
                                                 </span>
                                             )}
-                                            {task.is_active === 0 && (
+                                            {task.is_active === 0 && (task.report_type || 'Field') !== 'Vendor' && (
                                                 <span
                                                     className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0 text-[10px] font-semibold text-amber-900"
                                                     title="Inactive — Fill button hidden on new rows"

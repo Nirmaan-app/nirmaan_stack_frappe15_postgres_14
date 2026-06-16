@@ -9,11 +9,12 @@ The PO Revision Warning is a critical UI component that prevents concurrent modi
 ### Frontend Component
 * **Component Name:** `PORevisionWarning` (`frontend/src/pages/PORevision/PORevisionWarning.tsx`)
 * **Usage:** Imported and used in `frontend/src/pages/ProcurementOrders/purchase-order/PurchaseOrder.tsx`
-* **Purpose:** Displays a red alert banner at the top of the Purchase Order detail page if the PO is locked. It informs the user why it's locked and provides a quick link to view the pending revision.
+* **Purpose:** Displays an alert banner at the top of the Purchase Order detail page. A **red** "PO Locked" banner for a hard lock (pending revision or pending adjustment); an **amber** "Overpaid credit available — ₹X" advisory when a `Done` adjustment still holds small reusable credit (payment terms stay usable). It explains why and links to the pending revision when applicable.
 * **Mechanism:** 
   * It accepts the `poId` as a prop.
   * Uses `usePOLockCheck(poId)` from the centralized data layer (`data/usePORevisionQueries.ts`), which wraps a POST call + SWR cache with Sentry error logging.
-  * If the response indicates the PO `is_locked`, it renders the alert with the specific `role` (Original or Target) and a link to the `revision_id`.
+  * **Hard lock** (`is_item_locked` or `is_payment_locked`): renders the red destructive alert with the lock source and a link to the `revision_id`.
+  * **Soft notice** (`has_credit_notice`): renders an amber, non-blocking advisory showing `remaining_credit`. Otherwise renders nothing.
 
 ### Backend API
 * **API Endpoint:** `nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions`
@@ -25,11 +26,13 @@ The PO Revision Warning is a critical UI component that prevents concurrent modi
      * It queries the `PO Revisions` doctype to see if there is any document with `status = "Pending"` where the `revised_po` field matches the given `po_id`.
      * **Reasoning:** If a PO is currently being revised, we cannot allow other users to make standard payments or amendments to it until the draft revision is resolved (Approved/Rejected), as it would cause financial desynchronization.
 
-  2. **Check 2: As Target PO (`_check_pending_as_target`)**
-     * It iterates through all `Pending` PO Revisions and inspects their JSON payload (`payment_return_details`).
-     * It looks specifically for a "Negative Flow" refund adjustment where the `return_type` is `"Against-po"`.
-     * It parses the JSON to see if the given `po_id` is listed in the `target_pos` array.
-     * **Reasoning:** Even if a PO isn't the one being actively revised, it might be slated to receive transferred credit from *another* PO's revision. If so, it must be locked to prevent users from accidentally paying off terms that are about to be covered by the incoming credit transfer once the revision is approved.
+  2. **Check 2: PO Adjustment on this PO**
+     * Looks up the single `PO Adjustments` doc for this `po_id` (its `status` + `remaining_impact`).
+     * **Pending** (≥ ₹100 unresolved) -> **hard** payment lock: `is_payment_locked = True`, `payment_lock_source = "PO Adjustment"`.
+     * **`Done` but still holding small overpaid credit** (`remaining_impact <= -1`) -> **soft advisory only**: `has_credit_notice = True` + `remaining_credit` (NOT `is_payment_locked`). Payment terms stay usable; the credit auto-applies to the next revision increase and can still be transferred/refunded.
+     * **Reasoning:** a material unresolved balance must block further payments; a tiny leftover credit only needs to be surfaced, not block the PO.
+
+  > **Deprecated:** the older "Target PO / `payment_return_details` / `Against-po` `target_pos`" lock is no longer used — payment handling is decoupled into the PO Adjustments system and `payment_return_details` is set to `None`.
 
 ===============================================================================================
 ===============================================================================================

@@ -7,35 +7,53 @@ export interface DatePreset {
   getRange: () => DateRange | undefined;
 }
 
-const today = new Date();
-
+// "today" is read live inside each getRange() — i.e. when the user clicks the
+// preset — NOT frozen at module load. A frozen date drifts: a tab left open
+// across midnight (or a long-lived SPA session) keeps computing an old window,
+// so "Last 30 days" stops matching the server-computed dashboard cards. Reading
+// it live keeps every report's relative presets aligned with the real date.
 export const datePresets: DatePreset[] = [
   {
     label: 'Today',
-    getRange: () => ({ from: startOfDay(today), to: endOfDay(today) }),
+    getRange: () => {
+      const today = new Date();
+      return { from: startOfDay(today), to: endOfDay(today) };
+    },
   },
   {
     label: 'Yesterday',
     getRange: () => {
-      const yesterday = subDays(today, 1);
+      const yesterday = subDays(new Date(), 1);
       return { from: startOfDay(yesterday), to: endOfDay(yesterday) };
     },
   },
   {
     label: 'Last 7 days',
-    getRange: () => ({ from: startOfDay(subDays(today, 6)), to: endOfDay(today) }),
+    getRange: () => {
+      const today = new Date();
+      return { from: startOfDay(subDays(today, 6)), to: endOfDay(today) };
+    },
   },
   {
     label: 'Last 30 days',
-    getRange: () => ({ from: startOfDay(subDays(today, 29)), to: endOfDay(today) }),
+    getRange: () => {
+      const today = new Date();
+      return { from: startOfDay(subDays(today, 29)), to: endOfDay(today) };
+    },
   },
   {
     label: 'This month',
-    getRange: () => ({ from: startOfMonth(today), to: endOfMonth(today) }),
+    getRange: () => {
+      const today = new Date();
+      return { from: startOfMonth(today), to: endOfMonth(today) };
+    },
   },
   {
     label: 'This year',
-    getRange: () => ({ from: startOfYear(today), to: endOfYear(today) }),
+    getRange: () => {
+      const today = new Date();
+      return { from: startOfYear(today), to: endOfYear(today) };
+    },
   },
   {
     label: 'FY 25-26',

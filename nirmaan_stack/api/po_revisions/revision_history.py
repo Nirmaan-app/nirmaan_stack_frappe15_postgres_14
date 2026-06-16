@@ -35,6 +35,7 @@ def get_po_revision_history(po_id):
             "payment_return_details",
             "approved_by",
             "approval_date",
+            "owner",
         ],
         order_by="creation desc",
     )
@@ -109,6 +110,9 @@ def get_po_revision_history(po_id):
             "revised_total_incl_tax": round(revised_total_incl_tax, 2),
             "approved_by": rev.approved_by,
             "approval_date": rev.approval_date,
+            # `owner` is Frappe's standard creator audit field — resolve to a
+            # full name so the UI can show "Created by X".
+            "created_by": frappe.utils.get_fullname(rev.owner) if rev.owner else None,
         })
 
     return result

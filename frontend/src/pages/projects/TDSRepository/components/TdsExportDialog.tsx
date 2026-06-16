@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, FileDown, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX } from 'lucide-react';
+import { Ban, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
@@ -480,7 +480,12 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                         {isExporting ? (
                             <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Exporting...
+                                {selectedStatus === "Pending" ? "Preparing..." : "Exporting..."}
+                            </>
+                        ) : selectedStatus === "Pending" ? (
+                            <>
+                                <Eye className="w-4 h-4 mr-2" />
+                                Preview PDF ({visibleSelectedCount})
                             </>
                         ) : (
                             <>
