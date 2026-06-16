@@ -1,6 +1,35 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-16 (Phase 5 Slice 1 -- committed general-specs faithful-grid doctype -- BACKEND,
+**Last updated:** 2026-06-16 (Phase 5 Slice 2 -- the COMMIT GATE (eligibility) -- BACKEND, feat b93ec41c.
+A READ-ONLY gate answering "which sheets of this BoQ are eligible to COMMIT right now?": it computes + returns a
+list, does NOT commit / write the DB / change wizard_status / call the parser / touch `assemble_mapping_config`.
+Slice 3 (commit pipeline) + Slice 4 (hub commit UI) will both call it; built + unit-tested in isolation first.
+**THE parse-vs-commit distinction (load-bearing):** `assemble_mapping_config` treats "Finalized" as not_eligible
+BY DEFAULT (re-parses Finalized only under force_reparse); the COMMIT gate is the OPPOSITE -- "Finalized" is
+precisely what we commit. So the gate is a SEPARATE, narrower rule keyed on Finalized + general-specs; it does NOT
+import / reuse / consult `assemble_mapping_config` / `force_reparse` (T5 is the regression guard). **NEW
+`nirmaan_stack/api/boq/wizard/commit_gate.py`** (beside `parse_run.py`, matching the wizard-endpoint convention):
+`compute_committable_sheets(sheet_drafts, general_specs_sheet_names) -> list[dict]` (PURE helper, no DB; accepts
+Frappe child docs / `_dict` / plain dicts via a `_get` shim; preserves input order) + `get_committable_sheets(
+boq_name) -> {"committable_sheets": [{sheet_name, disposition}]}` (`@frappe.whitelist()` READ-ONLY; loads
+`BOQs.sheet_drafts` + the `BOQs.general_specs_sheets` pointer, same read pattern `assemble_mapping_config` uses).
+**ELIGIBILITY RULE (the only two dispositions that commit, per PHASE 5 LOCKED INPUTS):** general-specs-designated
+-> disposition **`general_specs`**; else `wizard_status == "Finalized"` -> **`finalized`**; else NOT eligible
+(blank, Pending, Hidden, Config Done, Skip, Parse failed, Parsed). The disposition tells Slice 3 which write path
+to use. **KEY FINDING (verify-first V3):** general-specs is POINTER membership in `BOQs.general_specs_sheets`
+(`source_sheet_name` set), **NOT** `wizard_status == "General specs"` (never literally stored -- a designated
+sheet can carry any status, e.g. Skip). **PRECEDENCE (overlap):** a sheet that is BOTH Finalized AND
+general-specs-designated commits as **`general_specs`** -- mirroring `assemble_mapping_config` Rule 1 (pointer
+checked first, outranks wizard_status); tested in T6. **VERIFICATION:** `test_commit_gate` **13/13 OK**
+in-container (7 pure-helper: T1 Finalized, T2 general-specs-pointer-as-Skip, T3 every ineligible status incl.
+blank "", T4 mixed exact subset, T5 parse-vs-commit distinction, T6 overlap precedence, #152 verbatim pointer
+match; + 6 endpoint end-to-end on a real mixed BoQ incl. unknown-BoQ throws); parser suite **597 UNCHANGED**; NO
+doctype JSON change -> NO migration required (pure read over existing fields). 2 new files, +353 lines, 0
+deletions. No parser / `assemble_mapping_config` / BOQ Nodes / BoQ Sheet / Slice-1 general-specs doctype /
+status-write / frontend change. Separate docs commit (plan doc + this file substantive; frontend/CLAUDE.md
+minimal-touch). NEXT = Slice 3 (commit pipeline) + Slice 4 (hub commit UI). Full detail in boq-upload-plan.md
+"Phase 5 Slice 2".)
+// prior: 2026-06-16 (Phase 5 Slice 1 -- committed general-specs faithful-grid doctype -- BACKEND,
 feat 5fe61bff. The EMPTY committed home for faithful general-specs rows: SCHEMA + bare-stub controllers + tests
 ONLY (NOT the commit pipeline -- no commit logic, no `get_sheet_preview_full` call, no real-data fetch/persist;
 parser / wizard API / BOQ Nodes / BOQs / BoQ Sheet Draft ALL untouched). Resolves C2 (general-specs stored today
@@ -871,6 +900,12 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 **`boq:parse_run_done` realtime event** -- `user=`-targeted (unlike `boq:wizard_parse_done` which broadcasts). Success payload: `{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}`. Error payload: `{status,boq_name,error_code}`. Error codes: `missing_file`, `fetch_failed`, `no_eligible_sheets`, `parse_failed`, `internal`. **Payload contract is frozen** -- `_publish_parse_event` clears `parse_in_progress=0` before publishing (Bucket-2 Slice 1) but does NOT change any payload key or error code.
 
 **`general_specs_sheets` empty guard (Slice 2c)** -- `assemble_mapping_config` builds `general_specs_sheet_names: set[str]` from child rows (`row.source_sheet_name for row in boq_doc.general_specs_sheets or []`). An empty child table produces an empty set; set membership check `sheet_name in general_specs_sheet_names` is safely False. `ParsedBoq.master_preambles: dict[str,str]` -- replaces `master_preamble: str|None`. Empty dict = no general-specs sheets parsed this run (does not blank existing child rows -- falsy-skip per row is preserved).
+
+**`commit_gate.py`** (Phase 5 Slice 2, feat b93ec41c) -- the READ-ONLY commit-eligibility gate. SEPARATE from parse-eligibility (does NOT import/reuse/consult `assemble_mapping_config` / `force_reparse` -- the parser treats "Finalized" as not_eligible by default; the commit gate is the opposite, Finalized is exactly what commits). 2 functions:
+
+- `compute_committable_sheets(sheet_drafts, general_specs_sheet_names)` -- PURE helper (no DB; accepts Frappe child docs / `frappe._dict` / plain dicts via a `_get` shim; preserves input order). Returns `list[dict]` of `{"sheet_name", "disposition"}`. RULE: general-specs-designated (membership in `general_specs_sheet_names`) -> disposition `"general_specs"`; else `wizard_status == "Finalized"` -> `"finalized"`; else NOT eligible (blank / Pending / Hidden / Config Done / Skip / Parse failed / Parsed). PRECEDENCE: general-specs outranks Finalized on overlap (mirrors `assemble_mapping_config` Rule 1). The disposition tells the Slice-3 pipeline which write path to use.
+
+- `get_committable_sheets(boq_name)` -- `@frappe.whitelist()` bare (READ-ONLY). Loads `BOQs.sheet_drafts` + the `BOQs.general_specs_sheets` pointer (general-specs = POINTER membership on `source_sheet_name`, NOT `wizard_status == "General specs"` which is never literally stored), applies the pure helper. Returns `{"committable_sheets": [{"sheet_name", "disposition"}, ...]}`. Missing/unknown BoQ -> `frappe.throw`. URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_committable_sheets`
 
 **New top-level doctype: BoQ Review Row** (Phase-1 Slice 1):
 - Path: `nirmaan_stack/nirmaan_stack/doctype/boq_review_row/`. Autoname `BOQRR-.YY.-.#####`. `track_changes=1`.
