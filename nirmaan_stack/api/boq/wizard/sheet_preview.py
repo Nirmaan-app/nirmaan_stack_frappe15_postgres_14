@@ -101,6 +101,46 @@ def _to_json_serializable(value):
     return str(value)
 
 
+def _extract_grid_rows(ws, min_row: int = 1, max_row=None) -> list[dict]:
+    """Extract a faithful row grid from an OPEN openpyxl worksheet.
+
+    The single, shared implementation of the worksheet -> rows transform used by
+    BOTH preview endpoints AND the Phase-5 commit pipeline (commit_pipeline.py),
+    so the previewed grid and the committed grid can never silently diverge.
+
+    Returns a list of {"row_number": int, "cells": {col_letter: value}} where
+    values pass through _to_json_serializable. Skip logic (unchanged, locked by
+    TestGetSheetPreviewFull.test_byte_identity_to_windowed_path): in read_only
+    mode openpyxl returns EmptyCell objects for padding positions (up to the
+    sheet's max_column); EmptyCell has .value=None but no .row/.column. Skip
+    entirely-empty padding rows; skip individual EmptyCell within real rows.
+
+    Args:
+      ws:       an open openpyxl worksheet (read_only, data_only).
+      min_row:  1-indexed first row to read (inclusive; default 1).
+      max_row:  1-indexed last row to read (inclusive); None -> ws.max_row, i.e.
+                the whole sheet. None-safe (read_only sheets with no <dimension>
+                tag still iterate to the end via ws.max_row's own behavior).
+    """
+    if max_row is None:
+        max_row = ws.max_row
+
+    rows_out = []
+    for row_cells in ws.iter_rows(min_row=min_row, max_row=max_row):
+        if not row_cells:
+            continue
+        row_num = next((c.row for c in row_cells if hasattr(c, "row")), None)
+        if row_num is None:
+            continue
+        cells = {
+            get_column_letter(cell.column): _to_json_serializable(cell.value)
+            for cell in row_cells
+            if hasattr(cell, "column")
+        }
+        rows_out.append({"row_number": row_num, "cells": cells})
+    return rows_out
+
+
 @frappe.whitelist()
 def get_sheet_preview(boq_name=None, sheet_name=None, start_row=1, end_row=40):
     """Return a windowed preview of raw cell values for one sheet of a BoQ workbook.
@@ -172,23 +212,8 @@ def get_sheet_preview(boq_name=None, sheet_name=None, start_row=1, end_row=40):
         ws = wb[sheet_name]
         sheet_max_row = ws.max_row  # from dimension metadata; may be None for empty sheets
 
-        rows_out = []
-        for row_cells in ws.iter_rows(min_row=start_row, max_row=end_row):
-            if not row_cells:
-                continue
-            # In read_only mode openpyxl returns EmptyCell objects for padding positions
-            # (up to the sheet's max_column). EmptyCell has .value=None but no .row/.column.
-            # Skip entirely-empty padding rows; skip individual EmptyCell within real rows.
-            row_num = next((c.row for c in row_cells if hasattr(c, "row")), None)
-            if row_num is None:
-                continue
-            cells = {
-                get_column_letter(cell.column): _to_json_serializable(cell.value)
-                for cell in row_cells
-                if hasattr(cell, "column")
-            }
-            rows_out.append({"row_number": row_num, "cells": cells})
-
+        # Shared worksheet -> rows transform (skip logic lives in the helper).
+        rows_out = _extract_grid_rows(ws, min_row=start_row, max_row=end_row)
         returned_count = len(rows_out)
 
         # has_more: True if the sheet has content rows beyond end_row.
@@ -284,22 +309,9 @@ def get_sheet_preview_full(boq_name=None, sheet_name=None):
 
         ws = wb[sheet_name]
 
-        rows_out = []
-        # min_row=1 .. max_row=ws.max_row -- the whole sheet, no window, no cap.
-        for row_cells in ws.iter_rows(min_row=1, max_row=ws.max_row):
-            if not row_cells:
-                continue
-            # Same skip logic as get_sheet_preview: padding rows are all EmptyCell
-            # (no .row); skip them.  Within a kept row, skip EmptyCells (no .column).
-            row_num = next((c.row for c in row_cells if hasattr(c, "row")), None)
-            if row_num is None:
-                continue
-            cells = {
-                get_column_letter(cell.column): _to_json_serializable(cell.value)
-                for cell in row_cells
-                if hasattr(cell, "column")
-            }
-            rows_out.append({"row_number": row_num, "cells": cells})
+        # The whole sheet, no window, no cap (min_row=1 .. max_row=ws.max_row).
+        # Same shared transform as get_sheet_preview -> byte-identical rows.
+        rows_out = _extract_grid_rows(ws)
 
         return {
             "sheet_name": sheet_name,

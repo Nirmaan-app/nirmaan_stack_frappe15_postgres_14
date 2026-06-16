@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class BoQCommittedGeneralSpecsRow(Document):
+class BoQCommittedSheetGridRow(Document):
 	pass

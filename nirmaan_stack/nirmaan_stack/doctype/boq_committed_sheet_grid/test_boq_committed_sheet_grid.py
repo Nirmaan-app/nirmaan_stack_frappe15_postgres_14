@@ -7,23 +7,23 @@ from frappe.tests.utils import FrappeTestCase
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_CGS"
 
 
-class TestBoQCommittedGeneralSpecs(FrappeTestCase):
+class TestBoQCommittedSheetGrid(FrappeTestCase):
     """
-    Tests for the committed general-specs faithful-grid doctype (Phase 5 Slice 1).
+    Tests for the committed sheet-grid faithful-grid doctype (Phase 5 Slice 1,
+    renamed from BoQ Committed General Specs in Slice 3a).
 
-    BoQ Committed General Specs is a STANDALONE top-level doctype (istable=0) that
+    BoQ Committed Sheet Grid is a STANDALONE top-level doctype (istable=0) that
     Links UP to BOQs, carries the per-sheet commit-version dimension
     (commit_version + is_current), and holds ONE child table (`rows` -> BoQ
-    Committed General Specs Row) of faithful, arbitrary-width cell rows.
+    Committed Sheet Grid Row) of faithful, arbitrary-width cell rows.
 
-    This slice is SCHEMA ONLY -- the one-current-version-per-sheet invariant and
-    every write to this doctype are the Phase-5 commit pipeline's job (Slice 3).
-    These tests therefore assert persistence / round-trip / defaults ONLY, with
-    NO enforcement.
+    These doctype-level tests assert persistence / round-trip / defaults ONLY
+    (the write-time one-current invariant + the commit pipeline are covered by
+    test_commit_pipeline.py).
 
     A shared parent BOQs row is created in setUpClass (committed); the committed
-    general-specs inserts inside each test are NOT committed, so FrappeTestCase's
-    tearDown rollback cleans them up.
+    grid inserts inside each test are NOT committed, so FrappeTestCase's tearDown
+    rollback cleans them up.
     """
 
     @classmethod
@@ -39,7 +39,7 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         if hasattr(cls, "boq_name"):
-            frappe.db.delete("BoQ Committed General Specs", {"boq": cls.boq_name})
+            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": cls.boq_name})
             frappe.db.delete("BOQs", {"name": cls.boq_name})
         frappe.db.commit()
         super().tearDownClass()
@@ -49,7 +49,7 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
     # ------------------------------------------------------------------ #
 
     def _make_doc(self, source_sheet_name="General Specs", rows=None, **kwargs):
-        doc = frappe.new_doc("BoQ Committed General Specs")
+        doc = frappe.new_doc("BoQ Committed Sheet Grid")
         doc.boq = self.boq_name
         doc.source_sheet_name = source_sheet_name
         for k, v in kwargs.items():
@@ -71,10 +71,10 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
              "cells": {"A": "Sand", "B": 12, "C": "cum", "D": 1500, "E": "remark"}},
         ]
         doc = self._make_doc(source_sheet_name="SOW", rows=rows)
-        self.assertTrue(doc.name.startswith("BCGS-"),
-                        f"autoname should start with 'BCGS-', got {doc.name!r}")
+        self.assertTrue(doc.name.startswith("BCSG-"),
+                        f"autoname should start with 'BCSG-', got {doc.name!r}")
 
-        reloaded = frappe.get_doc("BoQ Committed General Specs", doc.name)
+        reloaded = frappe.get_doc("BoQ Committed Sheet Grid", doc.name)
         self.assertEqual(len(reloaded.rows), 3)
 
         by_num = {r.row_number: r for r in reloaded.rows}
@@ -98,7 +98,7 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
             {"row_number": 5, "row_order": 1, "cells": {"A": "second"}},
         ]
         doc = self._make_doc(source_sheet_name="Notes", rows=rows)
-        reloaded = frappe.get_doc("BoQ Committed General Specs", doc.name)
+        reloaded = frappe.get_doc("BoQ Committed Sheet Grid", doc.name)
 
         ordered = sorted(reloaded.rows, key=lambda r: r.row_order)
         self.assertEqual([r.row_number for r in ordered], [3, 5, 7])
@@ -111,7 +111,7 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
     def test_version_fields_default_and_settable(self):
         # defaults: commit_version=1, is_current=1
         doc1 = self._make_doc(source_sheet_name="V1 defaults")
-        reloaded1 = frappe.get_doc("BoQ Committed General Specs", doc1.name)
+        reloaded1 = frappe.get_doc("BoQ Committed Sheet Grid", doc1.name)
         self.assertEqual(reloaded1.commit_version, 1)
         self.assertEqual(reloaded1.is_current, 1)
 
@@ -120,7 +120,7 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
         # save, which is deferred to the Slice-3 pipeline by design)
         doc2 = self._make_doc(source_sheet_name="V2 superseded",
                               commit_version=2, is_current=0)
-        reloaded2 = frappe.get_doc("BoQ Committed General Specs", doc2.name)
+        reloaded2 = frappe.get_doc("BoQ Committed Sheet Grid", doc2.name)
         self.assertEqual(reloaded2.commit_version, 2)
         self.assertEqual(reloaded2.is_current, 0)
 
@@ -131,7 +131,7 @@ class TestBoQCommittedGeneralSpecs(FrappeTestCase):
     def test_source_sheet_name_trailing_space_verbatim(self):
         name_with_space = "Electrical "  # trailing space is intentional (#152)
         doc = self._make_doc(source_sheet_name=name_with_space)
-        reloaded = frappe.get_doc("BoQ Committed General Specs", doc.name)
+        reloaded = frappe.get_doc("BoQ Committed Sheet Grid", doc.name)
         self.assertEqual(reloaded.source_sheet_name, name_with_space)
         self.assertTrue(reloaded.source_sheet_name.endswith(" "),
                         "trailing space must NOT be stripped (#152)")
