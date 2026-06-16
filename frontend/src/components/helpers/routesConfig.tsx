@@ -42,6 +42,8 @@ import Dashboard from "@/pages/dashboard";
 import { PDF } from "@/pages/pdf";
 import { InFlowPayments } from "@/pages/inflow-payments/InFlowPayments";
 import { ProjectForm } from "@/pages/projects/project-form/index";
+import { NewProjectChoice } from "@/pages/projects/new-project/NewProjectChoice";
+import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
 import Projects from "@/pages/projects/projects";
 import Roles from "@/pages/roles";
 import EditUserForm from "@/pages/users/EditUserForm";
@@ -54,7 +56,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -473,7 +475,19 @@ export const appRoutes: RouteObject[] = [
             path: "projects",
             children: [
               { index: true, element: <Projects /> },
-              { path: "new-project", element: <ProjectForm /> },
+              {
+                // New-project flow: choice screen, then Won wizard or Tendering form.
+                // Guarded to Admin / PMO Executive / Administrator.
+                path: "new-project",
+                element: <NewProjectRoute />,
+                children: [
+                  { index: true, element: <NewProjectChoice /> },
+                  { path: "won", element: <ProjectForm /> },
+                  { path: "tendering", element: <TenderingProjectForm /> },
+                  // Convert an existing Tendering stub -> Won (same wizard, convert mode).
+                  { path: "convert/:projectId", element: <ProjectForm /> },
+                ],
+              },
               { path: ":projectId", lazy: () => import("@/pages/projects/project") },
               { path: ":projectId/add-estimates", lazy: () => import("@/pages/projects/add-project-estimates") },
               { path: ":projectId/po/:poId", lazy: () => import("@/components/POSummary") },
@@ -706,6 +720,23 @@ export const appRoutes: RouteObject[] = [
           // ======================================================
           { path: "help-repository", element: <HelpRepositoryPage /> },
           { path: "project-gst", element: <Suspense fallback={null}><ProjectGstPage /></Suspense> },
+
+          // BoQ Upload Wizard entry point (M1.59).
+          // ?project=<id> pre-selects the project in the picker.
+          { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
+
+          // BoQ Hub (Module 2b) -- sheet mapping screen.
+          // boqId is the BOQs docname; read from URL so the hub survives refresh.
+          { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },
+
+          // BoQ per-sheet spoke (Module 3 Slice 3b-ii).
+          // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes
+          // useParams values, so the spoke receives the verbatim original sheet_name.
+          { path: "upload-boq/hub/:boqId/sheet/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetSpokePage") },
+
+          // BoQ per-sheet review screen (Slice B1).
+          // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
+          { path: "upload-boq/hub/:boqId/review/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetReviewPage") },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },

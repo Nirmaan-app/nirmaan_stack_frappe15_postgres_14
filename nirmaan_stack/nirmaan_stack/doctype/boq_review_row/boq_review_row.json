@@ -1,0 +1,498 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "BOQRR-.YY.-.#####",
+ "creation": "2026-06-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "boq",
+  "sheet_name",
+  "position_section",
+  "source_row_number",
+  "row_index",
+  "classification",
+  "level",
+  "parent_index",
+  "path",
+  "attached_to_index",
+  "attached_notes",
+  "classifier_meta_section",
+  "promoted_from_line_item",
+  "preamble_level_override",
+  "preamble_candidate_score",
+  "preamble_candidate_signals",
+  "needs_classification_review",
+  "review_reason",
+  "content_section",
+  "sl_no_value",
+  "description",
+  "unit",
+  "make_model",
+  "is_rate_only",
+  "quantities_section",
+  "qty_total",
+  "qty_by_area",
+  "rates_col_break",
+  "rate_supply",
+  "rate_install",
+  "rate_combined",
+  "rate_by_area",
+  "amounts_col_break",
+  "amount_total",
+  "amount_supply",
+  "amount_install",
+  "amount_by_area",
+  "notes_section",
+  "row_notes",
+  "append_notes_raw",
+  "warnings_section",
+  "validation_warnings",
+  "classifier_warnings",
+  "flags_section",
+  "is_synthetic",
+  "review_edits_section",
+  "human_classification",
+  "human_parent",
+  "human_is_root",
+  "edit_log",
+  "edited_by",
+  "edited_at",
+  "remarks",
+  "flags_dismissed",
+  "flags_dismissed_by",
+  "flags_dismissed_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "position_section",
+   "fieldtype": "Section Break",
+   "label": "Position"
+  },
+  {
+   "fieldname": "source_row_number",
+   "fieldtype": "Int",
+   "label": "Source Row Number"
+  },
+  {
+   "fieldname": "row_index",
+   "fieldtype": "Int",
+   "label": "Row Index"
+  },
+  {
+   "fieldname": "classification",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Classification"
+  },
+  {
+   "fieldname": "level",
+   "fieldtype": "Int",
+   "label": "Level"
+  },
+  {
+   "fieldname": "parent_index",
+   "fieldtype": "Int",
+   "label": "Parent Index"
+  },
+  {
+   "fieldname": "path",
+   "fieldtype": "Data",
+   "label": "Path",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "attached_to_index",
+   "fieldtype": "Int",
+   "label": "Attached To Index"
+  },
+  {
+   "fieldname": "attached_notes",
+   "fieldtype": "JSON",
+   "label": "Attached Notes"
+  },
+  {
+   "fieldname": "classifier_meta_section",
+   "fieldtype": "Section Break",
+   "label": "Classifier Metadata"
+  },
+  {
+   "default": "0",
+   "fieldname": "promoted_from_line_item",
+   "fieldtype": "Check",
+   "label": "Promoted From Line Item"
+  },
+  {
+   "fieldname": "preamble_level_override",
+   "fieldtype": "Int",
+   "label": "Preamble Level Override"
+  },
+  {
+   "default": "0",
+   "fieldname": "preamble_candidate_score",
+   "fieldtype": "Int",
+   "label": "Preamble Candidate Score"
+  },
+  {
+   "fieldname": "preamble_candidate_signals",
+   "fieldtype": "JSON",
+   "label": "Preamble Candidate Signals"
+  },
+  {
+   "default": "0",
+   "fieldname": "needs_classification_review",
+   "fieldtype": "Check",
+   "label": "Needs Classification Review"
+  },
+  {
+   "fieldname": "review_reason",
+   "fieldtype": "Data",
+   "label": "Review Reason"
+  },
+  {
+   "fieldname": "content_section",
+   "fieldtype": "Section Break",
+   "label": "Content"
+  },
+  {
+   "fieldname": "sl_no_value",
+   "fieldtype": "Data",
+   "label": "Sl No Value"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit"
+  },
+  {
+   "fieldname": "make_model",
+   "fieldtype": "Data",
+   "label": "Make / Model"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_rate_only",
+   "fieldtype": "Check",
+   "label": "Rate Only"
+  },
+  {
+   "fieldname": "quantities_section",
+   "fieldtype": "Section Break",
+   "label": "Quantities, Rates and Amounts"
+  },
+  {
+   "fieldname": "qty_total",
+   "fieldtype": "Float",
+   "label": "Total Qty"
+  },
+  {
+   "fieldname": "qty_by_area",
+   "fieldtype": "JSON",
+   "label": "Qty by Area"
+  },
+  {
+   "fieldname": "rates_col_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate_supply",
+   "fieldtype": "Float",
+   "label": "Rate Supply"
+  },
+  {
+   "fieldname": "rate_install",
+   "fieldtype": "Float",
+   "label": "Rate Install"
+  },
+  {
+   "fieldname": "rate_combined",
+   "fieldtype": "Float",
+   "label": "Rate Combined"
+  },
+  {
+   "fieldname": "rate_by_area",
+   "fieldtype": "JSON",
+   "label": "Rate by Area"
+  },
+  {
+   "fieldname": "amounts_col_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount_total",
+   "fieldtype": "Float",
+   "label": "Total Amount"
+  },
+  {
+   "fieldname": "amount_supply",
+   "fieldtype": "Float",
+   "label": "Amount Supply"
+  },
+  {
+   "fieldname": "amount_install",
+   "fieldtype": "Float",
+   "label": "Amount Install"
+  },
+  {
+   "fieldname": "amount_by_area",
+   "fieldtype": "JSON",
+   "label": "Amount by Area"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "row_notes",
+   "fieldtype": "Text",
+   "label": "Row Notes"
+  },
+  {
+   "fieldname": "append_notes_raw",
+   "fieldtype": "JSON",
+   "label": "Append Notes Raw"
+  },
+  {
+   "fieldname": "warnings_section",
+   "fieldtype": "Section Break",
+   "label": "Warnings"
+  },
+  {
+   "fieldname": "validation_warnings",
+   "fieldtype": "JSON",
+   "label": "Validation Warnings"
+  },
+  {
+   "fieldname": "classifier_warnings",
+   "fieldtype": "JSON",
+   "label": "Classifier Warnings"
+  },
+  {
+   "fieldname": "flags_section",
+   "fieldtype": "Section Break",
+   "label": "Flags"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_synthetic",
+   "fieldtype": "Check",
+   "label": "Is Synthetic"
+  },
+  {
+   "fieldname": "review_edits_section",
+   "fieldtype": "Section Break",
+   "label": "Review Edits"
+  },
+  {
+   "fieldname": "human_classification",
+   "fieldtype": "Data",
+   "label": "Human Classification"
+  },
+  {
+   "fieldname": "human_parent",
+   "fieldtype": "Int",
+   "label": "Human Parent"
+  },
+  {
+   "default": "0",
+   "fieldname": "human_is_root",
+   "fieldtype": "Check",
+   "label": "Human Root Override"
+  },
+  {
+   "fieldname": "edit_log",
+   "fieldtype": "JSON",
+   "label": "Edit Log"
+  },
+  {
+   "fieldname": "edited_by",
+   "fieldtype": "Data",
+   "label": "Edited By"
+  },
+  {
+   "fieldname": "edited_at",
+   "fieldtype": "Datetime",
+   "label": "Edited At"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "default": "0",
+   "fieldname": "flags_dismissed",
+   "fieldtype": "Check",
+   "label": "Flags Dismissed"
+  },
+  {
+   "fieldname": "flags_dismissed_by",
+   "fieldtype": "Data",
+   "label": "Flags Dismissed By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "flags_dismissed_at",
+   "fieldtype": "Datetime",
+   "label": "Flags Dismissed At",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Review Row",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

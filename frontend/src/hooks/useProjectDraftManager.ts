@@ -17,6 +17,14 @@ interface UseProjectDraftManagerOptions {
   section: string;
   setCurrentStep: (step: number) => void;
   setSection: (section: string) => void;
+  /**
+   * When true, the draft manager is inert: no resume dialog on mount and no
+   * auto-save. Used by the Tendering -> Won convert flow, which is a one-shot
+   * wizard seeded from the stub — the shared create-mode draft is irrelevant
+   * there and persisting/resuming it would clobber the pre-fill. Defaults to
+   * false so the normal create flow is unchanged.
+   */
+  disabled?: boolean;
 }
 
 interface UseProjectDraftManagerReturn {
@@ -95,6 +103,7 @@ export function useProjectDraftManager({
   section,
   setCurrentStep,
   setSection,
+  disabled = false,
 }: UseProjectDraftManagerOptions): UseProjectDraftManagerReturn {
   // Zustand store
   const {
@@ -156,6 +165,9 @@ export function useProjectDraftManager({
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
+    // Disabled (convert mode): never resume a draft — pre-fill must win.
+    if (disabled) return;
+
     const existingDraft = checkHasDraft();
     setHasDraft(existingDraft);
 
@@ -163,13 +175,15 @@ export function useProjectDraftManager({
       // Show resume dialog on mount if draft exists
       setShowResumeDialog(true);
     }
-  }, [checkHasDraft]);
+  }, [checkHasDraft, disabled]);
 
   /* ─────────────────────────────────────────────────────────────
      AUTO-SAVE WITH DEBOUNCE
      ───────────────────────────────────────────────────────────── */
 
   useEffect(() => {
+    // Disabled (convert mode): never auto-save into the shared create-mode draft.
+    if (disabled) return;
     // Don't auto-save if resume dialog is open (user hasn't decided yet)
     if (showResumeDialog) return;
 
@@ -212,6 +226,7 @@ export function useProjectDraftManager({
     saveDraft,
     showResumeDialog,
     updateRelativeTime,
+    disabled,
   ]);
 
   /* ─────────────────────────────────────────────────────────────

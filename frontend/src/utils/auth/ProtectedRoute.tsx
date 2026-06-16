@@ -27,6 +27,31 @@ export const AdminRoute = () => {
     }
 }
 
+// Guards the new-project flow (choice screen + Won wizard + Tendering form).
+// Project creation — including Tendering stubs — is restricted to Nirmaan
+// Admin and PMO Executive (plus the Administrator user).
+export const NewProjectRoute = () => {
+    const { role, user_id } = useUserData()
+
+    const canCreateProject =
+        role === "Nirmaan Admin Profile" ||
+        role === "Nirmaan PMO Executive Profile" ||
+        user_id === "Administrator"
+
+    if (canCreateProject) {
+        return <Outlet />
+    }
+
+    return (
+        <div className="flex items-center justify-center h-[50vh]">
+            <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
+                <p className="text-gray-600 mt-2">You do not have permission to create projects.</p>
+            </div>
+        </div>
+    )
+}
+
 export const LeadRoute = () => {
     const {role, has_project} = useUserData()
 

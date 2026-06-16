@@ -15,9 +15,11 @@ interface ProjectMilestoneSelectProps {
 
 export default function ProjectMilestoneSelect({ onChange, universal = true }: ProjectMilestoneSelectProps) {
 
-    // Filters for projects: must have milestone tracking enabled and not be in Completed status
+    // Filters for projects: must have milestone tracking enabled and not be in Completed status.
+    // Tendering stubs are prospect-only and must never be selectable for operational work.
     const projectMilestoneFilters: any[] = [
         ["status", "!=", "Cancelled"],
+        ["status", "!=", "Tendering"],
         ["enable_project_milestone_tracking", "=", 1] // Projects must have milestone tracking enabled
     ];
 

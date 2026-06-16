@@ -1,0 +1,5135 @@
+{
+  "_metadata": {
+    "phase": "1.9e",
+    "generated_at": "2026-05-17T10:30:56.323261+00:00",
+    "script_version": "1.0",
+    "branch_tip_at_generation": "3b2231c1bcaf8de1962206d238b8d3c11e8ce7e2",
+    "fixture_count_total": 25,
+    "fixture_count_real": 24,
+    "fixture_count_snitch": 1
+  },
+  "_summary": {
+    "workbooks_attempted": 25,
+    "workbooks_load_failed": 1,
+    "workbooks_no_qualifying_sheets": 0,
+    "sheets_selected_total": 68,
+    "sheets_with_exception_during_parse": 0,
+    "pattern_distribution": {
+      "Pattern 1": 9,
+      "Pattern 2-area": 0,
+      "Pattern 2-rate": 0,
+      "Pattern 3": 0,
+      "None": 59
+    },
+    "classification_totals_across_corpus": {
+      "LINE_ITEM": 7581,
+      "PREAMBLE": 3216,
+      "NOTE": 5194,
+      "SPACER": 6148,
+      "SUBTOTAL_MARKER": 305,
+      "HEADER_REPEAT": 39
+    },
+    "exception_types_frequency": {
+      "ValueError": 1
+    },
+    "rate_synonym_variations_total_unique": 62
+  },
+  "rate_column_label_variations": {
+    "aggregate_by_synonym": {
+      "rate": [
+        {
+          "fixture": "Unpriced BOQ (1).xlsx",
+          "sheet": "FA",
+          "column": "I"
+        },
+        {
+          "fixture": "Unpriced BOQ (1).xlsx",
+          "sheet": "FPS",
+          "column": "H"
+        },
+        {
+          "fixture": "Unpriced BOQ (1).xlsx",
+          "sheet": "PA",
+          "column": "H"
+        },
+        {
+          "fixture": "Unpriced BOQ (1).xlsx",
+          "sheet": "PA",
+          "column": "I"
+        },
+        {
+          "fixture": "Unpriced BOQ (1).xlsx",
+          "sheet": "Extingusher",
+          "column": "G"
+        },
+        {
+          "fixture": "Unpriced BOQ (1).xlsx",
+          "sheet": "Extingusher",
+          "column": "H"
+        },
+        {
+          "fixture": "Electrical BOQ.xlsx",
+          "sheet": "BOQ_ELECTRICAL",
+          "column": "F"
+        },
+        {
+          "fixture": "Electrical BOQ.xlsx",
+          "sheet": "BOQ_ELECTRICAL",
+          "column": "G"
+        },
+        {
+          "fixture": "Electrical BOQ.xlsx",
+          "sheet": "Light fixture",
+          "column": "I"
+        },
+        {
+          "fixture": "Electrical BOQ.xlsx",
+          "sheet": "Light fixture",
+          "column": "J"
+        },
+        {
+          "fixture": "Electrical Unpriced BOQ-03.02.2026 R1.xlsx",
+          "sheet": "Electrical ",
+          "column": "E"
+        },
+        {
+          "fixture": "Electrical Unpriced BOQ-03.02.2026 R1.xlsx",
+          "sheet": "Electrical ",
+          "column": "F"
+        },
+        {
+          "fixture": "Electrical Unpriced BOQ-03.02.2026 R1.xlsx",
+          "sheet": "Functional Light Install",
+          "column": "H"
+        },
+        {
+          "fixture": "Electrical Unpriced BOQ-03.02.2026 R1.xlsx",
+          "sheet": "Deco Light Install",
+          "column": "F"
+        },
+        {
+          "fixture": "Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx",
+          "sheet": "BOQ",
+          "column": "E"
+        },
+        {
+          "fixture": "Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx",
+          "sheet": "BOQ",
+          "column": "F"
+        },
+        {
+          "fixture": "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx",
+          "sheet": "HVAC 5F",
+          "column": "E"
+        },
+        {
+          "fixture": "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx",
+          "sheet": "HVAC 5F",
+          "column": "F"
+        },
+        {
+          "fixture": "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx",
+          "sheet": "HVAC-4F",
+          "column": "E"
+        },
+        {
+          "fixture": "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx",
+          "sheet": "HVAC-4F",
+          "column": "F"
+        },
+        {
+          "fixture": "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx",
+          "sheet": "HVAC-2F",
+          "column": "E"
+        },
+        {
+          "fixture": "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx",
+          "sheet": "HVAC-2F",
+          "column": "F"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "ELECTRICAL & ELV BOQ",
+          "column": "F"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "ELECTRICAL & ELV BOQ",
+          "column": "G"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "HVAC BOQ",
+          "column": "F"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "HVAC BOQ",
+          "column": "G"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "FIRE FIGHTING",
+          "column": "F"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "FIRE FIGHTING",
+          "column": "G"
+        },
+        {
+          "fixture": "Unpriced_DHL Chennai_MEP_15 April_V2..xlsx",
+          "sheet": "HVAC",
+          "column": "E"
+        },
+        {
+          "fixture": "Unpriced_DHL Chennai_MEP_15 April_V2..xlsx",
+          "sheet": "FAHU System",
+          "column": "E"
+        },
+        {
+          "fixture": "Unpriced_DHL Chennai_MEP_15 April_V2..xlsx",
+          "sheet": "FAHU System",
+          "column": "F"
+        },
+        {
+          "fixture": "Terranova_ GC- Cost comparison  20-04-2026 -MEP BOQ.xlsx",
+          "sheet": "HVAC - LOW SIDE",
+          "column": "G"
+        },
+        {
+          "fixture": "Terranova_ GC- Cost comparison  20-04-2026 -MEP BOQ.xlsx",
+          "sheet": "HVAC - LOW SIDE",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-EL-CW-MS-6A-L1  L2-ELECTRICAL MODIFICATION PRICED BOQ-10.03.2026-R1.xlsx",
+          "sheet": "LT WORKS",
+          "column": "G"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-EL-CW-MS-6A-L1  L2-ELECTRICAL MODIFICATION PRICED BOQ-10.03.2026-R1.xlsx",
+          "sheet": "LT WORKS",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-EL-CW-MS-6A-L1  L2-ELECTRICAL MODIFICATION PRICED BOQ-10.03.2026-R1.xlsx",
+          "sheet": "FUNCTIONAL & DECORATIVE LTG",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-EL-CW-MS-6A-L1  L2-ELECTRICAL MODIFICATION PRICED BOQ-10.03.2026-R1.xlsx",
+          "sheet": "FUNCTIONAL & DECORATIVE LTG",
+          "column": "I"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "Lowside",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "Lowside",
+          "column": "I"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "Lowside",
+          "column": "J"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "VRF System",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "VRF System",
+          "column": "I"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "VRF System",
+          "column": "J"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "Additional work",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "Additional work",
+          "column": "I"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx",
+          "sheet": "Additional work",
+          "column": "J"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx",
+          "sheet": "FPS",
+          "column": "G"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx",
+          "sheet": "FPS",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx",
+          "sheet": "FPS",
+          "column": "I"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx",
+          "sheet": "FA",
+          "column": "G"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx",
+          "sheet": "FA",
+          "column": "H"
+        },
+        {
+          "fixture": "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx",
+          "sheet": "FA",
+          "column": "I"
+        },
+        {
+          "fixture": "Kohler-BOQ- 06-04-26.xlsx",
+          "sheet": "HVAC",
+          "column": "E"
+        },
+        {
+          "fixture": "K-Mall Jodhpur BOQ Combined.xlsx",
+          "sheet": "HVAC BOQ",
+          "column": "E"
+        },
+        {
+          "fixture": "TS-UNPRICED ELECTRICAL BOQ-01.05.2026.xlsx",
+          "sheet": "ELEC ",
+          "column": "G"
+        },
+        {
+          "fixture": "TS-UNPRICED ELECTRICAL BOQ-01.05.2026.xlsx",
+          "sheet": "ELEC ",
+          "column": "H"
+        },
+        {
+          "fixture": "snitch_electrical.xlsx",
+          "sheet": "6. Electrical",
+          "column": "E"
+        },
+        {
+          "fixture": "snitch_electrical.xlsx",
+          "sheet": "6. Electrical",
+          "column": "F"
+        },
+        {
+          "fixture": "snitch_electrical.xlsx",
+          "sheet": "6. Electrical",
+          "column": "G"
+        },
+        {
+          "fixture": "snitch_electrical.xlsx",
+          "sheet": "6. Electrical",
+          "column": "H"
+        }
+      ],
+      "price": [
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "AUDIO & VISUAL SYSTEMS",
+          "column": "E"
+        },
+        {
+          "fixture": "Bill of Quantities.xlsx",
+          "sheet": "AUDIO & VISUAL SYSTEMS",
+          "column": "F"
+        }
+      ]
+    },
+    "per_fixture": {
+      "Unpriced BOQ (1).xlsx": {
+        "FA": [
+          {
+            "column": "I",
+            "header_text": "INSTALLATION RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "FPS": [
+          {
+            "column": "H",
+            "header_text": "INSTALLATION RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "PA": [
+          {
+            "column": "H",
+            "header_text": "SUPPLY RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "INSTALLATION RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "Extingusher": [
+          {
+            "column": "G",
+            "header_text": "SUPPLY RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "INSTALLATION RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Electrical BOQ.xlsx": {
+        "BOQ_ELECTRICAL": [
+          {
+            "column": "F",
+            "header_text": "Supply Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "G",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "Light fixture": [
+          {
+            "column": "I",
+            "header_text": "Supply Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "J",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Electrical Unpriced BOQ-03.02.2026 R1.xlsx": {
+        "Electrical ": [
+          {
+            "column": "E",
+            "header_text": "Rate  in INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "Rate  in INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "Functional Light Install": [
+          {
+            "column": "H",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "Deco Light Install": [
+          {
+            "column": "F",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx": {
+        "BOQ": [
+          {
+            "column": "E",
+            "header_text": "Supply Rate  ",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "Install Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx": {
+        "HVAC 5F": [
+          {
+            "column": "E",
+            "header_text": "Supply Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "HVAC-4F": [
+          {
+            "column": "E",
+            "header_text": "Supply Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "HVAC-2F": [
+          {
+            "column": "E",
+            "header_text": "Supply Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Bill of Quantities.xlsx": {
+        "ELECTRICAL & ELV BOQ": [
+          {
+            "column": "F",
+            "header_text": "Rate (In Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "G",
+            "header_text": "Rate (In Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "AUDIO & VISUAL SYSTEMS": [
+          {
+            "column": "E",
+            "header_text": "UNIT PRICE",
+            "matched_synonym": "price",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "TOTAL PRICE",
+            "matched_synonym": "price",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "HVAC BOQ": [
+          {
+            "column": "F",
+            "header_text": "Rate (In Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "G",
+            "header_text": "Rate (In Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "FIRE FIGHTING": [
+          {
+            "column": "F",
+            "header_text": "Rate (In Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "G",
+            "header_text": "Rate (In Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Unpriced_DHL Chennai_MEP_15 April_V2..xlsx": {
+        "HVAC": [
+          {
+            "column": "E",
+            "header_text": "RATE (INR)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "FAHU System": [
+          {
+            "column": "E",
+            "header_text": "SUPPLY RATE (INR)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "INSTALLATION RATE (INR)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Terranova_ GC- Cost comparison  20-04-2026 -MEP BOQ.xlsx": {
+        "HVAC - LOW SIDE": [
+          {
+            "column": "G",
+            "header_text": "SUPPLY RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "INSTALL RATE",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "(Unpriced_R1)ES-EL-CW-MS-6A-L1  L2-ELECTRICAL MODIFICATION PRICED BOQ-10.03.2026-R1.xlsx": {
+        "LT WORKS": [
+          {
+            "column": "G",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "FUNCTIONAL & DECORATIVE LTG": [
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx": {
+        "Lowside": [
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "J",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "VRF System": [
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "J",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "Additional work": [
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "J",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx": {
+        "FPS": [
+          {
+            "column": "G",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ],
+        "FA": [
+          {
+            "column": "G",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "I",
+            "header_text": "RATE IN INR",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "Kohler-BOQ- 06-04-26.xlsx": {
+        "HVAC": [
+          {
+            "column": "E",
+            "header_text": "Supply  Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "K-Mall Jodhpur BOQ Combined.xlsx": {
+        "HVAC BOQ": [
+          {
+            "column": "E",
+            "header_text": "RATE\n(Rs)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "TS-UNPRICED ELECTRICAL BOQ-01.05.2026.xlsx": {
+        "ELEC ": [
+          {
+            "column": "G",
+            "header_text": "RATE - RS.",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "RATE - RS.",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      },
+      "snitch_electrical.xlsx": {
+        "6. Electrical": [
+          {
+            "column": "E",
+            "header_text": "Supply Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "F",
+            "header_text": "Installation Rate",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "G",
+            "header_text": "Total Rate (Rs.)",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          },
+          {
+            "column": "H",
+            "header_text": "As per SNITCH Approved RC Rates",
+            "matched_synonym": "rate",
+            "matches_RATE_CELL_PATTERN": false
+          }
+        ]
+      }
+    }
+  },
+  "per_fixture_results": {
+    "Unpriced BOQ.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 16,
+      "selected_sheets": [
+        "Elect B3",
+        "Elect LB",
+        "ElectB6",
+        "Elect CONTROL"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "ELEC Make List",
+          "reason": "skip-name-match:make list"
+        },
+        {
+          "name": "MEP SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "HVAC SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Elect B1",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "ElectB2",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC CONTROL LB",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures B3",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures CONTROL",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures LAB",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light FixturesB1",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light FixturesB2",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "Elect B3": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 480,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 186,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 128,
+            "NOTE": 88,
+            "LINE_ITEM": 71,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 94,
+          "rate_column_variations": []
+        },
+        "Elect LB": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 467,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 182,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 123,
+            "NOTE": 88,
+            "LINE_ITEM": 67,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 90,
+          "rate_column_variations": []
+        },
+        "ElectB6": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 466,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 181,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 123,
+            "NOTE": 88,
+            "LINE_ITEM": 67,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 90,
+          "rate_column_variations": []
+        },
+        "Elect CONTROL": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 464,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 181,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 123,
+            "NOTE": 86,
+            "LINE_ITEM": 67,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 90,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "BOQ MEP_PAYTM BANGALORE.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 9,
+      "selected_sheets": [
+        "ELEC  BOQ",
+        "HVAC BOQ",
+        "FIRE & SAFETY",
+        "ACS & CCTV "
+      ],
+      "excluded_sheets": [
+        {
+          "name": "SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "MEP SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "PREAMBLE",
+          "reason": "no-header"
+        },
+        {
+          "name": "MAKES - MEP ",
+          "reason": "no-header"
+        },
+        {
+          "name": "LGT BOQ",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "ELEC  BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 1395,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "PREAMBLE": 110,
+            "HEADER_REPEAT": 1,
+            "SPACER": 505,
+            "NOTE": 229,
+            "LINE_ITEM": 553,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "FLOOR LT PANEL",
+              "unit": "No.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "WORKSTATION UPS OUTPUT PANEL",
+              "unit": "No.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.3",
+              "description": "Supply, Installation, testing & commisioning of 160A, 36kA 4P MCCB Tapoff Box wi",
+              "unit": "No.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "HVAC BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 397,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "PREAMBLE": 48,
+            "HEADER_REPEAT": 1,
+            "NOTE": 110,
+            "SPACER": 70,
+            "LINE_ITEM": 170,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "SITC of 50 mm thk double skin panel factory fabricated plenum as per shop drawin",
+              "unit": "Sqmt",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "Supply, Installation & commissioning",
+              "unit": "Sqm",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "3.0",
+              "description": "SITC of Motorised Fire dampers -Multi blade motorised 16G GI TDF flanges type Fi",
+              "unit": "Sqm",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 3,
+          "rate_column_variations": []
+        },
+        "FIRE & SAFETY": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 6,
+          "data_row_count": 182,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "PREAMBLE": 22,
+            "LINE_ITEM": 87,
+            "NOTE": 12,
+            "HEADER_REPEAT": 1,
+            "SPACER": 57,
+            "SUBTOTAL_MARKER": 8
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "VERSION",
+              "description": "V0",
+              "unit": "V0",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.0",
+              "description": "Supply Installation Testing and Commissioning of UL 864, 10th Edition and FM-app",
+              "unit": "Set",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2",
+              "description": "Supply Installation Testing and Commissioning of Modbus / BACnet over IP protoco",
+              "unit": "Set",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 4,
+          "rate_column_variations": []
+        },
+        "ACS & CCTV ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 83,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "PREAMBLE": 8,
+            "LINE_ITEM": 37,
+            "HEADER_REPEAT": 1,
+            "NOTE": 2,
+            "SPACER": 36,
+            "SUBTOTAL_MARKER": 3
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "VERSION",
+              "description": "V0",
+              "unit": "V0",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.0",
+              "description": "Supply, Installation, Testing & Commissioning of 4 Door & 4 reader Controller (O",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.0",
+              "description": "Supply, Installation, Testing & Commissioning of 2 Door Intelligent Controller c",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 3,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "R0 WORKING-JSW  -MEP Priced BOQ- 29.04.2026.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 29,
+      "selected_sheets": [
+        "Elect B3",
+        "Elect LB",
+        "ElectB6",
+        "Elect CONTROL"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "ELEC Make List",
+          "reason": "skip-name-match:make list"
+        },
+        {
+          "name": "MEP SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "HVAC SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Elect B1",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "ElectB2",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC CONTROL LB",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures B3",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures B6",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures CONTROL",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures LAB",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light FixturesB1",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light FixturesB2",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B1 INSTA-",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B2 Installation",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B3 Installation",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B-6 Installation",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS LB Installation",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS CONTROL Installation ",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B1 SUPPLY",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B2 ",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B3 Supply",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS B6 Supply",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS LB",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS CONTROL Supply",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "Elect B3": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 480,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 186,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 128,
+            "NOTE": 88,
+            "LINE_ITEM": 71,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 94,
+          "rate_column_variations": []
+        },
+        "Elect LB": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 467,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 182,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 123,
+            "NOTE": 88,
+            "LINE_ITEM": 67,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 90,
+          "rate_column_variations": []
+        },
+        "ElectB6": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 466,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 181,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 123,
+            "NOTE": 88,
+            "LINE_ITEM": 67,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 90,
+          "rate_column_variations": []
+        },
+        "Elect CONTROL": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 464,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 26,
+          "classification_counts": {
+            "SPACER": 181,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 123,
+            "NOTE": 86,
+            "LINE_ITEM": 67,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 16 amp switch.",
+              "unit": "Nos.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 90,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "R0_MEP_HYBE_MUMBAI_FINAL_v4.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 1,
+      "selected_sheets": [
+        "ELE BOQ"
+      ],
+      "excluded_sheets": [],
+      "per_sheet": {
+        "ELE BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 1261,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "PREAMBLE": 102,
+            "HEADER_REPEAT": 1,
+            "SPACER": 434,
+            "NOTE": 286,
+            "LINE_ITEM": 438,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "MAIN LT PANEL 13F",
+              "unit": "No.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "40/32A 2P MCB 10kA C curve - 1Nos SPARE",
+              "unit": "No.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "UPS OUTPUT PANEL",
+              "unit": "No.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 5,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "Unpriced BOQ (1).xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 6,
+      "selected_sheets": [
+        "FA",
+        "FPS",
+        "PA",
+        "Extingusher"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Signage",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "FA": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 47,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 6,
+          "classification_counts": {
+            "PREAMBLE": 8,
+            "LINE_ITEM": 19,
+            "SPACER": 19,
+            "NOTE": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "4 loop panel (Considering 5&6 floor looping)",
+              "unit": "Nos",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Supply, Installation, testing & comissioning of Bacnet IP card for BMS integrati",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "4.0",
+              "description": "PC for GUI software with compatible Ink Jet Printer for recording of the events.",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 1,
+          "rate_column_variations": [
+            {
+              "column": "I",
+              "header_text": "INSTALLATION RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "FPS": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 34,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "PREAMBLE": 4,
+            "LINE_ITEM": 21,
+            "SPACER": 8,
+            "NOTE": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a",
+              "description": "25mm nominal dia",
+              "unit": "Rmt",
+              "qty": 296.25
+            },
+            {
+              "sl_no": "b",
+              "description": "32mm nominal dia",
+              "unit": "Rmt",
+              "qty": 18.75
+            },
+            {
+              "sl_no": "c",
+              "description": "40mm nominal dia",
+              "unit": "Rmt",
+              "qty": 91.5
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "INSTALLATION RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "PA": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 22,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "PREAMBLE": 2,
+            "LINE_ITEM": 9,
+            "SPACER": 10,
+            "NOTE": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "Supply, Installation, testing & comissioning of 6W RMS True Ceiling Mount Speake",
+              "unit": "Nos",
+              "qty": 43.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Supply, Installation, testing & comissioning of 6W RMS False Ceiling Mount Speak",
+              "unit": "Nos",
+              "qty": 107.0
+            },
+            {
+              "sl_no": "3.0",
+              "description": "Supply, Installation, testing & comissioning of 6W Wall Mounted Speakers with in",
+              "unit": "Nos",
+              "qty": 4.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 1,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "SUPPLY RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "INSTALLATION RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "Extingusher": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 10,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "PREAMBLE": 1,
+            "LINE_ITEM": 4,
+            "SPACER": 4,
+            "NOTE": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "CO2 type Fire Extinguisher ISI marked confirming to IS:15683 latest. Capacity 4.",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Powder Fire Extinguisher (Stored Pressure type) (Powder pressurized with dry nit",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "3.0",
+              "description": "Clean Agent (Stored Pressure) Type Fire Extinguisher Complete with squeeze grip ",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "G",
+              "header_text": "SUPPLY RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "INSTALLATION RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "Electrical BOQ.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 6,
+      "selected_sheets": [
+        "BOQ_ELECTRICAL",
+        "Light fixture"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "General Notes ",
+          "reason": "skip-name-match:notes"
+        },
+        {
+          "name": "Project Requirements",
+          "reason": "no-header"
+        },
+        {
+          "name": "Master Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "DB QA",
+          "reason": "no-header"
+        }
+      ],
+      "per_sheet": {
+        "BOQ_ELECTRICAL": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 8,
+          "data_row_count": 752,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "SPACER": 286,
+            "NOTE": 242,
+            "LINE_ITEM": 230,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "MAIN FLOOR LT PANEL",
+              "unit": "No",
+              "qty": 1.0
+            },
+            {
+              "sl_no": null,
+              "description": "60 KVA UPS OUTPUT PANEL",
+              "unit": "No",
+              "qty": 1.0
+            },
+            {
+              "sl_no": null,
+              "description": "20A",
+              "unit": "No",
+              "qty": 2.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "F",
+              "header_text": "Supply Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "G",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "Light fixture": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 8,
+          "data_row_count": 47,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "SPACER": 6,
+            "NOTE": 10,
+            "LINE_ITEM": 37,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "Task Light Fixtures",
+              "unit": null,
+              "qty": 456.0
+            },
+            {
+              "sl_no": null,
+              "description": "10W/M LED Neon Strip Light with Al.Channel, 4000K, IP20, Non Dimmable , Flicker ",
+              "unit": "Mtr's",
+              "qty": 28.0
+            },
+            {
+              "sl_no": null,
+              "description": "10W/M LED Strip Light with Al.Channel, 3000K, IP20, Non Dimmable , Flicker Free ",
+              "unit": "Mtr's",
+              "qty": 8.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "I",
+              "header_text": "Supply Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "J",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "Electrical Unpriced BOQ-03.02.2026 R1.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 5,
+      "selected_sheets": [
+        "Electrical ",
+        "Functional Light Install",
+        "Deco Light Install"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Approved make list",
+          "reason": "skip-name-match:make list"
+        }
+      ],
+      "per_sheet": {
+        "Electrical ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 475,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 7,
+          "classification_counts": {
+            "PREAMBLE": 45,
+            "SPACER": 184,
+            "HEADER_REPEAT": 1,
+            "NOTE": 84,
+            "LINE_ITEM": 155,
+            "SUBTOTAL_MARKER": 10
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "2R x 2.5 sq.mm + 1R x 1.5 sq.mm Cu FRLS wire in 20 mm dia MS conduit / Wire ways",
+              "unit": "Rmt",
+              "qty": 1950.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "3C x 2.5 sqmm Multi Core Copper FRLS cable in existing raceway/conduit (Ltg Circ",
+              "unit": "Rmt",
+              "qty": 20.0
+            },
+            {
+              "sl_no": "1.3",
+              "description": "3C x 1.5 sqmm Teflon insulated Transparent cable",
+              "unit": "Rmt",
+              "qty": 20.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Rate  in INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "Rate  in INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "Functional Light Install": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 38,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "NOTE": 13,
+            "SPACER": 9,
+            "LINE_ITEM": 18,
+            "SUBTOTAL_MARKER": 2
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "LED Base Light 2X2 Recessed Back LIT Low Depth 36W 4000K IP20",
+              "unit": "Nos",
+              "qty": 55.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "LED Down Light AL Circular Recessed 15W 4000K IP20",
+              "unit": "Nos",
+              "qty": 120.0
+            },
+            {
+              "sl_no": "3.0",
+              "description": "LED Down Light Surface Rimless Round 18W 4000K IP20",
+              "unit": "Nos",
+              "qty": 41.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "Deco Light Install": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 21,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "PREAMBLE": 3,
+            "SPACER": 4,
+            "NOTE": 10,
+            "LINE_ITEM": 7,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "Linear Light Type Size -1200mm(L)X75 mm(W) At Cafeteria & Exe. Cabin Area.",
+              "unit": "30.0",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Designer Light Type-01 Size -1200mm Dia, 75 mm wide At Reception, Lounge & Workp",
+              "unit": "2.0",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "3.0",
+              "description": "Designer Light Type-01 Size -400mm Dia, At Collabs Area",
+              "unit": "6.0",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "F",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "Inovalon HVAC Unpriced BOQ-21.01.2026.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 3,
+      "selected_sheets": [
+        "BOQ"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "SUMMARY ",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Make list",
+          "reason": "skip-name-match:make list"
+        }
+      ],
+      "per_sheet": {
+        "BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 494,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "SPACER": 146,
+            "PREAMBLE": 41,
+            "NOTE": 194,
+            "LINE_ITEM": 106,
+            "SUBTOTAL_MARKER": 11
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1.4",
+              "description": "CSU AHU -3000 CFM, 12.0 TR with 50mm S.P. with MERV-7 filters, with 4 row deep c",
+              "unit": "Nos",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "1.2.1",
+              "description": "Supply, Installation & Testing Temperature control with Wiring complete as requi",
+              "unit": "Nos",
+              "qty": 1.0
+            },
+            {
+              "sl_no": null,
+              "description": "Supply, Installation, Testing of 125mm deep antivibration flexible joints at the",
+              "unit": "RM",
+              "qty": 25.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Supply Rate  ",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "Install Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "R0_CIVIL INTERIOR & MEP_TABLESPACE_PUNETH WORKING FILE_06.05.2026 (2).xlsx": {
+      "load_status": "failed",
+      "load_exception": {
+        "type": "ValueError",
+        "message": "Unable to read workbook: could not assign names from /workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack/services/boq_parser/tests/fixtures/R0_CIVIL INTERIOR & MEP_TABLESPACE_PUNETH WORKING FILE_06.05.2026 (2).xlsx.\nThis is most probably because the workbook source files contain some invalid XML.\nPlease see the exception for more details.",
+        "traceback": "Traceback (most recent call last):\n  File \"/workspace/development/frappe-bench/env/lib/python3.14/site-packages/openpyxl/reader/excel.py\", line 305, in read\n    self.parser.assign_names()\n    ~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/workspace/development/frappe-bench/env/lib/python3.14/site-packages/openpyxl/reader/workbook.py\", line 111, in assign_names\n    titles = PrintTitles.from_string(defn.value)\n  File \"/workspace/development/frappe-bench/env/lib/python3.14/site-packages/openpyxl/worksheet/print_settings.py\", line 121, in from_string\n    raise ValueError(f\"{value} is not a valid print titles definition\")\nValueError: #N/A is not a valid print titles definition\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack/services/boq_parser/real_fixture_stress_test.py\", line 350, in parse_one_workbook\n    reader = BoqReader(str(filepath))\n  File \"/workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack/services/boq_parser/reader.py\", line 87, in __init__\n    self._wb_values = openpyxl.load_workbook(\n                      ~~~~~~~~~~~~~~~~~~~~~~^\n        file_path, data_only=True, read_only=False\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/workspace/development/frappe-bench/env/lib/python3.14/site-packages/openpyxl/reader/excel.py\", line 348, in load_workbook\n    reader.read()\n    ~~~~~~~~~~~^^\n  File \"/workspace/development/frappe-bench/env/lib/python3.14/site-packages/openpyxl/reader/excel.py\", line 309, in read\n    raise ValueError(\n    ...<3 lines>...\n        ) from e\nValueError: Unable to read workbook: could not assign names from /workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack/services/boq_parser/tests/fixtures/R0_CIVIL INTERIOR & MEP_TABLESPACE_PUNETH WORKING FILE_06.05.2026 (2).xlsx.\nThis is most probably because the workbook source files contain some invalid XML.\nPlease see the exception for more details.\n"
+      },
+      "total_sheets": 0,
+      "selected_sheets": [],
+      "excluded_sheets": [],
+      "per_sheet": {}
+    },
+    "RAHEJA Commerzone  Chennai BOQ.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 22,
+      "selected_sheets": [
+        "Electrical ",
+        "C&I",
+        "Washroom",
+        "HVAC "
+      ],
+      "excluded_sheets": [
+        {
+          "name": " Project Cost Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "SOW",
+          "reason": "no-header"
+        },
+        {
+          "name": "C&I Make List",
+          "reason": "skip-name-match:make list"
+        },
+        {
+          "name": "MEP Make List",
+          "reason": "skip-name-match:make list"
+        },
+        {
+          "name": "Fire Fitting",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "Fire Extinguiser",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "Acess control",
+          "reason": "no-header"
+        },
+        {
+          "name": "UPS",
+          "reason": "no-header"
+        },
+        {
+          "name": "IT Passive",
+          "reason": "no-header"
+        },
+        {
+          "name": "VAV",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "FAS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Modular Furniture ",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "CCTV",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "WLD &RR ",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Loose Furniture",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Lights",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PA ",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "IT Active ",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "Electrical ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 3,
+          "data_row_count": 254,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "LINE_ITEM": 53,
+            "NOTE": 145,
+            "SPACER": 49,
+            "SUBTOTAL_MARKER": 9
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "BOQ - ELECTRICAL",
+              "unit": "BOQ - ELECTRICAL",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": null,
+              "unit": null,
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "4C x 25sqmm Al Ar cable",
+              "unit": "Mtr",
+              "qty": 450.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "C&I": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 218,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "SPACER": 38,
+            "LINE_ITEM": 44,
+            "NOTE": 128,
+            "SUBTOTAL_MARKER": 11
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": null,
+              "unit": null,
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "Demolishing existing Block/Brick wall - 100/150/200mm inculding debris removal f",
+              "unit": "Sft",
+              "qty": 280.0
+            },
+            {
+              "sl_no": null,
+              "description": "FRESH AIR & EXHAUST CUT OUT IN WALL Making cut-out in BRICK WALL/AAC BLOCK for f",
+              "unit": "Sft",
+              "qty": 180.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "Washroom": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 171,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "PHASE-1",
+            "PHASE-2"
+          ],
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "NOTE": 104,
+            "PREAMBLE": 5,
+            "SPACER": 42,
+            "LINE_ITEM": 20,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "3",
+              "description": "Brick bat coba filling - 200mm high (+/- 50mm vary based on site conditions)",
+              "unit": "SQFT",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "4",
+              "description": "Water proofing (for floor & walls)",
+              "unit": "SQFT",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "5",
+              "description": "Vitrified Tile Flooring",
+              "unit": "SQFT",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "HVAC ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 3,
+          "data_row_count": 157,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "PREAMBLE": 85,
+            "SPACER": 36,
+            "NOTE": 32,
+            "SUBTOTAL_MARKER": 5,
+            "HEADER_REPEAT": 1
+          },
+          "first_3_line_items": [],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "RFQ for D-Tech Electrical BOQ - 05.05.2026 (2).xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 44,
+      "selected_sheets": [
+        "Internal Electrical Works ",
+        "HVAC 5F",
+        "HVAC-4F",
+        "HVAC-2F"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "CIVIL WORKS",
+          "reason": "hidden"
+        },
+        {
+          "name": "PARTITION AND FRAMING GLAZED PA",
+          "reason": "hidden"
+        },
+        {
+          "name": "WALL FINISH PAINT WORK",
+          "reason": "hidden"
+        },
+        {
+          "name": "FALSE CEILING WORKS",
+          "reason": "hidden"
+        },
+        {
+          "name": "BUILT IN JOINERY",
+          "reason": "hidden"
+        },
+        {
+          "name": "Door",
+          "reason": "hidden"
+        },
+        {
+          "name": "FLOORING WORK CARPET TILE ANTI ",
+          "reason": "hidden"
+        },
+        {
+          "name": "TRIMS AND PROFILES",
+          "reason": "hidden"
+        },
+        {
+          "name": "TOILET CIVIL INTERIOR WORK",
+          "reason": "hidden"
+        },
+        {
+          "name": "BUILDING SPECIFIC REQUIREMENTS",
+          "reason": "hidden"
+        },
+        {
+          "name": "SCREEDING SELF LEVELLING",
+          "reason": "hidden"
+        },
+        {
+          "name": "MODULAR FURNITURE",
+          "reason": "hidden"
+        },
+        {
+          "name": "LOOSE COLLAB FURNITURE",
+          "reason": "hidden"
+        },
+        {
+          "name": "LT Panel Preamble",
+          "reason": "no-header"
+        },
+        {
+          "name": "LMS",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "Mod UPS TDS",
+          "reason": "no-header"
+        },
+        {
+          "name": "HVAC SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "FPS Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "C&I make list",
+          "reason": "skip-name-match:make list"
+        },
+        {
+          "name": "HVAC -3F",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC -1F",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC-GF",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "10KVA UPS TDS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PHE Internal",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "IT",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Fire & Life Safety",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC make",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Electrical make",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "ACS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "UPS with Lion Batteries",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Electrical & ELV Sum",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Lion TDS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "CCTV",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "WLD System",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PHE internal sum",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "MEP Cum Sum",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "LV make",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Rodent Repellent System",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "Internal Electrical Works ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 477,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "GF",
+            "1st",
+            "2nd",
+            "3F",
+            "4F",
+            "5F"
+          ],
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "NOTE": 148,
+            "SPACER": 83,
+            "HEADER_REPEAT": 1,
+            "LINE_ITEM": 237,
+            "SUBTOTAL_MARKER": 11
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "MDB -1F",
+              "unit": "Nos",
+              "qty": 1.0
+            },
+            {
+              "sl_no": null,
+              "description": "MDB -2F",
+              "unit": "Nos",
+              "qty": 1.0
+            },
+            {
+              "sl_no": null,
+              "description": "MDB -3F",
+              "unit": "Nos",
+              "qty": 1.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "HVAC 5F": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 419,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 6,
+          "classification_counts": {
+            "PREAMBLE": 79,
+            "NOTE": 91,
+            "SPACER": 76,
+            "LINE_ITEM": 175,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a",
+              "description": "Serving Area: Capacity: 3TR/ 1200cfm- Ceiling mounted Ducted Hi Static AC Units",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "b",
+              "description": "Serving Area: Capacity: 4TR/ 1600cfm- Ceiling mounted Ducted Hi Static AC Units",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "c",
+              "description": "Serving Area: Cafeteria & Recreation -5th Floor Capacity: 6TR/ 2300cfm- Ceiling ",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Supply Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "HVAC-4F": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 394,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 6,
+          "classification_counts": {
+            "PREAMBLE": 76,
+            "NOTE": 71,
+            "SPACER": 78,
+            "LINE_ITEM": 171,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a",
+              "description": "Serving Area: Capacity: 3TR/ 1200cfm- Ceiling mounted Ducted Hi Static AC Units",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "b",
+              "description": "Serving Area: Office Area-01-3rd Floor Capacity: 4TR/ 1600cfm- Ceiling mounted D",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "c",
+              "description": "Serving Area: Capacity: 6TR/ 2300cfm- Ceiling mounted Ducted Hi Static AC Units",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Supply Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "HVAC-2F": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 389,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 13,
+          "classification_counts": {
+            "PREAMBLE": 115,
+            "NOTE": 103,
+            "SPACER": 76,
+            "LINE_ITEM": 97,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a",
+              "description": "Serving Area: Capacity: 3TR/ 1200cfm- Ceiling mounted Ducted Hi Static AC Units",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "b",
+              "description": "Serving Area: Office Area-01-2nd Floor Capacity: 4TR/ 1600cfm- Ceiling mounted D",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "c",
+              "description": "Serving Area: Capacity: 6TR/ 2300cfm- Ceiling mounted Ducted Hi Static AC Units",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 39,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Supply Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "Bill of Quantities.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 13,
+      "selected_sheets": [
+        "ELECTRICAL & ELV BOQ",
+        "AUDIO & VISUAL SYSTEMS",
+        "HVAC BOQ",
+        "FIRE FIGHTING"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "SUMMARY OF ELECTRICAL & ELV BOQ",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "SUMMARY OF HVAC WORK",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Hybrid PBX Solution",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "SUMMARY OF Kitchen Work BOQ",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "LIGHT FIXTURES",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "LMS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "AV",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "IT BOQ",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PNG PIPELINE",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "ELECTRICAL & ELV BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 1188,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "HEADER_REPEAT": 1,
+            "SPACER": 256,
+            "PREAMBLE": 130,
+            "LINE_ITEM": 449,
+            "NOTE": 331,
+            "SUBTOTAL_MARKER": 21
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "Group C",
+              "unit": "Point",
+              "qty": 1000.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Wiring for light/ power plug with 2x4 sq.mm FRLS/HFFR PVC insulated copper condu",
+              "unit": "Meter",
+              "qty": 25754.0
+            },
+            {
+              "sl_no": "3.0",
+              "description": "Wiring for light/ power plug with 4x4 sq. mm FRLS/HFFR PVC insulated copper cond",
+              "unit": "Meter",
+              "qty": 12877.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "F",
+              "header_text": "Rate (In Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "G",
+              "header_text": "Rate (In Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "AUDIO & VISUAL SYSTEMS": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 866,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "LINE_ITEM": 610,
+            "NOTE": 77,
+            "PREAMBLE": 168,
+            "SPACER": 11,
+            "HEADER_REPEAT": 3
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "Bill of Quantities",
+              "description": "Bill of Quantities",
+              "unit": "Bill of Quantities",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "Name of Project: “Interior Fit-out work in the office space of Power Finance Corporation Limited, Tower-H, World Trade Centre, Nauroji Nagar,\nNew Delhi-110029 including Operation & Maintenance for 06 years”",
+              "description": "Name of Project: “Interior Fit-out work in the office space of Power Finance Cor",
+              "unit": "Name of Project: “Interior Fit-out work in the office space of Power Finance Corporation Limited, Tower-H, World Trade Centre, Nauroji Nagar,\nNew Delhi-110029 including Operation & Maintenance for 06 years”",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "Name of Work: AUDIO & VISUAL SYSTEMS",
+              "description": "Name of Work: AUDIO & VISUAL SYSTEMS",
+              "unit": "Name of Work: AUDIO & VISUAL SYSTEMS",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "UNIT PRICE",
+              "matched_synonym": "price",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "TOTAL PRICE",
+              "matched_synonym": "price",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "HVAC BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 684,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "LINE_ITEM": 215,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 95,
+            "SPACER": 113,
+            "NOTE": 255,
+            "SUBTOTAL_MARKER": 8
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "Bill of Quantities",
+              "description": "Bill of Quantities",
+              "unit": "Bill of Quantities",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "Name of Project: “Interior Fit-out work in the office space of Power Finance Corporation Limited, Tower-H, World Trade Centre, Nauroji Nagar, New Delhi-110029 including Operation &\nMaintenance for 06 years”",
+              "description": "Name of Project: “Interior Fit-out work in the office space of Power Finance Cor",
+              "unit": "Name of Project: “Interior Fit-out work in the office space of Power Finance Corporation Limited, Tower-H, World Trade Centre, Nauroji Nagar, New Delhi-110029 including Operation &\nMaintenance for 06 years”",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "Name of Work :  HVAC WORK",
+              "description": "Name of Work : HVAC WORK",
+              "unit": "Name of Work :  HVAC WORK",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "F",
+              "header_text": "Rate (In Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "G",
+              "header_text": "Rate (In Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "FIRE FIGHTING": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 158,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 21,
+            "LINE_ITEM": 84,
+            "SPACER": 23,
+            "SUBTOTAL_MARKER": 6,
+            "NOTE": 23
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "25 mm dia",
+              "unit": "RM",
+              "qty": 8335.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "32 mm dia",
+              "unit": "RM",
+              "qty": 462.0
+            },
+            {
+              "sl_no": "1.3",
+              "description": "40mm dia",
+              "unit": "RM",
+              "qty": 480.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "F",
+              "header_text": "Rate (In Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "G",
+              "header_text": "Rate (In Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "Unpriced_DHL Chennai_MEP_15 April_V2..xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 28,
+      "selected_sheets": [
+        "HVAC",
+        "IO - HVAC",
+        "FAHU System"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Master - Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Summary - HVAC",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Summary - Electrical",
+          "reason": "hidden"
+        },
+        {
+          "name": "Electrical Work",
+          "reason": "hidden"
+        },
+        {
+          "name": "Light Fixture",
+          "reason": "hidden"
+        },
+        {
+          "name": "UPS & Batteries",
+          "reason": "hidden"
+        },
+        {
+          "name": "ELV Summary",
+          "reason": "hidden"
+        },
+        {
+          "name": "FA&PA",
+          "reason": "hidden"
+        },
+        {
+          "name": "Water Leak Detection",
+          "reason": "hidden"
+        },
+        {
+          "name": "Rodent",
+          "reason": "hidden"
+        },
+        {
+          "name": "Exit Signage",
+          "reason": "hidden"
+        },
+        {
+          "name": "Vesda",
+          "reason": "hidden"
+        },
+        {
+          "name": "Networking",
+          "reason": "hidden"
+        },
+        {
+          "name": "DHL 7F NDL ",
+          "reason": "hidden"
+        },
+        {
+          "name": "Summary - Plumbing & Fire Fight",
+          "reason": "hidden"
+        },
+        {
+          "name": "Plumbing",
+          "reason": "hidden"
+        },
+        {
+          "name": "Wet Sprinkler System",
+          "reason": "hidden"
+        },
+        {
+          "name": "Fire Extinguishers",
+          "reason": "hidden"
+        },
+        {
+          "name": "FK-5-1-12",
+          "reason": "hidden"
+        },
+        {
+          "name": "FK-5-1-12 Design",
+          "reason": "hidden"
+        },
+        {
+          "name": "Fire Curtain",
+          "reason": "hidden"
+        },
+        {
+          "name": "BMS",
+          "reason": "hidden"
+        },
+        {
+          "name": "Cause & Effect (Fire Alarm)",
+          "reason": "hidden"
+        },
+        {
+          "name": "IO - PFF",
+          "reason": "hidden"
+        },
+        {
+          "name": "IO - Electrical",
+          "reason": "hidden"
+        }
+      ],
+      "per_sheet": {
+        "HVAC": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 3,
+          "data_row_count": 576,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "NOTE": 184,
+            "SPACER": 169,
+            "PREAMBLE": 66,
+            "LINE_ITEM": 147,
+            "SUBTOTAL_MARKER": 12
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "CSU AHU -2000 CFM, 5.0 TR with 50mm S.P. with MERV-7 filters, with 4 row deep co",
+              "unit": "Nos",
+              "qty": 6.0
+            },
+            {
+              "sl_no": null,
+              "description": "Supply, Installation & Testing Temperature control with Wiring complete as requi",
+              "unit": "Nos",
+              "qty": 6.0
+            },
+            {
+              "sl_no": null,
+              "description": "Supply, Installation, Testing of 125mm deep antivibration flexible joints at the",
+              "unit": "RMT",
+              "qty": 7.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "RATE (INR)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "IO - HVAC": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 133,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "DDC / HLI LOCATION",
+            "EQUIPMENT LOCATION"
+          ],
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "LINE_ITEM": 16,
+            "NOTE": 101,
+            "SPACER": 16,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "BUILDING MANAGEMENT SYSTEM - INPUT / OUTPUT POINT SUMMARY",
+              "unit": null,
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "Floor mounted chilled water AHU’s - LL AHU",
+              "unit": null,
+              "qty": 6.0
+            },
+            {
+              "sl_no": null,
+              "description": "Ceiling Suspended DX TFAs - Client",
+              "unit": null,
+              "qty": 6.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "FAHU System": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 3,
+          "data_row_count": 47,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "NOTE": 12,
+            "HEADER_REPEAT": 1,
+            "SPACER": 16,
+            "PREAMBLE": 5,
+            "LINE_ITEM": 14,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a",
+              "description": "VERTICAL FLOOR MOUNTED 1580 CFM @ 50 mm WG (EXTERNAL STATIC PRESSURE), (TFA-01)",
+              "unit": "Nos",
+              "qty": 6.0
+            },
+            {
+              "sl_no": null,
+              "description": "10 HP (Top Discharge)",
+              "unit": "Nos",
+              "qty": 6.0
+            },
+            {
+              "sl_no": "a",
+              "description": "Gas Line - 19 mm thick Insulation",
+              "unit": "Rmt",
+              "qty": 91.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "SUPPLY RATE (INR)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "INSTALLATION RATE (INR)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "Terranova_ GC- Cost comparison  20-04-2026 -MEP BOQ.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 27,
+      "selected_sheets": [
+        "QTY-C&I",
+        "ELECTRICAL",
+        "C&I",
+        "HVAC - LOW SIDE"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "SUMMARY -FLS",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "FA",
+          "reason": "no-header"
+        },
+        {
+          "name": "PA",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": " Signages ",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "Fire extinguishers",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "ELE. SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "HVAC-Highside CRITICAL ROOM",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "LOOSE FURNITURE",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Additional",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "GLASS PARTITION & DOOR",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "HVAC-Highside- MR",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "GRAPHICS & SIGNAGES",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Sprinklers",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "MODULAR FURNITURE",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "LIGHT FIXTURES",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PLUMBING",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "LAMINATED FLUSH DOOR",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "ACCESS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "NETWORK",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "FIRE RATED DOOR",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "MODULAR CHAIR",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "CCTV",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "QTY-C&I": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 321,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "LINE_ITEM": 189,
+            "SPACER": 119,
+            "NOTE": 16
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": null,
+              "unit": null,
+              "qty": 1.03
+            },
+            {
+              "sl_no": null,
+              "description": "150mm Block wall",
+              "unit": "Sqmt",
+              "qty": 93.0
+            },
+            {
+              "sl_no": null,
+              "description": null,
+              "unit": null,
+              "qty": 93.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "ELECTRICAL": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 6,
+          "data_row_count": 284,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "NOTE": 79,
+            "PREAMBLE": 25,
+            "SPACER": 82,
+            "HEADER_REPEAT": 1,
+            "LINE_ITEM": 90,
+            "SUBTOTAL_MARKER": 12
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "Floor RP Panel",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "UPS Output Panel",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.3",
+              "description": "HVAC PANEL",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "C&I": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 8,
+          "data_row_count": 276,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "SPACER": 79,
+            "NOTE": 107,
+            "PREAMBLE": 30,
+            "LINE_ITEM": 57,
+            "SUBTOTAL_MARKER": 10
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "150 mm thick Solid block work",
+              "unit": "Sqm",
+              "qty": 93.0
+            },
+            {
+              "sl_no": "1.02",
+              "description": "Plastering work",
+              "unit": "Sqm",
+              "qty": 186.0
+            },
+            {
+              "sl_no": "1.03",
+              "description": "POP Punning",
+              "unit": "Sqm",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "HVAC - LOW SIDE": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 5,
+          "data_row_count": 74,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "SPACER": 8,
+            "NOTE": 37,
+            "LINE_ITEM": 32,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "Supply, installation, testing, commissioning & handing over of 0.63mm thk GI she",
+              "unit": "Sqm",
+              "qty": 18.0
+            },
+            {
+              "sl_no": null,
+              "description": "201mm to 550mm -- 26G GSS with TDC Joints",
+              "unit": "Sqm",
+              "qty": 65.0
+            },
+            {
+              "sl_no": null,
+              "description": "551mm to 900mm -- 24G GSS with TDC Joints",
+              "unit": "Sqm",
+              "qty": 30.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "G",
+              "header_text": "SUPPLY RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "INSTALL RATE",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "(Unpriced_R1)ES-EL-CW-MS-6A-L1  L2-ELECTRICAL MODIFICATION PRICED BOQ-10.03.2026-R1.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 4,
+      "selected_sheets": [
+        "LT WORKS",
+        "FUNCTIONAL & DECORATIVE LTG"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "ASSUMPTIONS & EXCLUSIONS-ELECTR",
+          "reason": "no-header"
+        },
+        {
+          "name": "ELECTRICAL - SUMMARY",
+          "reason": "skip-name-match:summary"
+        }
+      ],
+      "per_sheet": {
+        "LT WORKS": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 7,
+          "data_row_count": 811,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "LINE_ITEM": 284,
+            "SPACER": 325,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 66,
+            "NOTE": 131,
+            "SUBTOTAL_MARKER": 10
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "ELECTRICAL WORKS FOR COWRKS, MORGAN STANLEY,6A-1ST & 2ND FLOOR,BANGALORE",
+              "description": "ELECTRICAL WORKS FOR COWRKS, MORGAN STANLEY,6A-1ST & 2ND FLOOR,BANGALORE",
+              "unit": "ELECTRICAL WORKS FOR COWRKS, MORGAN STANLEY,6A-1ST & 2ND FLOOR,BANGALORE",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "CLIENT",
+              "description": ": MORGAN STANLEY",
+              "unit": ": MORGAN STANLEY",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "ARCHITECTS",
+              "description": ": COWORKS",
+              "unit": ": COWORKS",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "G",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "FUNCTIONAL & DECORATIVE LTG": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 8,
+          "data_row_count": 69,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "SPACER": 23,
+            "LINE_ITEM": 20,
+            "PREAMBLE": 4,
+            "HEADER_REPEAT": 1,
+            "NOTE": 27,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "ELECTRICAL WORKS FOR COWRKS, MORGAN STANLEY,6A-1ST & 2ND FLOOR,BANGALORE",
+              "description": "ELECTRICAL WORKS FOR COWRKS, MORGAN STANLEY,6A-1ST & 2ND FLOOR,BANGALORE",
+              "unit": "ELECTRICAL WORKS FOR COWRKS, MORGAN STANLEY,6A-1ST & 2ND FLOOR,BANGALORE",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "BILL OF QUANTITIES - FUNCTIONAL LIGHTING",
+              "description": "BILL OF QUANTITIES - FUNCTIONAL LIGHTING",
+              "unit": "BILL OF QUANTITIES - FUNCTIONAL LIGHTING",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "11.1",
+              "description": "Pendatn light fixture",
+              "unit": "Nos",
+              "qty": 10.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "(Unpriced_R1)ES-CW-MS -6A-L1  L2-HVAC MODIFICATION 09.03.2026.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 5,
+      "selected_sheets": [
+        "Lowside",
+        "VRF System",
+        "Additional work"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Assumptions & Exclusions",
+          "reason": "no-header"
+        },
+        {
+          "name": "SUMMARY-HVAC",
+          "reason": "skip-name-match:summary"
+        }
+      ],
+      "per_sheet": {
+        "Lowside": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 9,
+          "data_row_count": 221,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "SPACER": 39,
+            "LINE_ITEM": 74,
+            "NOTE": 114,
+            "HEADER_REPEAT": 1,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "unit": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "The contractor / vendor should read the specifications thoroughly and quote the ",
+              "unit": "The contractor / vendor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.All the items should be with performance guarantee of minimum 1 year.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "The price is inclusive of fire rated 0.63 mm thick canvas required to connect AH",
+              "unit": "Sqm.",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "J",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "VRF System": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 9,
+          "data_row_count": 133,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 6,
+          "classification_counts": {
+            "SPACER": 10,
+            "LINE_ITEM": 59,
+            "PREAMBLE": 19,
+            "HEADER_REPEAT": 1,
+            "NOTE": 51,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "description": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "unit": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "The contractor / vendor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.All the items should be with performance guarantee of minimum 1 year.",
+              "description": "The contractor / vendor should read the specifications thoroughly and quote the ",
+              "unit": "The contractor / vendor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.All the items should be with performance guarantee of minimum 1 year.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.1",
+              "description": "5 TR at 36°C ambient & 24°C indoor (Bangalore Conditions)",
+              "unit": "Sets",
+              "qty": 1.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "J",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "Additional work": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 9,
+          "data_row_count": 12,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 6,
+          "classification_counts": {
+            "SPACER": 4,
+            "LINE_ITEM": 4,
+            "PREAMBLE": 7,
+            "HEADER_REPEAT": 1,
+            "NOTE": 3,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "description": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "unit": "HVAC WORKS FOR MORGAN STANLEY CO-WRKS",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "The contractor / vendor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.All the items should be with performance guarantee of minimum 1 year.",
+              "description": "The contractor / vendor should read the specifications thoroughly and quote the ",
+              "unit": "The contractor / vendor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.All the items should be with performance guarantee of minimum 1 year.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "The vendors should study the site condition & quantify the amount of work before",
+              "unit": "Lot",
+              "qty": 2.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "J",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "(Unpriced_R1)ES-CW-MS-6A-L1  L2-FLS MODIFICATION PRICED BOQ-10.03.26.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 5,
+      "selected_sheets": [
+        "FPS",
+        "FA"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "FIRE - SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "PA",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "LED BATTERY SIGNAGE",
+          "reason": "too-few-data-rows"
+        }
+      ],
+      "per_sheet": {
+        "FPS": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 7,
+          "data_row_count": 28,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 5,
+          "classification_counts": {
+            "PREAMBLE": 6,
+            "NOTE": 1,
+            "HEADER_REPEAT": 1,
+            "SPACER": 2,
+            "LINE_ITEM": 23,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "C",
+              "description": "SITC of Sprinkler system Note : (vendor is responsible for safe handling of dete",
+              "unit": "SITC of Sprinkler system\nNote : (vendor is responsible for safe handling of detectors, if any damage occurs during removing, same shall be procured by vendor and install without extra cost)",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a",
+              "description": "25mm nominal dia",
+              "unit": "Rmt",
+              "qty": 260.0
+            },
+            {
+              "sl_no": "b",
+              "description": "32mm nominal dia",
+              "unit": "Rmt",
+              "qty": 135.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "G",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "FA": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 7,
+          "data_row_count": 20,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 5,
+          "classification_counts": {
+            "PREAMBLE": 5,
+            "NOTE": 1,
+            "HEADER_REPEAT": 1,
+            "LINE_ITEM": 15,
+            "SPACER": 3,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "A",
+              "description": "Supply Installation Testing & Commissioning of ADDRESSABLE FIRE ALARM SYSTEM",
+              "unit": "Supply Installation Testing & Commissioning of  ADDRESSABLE FIRE ALARM SYSTEM",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.0",
+              "description": "Supply Installation Testing & Commissioning of Multi Sensor detector (photo+heat",
+              "unit": "Nos",
+              "qty": 10.0
+            },
+            {
+              "sl_no": "2",
+              "description": "Supply Installation Testing & Commissioning of Multisensor detector (photo+heat)",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "G",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "I",
+              "header_text": "RATE IN INR",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "RFQ_Societe Generale_Bangalore_Electrical works_BOQ-26022026 (1).xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 5,
+      "selected_sheets": [
+        "BOQ_Electrical Low side ",
+        "BOQ_LMS",
+        "BOQ_LEED"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Make List",
+          "reason": "skip-name-match:make list"
+        }
+      ],
+      "per_sheet": {
+        "BOQ_Electrical Low side ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 474,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "Voyager (Qty)",
+            "Victor (Qty)"
+          ],
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "LINE_ITEM": 450,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 3,
+            "NOTE": 8,
+            "SUBTOTAL_MARKER": 11,
+            "SPACER": 2
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "Project        :M/s Societe Generale\n  Scope         Electrical Low Side  BOQ",
+              "description": "Project :M/s Societe Generale Scope Electrical Low Side BOQ",
+              "unit": "Project        :M/s Societe Generale\n  Scope         Electrical Low Side  BOQ",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1",
+              "description": "Main RP Panel with CQRS system",
+              "unit": "Nos",
+              "qty": 2.0
+            },
+            {
+              "sl_no": "2",
+              "description": "Wall mount WS Raw Power Panel with CQRS system",
+              "unit": "Nos",
+              "qty": 1.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "BOQ_LMS": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 49,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "Voyager (Qty)",
+            "Victor (Qty)"
+          ],
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "SPACER": 3,
+            "HEADER_REPEAT": 1,
+            "LINE_ITEM": 45,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "Supply of central processor assembled processor with two configurable links. Eac",
+              "unit": "Nos",
+              "qty": 2.0
+            },
+            {
+              "sl_no": null,
+              "description": null,
+              "unit": null,
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Supply of Lighting control and monitor software, captures floor wise consumption",
+              "unit": "Nos",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "BOQ_LEED": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 16,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "PREAMBLE": 1,
+            "HEADER_REPEAT": 1,
+            "SPACER": 5,
+            "NOTE": 6,
+            "LINE_ITEM": 3,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "LEED REGISTRATION",
+              "unit": "Ls",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "2",
+              "description": "WELL (HSR)",
+              "unit": "Ls",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "2.01",
+              "description": "LEED & WELL CONSULTANT",
+              "unit": "Ls",
+              "qty": 1.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "RFQ_Societe Generale_Bangalore_HVAC_BOQ-26-02-2026 (1).xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 5,
+      "selected_sheets": [
+        "BOQ_HVAC Lowside works",
+        "BOQ_HVAC LEED & WELL",
+        "BOQ_LEED"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Make List",
+          "reason": "skip-name-match:make list"
+        }
+      ],
+      "per_sheet": {
+        "BOQ_HVAC Lowside works": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 294,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "Voyager (Qty)",
+            "Victor (Qty)"
+          ],
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "LINE_ITEM": 283,
+            "HEADER_REPEAT": 1,
+            "SPACER": 4,
+            "PREAMBLE": 2,
+            "NOTE": 1,
+            "SUBTOTAL_MARKER": 4
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "Project        :M/s Societe Generale\n  Scope         : HVAC Low side BOQ",
+              "description": "Project :M/s Societe Generale Scope : HVAC Low side BOQ",
+              "unit": "Project        :M/s Societe Generale\n  Scope         : HVAC Low side BOQ",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a)",
+              "description": "24 gauge galvanized sheet steel (0.63mm) (0-750mm)",
+              "unit": "Sqm",
+              "qty": 454.0
+            },
+            {
+              "sl_no": "b)",
+              "description": "22 gauge galvanized sheet steel (0.80mm) (751-1500mm)",
+              "unit": "Sqm",
+              "qty": 184.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "BOQ_HVAC LEED & WELL": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 25,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "Voyager (Qty)",
+            "Victor (Qty)"
+          ],
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "PREAMBLE": 6,
+            "HEADER_REPEAT": 1,
+            "LINE_ITEM": 7,
+            "NOTE": 3,
+            "SPACER": 8,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "Indoor air quality test to be conducted at 6 locations in the floor space before",
+              "unit": "Lot",
+              "qty": 2.0
+            },
+            {
+              "sl_no": null,
+              "description": "Peripheral windows should be kept open for air escaping .All Lift lobby & stairc",
+              "unit": "Lot",
+              "qty": 2.0
+            },
+            {
+              "sl_no": "2.01",
+              "description": "Renting for below fans for floor flush out incase if floor flush is taking time ",
+              "unit": "Lot",
+              "qty": 2.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "BOQ_LEED": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 16,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "PREAMBLE": 1,
+            "HEADER_REPEAT": 1,
+            "SPACER": 5,
+            "NOTE": 6,
+            "LINE_ITEM": 3,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.0",
+              "description": "LEED REGISTRATION",
+              "unit": "Ls",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "2",
+              "description": "WELL (HSR)",
+              "unit": "Ls",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "2.01",
+              "description": "LEED & WELL CONSULTANT",
+              "unit": "Ls",
+              "qty": 1.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "Kohler-BOQ- 06-04-26.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 20,
+      "selected_sheets": [
+        "Electrical",
+        "C&I-BOQ ",
+        "Toilet",
+        "HVAC"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "SUMMARY ",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "MAKE LIST",
+          "reason": "skip-name-match:make list"
+        },
+        {
+          "name": "CARPET ",
+          "reason": "no-header"
+        },
+        {
+          "name": "Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Fire Extinguisher",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "BROUGHTOUT ITEMS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "CAFE PLUMBING WORK",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "LOOSE FURNITURE",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "SYSTEM FURNITURE",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Passive",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "CHAIRS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "FAS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Fire Sprinkler",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "ACS",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "CCTV",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PAS",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "Electrical": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 310,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "SPACER": 41,
+            "LINE_ITEM": 237,
+            "PREAMBLE": 22,
+            "NOTE": 12,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "BOQ For Electrical Work",
+              "description": "BOQ For Electrical Work",
+              "unit": "BOQ For Electrical Work",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1",
+              "description": "Supply, Installation, Testing, Commissioning of MAIN L.T & HVAC PANEL - MCCB INC",
+              "unit": "Nos",
+              "qty": 1.0
+            },
+            {
+              "sl_no": "2",
+              "description": "Supply, Installation, Testing, Commissioning of UPS POWER O/P PANEL - with fire ",
+              "unit": "Nos",
+              "qty": 1.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "C&I-BOQ ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 249,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "NOTE": 22,
+            "SPACER": 118,
+            "LINE_ITEM": 98,
+            "PREAMBLE": 2,
+            "SUBTOTAL_MARKER": 10
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1",
+              "description": "Dismantling and removal of existing partitions( gypsum or glass ), ceiling, floo",
+              "unit": "Sqft",
+              "qty": 10750.0
+            },
+            {
+              "sl_no": "a",
+              "description": "All the items in Dismantling / Demolishing shall be cartig away the debris from ",
+              "unit": "TRIP",
+              "qty": 120.0
+            },
+            {
+              "sl_no": "i",
+              "description": "Specs Same As above line Item a",
+              "unit": "Sqft",
+              "qty": 819.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "Toilet": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 148,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "LINE_ITEM": 40,
+            "NOTE": 56,
+            "SPACER": 50,
+            "SUBTOTAL_MARKER": 3
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "TOILETS - FINISHING WORKS - BOQ.",
+              "unit": "TOILETS - FINISHING WORKS  - BOQ.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "Deep cleaning of the Gents and Ladies Toilet",
+              "unit": "Ls.",
+              "qty": 2.0
+            },
+            {
+              "sl_no": null,
+              "description": "Providing and Laying, after selecting uniform colour and size 600 x 600 mm, 8 to",
+              "unit": "Sqm",
+              "qty": 62.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "HVAC": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 9,
+          "data_row_count": 142,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 2,
+          "classification_counts": {
+            "LINE_ITEM": 75,
+            "SUBTOTAL_MARKER": 5,
+            "NOTE": 2,
+            "PREAMBLE": 29,
+            "SPACER": 38,
+            "HEADER_REPEAT": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "Sr. No.",
+              "description": "SUMMERY SHEET",
+              "unit": null,
+              "qty": 0.0
+            },
+            {
+              "sl_no": "Part A",
+              "description": "VRF SYSTEM (High side Supply part)",
+              "unit": null,
+              "qty": 0.0
+            },
+            {
+              "sl_no": "Part B",
+              "description": "Low Side ancillary SITC Work",
+              "unit": null,
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Supply  Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    },
+    "K-Mall Jodhpur BOQ Combined.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 17,
+      "selected_sheets": [
+        "C&I BOQ",
+        "LT Panels and DB",
+        "HVAC BOQ",
+        "Cables & Wires"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Master Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "HVAC Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "MV Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "Temporary Work",
+          "reason": "too-few-data-rows"
+        },
+        {
+          "name": "LV Summary",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "CCTV",
+          "reason": "no-header"
+        },
+        {
+          "name": "Wiring System",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Access control",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Earthing System",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Light Fixtures",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Data & Voice",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "PA",
+          "reason": "not-in-top-4"
+        },
+        {
+          "name": "Audi Speaker System Wiring",
+          "reason": "not-in-top-4"
+        }
+      ],
+      "per_sheet": {
+        "C&I BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 6,
+          "data_row_count": 340,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "LINE_ITEM": 130,
+            "SPACER": 93,
+            "HEADER_REPEAT": 1,
+            "PREAMBLE": 42,
+            "NOTE": 78,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "C&I BOQ FOR CINEPOLIS",
+              "description": "C&I BOQ FOR CINEPOLIS",
+              "unit": "C&I BOQ FOR CINEPOLIS",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "PROJECT NAME & CITY - K MALL, JODHPUR",
+              "description": "PROJECT NAME & CITY - K MALL, JODHPUR",
+              "unit": "ID - Sand ID",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.01",
+              "description": "Dismantling of masonry including interior finishes on walls Dismantling of exist",
+              "unit": "Sqm",
+              "qty": 10.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "LT Panels and DB": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 211,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "LINE_ITEM": 25,
+            "SPACER": 27,
+            "NOTE": 160,
+            "SUBTOTAL_MARKER": 2
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "PROJECT: MULTIPLEX FOR CINEPOLIS INDIA PVT. LTD",
+              "unit": "PROJECT: MULTIPLEX FOR CINEPOLIS INDIA PVT. LTD",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "4 SCREEN MULTIPLEX AT K. MALL JODHPUR",
+              "unit": "4 SCREEN MULTIPLEX AT K. MALL JODHPUR",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "BILL OF QUANTITIES FOR ELECTRICAL WORKS",
+              "unit": "BILL OF QUANTITIES FOR ELECTRICAL WORKS",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        },
+        "HVAC BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 144,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 3,
+          "classification_counts": {
+            "LINE_ITEM": 68,
+            "PREAMBLE": 29,
+            "NOTE": 32,
+            "SPACER": 14,
+            "SUBTOTAL_MARKER": 2
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "SCHEDULE OF QUANTITIES \nFOR LOW SIDE HVAC WORKS \nFOR CINEPOLIS AT K MALL,JODHPUR",
+              "description": "SCHEDULE OF QUANTITIES FOR LOW SIDE HVAC WORKS FOR CINEPOLIS AT K MALL,JODHPUR",
+              "unit": "SCHEDULE OF QUANTITIES \nFOR LOW SIDE HVAC WORKS \nFOR CINEPOLIS AT K MALL,JODHPUR",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a",
+              "description": "24 gauge (0.63mm)",
+              "unit": "sqm",
+              "qty": 510.0
+            },
+            {
+              "sl_no": "b",
+              "description": "22 gauge (0.8mm)",
+              "unit": "sqm",
+              "qty": 1950.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "RATE\n(Rs)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "Cables & Wires": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 4,
+          "data_row_count": 128,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 0,
+          "classification_counts": {
+            "LINE_ITEM": 58,
+            "SPACER": 62,
+            "NOTE": 10,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": null,
+              "description": "PROJECT: MULTIPLEX FOR CINEPOLIS INDIA PVT. LTD",
+              "unit": "PROJECT: MULTIPLEX FOR CINEPOLIS INDIA PVT. LTD",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "4 SCREEN MULTIPLEX AT K. MALL JODHPUR",
+              "unit": "4 SCREEN MULTIPLEX AT K. MALL JODHPUR",
+              "qty": 0.0
+            },
+            {
+              "sl_no": null,
+              "description": "BILL OF QUANTITIES FOR ELECTRICAL WORKS",
+              "unit": "BILL OF QUANTITIES FOR ELECTRICAL WORKS",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "KSM 66_Internal Electrical BOQ R1 Final.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 3,
+      "selected_sheets": [
+        "ELECT BOQ"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "Gerenal Notes",
+          "reason": "skip-name-match:notes"
+        },
+        {
+          "name": "SUMMARY",
+          "reason": "skip-name-match:summary"
+        }
+      ],
+      "per_sheet": {
+        "ELECT BOQ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 3,
+          "data_row_count": 924,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 38,
+          "classification_counts": {
+            "LINE_ITEM": 149,
+            "SPACER": 214,
+            "PREAMBLE": 399,
+            "SUBTOTAL_MARKER": 12,
+            "NOTE": 152
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "DETAILED BOQ FOR INTERNAL ELECTRICAL WORKS",
+              "description": "DETAILED BOQ FOR INTERNAL ELECTRICAL WORKS",
+              "unit": "DETAILED BOQ FOR INTERNAL ELECTRICAL WORKS",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "a",
+              "description": "Primary points",
+              "unit": "Pts",
+              "qty": 30.0
+            },
+            {
+              "sl_no": "b",
+              "description": "Loop points",
+              "unit": "Pts",
+              "qty": 10.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "TS T2 WEX BANGLORE- HVAC UNPRICED BOQ-30.04.2026 R0.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 2,
+      "selected_sheets": [
+        "HVAC LOW SIDE "
+      ],
+      "excluded_sheets": [
+        {
+          "name": "HVAC SUMMARY",
+          "reason": "skip-name-match:summary"
+        }
+      ],
+      "per_sheet": {
+        "HVAC LOW SIDE ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 432,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "Office",
+            "COMMON AREA"
+          ],
+          "max_preamble_level": 4,
+          "classification_counts": {
+            "PREAMBLE": 57,
+            "SPACER": 93,
+            "NOTE": 156,
+            "LINE_ITEM": 120,
+            "SUBTOTAL_MARKER": 7
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "1.1",
+              "description": "16000 CFM with VFD & bypass starter",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "1.2",
+              "description": "12000 CFM with bypass starter",
+              "unit": "Nos",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.1",
+              "description": "80mm dia",
+              "unit": "Rmt",
+              "qty": 0.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 1,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "TS-UNPRICED ELECTRICAL BOQ-01.05.2026.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 3,
+      "selected_sheets": [
+        "ELEC ",
+        "ELEC-SUMM "
+      ],
+      "excluded_sheets": [
+        {
+          "name": "UPS BOQ",
+          "reason": "no-header"
+        }
+      ],
+      "per_sheet": {
+        "ELEC ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 3,
+          "data_row_count": 457,
+          "multi_area_pattern": "Pattern 1",
+          "areas": [
+            "RATE - RS.",
+            "AMOUNT - RS."
+          ],
+          "max_preamble_level": 6,
+          "classification_counts": {
+            "NOTE": 125,
+            "SPACER": 151,
+            "PREAMBLE": 175,
+            "SUBTOTAL_MARKER": 8
+          },
+          "first_3_line_items": [],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": [
+            {
+              "column": "G",
+              "header_text": "RATE - RS.",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "RATE - RS.",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        },
+        "ELEC-SUMM ": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 2,
+          "data_row_count": 20,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 1,
+          "classification_counts": {
+            "PREAMBLE": 10,
+            "SPACER": 10,
+            "SUBTOTAL_MARKER": 1
+          },
+          "first_3_line_items": [],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 0,
+          "rate_column_variations": []
+        }
+      }
+    },
+    "snitch_electrical.xlsx": {
+      "load_status": "success",
+      "load_exception": null,
+      "total_sheets": 5,
+      "selected_sheets": [
+        "6. Electrical"
+      ],
+      "excluded_sheets": [
+        {
+          "name": "OVERALL SUMMARY",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "SUMMARY MEP",
+          "reason": "skip-name-match:summary"
+        },
+        {
+          "name": "7. Light Fixtures",
+          "reason": "no-header"
+        },
+        {
+          "name": "MAKE LIST (to be updated)",
+          "reason": "skip-name-match:make list"
+        }
+      ],
+      "per_sheet": {
+        "6. Electrical": {
+          "parse_status": "success",
+          "exception": null,
+          "header_row": 1,
+          "data_row_count": 521,
+          "multi_area_pattern": null,
+          "areas": null,
+          "max_preamble_level": 7,
+          "classification_counts": {
+            "SPACER": 196,
+            "PREAMBLE": 43,
+            "SUBTOTAL_MARKER": 9,
+            "NOTE": 97,
+            "LINE_ITEM": 176
+          },
+          "first_3_line_items": [
+            {
+              "sl_no": "a.",
+              "description": "First point controlled by one no. 6 amp switch.",
+              "unit": "Nos.",
+              "qty": 45.0
+            },
+            {
+              "sl_no": "b.",
+              "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+              "unit": "Nos.",
+              "qty": 0.0
+            },
+            {
+              "sl_no": "2.0",
+              "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first ",
+              "unit": "Nos.",
+              "qty": 350.0
+            }
+          ],
+          "validation_warnings_count": 0,
+          "first_3_warnings": [],
+          "review_flagged_count": 1,
+          "rate_column_variations": [
+            {
+              "column": "E",
+              "header_text": "Supply Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "F",
+              "header_text": "Installation Rate",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "G",
+              "header_text": "Total Rate (Rs.)",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            },
+            {
+              "column": "H",
+              "header_text": "As per SNITCH Approved RC Rates",
+              "matched_synonym": "rate",
+              "matches_RATE_CELL_PATTERN": false
+            }
+          ]
+        }
+      }
+    }
+  }
+}

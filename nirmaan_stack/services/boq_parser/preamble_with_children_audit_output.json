@@ -1,0 +1,57 @@
+{
+  "summary": {
+    "total_fixtures_attempted": 2,
+    "fixtures_succeeded": 2,
+    "fixtures_failed_count": 0,
+    "total_sheets_scanned": 3,
+    "total_candidates": 1,
+    "candidates_by_fixture": {
+      "snitch_electrical.xlsx": 1
+    },
+    "candidates_by_shape": {
+      "siblings": 1
+    }
+  },
+  "fixture_failures": [],
+  "candidates": [
+    {
+      "fixture": "snitch_electrical.xlsx",
+      "sheet_name": "6. Electrical",
+      "resolved_idx": 500,
+      "xlsx_row": 502,
+      "sl_no": "2.0",
+      "path": "394/500",
+      "description": "Thermal scanning with Thermal Imaging camera, of all the cable and wiring joints in all the panels and MCB Distribution Boards after commissioning .",
+      "unit": "LS",
+      "child_count": 5,
+      "children_shape": "siblings",
+      "children": [
+        {
+          "sl_no": "3.0",
+          "description": "Providing & fixing in position 1000 mm wide, Electrical Insulating Mats as per IS 15652:2006, 2mm thick, suitable up to 3.3 KV, fire retardant,no effect of acids, alkalies and transformer oils, moistu...",
+          "unit": "RM"
+        },
+        {
+          "sl_no": "4.0",
+          "description": "Supply & fixing in position approved shock treatment chart written in English, Hindi and Local language. These charts shall be framed in wooden frame & covered with clear glass.",
+          "unit": "Nos."
+        },
+        {
+          "sl_no": "5.0",
+          "description": "Supply & fixing in position the best quality danger notice boards of approved shape & size as reqd. by the local Electrical Inspecting Authority written in English, Hindi & local language.",
+          "unit": "Nos."
+        },
+        {
+          "sl_no": "6.0",
+          "description": "Supply & fixing in position the Electrical A 1 Size SLD chart in the UPS/electrical room. These charts shall be framed in wooden frame & covered with clear glass.",
+          "unit": "Nos."
+        },
+        {
+          "sl_no": "7.0",
+          "description": "Supplying the first aid box as approved by John Ambulance society.",
+          "unit": "Nos."
+        }
+      ]
+    }
+  ]
+}

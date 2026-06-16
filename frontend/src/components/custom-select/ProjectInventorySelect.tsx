@@ -41,10 +41,11 @@ export default function ProjectInventorySelect({
     disabled = false,
 }: ProjectInventorySelectProps) {
     // Fetch all potentially relevant projects
-    // We filter Cancelled/Completed projects but allow Halted/Handover to be handled by deactivation logic
+    // We filter Cancelled/Completed projects but allow Halted/Handover to be handled by deactivation logic.
+    // Tendering stubs are prospect-only and must never be selectable for operational work, even when `all` is set.
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status", "disabled_inventory", "disabled_inventory_date"],
-        filters: all ? undefined : [["status", "not in", ["Cancelled"]]],
+        filters: all ? [["status", "!=", "Tendering"]] : [["status", "not in", ["Cancelled", "Tendering"]]],
         limit: 1000,
         orderBy: { field: 'creation', order: 'desc' },
     });

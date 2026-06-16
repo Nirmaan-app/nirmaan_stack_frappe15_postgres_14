@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCreateProjectWithAddress, useCreateProjectChildDoc, useUpdateProjectDoc } from "@/pages/projects/data/project-form/useProjectFormMutations";
-import { useNavigate } from "react-router-dom";
+import { useCreateProjectWithAddress, useConvertTenderingToWon, useCreateProjectChildDoc, useUpdateProjectDoc } from "@/pages/projects/data/project-form/useProjectFormMutations";
+import { useNavigate, useParams } from "react-router-dom";
+import { useFrappeGetDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { X } from "lucide-react";
 
@@ -39,6 +40,22 @@ export const ProjectForm = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
 
+    // Convert mode: when a `:projectId` route param is present, this wizard runs
+    // in "Tendering -> Won convert" mode against that existing stub. Otherwise it
+    // is the normal "create a new Won project" flow. (The create path is the
+    // default and remains fully intact — convert simply branches Step 1.)
+    const { projectId: convertProjectId } = useParams<{ projectId?: string }>();
+    const isConvertMode = !!convertProjectId;
+
+    // Fetch the stub being converted (for pre-fill). swrKey gotcha: the 3rd arg
+    // is the swrKey, NOT options — use `id ? undefined : null` for conditional
+    // fetch, never `{ enabled }`.
+    const { data: stubProject, isLoading: stubLoading } = useFrappeGetDoc(
+        "Projects",
+        convertProjectId,
+        convertProjectId ? undefined : null
+    );
+
     // Form initialization
     const form = useForm<ProjectFormValues>({
         resolver: zodResolver(projectFormSchema),
@@ -67,8 +84,25 @@ export const ProjectForm = () => {
 
     // API calls
     const { createProject: createProjectAndAddress, loading: createProjectAndAddressLoading } = useCreateProjectWithAddress();
+    const { convertProject, loading: convertProjectLoading } = useConvertTenderingToWon();
     const { createChildDoc: createDoc } = useCreateProjectChildDoc();
     const { updateProject: updateDoc } = useUpdateProjectDoc();
+
+    // Pre-fill the wizard with the stub's known fields once it loads (convert mode).
+    // The Address step will overwrite city/state from the pincode lookup anyway,
+    // but seeding them keeps the form consistent if the user skips that edit.
+    const [prefilled, setPrefilled] = useState(false);
+    useEffect(() => {
+        if (!isConvertMode || prefilled || !stubProject) return;
+        form.reset({
+            ...defaultFormValues,
+            project_name: stubProject.project_name || "",
+            customer: stubProject.customer || "",
+            project_city: stubProject.project_city || "",
+            project_state: stubProject.project_state || "",
+        });
+        setPrefilled(true);
+    }, [isConvertMode, prefilled, stubProject, form]);
 
     // Draft management
     const {
@@ -92,6 +126,8 @@ export const ProjectForm = () => {
         section,
         setCurrentStep,
         setSection,
+        // Convert mode is a one-shot, pre-filled flow — disable draft autosave/resume.
+        disabled: isConvertMode,
     });
 
     // Calculate duration when dates change
@@ -225,13 +261,18 @@ export const ProjectForm = () => {
             setCreationStage("creating_project");
             setCreationError(undefined);
 
-            // Step 1: Create project
-            const response = await createProjectAndAddress({
-                values: { ...projectValues, areaNames },
-            });
+            // Step 1: Create the project (create mode) OR convert the existing
+            // Tendering stub in place (convert mode). Everything downstream
+            // (Steps 2-5) runs identically against the returned project name.
+            const response = isConvertMode
+                ? await convertProject(convertProjectId!, { ...projectValues, areaNames })
+                : await createProjectAndAddress({ values: { ...projectValues, areaNames } });
 
             if (response.message.status !== 200) {
-                throw new Error(response.message.error || "Failed to create project");
+                throw new Error(
+                    response.message.error ||
+                        (isConvertMode ? "Failed to convert project" : "Failed to create project")
+                );
             }
 
             const projectName = response.message.project_name;
@@ -499,8 +540,8 @@ export const ProjectForm = () => {
         navigate(`/projects/${newProjectId}`);
     };
 
-    // Loading state
-    if (formData.isLoading) {
+    // Loading state — in convert mode, also wait for the stub to load + pre-fill.
+    if (formData.isLoading || (isConvertMode && (stubLoading || !prefilled))) {
         return <FormSkeleton />;
     }
 
@@ -595,7 +636,7 @@ export const ProjectForm = () => {
                                 form={form}
                                 formData={formData}
                                 duration={duration}
-                                isSubmitting={createProjectAndAddressLoading || creationDialogOpen}
+                                isSubmitting={createProjectAndAddressLoading || convertProjectLoading || creationDialogOpen}
                                 onPrevious={goToPreviousSection}
                                 onSubmit={handleSubmit}
                                 onNavigateToSection={navigateToSection}
@@ -622,12 +663,13 @@ export const ProjectForm = () => {
                 open={showCancelDialog}
                 onOpenChange={setShowCancelDialog}
                 onSaveDraft={() => {
-                    saveDraftNow();
-                    navigate("/projects");
+                    // Convert mode has no draft — just leave back to the stub.
+                    if (!isConvertMode) saveDraftNow();
+                    navigate(isConvertMode ? `/projects/${convertProjectId}` : "/projects");
                 }}
                 onDiscard={() => {
-                    discardDraft();
-                    navigate("/projects");
+                    if (!isConvertMode) discardDraft();
+                    navigate(isConvertMode ? `/projects/${convertProjectId}` : "/projects");
                 }}
                 onCancel={() => setShowCancelDialog(false)}
                 currentStep={currentStep + 1}
