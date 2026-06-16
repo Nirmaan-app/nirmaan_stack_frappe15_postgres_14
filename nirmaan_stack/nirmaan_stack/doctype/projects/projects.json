@@ -34,6 +34,7 @@
   "estimates_exec",
   "accountant",
   "project_work_details_section",
+  "tendering_status",
   "status",
   "ceo_hold_by",
   "project_work_packages",
@@ -164,6 +165,12 @@
    "fieldname": "subdivision_list",
    "fieldtype": "JSON",
    "label": "Subdivision List"
+  },
+  {
+   "fieldname": "tendering_status",
+   "fieldtype": "Select",
+   "label": "Tendering Status",
+   "options": "\nTendering\nWon\nLost"
   },
   {
    "fieldname": "status",
@@ -316,7 +323,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-16 13:07:53.717615",
+ "modified": "2026-05-29 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

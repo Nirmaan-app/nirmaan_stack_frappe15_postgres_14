@@ -3,6 +3,7 @@ from frappe import _
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.api.projects._tendering_guard import validate_won
 
 def after_insert(doc, method):
         proc_admin_account_users = get_allowed_procurement_users(doc) + get_admin_users() + get_allowed_accountants(doc)
@@ -84,6 +85,10 @@ def validate(doc, method):
         if not item.item_id:
             item.item_id = item.name
 
+    # Defense-in-depth: refuse to create a PO against a Tendering stub.
+    # Guard only NEW docs so edits to legacy/operational POs are unaffected.
+    if doc.is_new():
+        validate_won(doc.project, "Procurement Order")
     _set_po_billing_status(doc)
 
     old_doc = doc.get_doc_before_save()

@@ -212,6 +212,7 @@ doc_events = {
             ]
     },
     "Service Requests": {
+        "validate": "nirmaan_stack.integrations.controllers.service_requests.validate",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.service_requests.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions"
@@ -222,6 +223,7 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "Project Payments": {
+        "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_payments.on_update",
@@ -234,6 +236,7 @@ doc_events = {
         ]
     },
      "Project Invoices": {
+        "validate": "nirmaan_stack.integrations.controllers.project_invoices.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "Non Project Expenses": {
@@ -248,12 +251,16 @@ doc_events = {
         ],
     },
     "Project Inflows": {
+        "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         ],
+    },
+    "PO Delivery Documents": {
+        "validate": "nirmaan_stack.integrations.controllers.po_delivery_documents.validate",
     },
     "Delivery Notes": {
         "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",

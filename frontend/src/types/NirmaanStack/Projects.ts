@@ -90,6 +90,8 @@ export interface Projects {
 	estimates_exec?: string
 	/**	Status : Data	*/
 	status: string
+	/** Tendering Status : Select (Tendering / Won / Lost) */
+	tendering_status?: "Tendering" | "Won" | "Lost"
 	/** CEO Hold Set By : Data (read_only, hidden) */
 	ceo_hold_by?: string
 	/**	Project Work Packages : JSON	*/
