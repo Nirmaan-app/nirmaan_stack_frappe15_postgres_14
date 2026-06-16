@@ -21,7 +21,11 @@
   "column_headers",
   "area_dimensions",
   "parse_vintage_section",
-  "last_parsed_at"
+  "last_parsed_at",
+  "commit_version_section",
+  "commit_version",
+  "is_current",
+  "committed_at"
  ],
  "fields": [
   {
@@ -122,6 +126,32 @@
    "fieldname": "last_parsed_at",
    "fieldtype": "Datetime",
    "label": "Last Parsed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "commit_version_section",
+   "fieldtype": "Section Break",
+   "label": "Commit Version"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet_name) commit version. Shared with the committed grid + nodes for the same commit. Set by the Phase-5 commit pipeline (Slice 3b). The sheet is now VERSIONED (freeze-and-supersede), not deleted on re-commit.",
+   "fieldname": "commit_version",
+   "fieldtype": "Int",
+   "label": "Commit Version"
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current version per (boq, sheet_name). Enforced by the commit pipeline (the prior current sheet is frozen via frappe.db.set_value -- NOT doc.save, which would re-serialize the list-valued area_dimensions JSON and hit get_valid_dict's 'cannot be a list').",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "label": "Is Current"
+  },
+  {
+   "description": "Commit timestamp; set by the Phase-5 commit pipeline (Slice 3b).",
+   "fieldname": "committed_at",
+   "fieldtype": "Datetime",
+   "label": "Committed At",
    "read_only": 1
   }
  ],

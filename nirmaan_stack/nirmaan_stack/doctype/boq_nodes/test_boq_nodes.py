@@ -472,13 +472,17 @@ class TestBOQNodes(FrappeTestCase):
     # Combined Rate consistency validation                                 #
     # ------------------------------------------------------------------ #
 
-    def test_combined_rate_must_match_supply_plus_install(self):
-        """combined_rate != supply_rate + install_rate must be rejected."""
-        with self.assertRaises(frappe.ValidationError):
-            self._make_line_item(
-                qty=10, supply_rate=400, install_rate=200, combined_rate=700,
-                description="Mismatched combined rate",
-            )
+    def test_combined_rate_mismatch_warns_not_throws(self):
+        """CAPTURE-ONLY (Slice 3b): combined_rate != supply+install now WARNS, not throws --
+        the node SAVES and the captured values persist verbatim (tendering reconciles)."""
+        node = self._make_line_item(
+            qty=10, supply_rate=400, install_rate=200, combined_rate=700,
+            description="Mismatched combined rate",
+        )
+        self.assertIsNotNone(node.name)
+        self.assertEqual(node.combined_rate, 700)
+        self.assertEqual(node.supply_rate, 400)
+        self.assertEqual(node.install_rate, 200)
 
     def test_combined_rate_matches_supply_plus_install_succeeds(self):
         """STRUCTURAL: combined_rate == supply_rate + install_rate passes the consistency
@@ -516,19 +520,21 @@ class TestBOQNodes(FrappeTestCase):
         )
         self.assertIsNotNone(node.name)
 
-    def test_leaf_preamble_combined_rate_validation(self):
-        """Rate consistency check fires for leaf preambles with mismatched combined_rate."""
-        with self.assertRaises(frappe.ValidationError):
-            node = frappe.new_doc("BOQ Nodes")
-            node.sheet = self.sheet_name
-            node.node_type = "Preamble"
-            node.level = 1
-            node.description = "Leaf preamble mismatched rate"
-            node.qty = 10
-            node.supply_rate = 400
-            node.install_rate = 200
-            node.combined_rate = 700
-            node.insert(ignore_permissions=True)
+    def test_leaf_preamble_combined_rate_mismatch_warns(self):
+        """CAPTURE-ONLY (Slice 3b): a leaf preamble with mismatched combined_rate now WARNS,
+        not throws -- the node SAVES."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 1
+        node.description = "Leaf preamble mismatched rate"
+        node.qty = 10
+        node.supply_rate = 400
+        node.install_rate = 200
+        node.combined_rate = 700
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        self.assertEqual(node.combined_rate, 700)
 
     # ------------------------------------------------------------------ #
     # Audit log (Nirmaan Versions)                                         #
@@ -946,8 +952,9 @@ class TestBOQNodes(FrappeTestCase):
         node.insert(ignore_permissions=True)
         self.assertIsNotNone(node.name)
 
-    def test_child_combined_rate_consistency_rule_rejected_when_wrong_sum(self):
-        """Child row with combined_rate != supply_rate + install_rate raises ValidationError."""
+    def test_child_combined_rate_mismatch_warns_not_throws(self):
+        """CAPTURE-ONLY (Slice 3b): a child row with combined_rate != supply+install now
+        WARNS, not throws -- the node SAVES and the per-area rates persist verbatim."""
         node = frappe.new_doc("BOQ Nodes")
         node.sheet = self.sheet_name
         node.node_type = "Line Item"
@@ -958,8 +965,9 @@ class TestBOQNodes(FrappeTestCase):
             "area_name": "B1", "qty": 10,
             "supply_rate": 50, "install_rate": 30, "combined_rate": 100,
         })
-        with self.assertRaises(frappe.ValidationError):
-            node.insert(ignore_permissions=True)
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        self.assertEqual(node.qty_by_area[0].combined_rate, 100)
 
     def test_child_zero_cost_row_allowed_when_all_rates_none(self):
         """CAPTURE-ONLY: a child row with no rates saves and its rates STAY None -- no

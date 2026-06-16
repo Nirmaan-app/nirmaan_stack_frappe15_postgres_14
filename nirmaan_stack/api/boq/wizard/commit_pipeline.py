@@ -1,37 +1,59 @@
 """
-BoQ commit pipeline -- the combined commit shell + grid write-body (Phase 5 Slice 3a).
+BoQ commit pipeline -- the commit shell + grid write-body + NODE TREE (Phase 5
+Slices 3a + 3b).
 
-This is the FIRST slice that writes REAL parsed BoQ data into the committed schema.
+This writes REAL parsed BoQ data into the committed schema.
 
 THE TWO-LAYER MODEL
   Every committable sheet commits its COMPLETE original as a FAITHFUL GRID (all 6
-  row classifications, in original position) into `BoQ Committed Sheet Grid`.
-  FINALIZED sheets will ALSO commit a NODE TREE -- but that is Slice 3b, NOT this
-  slice. General-specs sheets are grid-only. Slice 3a builds the grid layer + the
-  combined shell; the node branch is a PURE STUB (the shell dispatches to it; it
-  does nothing yet).
+  row classifications, in original position) into `BoQ Committed Sheet Grid` (3a).
+  A FINALIZED sheet ALSO commits a NODE TREE (3b): its review rows are read,
+  resolved (resolve_effective), mapped, and written as BOQ Nodes + BOQ Node Qty By
+  Area children, parent-wired, with provenance carried. General-specs sheets are
+  grid-only.
 
 DISPOSITION (from the Slice-2 commit gate, mapped onto the grid's discriminator):
   gate "general_specs" -> sheet_disposition "grid_only"
-  gate "finalized"     -> sheet_disposition "grid_and_nodes"
+  gate "finalized"     -> sheet_disposition "grid_and_nodes" (gets the node tree)
+
+NODE WRITE (3b) -- two-pass + deferred list-JSON fields
+  Pass 1 inserts each node PARENT-LESS, with NO list-valued JSON field set
+  (attached_notes / edit_log left null). Pass 2 sets parent_node + doc.save() in
+  ancestor-depth order so paths cascade correctly AND the controller's parent-chain
+  validation re-runs (a free integrity check) -- safe because the list fields are
+  still null at save (Frappe's get_valid_dict rejects a list-valued JSON field, the
+  same wall BoQ Sheet.area_dimensions hit in 3a). Pass 3 writes the list-JSON
+  fields (attached_notes, edit_log) via frappe.db.set_value(json.dumps(...)), a
+  targeted column write that bypasses full-doc serialization. (Dict-valued JSON
+  like append_notes_raw is set in pass 1 -- only LISTs trip get_valid_dict.)
+
+CAPTURE-ONLY (Slice 2.5)
+  Reviewed money values (rate_*/amount_*) are carried VERBATIM; nothing is
+  recomputed. combined_rate consistency is a WARNING, not a block (3b). Float->
+  Currency coercion is left to Frappe.
+
+THREE-TIER VERSIONING
+  One SHARED commit_version per (boq, sheet) covers the grid, the BoQ Sheet, and
+  all nodes for that commit. On re-commit each tier FREEZES its prior current row
+  (is_current 1 -> 0 via frappe.db.set_value -- NEVER doc.save(): the BoQ Sheet's
+  list-valued area_dimensions would re-serialize and hit get_valid_dict) and lands
+  a new is_current=1 row under the shared version. v1 nodes stay attached to frozen
+  sheet v1 -- grid v1 + sheet v1 + nodes v1 remain a coherent frozen snapshot. The
+  BoQ Sheet is now VERSIONED (freeze-and-supersede), NOT deleted (3a's raw-delete
+  retired).
 
 SINGLE-OPEN FILE PATH
-  The workbook is fetched ONCE and opened ONCE; the committable sheets are then
-  looped, each faithful grid built by the SHARED sheet_preview._extract_grid_rows
-  helper inside the single open workbook. We do NOT re-open per sheet and we do NOT
-  call the per-sheet whitelisted preview endpoint in a loop. The S3-safe fetch
-  helper (_fetch_boq_file_to_tempfile) is reused verbatim.
+  The workbook is fetched + opened ONCE; sheets are looped, each grid built by the
+  SHARED sheet_preview._extract_grid_rows inside the single open workbook.
 
 VERBATIM SHEET IDENTITY (#152)
-  source_sheet_name is matched byte-for-byte on BOTH the write and the freeze
-  lookup -- never trimmed. Six sheets on BOQ-26-00145 carry a trailing space;
-  trimming would orphan the re-commit freeze lookup and leave TWO current grids
-  for one sheet. (PostgreSQL `=` on varchar is byte-exact -- trailing spaces are
-  significant -- so equality filters find the right prior version.)
+  source_sheet_name / sheet_name matched byte-for-byte on write AND freeze lookup
+  -- never trimmed (trailing-space sheet names exist; PostgreSQL `=` on varchar is
+  byte-exact).
 
 TRANSACTION BOUNDARY
-  One trailing frappe.db.commit() PER SHEET (no savepoints -- matching the
-  existing app-wide pattern). A sheet's grid + committed BoQ Sheet land together.
+  One trailing frappe.db.commit() PER SHEET (no savepoints). A sheet's grid +
+  BoQ Sheet + node tree land together.
 
 Public API:
   commit_boq(boq_name, sheet_subset) -> dict   [whitelisted, POST]
@@ -46,6 +68,7 @@ import frappe
 import openpyxl
 
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
+from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _extract_grid_rows,
     _fetch_boq_file_to_tempfile,
@@ -53,6 +76,7 @@ from nirmaan_stack.api.boq.wizard.sheet_preview import (
 
 _GRID_DOCTYPE = "BoQ Committed Sheet Grid"
 _SHEET_DOCTYPE = "BoQ Sheet"
+_NODE_DOCTYPE = "BOQ Nodes"
 
 # Gate disposition -> grid discriminator (the only mapping; do not re-derive).
 _DISPOSITION_TO_SHEET_DISPOSITION = {
@@ -64,6 +88,29 @@ _DISPOSITION_TO_TREAT_AS = {
     "general_specs": "master_preamble",
     "finalized": "data",
 }
+
+# effective_classification values that become committed nodes. The 4 others
+# (note / spacer / subtotal_marker / header_repeat) are GRID-ONLY -- captured in the
+# faithful grid (3a) but NOT turned into nodes (the BOQ Nodes node_type Select has
+# exactly Preamble + Line Item).
+_PREAMBLE_CLS = "preamble"
+_LINE_ITEM_CLS = "line_item"
+_NODE_CLASSIFICATIONS = frozenset({_PREAMBLE_CLS, _LINE_ITEM_CLS})
+
+# BoQ Review Row fields the node body reads (the get_review_rows source-of-truth set,
+# narrowed to what the mapping needs).
+_REVIEW_ROW_FIELDS = [
+    "name", "row_index", "source_row_number",
+    "classification", "level", "preamble_level_override", "parent_index",
+    "human_classification", "human_parent", "human_is_root",
+    "sl_no_value", "description", "unit", "make_model",
+    "is_rate_only", "is_synthetic",
+    "qty_total", "qty_by_area",
+    "rate_supply", "rate_install", "rate_combined", "rate_by_area",
+    "amount_total", "amount_supply", "amount_install", "amount_by_area",
+    "row_notes", "append_notes_raw", "attached_notes",
+    "edit_log", "edited_by", "edited_at", "remarks",
+]
 
 
 def _coerce_subset(sheet_subset: Any) -> list[str]:
@@ -100,14 +147,42 @@ def _coerce_config(sheet_config: Any) -> dict:
     return {}
 
 
+def _current_names(doctype: str, boq: str, name_field: str, name_value: str) -> list[str]:
+    """The single centralized 'read the current row(s)' accessor across all three
+    committed tiers (Slice 3b). Returns the names of is_current=1 rows for a tier,
+    parameterized by the tier's identity field:
+      grid      -> ("BoQ Committed Sheet Grid", boq, "source_sheet_name", sheet_name)
+      BoQ Sheet -> ("BoQ Sheet",                boq, "sheet_name",        sheet_name)
+      nodes     -> ("BOQ Nodes",                boq, "sheet",             boq_sheet_name)
+    name_value is matched VERBATIM (#152). Normally returns 0 or 1 name.
+    """
+    return frappe.get_all(
+        doctype,
+        filters={"boq": boq, name_field: name_value, "is_current": 1},
+        pluck="name",
+    )
+
+
+def _next_commit_version(boq: str, sheet_name: str) -> int:
+    """The SHARED commit version for this (boq, sheet) commit -- one number for the
+    grid, the BoQ Sheet, and all nodes. Anchored on the grid (always written for
+    both dispositions): max prior grid version + 1 (first commit = 1)."""
+    agg = frappe.get_all(
+        _GRID_DOCTYPE,
+        filters={"boq": boq, "source_sheet_name": sheet_name},
+        fields=["max(commit_version) as mv"],
+    )
+    return ((agg[0].mv if agg else None) or 0) + 1
+
+
 @frappe.whitelist(methods=["POST"])
 def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
-    """Commit a subset of a BoQ's sheets into the committed schema (Phase 5 Slice 3a).
+    """Commit a subset of a BoQ's sheets into the committed schema (Phase 5 Slice 3a/3b).
 
-    For each requested sheet: build + persist its faithful grid (both
-    dispositions), create/refresh its committed BoQ Sheet with the column-config
-    snapshot, and -- for a finalized sheet -- call the node-write STUB (no-op in
-    3a; 3b fills it).
+    For each requested sheet (under ONE shared commit_version): build + persist its
+    faithful grid (both dispositions), version its committed BoQ Sheet with the
+    column-config snapshot (freeze-and-supersede), and -- for a FINALIZED sheet --
+    write the node tree (BOQ Nodes + per-area children, parent-wired, provenance).
 
     SERVER-SIDE GATE RE-CHECK: every sheet in sheet_subset MUST be in the live
     commit gate's eligible set, or the whole call is rejected (throw) before any
@@ -120,8 +195,9 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
     Returns:
       {"boq_name": str,
        "committed": [{"sheet_name", "disposition", "sheet_disposition",
-                      "grid_name", "boq_sheet_name", "commit_version",
-                      "row_count", "froze_prior"}], ...}
+                      "grid_name", "boq_sheet_name", "commit_version", "row_count",
+                      "froze_prior", "froze_prior_sheet", "node_count",
+                      "froze_nodes"}], ...}
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -205,26 +281,33 @@ def _commit_one_sheet(
     grid_rows: list[dict],
     draft: Any,
 ) -> dict:
-    """Persist ONE sheet's faithful grid + committed BoQ Sheet, then commit.
+    """Persist ONE sheet's three tiers (grid + BoQ Sheet [+ node tree]), then commit.
 
     Per-sheet transaction boundary: a single trailing frappe.db.commit() so the
-    grid and its committed BoQ Sheet land atomically for this sheet.
+    grid, the versioned BoQ Sheet, and (for a finalized sheet) the node tree land
+    atomically for this sheet under ONE shared commit_version.
 
     grid_rows is the output of sheet_preview._extract_grid_rows: a list of
     {"row_number", "cells": {col_letter: value}} in source order.
     """
     sheet_disposition = _DISPOSITION_TO_SHEET_DISPOSITION[disposition]
+    # ONE shared commit_version for grid + BoQ Sheet + nodes this commit.
+    commit_version = _next_commit_version(boq_name, sheet_name)
+    committed_at = frappe.utils.now()
 
-    grid_doc, commit_version, froze_prior = _write_grid(
-        boq_name, sheet_name, sheet_disposition, grid_rows
+    grid_doc, froze_grid = _write_grid(
+        boq_name, sheet_name, sheet_disposition, grid_rows, commit_version, committed_at
     )
-    boq_sheet_name = _write_committed_boq_sheet(
-        boq_name, sheet_name, disposition, draft
+    boq_sheet_name, prior_sheet_names = _write_committed_boq_sheet(
+        boq_name, sheet_name, disposition, draft, commit_version, committed_at
     )
 
-    # Node-write STUB -- only finalized sheets get a node tree, and only in 3b.
+    node_result = {"node_count": 0, "froze_nodes": 0}
     if disposition == "finalized":
-        _commit_node_tree_stub(boq_name, sheet_name, draft, grid_doc, boq_sheet_name)
+        node_result = _commit_node_tree(
+            boq_name, sheet_name, boq_sheet_name, prior_sheet_names,
+            commit_version, committed_at,
+        )
 
     frappe.db.commit()
 
@@ -236,7 +319,10 @@ def _commit_one_sheet(
         "boq_sheet_name": boq_sheet_name,
         "commit_version": commit_version,
         "row_count": len(grid_rows),
-        "froze_prior": froze_prior,
+        "froze_prior": froze_grid,                  # grid froze (3a back-compat key)
+        "froze_prior_sheet": bool(prior_sheet_names),
+        "node_count": node_result["node_count"],
+        "froze_nodes": node_result["froze_nodes"],
     }
 
 
@@ -245,29 +331,13 @@ def _write_grid(
     sheet_name: str,
     sheet_disposition: str,
     grid_rows: list[dict],
-) -> tuple[Any, int, bool]:
-    """Write the new faithful grid, bump commit_version, freeze the prior current.
-
-    Verbatim (#152) (boq, source_sheet_name) match on BOTH the prior-version
-    lookup and the freeze. Returns (grid_doc, commit_version, froze_prior).
-    """
-    # Prior current grid(s) for this exact (boq, sheet) -- normally 0 or 1.
-    prior_current = frappe.get_all(
-        _GRID_DOCTYPE,
-        filters={"boq": boq_name, "source_sheet_name": sheet_name, "is_current": 1},
-        pluck="name",
-    )
-
-    # Shared version across this sheet's commit = max prior version + 1 (first = 1).
-    agg = frappe.get_all(
-        _GRID_DOCTYPE,
-        filters={"boq": boq_name, "source_sheet_name": sheet_name},
-        fields=["max(commit_version) as mv"],
-    )
-    max_version = agg[0].mv if agg else None
-    commit_version = (max_version or 0) + 1
-
-    # Freeze the prior current version(s) BEFORE inserting the new current one.
+    commit_version: int,
+    committed_at: str,
+) -> tuple[Any, bool]:
+    """Write the new faithful grid (is_current=1) under the SHARED commit_version,
+    freezing the prior current via set_value. Verbatim (#152) (boq, source_sheet_name)
+    match on the freeze lookup. Returns (grid_doc, froze_prior)."""
+    prior_current = _current_names(_GRID_DOCTYPE, boq_name, "source_sheet_name", sheet_name)
     for name in prior_current:
         frappe.db.set_value(_GRID_DOCTYPE, name, "is_current", 0)
 
@@ -277,7 +347,7 @@ def _write_grid(
     grid.sheet_disposition = sheet_disposition
     grid.commit_version = commit_version
     grid.is_current = 1
-    grid.committed_at = frappe.utils.now()
+    grid.committed_at = committed_at
     for order, row in enumerate(grid_rows):
         grid.append("rows", {
             "row_number": row["row_number"],
@@ -286,7 +356,7 @@ def _write_grid(
         })
     grid.insert(ignore_permissions=True)
 
-    return grid, commit_version, bool(prior_current)
+    return grid, bool(prior_current)
 
 
 def _write_committed_boq_sheet(
@@ -294,35 +364,28 @@ def _write_committed_boq_sheet(
     sheet_name: str,
     disposition: str,
     draft: Any,
-) -> str:
-    """Create the committed BoQ Sheet for this sheet, snapshotting its render config.
+    commit_version: int,
+    committed_at: str,
+) -> tuple[str, list[str]]:
+    """Version the committed BoQ Sheet: FREEZE the prior current, INSERT a fresh
+    current (is_current=1) under the SHARED commit_version. Returns (new_name,
+    prior_current_names).
 
-    REPLACE semantics: the committed BoQ Sheet has no version dimension of its own
-    (versioning lives on the grid; per-node versioning is Slice 3b), so a re-commit
-    deletes the prior committed BoQ Sheet(s) for this exact (boq, sheet) and
-    creates a fresh one -- keeping exactly one committed BoQ Sheet per
-    (boq, source_sheet_name). In 3a no nodes attach to a BoQ Sheet, so this delete
-    is safe; 3b (which attaches the node tree) must revisit this lifecycle.
+    FREEZE-AND-SUPERSEDE (Slice 3b) -- 3a's raw-delete is RETIRED. The prior sheet
+    is frozen via frappe.db.set_value("BoQ Sheet", name, "is_current", 0), a TARGETED
+    column write. We must NOT doc.save() the prior sheet: BoQ Sheet.area_dimensions
+    is a list-valued JSON field that Frappe re-parses to a Python list on load, and
+    doc.save()'s get_valid_dict would reject it ("cannot be a list") -- the same wall
+    the 3a delete_doc hit. set_value bypasses full-doc serialization. The prior sheet
+    + its nodes thus survive as a coherent frozen version (no delete, no orphan).
 
     The column-config snapshot (column_role_map + column_headers + area_dimensions,
     plus header_row / header_row_count / treat_as) is pinned VERBATIM from the
-    draft's sheet_config at commit time -- this is what later serves append-notes
-    rendering, semantic column rendering, and Excel write-back addressing.
+    draft's sheet_config at commit time.
     """
-    # Replace any prior committed BoQ Sheet(s) for this exact (boq, sheet).
-    # RAW delete (not delete_doc): BoQ Sheet.area_dimensions is a JSON field holding
-    # a LIST, and delete_doc archives the doc via as_json -> get_valid_dict, which
-    # rejects a list-valued JSON field ("cannot be a list"). frappe.db.delete bypasses
-    # the lifecycle/archive entirely. The BoQ Sheet controller is a bare stub (no
-    # on_trash guard), so a raw delete is safe; child work_packages rows are removed
-    # explicitly to avoid orphans.
-    for name in frappe.get_all(
-        _SHEET_DOCTYPE,
-        filters={"boq": boq_name, "sheet_name": sheet_name},
-        pluck="name",
-    ):
-        frappe.db.delete("BoQ Sheet Work Package", {"parent": name})
-        frappe.db.delete(_SHEET_DOCTYPE, {"name": name})
+    prior_current = _current_names(_SHEET_DOCTYPE, boq_name, "sheet_name", sheet_name)
+    for name in prior_current:
+        frappe.db.set_value(_SHEET_DOCTYPE, name, "is_current", 0)
 
     cfg = _coerce_config(getattr(draft, "sheet_config", None) if draft else None)
 
@@ -335,11 +398,15 @@ def _write_committed_boq_sheet(
     bs.header_row = cfg.get("header_row")
     bs.header_row_count = cfg.get("header_row_count") or 1
 
-    # JSON snapshot fields. area_dimensions is a LIST -- a JSON field rejects a raw
-    # Python list on insert, so json.dumps it; dumps the dict ones too for uniformity.
+    # JSON snapshot fields. area_dimensions is a LIST -- json.dumps it (a JSON field
+    # rejects a raw Python list on insert); dumps the dict ones too for uniformity.
     bs.column_role_map = json.dumps(cfg.get("column_role_map") or {})
     bs.column_headers = json.dumps(cfg.get("column_headers") or {})
     bs.area_dimensions = json.dumps(cfg.get("area_dimensions") or [])
+
+    bs.commit_version = commit_version
+    bs.is_current = 1
+    bs.committed_at = committed_at
 
     # Work-header assignments carried from the draft.
     if draft is not None:
@@ -349,25 +416,283 @@ def _write_committed_boq_sheet(
                 bs.append("work_packages", {"work_header": wh})
 
     bs.insert(ignore_permissions=True)
-    return bs.name
+    return bs.name, prior_current
 
 
-def _commit_node_tree_stub(
+# ---------------------------------------------------------------------------
+# Node tree (Slice 3b)
+# ---------------------------------------------------------------------------
+
+_JSON_FIELDS_TO_PARSE = (
+    "qty_by_area", "rate_by_area", "amount_by_area",
+    "attached_notes", "append_notes_raw", "edit_log",
+)
+
+
+def _parse_json_fields(d: dict) -> dict:
+    """db.get_all returns JSON fields as strings; parse the ones the node body needs."""
+    for f in _JSON_FIELDS_TO_PARSE:
+        v = d.get(f)
+        if isinstance(v, str) and v:
+            try:
+                d[f] = json.loads(v)
+            except (ValueError, TypeError):
+                pass
+    return d
+
+
+def _commit_node_tree(
     boq_name: str,
     sheet_name: str,
-    draft: Any,
-    grid_doc: Any,
     boq_sheet_name: str,
-) -> None:
-    """STUB -- the node-tree write path for a Finalized sheet.
+    prior_sheet_names: list[str],
+    commit_version: int,
+    committed_at: str,
+) -> dict:
+    """Build + persist the committed node tree for a FINALIZED sheet (Slice 3b).
 
-    TODO(3b): build the node tree from this sheet's BoQ Review Rows
-    (resolve_effective() for parent/classification), map review-row fields onto
-    BOQ Nodes + BOQ Node Qty By Area per the P4-3 field-mapping lock, attach each
-    node to the committed BoQ Sheet (boq_sheet_name), carry is_rate_only +
-    amounts/rates verbatim (capture-only, Slice 2.5), and add per-node versioning.
-
-    No-op in Slice 3a: the faithful grid written above is the ONLY persistence
-    this slice does for a finalized sheet.
+    Reads the sheet's BoQ Review Rows, resolves the effective tree, and writes
+    PREAMBLE/LINE_ITEM rows as BOQ Nodes (+ per-area BOQ Node Qty By Area children)
+    in three passes (see module docstring). Carries reviewed values VERBATIM
+    (capture-only). Returns {"node_count", "froze_nodes"}.
     """
-    return None
+    # 0. Freeze the prior commit's current nodes (attached to the now-frozen prior
+    #    BoQ Sheet[s]). set_value only -- never touch parent_node; v1 nodes stay a
+    #    coherent frozen snapshot under frozen sheet v1.
+    froze_nodes = 0
+    for ps in prior_sheet_names:
+        for n in _current_names(_NODE_DOCTYPE, boq_name, "sheet", ps):
+            frappe.db.set_value(_NODE_DOCTYPE, n, "is_current", 0)
+            froze_nodes += 1
+
+    # 1. Read review rows (verbatim sheet_name, #152) + resolve effective values.
+    raw_rows = frappe.db.get_all(
+        "BoQ Review Row",
+        filters={"boq": boq_name, "sheet_name": sheet_name},
+        fields=_REVIEW_ROW_FIELDS,
+        order_by="row_index asc",
+    )
+    node_rows: list[tuple[dict, dict]] = []   # (row_dict, eff) for node rows only
+    eff_parent_by_idx: dict[int, Any] = {}
+    for r in raw_rows:
+        d = _parse_json_fields(dict(r))
+        eff = resolve_effective(d)
+        if eff["effective_classification"] not in _NODE_CLASSIFICATIONS:
+            continue  # note / spacer / subtotal_marker / header_repeat -> grid-only
+        node_rows.append((d, eff))
+        eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
+
+    # 2. PASS 1 -- insert every node PARENT-LESS, with NO list-valued JSON field set
+    #    (attached_notes / edit_log deferred to pass 3 so pass-2 doc.save() is safe).
+    docs_by_idx: dict[int, Any] = {}
+    name_by_idx: dict[int, str] = {}
+    for d, eff in node_rows:
+        node = _build_node_pass1(boq_sheet_name, d, eff, commit_version, committed_at)
+        node.insert(ignore_permissions=True)
+        docs_by_idx[d["row_index"]] = node
+        name_by_idx[d["row_index"]] = node.name
+
+    # 3. PASS 2 -- wire parents via doc.save() in ancestor-depth order, so each
+    #    parent's path is final before its children read it AND the controller's
+    #    parent-chain validation re-runs (a free integrity check). Roots (or a row
+    #    whose effective parent is not itself a node) skip -- path=name from pass-1
+    #    after_insert. doc.save() is list-JSON-safe because attached_notes/edit_log
+    #    are still null on the held doc.
+    depth_by_idx = _node_depths(eff_parent_by_idx, name_by_idx)
+    for idx in sorted(name_by_idx, key=lambda i: depth_by_idx[i]):
+        eff_parent = eff_parent_by_idx.get(idx)
+        if eff_parent is None or eff_parent not in name_by_idx:
+            continue
+        node = docs_by_idx[idx]
+        node.parent_node = name_by_idx[eff_parent]
+        node.save(ignore_permissions=True)
+
+    # 4. PASS 3 -- write the DEFERRED list-valued JSON fields via set_value(json.dumps).
+    #    Targeted column writes bypass get_valid_dict's "cannot be a list". (Dict-valued
+    #    append_notes_raw was set in pass 1 -- only LISTs trip the wall.)
+    for d, _eff in node_rows:
+        name = name_by_idx[d["row_index"]]
+        updates: dict[str, str] = {}
+        att = d.get("attached_notes")
+        if att:
+            updates["attached_notes"] = json.dumps(att)
+        elog = d.get("edit_log")
+        if elog:
+            updates["edit_log"] = json.dumps(elog)
+        if updates:
+            frappe.db.set_value(_NODE_DOCTYPE, name, updates, update_modified=False)
+
+    return {"node_count": len(node_rows), "froze_nodes": froze_nodes}
+
+
+def _build_node_pass1(
+    boq_sheet_name: str,
+    d: dict,
+    eff: dict,
+    commit_version: int,
+    committed_at: str,
+) -> Any:
+    """Build a parent-less BOQ Nodes doc from a resolved review row (pass 1).
+
+    node_type/level mapping, the P4-3 verbatim field mapping (word-order reversal,
+    Float->Currency left to Frappe), flags + human-layer-as-provenance + provenance
+    ids + versioning, and the per-area child explosion. Does NOT set the list-valued
+    JSON fields (attached_notes / edit_log) -- those land in pass 3.
+    """
+    node = frappe.new_doc(_NODE_DOCTYPE)
+    node.sheet = boq_sheet_name  # boq auto-fills from the sheet (P4-2 sync-guard)
+
+    cls = eff["effective_classification"]
+    if cls == _PREAMBLE_CLS:
+        node.node_type = "Preamble"
+        # level must be >= 1 for a Preamble (controller throws otherwise). Use the
+        # classifier override when set (default 0 = unset), else the parser level,
+        # else 1 (abort-guard for a missing level).
+        lvl = d.get("preamble_level_override") or d.get("level") or 1
+        node.level = lvl if (isinstance(lvl, int) and lvl >= 1) else 1
+    else:  # _LINE_ITEM_CLS -- level must NOT be set (controller throws if it is)
+        node.node_type = "Line Item"
+
+    # Identity / content (P4-3: sl_no_value->code, row_index->sort_order).
+    node.code = d.get("sl_no_value")
+    node.sort_order = d.get("row_index")
+    node.source_row_number = d.get("source_row_number")
+    # description is reqd by the controller; abort-guard an empty one with a placeholder.
+    node.description = d.get("description") or d.get("sl_no_value") or "(untitled)"
+    node.unit = d.get("unit")
+    node.make_model = d.get("make_model")
+
+    # qty stays Float. A Line Item requires qty (0 for rate-only items).
+    qty = d.get("qty_total")
+    if node.node_type == "Line Item" and qty is None:
+        qty = 0
+    node.qty = qty
+
+    # Money: word-order reversal, Float -> Currency (Frappe coerces; no manual round).
+    node.supply_rate = d.get("rate_supply")
+    node.install_rate = d.get("rate_install")
+    node.combined_rate = d.get("rate_combined")
+    node.supply_amount = d.get("amount_supply")
+    node.install_amount = d.get("amount_install")
+    node.total_amount = d.get("amount_total")
+
+    # Flags carried VERBATIM.
+    node.is_rate_only = 1 if d.get("is_rate_only") else 0
+    node.is_synthetic = 1 if d.get("is_synthetic") else 0
+
+    # HUMAN LAYER -- carried as PROVENANCE ONLY. The committed tier NEVER branches on
+    # these; the LIVE wiring is parent_node + node_type + level (the resolved effective
+    # values from resolve_effective). human_* are written, never read by commit logic.
+    node.human_classification = d.get("human_classification")
+    hp = d.get("human_parent")
+    node.human_parent = hp if hp is not None else -1  # -1 sentinel (agreement #54)
+    node.human_is_root = 1 if d.get("human_is_root") else 0
+
+    # Notes (Option A -- verbatim, NO aggregation / up-roll / cross-flow).
+    node.notes = d.get("row_notes")
+    apn = d.get("append_notes_raw")
+    if apn:
+        node.append_notes_raw = apn  # dict-valued JSON -- safe at insert + pass-2 save
+
+    # Provenance.
+    node.review_row_name = d.get("name")              # human-readable tie (may dangle)
+    node.commit_provenance_id = frappe.generate_hash()  # durable key
+
+    # Versioning (shared with grid + sheet for this commit).
+    node.commit_version = commit_version
+    node.is_current = 1
+    node.committed_at = committed_at
+
+    # Per-area children (dual-shape; NEVER downgrade granularity).
+    for child in _explode_area_children(
+        d.get("qty_by_area"), d.get("rate_by_area"), d.get("amount_by_area")
+    ):
+        node.append("qty_by_area", child)
+
+    return node
+
+
+def _explode_area_children(qty_ba: Any, rate_ba: Any, amount_ba: Any) -> list[dict]:
+    """Explode the review row's per-area JSON into BOQ Node Qty By Area child dicts.
+
+    DUAL-SHAPE, NEVER DOWNGRADE (owner-locked): per-area supply/install granularity
+    is a real business requirement and MUST survive the commit.
+      qty_by_area    -- always flat {area: float}            -> child.qty
+      rate_by_area   -- NESTED {area: {supply_rate, install_rate, combined_rate}}
+                        -> each preserved on the matching child column;
+                        FLAT bare scalar {area: float} -> combined_rate ONLY
+                        (deliberate default; supply/install left empty, not invented)
+      amount_by_area -- NESTED {area: {supply, install, total}}
+                        -> supply_amount / install_amount / total_amount each preserved;
+                        FLAT bare scalar {area: float} -> total_amount ONLY (deliberate)
+    area_name is the dict key, VERBATIM (#152). Area order = first-seen across
+    qty -> rate -> amount.
+    """
+    qty_ba = qty_ba if isinstance(qty_ba, dict) else {}
+    rate_ba = rate_ba if isinstance(rate_ba, dict) else {}
+    amount_ba = amount_ba if isinstance(amount_ba, dict) else {}
+
+    areas: list[str] = []
+    seen: set[str] = set()
+    for src in (qty_ba, rate_ba, amount_ba):
+        for a in src:
+            if a not in seen:
+                seen.add(a)
+                areas.append(a)
+
+    children: list[dict] = []
+    for area in areas:
+        child: dict[str, Any] = {"area_name": area}
+
+        # The child's qty is reqd=1 (BOQ Node Qty By Area schema). An area present only
+        # in rate/amount (not qty_by_area) is a real zero-qty area in the breakdown ->
+        # default qty 0.0 (satisfies the constraint without inventing a quantity).
+        qv = qty_ba.get(area)
+        child["qty"] = qv if isinstance(qv, (int, float)) else 0.0
+
+        rv = rate_ba.get(area)
+        if isinstance(rv, dict):  # NESTED -- preserve each kind present
+            if rv.get("supply_rate") is not None:
+                child["supply_rate"] = rv["supply_rate"]
+            if rv.get("install_rate") is not None:
+                child["install_rate"] = rv["install_rate"]
+            if rv.get("combined_rate") is not None:
+                child["combined_rate"] = rv["combined_rate"]
+        elif isinstance(rv, (int, float)):  # FLAT scalar -> combined only
+            child["combined_rate"] = rv
+
+        av = amount_ba.get(area)
+        if isinstance(av, dict):  # NESTED -- preserve each kind present
+            if av.get("supply") is not None:
+                child["supply_amount"] = av["supply"]
+            if av.get("install") is not None:
+                child["install_amount"] = av["install"]
+            if av.get("total") is not None:
+                child["total_amount"] = av["total"]
+        elif isinstance(av, (int, float)):  # FLAT scalar -> total only
+            child["total_amount"] = av
+
+        children.append(child)
+
+    return children
+
+
+def _node_depths(eff_parent_by_idx: dict[int, Any], name_by_idx: dict[int, str]) -> dict[int, int]:
+    """Depth of each node row in the effective tree (root = 0), for parent-wire
+    ordering. Cycle-safe + missing-parent-safe: an idx whose effective parent is None,
+    not itself a node, or part of a cycle is treated as depth 0."""
+    depth: dict[int, int] = {}
+
+    def _d(idx: int, stack: frozenset) -> int:
+        if idx in depth:
+            return depth[idx]
+        p = eff_parent_by_idx.get(idx)
+        if p is None or p not in name_by_idx or p in stack:
+            depth[idx] = 0
+            return 0
+        depth[idx] = _d(p, stack | {idx}) + 1
+        return depth[idx]
+
+    for idx in name_by_idx:
+        _d(idx, frozenset())
+    return depth

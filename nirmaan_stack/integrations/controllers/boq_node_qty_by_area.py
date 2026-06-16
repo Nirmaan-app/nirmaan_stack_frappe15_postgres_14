@@ -19,14 +19,19 @@ def _validate_combined_rate(child):
     sr = child.supply_rate
     ir = child.install_rate
     cr = child.combined_rate
-    # Only validate when all three are explicitly set (including 0.0). With the rate
+    # Only check when all three are explicitly set (including 0.0). With the rate
     # fallback removed, a blank child rate stays None, so this guard short-circuits and
     # never spuriously trips on an inherited value.
+    # CAPTURE-ONLY (Phase 5 Slice 3b): WARNING, not a block (was frappe.throw pre-3b).
+    # The committed tier records the reviewed per-area rates VERBATIM; tendering reconciles.
     if sr is not None and ir is not None and cr is not None:
         if abs(cr - (sr + ir)) >= 0.01:
-            frappe.throw(
+            frappe.msgprint(
                 _(
                     f"BOQ Node Qty By Area row for area {child.area_name}: "
-                    f"combined_rate ({cr}) must equal supply_rate ({sr}) + install_rate ({ir})"
-                )
+                    f"combined_rate ({cr}) does not equal supply_rate ({sr}) + install_rate "
+                    f"({ir}). Recorded as captured; reconcile in tendering."
+                ),
+                alert=True,
+                indicator="orange",
             )
