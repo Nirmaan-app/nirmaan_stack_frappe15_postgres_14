@@ -120,6 +120,7 @@ export const InflowPaymentsRoute = () => {
         role === "Nirmaan Admin Profile" ||
         role === "Nirmaan PMO Executive Profile" ||
         role === "Nirmaan Accountant Profile" ||
+        role === "Nirmaan Accountant Lead Profile" ||
         role === "Nirmaan Project Lead Profile" ||
         user_id === "Administrator"
 

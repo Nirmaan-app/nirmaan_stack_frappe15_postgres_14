@@ -24,7 +24,7 @@ def after_insert(doc, method):
                             f"Hi {user['full_name']}, a new purchase order for the {pr.work_package} "
                             f"work package has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
                             )
-                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                    if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                         click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approved%20PO"
                     else:
                         click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
@@ -61,7 +61,7 @@ def after_insert(doc, method):
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "po:new"
             action_url = doc.name.replace("/", "&=")
-            if user['role_profile'] != "Nirmaan Accountant Profile":
+            if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                 new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approved%20PO"
             else:
                 new_notification_doc.action_url = f"project-payments/{action_url}?tab=PO%20Wise"

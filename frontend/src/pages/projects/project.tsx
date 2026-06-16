@@ -358,10 +358,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
   ];
 
   const isPrivilegedUser = PRIVILEGED_ROLES.includes(role);
-  const isAccountant = role === "Nirmaan Accountant Profile";
+  const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
   const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile";
   const isProjectManager = role === "Nirmaan Project Manager Profile";

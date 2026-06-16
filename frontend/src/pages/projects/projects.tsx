@@ -222,6 +222,7 @@ const FINANCIAL_COLUMNS_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
 ];
 
 // Roles that can see the summary card

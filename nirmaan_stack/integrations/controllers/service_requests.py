@@ -162,7 +162,7 @@ def on_update(doc, method):
                             f"Hi {user['full_name']}, Vendors have been approved for the {doc.name} Service Request. "
                             "click here to take action."
                         )
-                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                    if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                         click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approved-sr"
                     else:
                         click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
@@ -197,7 +197,7 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "sr:approved"
-            if user['role_profile'] != "Nirmaan Accountant Profile":
+            if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                 new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approved-sr"
             else:
                 new_notification_doc.action_url = f"project-payments/{doc.name}"

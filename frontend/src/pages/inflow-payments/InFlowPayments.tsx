@@ -472,7 +472,8 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
       }, // --- NEW: Actions Column ---
       ...(role === "Nirmaan Admin Profile" ||
       role === "Nirmaan PMO Executive Profile" ||
-      role === "Nirmaan Accountant Profile"
+      role === "Nirmaan Accountant Profile" ||
+      role === "Nirmaan Accountant Lead Profile"
         ? [
             {
               id: "actions",

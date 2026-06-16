@@ -16,6 +16,7 @@ FULL_ACCESS_ROLES = {
     "Nirmaan Project Lead Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
     "Nirmaan Design Lead Profile",
     "Nirmaan Design Executive Profile",
     "Nirmaan HR Executive Profile",

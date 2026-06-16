@@ -318,6 +318,7 @@ export const SelectServiceVendorList: React.FC = () => {
               "Nirmaan Admin Profile",
               "Nirmaan PMO Executive Profile",
               "Nirmaan Accountant Profile",
+              "Nirmaan Accountant Lead Profile",
             ].includes(role);
 
           const canEdit =
@@ -326,6 +327,7 @@ export const SelectServiceVendorList: React.FC = () => {
               "Nirmaan Admin Profile",
               "Nirmaan PMO Executive Profile",
               "Nirmaan Accountant Profile",
+              "Nirmaan Accountant Lead Profile",
             ].includes(role);
           if (!canEdit) return "--";
 

@@ -39,6 +39,7 @@ const PROJECT_EXEMPT_ROLES = [
   "Nirmaan PMO Executive Profile",
   "Nirmaan HR Executive Profile",
   "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
   "Nirmaan Estimates Executive Profile",
   "Nirmaan Design Lead Profile",
 ];

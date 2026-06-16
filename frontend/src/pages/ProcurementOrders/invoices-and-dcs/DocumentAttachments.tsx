@@ -93,7 +93,7 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice } = useDialogStore();
   const { role } = useUserData();
-  const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Admin Profile";
+  const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile" || role === "Nirmaan Admin Profile";
   const { toast } = useToast();
 
   // Fetch users list for displaying "Uploaded By" names

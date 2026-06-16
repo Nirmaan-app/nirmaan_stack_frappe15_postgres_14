@@ -64,7 +64,7 @@ export const AllProjectInvoices: React.FC<{
   const isAdmin =
     role === "Nirmaan Admin Profile" ||
     role === "Nirmaan PMO Executive Profile";
-  const isAccountant = role === "Nirmaan Accountant Profile";
+  const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   // Edit available to Admin + Accountant; Delete remains Admin-only.
   const canEdit = isAdmin || isAccountant;
   const canDelete = isAdmin;

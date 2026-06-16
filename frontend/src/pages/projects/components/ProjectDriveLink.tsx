@@ -458,7 +458,7 @@ export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId, r
             <CardHeader>
                 <CardTitle className="flex justify-between items-center">
                     <div className="text-2xl">Project Drive Links</div>
-                    {projectId && role !== "Nirmaan Accountant Profile" && (
+                    {projectId && role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" && (
                         <AddProjectDriveLinkDialog
                             projectName={projectId}
                             currentLinks={driveLinks}
