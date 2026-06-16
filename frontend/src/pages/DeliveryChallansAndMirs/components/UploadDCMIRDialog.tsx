@@ -42,6 +42,7 @@ interface POItemForSelector {
   unit: string;
   category?: string;
   make?: string;
+  billing_status?: "Billable" | "Non-Billable" | "";
 }
 
 interface UploadDCMIRDialogProps {
@@ -98,9 +99,23 @@ export const UploadDCMIRDialog = ({
   const [attachmentAction, setAttachmentAction] = useState<"keep" | "replace">("keep");
   const typeLabel = dcType === "Delivery Challan" ? "DC" : "MIR";
 
+  // For POs, only Billable items are shown — Non-Billable items are hidden from the
+  // DC/MIR upload. In edit mode, keep any item already on the existing doc (even if
+  // Non-Billable) so historical selections are never dropped. ITMs have no billing
+  // concept, so the billing filter is skipped for them.
+  const existingItemIds = useMemo(
+    () => new Set((mode === "edit" ? existingDoc?.items ?? [] : []).map((ei) => ei.item_id)),
+    [mode, existingDoc]
+  );
+
   const filteredPoItems = useMemo(
-    () => poItems.filter(item => item.category !== "Additional Charges"),
-    [poItems]
+    () =>
+      poItems.filter(
+        (item) =>
+          item.category !== "Additional Charges" &&
+          (isITM || item.billing_status === "Billable" || existingItemIds.has(item.item_id))
+      ),
+    [poItems, existingItemIds, isITM]
   );
 
   const form = useForm<UploadDCMIRFormValues>({

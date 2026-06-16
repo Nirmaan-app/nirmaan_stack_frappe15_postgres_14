@@ -1,20 +1,24 @@
-import re
-
 import frappe
 
-from nirmaan_stack.services.document_ai import (
+from nirmaan_stack.services.extraction import extract
+from nirmaan_stack.services.extraction.files import (
     SUPPORTED_EXTS,
-    extract_with_document_ai,
     fetch_file_content,
-    get_document_ai_settings,
+    get_extraction_settings,
+)
+from nirmaan_stack.services.extraction.helpers import (
+    get_file_doc_by_url,
+    normalize_amount,
+    normalize_date,
+    normalize_utr,
+    pick_entity,
 )
 
 MIN_CONFIDENCE = 0.70
 
 # Rounding tolerance when comparing Transfer_Amount from the receipt against
-# the requested payment amount. Banks sometimes round paise differently and
-# some receipts strip the decimal; ₹2 absorbs that noise without hiding a
-# real discrepancy.
+# the requested payment amount. Banks round paise differently and some receipts
+# strip the decimal; ₹2 absorbs that noise without hiding a real discrepancy.
 AMOUNT_DELTA = 2.0
 
 UTR_KEYS = ("utr",)
@@ -24,23 +28,17 @@ TRANSFER_AMOUNT_KEYS = ("transfer_amount",)
 
 @frappe.whitelist()
 def extract_payment_fields(file_url):
-    """Extract UTR and payment date from an uploaded payment receipt.
+    """Extract UTR, payment date, and transfer amount from a payment receipt.
 
     Called from the New Payments → Pay dialog when the user selects an
-    attachment. Routes through the Expense Processor (custom-trained on
-    bank-transfer receipts) regardless of how the Document AI Settings
-    target-doctype lists are configured — this endpoint is hard-coded to
-    expense_processor_id because the receipt format is distinct from
-    invoices.
-
-    Only fields with confidence >= MIN_CONFIDENCE are returned populated;
-    lower-confidence fields are returned as empty strings so the frontend
-    leaves them blank for manual entry.
+    attachment. Only fields the model could read are returned populated;
+    everything else comes back empty for manual entry. The response is never
+    persisted server-side.
     """
     if not file_url:
         frappe.throw("file_url is required")
 
-    file_doc = _get_file_doc_by_url(file_url)
+    file_doc = get_file_doc_by_url(file_url)
     if not file_doc:
         frappe.throw(f"No File record found for url: {file_url}")
 
@@ -51,30 +49,21 @@ def extract_payment_fields(file_url):
     if file_ext not in SUPPORTED_EXTS:
         frappe.throw(f"Unsupported file type: .{file_ext}. Allowed: {sorted(SUPPORTED_EXTS)}")
 
-    settings = get_document_ai_settings()
+    settings = get_extraction_settings()
     if not settings.get("enabled"):
-        frappe.throw("Document AI is disabled. Please enable it in Document AI Settings.")
-
-    processor_id = (settings.get("expense_processor_id") or "").strip()
-    if not processor_id:
-        frappe.throw("No Expense Processor configured. Set expense_processor_id in Document AI Settings.")
+        frappe.throw("Document extraction is disabled. Please enable it in Document AI Settings.")
 
     content = fetch_file_content(file_doc, file_doc.name)
     if not content:
         frappe.throw("Could not read file content.")
 
-    try:
-        _, entities = extract_with_document_ai(content, file_ext, settings, processor_id)
-    except Exception as exc:
-        frappe.log_error(
-            title=f"Payment Autofill Error: {file_doc.name}",
-            message=frappe.get_traceback(),
-        )
-        frappe.throw(f"Document AI extraction failed: {exc}")
+    _, entities = extract(content, file_ext, settings, doc_kind="payment")
 
-    utr, utr_conf = _pick_entity(entities, UTR_KEYS)
-    payment_date, payment_date_conf = _pick_entity(entities, PAYMENT_DATE_KEYS, prefer_normalized=True)
-    transfer_amount, transfer_amount_conf = _pick_entity(entities, TRANSFER_AMOUNT_KEYS, prefer_normalized=True)
+    utr, utr_conf = pick_entity(entities, UTR_KEYS)
+    payment_date, payment_date_conf = pick_entity(entities, PAYMENT_DATE_KEYS, prefer_normalized=True)
+    transfer_amount, transfer_amount_conf = pick_entity(
+        entities, TRANSFER_AMOUNT_KEYS, prefer_normalized=True
+    )
 
     all_entities = [
         {
@@ -88,13 +77,13 @@ def extract_payment_fields(file_url):
     ]
 
     normalized_transfer_amount = (
-        _normalize_amount(transfer_amount) if transfer_amount_conf >= MIN_CONFIDENCE else ""
+        normalize_amount(transfer_amount) if transfer_amount_conf >= MIN_CONFIDENCE else ""
     )
     validation = _build_validation(file_doc, normalized_transfer_amount)
 
     return {
-        "utr": _normalize_utr(utr) if utr_conf >= MIN_CONFIDENCE else "",
-        "payment_date": _normalize_date(payment_date) if payment_date_conf >= MIN_CONFIDENCE else "",
+        "utr": normalize_utr(utr) if utr_conf >= MIN_CONFIDENCE else "",
+        "payment_date": normalize_date(payment_date) if payment_date_conf >= MIN_CONFIDENCE else "",
         "transfer_amount": normalized_transfer_amount,
         "confidence": {
             "utr": round(utr_conf, 3),
@@ -103,7 +92,7 @@ def extract_payment_fields(file_url):
         },
         "entities": all_entities,
         "min_confidence": MIN_CONFIDENCE,
-        "processor_id": processor_id,
+        "processor_id": settings.get("gemini_model"),
         "validation": validation,
     }
 
@@ -111,14 +100,11 @@ def extract_payment_fields(file_url):
 def _build_validation(file_doc, extracted_transfer_amount):
     """Return raw values for an amount-mismatch soft-check.
 
-    The frontend does the actual comparison because the effective expected
-    amount depends on TDS (which is entered after autofill runs). The server
-    just looks up the gross requested amount and surfaces the extracted
-    transfer amount + tolerance so the frontend can recompute the match
-    reactively as the user types TDS.
-
-    If the file isn't attached to a Project Payments row, `applicable` is
-    False and the frontend hides the banner.
+    The frontend does the comparison because the effective expected amount
+    depends on TDS (entered after autofill). The server just looks up the gross
+    requested amount and surfaces the extracted transfer amount + tolerance so
+    the frontend can recompute the match reactively. `applicable` is False for
+    anything not attached to a Project Payments row.
     """
     parent_doctype = (file_doc.attached_to_doctype or "").strip()
     parent_name = (file_doc.attached_to_name or "").strip()
@@ -159,104 +145,3 @@ def _build_validation(file_doc, extracted_transfer_amount):
         "delta_threshold": AMOUNT_DELTA,
     }
     return result
-
-
-def _get_file_doc_by_url(file_url):
-    name = frappe.db.get_value("File", {"file_url": file_url}, "name")
-    if not name:
-        return None
-    return frappe.get_doc("File", name)
-
-
-def _pick_entity(entities, candidate_keys, prefer_normalized=False):
-    """Return (value, confidence) for the highest-confidence entity matching any candidate key."""
-    best_value = ""
-    best_conf = 0.0
-    candidates = {k.lower() for k in candidate_keys}
-
-    for entity in entities or []:
-        entity_type = (entity.get("type") or "").lower().strip()
-        if entity_type not in candidates:
-            continue
-
-        confidence = float(entity.get("confidence") or 0)
-        if confidence <= best_conf:
-            continue
-
-        normalized = (entity.get("normalized_text") or "").strip()
-        mention = (entity.get("mention_text") or "").strip()
-
-        if prefer_normalized:
-            value = normalized or mention
-        else:
-            value = mention or normalized
-
-        if not value:
-            continue
-
-        best_value = value
-        best_conf = confidence
-
-    return best_value, best_conf
-
-
-def _normalize_utr(value):
-    """Strip surrounding whitespace and internal spaces from a UTR string.
-
-    Banks sometimes pretty-print UTRs with spaces every 4 chars; the
-    backend uniqueness check compares exact strings, so we collapse
-    whitespace before returning.
-    """
-    if not value:
-        return ""
-    return re.sub(r"\s+", "", value.strip())
-
-
-def _normalize_date(value):
-    """Normalize a date string into YYYY-MM-DD for an HTML <input type='date'>."""
-    if not value:
-        return ""
-
-    value = value.strip()
-
-    from datetime import datetime
-
-    candidate_formats = (
-        "%Y-%m-%d",
-        "%Y/%m/%d",
-        "%d-%m-%Y",
-        "%d/%m/%Y",
-        "%d.%m.%Y",
-        "%m/%d/%Y",
-        "%d %b %Y",
-        "%d %B %Y",
-        "%d-%b-%Y",
-        "%d-%B-%Y",
-        "%b %d, %Y",
-        "%B %d, %Y",
-        "%d %b, %Y",
-        "%d %B, %Y",
-        "%d-%b-%y",
-        "%d/%m/%y",
-    )
-    for fmt in candidate_formats:
-        try:
-            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return ""
-
-
-def _normalize_amount(value):
-    """Return a parseable numeric string or '' if value can't be cleanly parsed."""
-    if not value:
-        return ""
-
-    cleaned = re.sub(r"[^\d.\-]", "", value.strip())
-    if not cleaned or not re.search(r"\d", cleaned):
-        return ""
-
-    try:
-        return str(float(cleaned))
-    except ValueError:
-        return ""

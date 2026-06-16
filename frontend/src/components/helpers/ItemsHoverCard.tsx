@@ -64,12 +64,19 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
   const isCorrectData = parentDocData?.name === parentDoc?.name;
 
   if (parentDoctype === "Service Requests") {
-    // console.log(parentDocData)
-    itemsToDisplay = Array.isArray(parentDoc?.service_order_list?.list)
-      ? parentDoc[childTableName].list // If true, use the dynamic childTableName
-      : []; // If false, default to an empty array
-
-    // console.log(itemsToDisplay)
+    // Read directly from the `work_order_items` child table (full doc fetch returns it).
+    const childRows = isCorrectData && Array.isArray(parentDocData?.work_order_items)
+      ? parentDocData.work_order_items
+      : [];
+    itemsToDisplay = childRows.map((row: any) => ({
+      // Normalize to the field names the SR render branch below expects
+      name: row.name,
+      category: row.category,
+      description: row.item_name,
+      uom: row.uom,
+      quantity: row.quantity,
+      rate: row.rate,
+    }));
   } else {
     itemsToDisplay = isCorrectData
       ? parentDocData?.[childTableName]

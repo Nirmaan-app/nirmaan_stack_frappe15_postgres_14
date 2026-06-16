@@ -50,14 +50,14 @@ def update_invoice_data(
         invoice_attachment (str, optional): URL of the uploaded invoice attachment. Defaults to None.
         isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
         invoice_id (str, optional): The name of the existing Vendor Invoice to update.
-        autofill_used (bool, optional): True if this invoice was prefilled via Document AI autofill.
-            When True, the backend resolves the processor ID from Document AI Settings and stores
-            it on the Vendor Invoice for traceability.
+        autofill_used (bool, optional): True if this invoice was prefilled via document autofill.
+            When True, the backend records the extractor model (gemini_model) on the Vendor
+            Invoice for traceability.
         autofill_confidence_json (str, optional): JSON string of per-field confidence scores.
         autofill_extracted_invoice_no (str, optional): Original invoice number value AI extracted.
         autofill_extracted_invoice_date (str, optional): Original invoice date value AI extracted (YYYY-MM-DD).
         autofill_extracted_amount (str, optional): Original total amount value AI extracted.
-        autofill_all_entities_json (str, optional): JSON array of every entity Document AI returned
+        autofill_all_entities_json (str, optional): JSON array of every entity the extractor returned
             ({type, value, confidence}). Used by the recon UI to surface the full AI extraction.
 
     Returns:
@@ -139,21 +139,19 @@ def update_invoice_data(
                 vendor_invoice.save(ignore_permissions=True)
             else:
                 # Create new record
-                # Resolve the processor ID from Document AI Settings if autofill was used.
+                # Record which extractor produced the autofill, for audit/traceability.
                 # The frontend doesn't send this — backend is the source of truth.
                 resolved_processor_id = None
                 if autofill_used:
                     try:
-                        from nirmaan_stack.services.document_ai import (
-                            get_document_ai_settings,
-                            resolve_processor_id,
+                        from nirmaan_stack.services.extraction.files import (
+                            get_extraction_settings,
                         )
-                        settings = get_document_ai_settings()
-                        resolved_processor_id = resolve_processor_id(settings, "Vendor Invoices")
+                        resolved_processor_id = get_extraction_settings().get("gemini_model")
                     except Exception:
-                        # Non-fatal — invoice still gets saved, just without processor_id traceability.
+                        # Non-fatal — invoice still gets saved, just without extractor traceability.
                         frappe.log_error(
-                            title="Autofill processor_id resolution failed",
+                            title="Autofill extractor id resolution failed",
                             message=frappe.get_traceback(),
                         )
 
@@ -285,8 +283,8 @@ def create_vendor_invoice(
         parent_doc: The parent PO or SR document
         invoice_data: Dict with invoice_no, amount, date
         attachment_id: Nirmaan Attachments document name (optional)
-        autofill_used: Whether this invoice was prefilled via Document AI autofill
-        autofill_processor_id: Document AI processor ID used for extraction
+        autofill_used: Whether this invoice was prefilled via document autofill
+        autofill_processor_id: Extractor model id (gemini_model) used for extraction
         autofill_confidence_json: JSON string of per-field confidence scores
         autofill_extracted_invoice_no: Original invoice_no AI extracted (pre-edit)
         autofill_extracted_invoice_date: Original invoice_date AI extracted (pre-edit, YYYY-MM-DD)

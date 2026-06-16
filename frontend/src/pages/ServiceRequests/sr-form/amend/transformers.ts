@@ -1,5 +1,5 @@
 import { SRFormValues, ServiceItemType, VendorRefType, ProjectRefType, createServiceItem } from "../schema";
-import { ServiceRequests, ServiceItemType as SRServiceItemType } from "@/types/NirmaanStack/ServiceRequests";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { groupItemsByCategoryFlat } from "../utils";
 
 /**
@@ -22,78 +22,62 @@ interface ProjectData {
     project_address?: string;
 }
 
-/**
- * Parses the service_order_list field from a Service Request document.
- *
- * Handles both formats:
- * - JSON string (when fetched raw from database)
- * - Object with { list: [...] } structure (when already parsed)
- *
- * @param sr - The Service Request document
- * @param masterItems - Optional master standard items for rate enrichment
- * @returns Array of ServiceItemType with proper numeric types
- */
 export function parseServiceOrderList(sr: ServiceRequests, masterItems?: any[]): ServiceItemType[] {
-    let list: SRServiceItemType[] = [];
+    const childRows = Array.isArray(sr.work_order_items) ? sr.work_order_items : [];
+    return childRows.map((row): ServiceItemType => mapItem({
+        id: row.name,
+        category: row.category,
+        description: row.item_name,
+        uom: row.uom,
+        quantity: row.quantity,
+        rate: row.rate,
+    }, masterItems));
+}
 
-    // 1. Handle string format (unparsed JSON)
-    if (typeof sr.service_order_list === "string") {
-        try {
-            const parsed = JSON.parse(sr.service_order_list);
-            list = Array.isArray(parsed) ? parsed : (parsed?.list || []);
-        } catch (e) {
-            console.error("Failed to parse service_order_list JSON string:", e);
-            return [];
-        }
-    } 
-    // 2. Handle object format
-    else if (sr.service_order_list && typeof sr.service_order_list === "object") {
-        // Could be { list: [...] } or just [...]
-        if (Array.isArray(sr.service_order_list)) {
-            list = sr.service_order_list;
-        } else if (Array.isArray((sr.service_order_list as any).list)) {
-            list = (sr.service_order_list as any).list;
+function mapItem(
+    item: {
+        id?: string;
+        category?: string;
+        description?: string;
+        uom?: string;
+        quantity?: string | number;
+        rate?: string | number;
+        standard_rate?: string | number;
+    },
+    masterItems?: any[],
+): ServiceItemType {
+    const description = item.description || "";
+    const category = item.category || "Unknown";
+    const rate = item.rate !== undefined && item.rate !== null
+        ? (typeof item.rate === "string" ? parseFloat(item.rate) || 0 : item.rate)
+        : undefined;
+
+    const savedStd = (item as any).standard_rate;
+    let stdRate: number | undefined =
+        savedStd === undefined || savedStd === null
+            ? undefined
+            : typeof savedStd === "string"
+                ? parseFloat(savedStd) || undefined
+                : savedStd;
+
+    if (stdRate === undefined && masterItems && masterItems.length > 0) {
+        const masterMatch = masterItems.find(
+            (m) => m.item_name === description && m.category_link === category,
+        );
+        if (masterMatch) {
+            stdRate = masterMatch.rate;
         }
     }
 
-    // 3. Transform to form type with safe defaults
-    return list.map((item): ServiceItemType => {
-        const description = item.description || "";
-        const category = item.category || "Unknown";
-        const rate = item.rate !== undefined
-            ? (typeof item.rate === "string" ? parseFloat(item.rate) || 0 : item.rate)
-            : undefined;
-
-        // Resolve standard_rate: first honor a saved value on the SR row,
-        // then fall back to a rate-card lookup by (description + category).
-        // An undefined result means "custom item" — that's how the UI decides.
-        const savedStd = (item as any).standard_rate;
-        let stdRate: number | undefined =
-            savedStd === undefined || savedStd === null
-                ? undefined
-                : typeof savedStd === "string"
-                    ? parseFloat(savedStd) || undefined
-                    : savedStd;
-
-        if (stdRate === undefined && masterItems && masterItems.length > 0) {
-            const masterMatch = masterItems.find(
-                (m) => m.item_name === description && m.category_link === category,
-            );
-            if (masterMatch) {
-                stdRate = masterMatch.rate;
-            }
-        }
-
-        return {
-            id: item.id || createServiceItem(category).id,
-            category,
-            description,
-            uom: item.uom || "",
-            quantity: typeof item.quantity === "string" ? parseFloat(item.quantity) || 0 : item.quantity || 0,
-            rate,
-            standard_rate: stdRate,
-        };
-    });
+    return {
+        id: item.id || createServiceItem(category).id,
+        category,
+        description,
+        uom: item.uom || "",
+        quantity: typeof item.quantity === "string" ? parseFloat(item.quantity) || 0 : item.quantity || 0,
+        rate,
+        standard_rate: stdRate,
+    };
 }
 
 /**
@@ -157,18 +141,14 @@ export function transformFormValuesToSRPayload(values: SRFormValues): Record<str
     // Group items by category to preserve package-wise order in backend
     const groupedItems = groupItemsByCategoryFlat(values.items);
 
-    // Build service_order_list structure
-    const serviceOrderList = {
-        list: groupedItems.map((item) => ({
-            id: item.id,
-            category: item.category,
-            description: item.description,
-            uom: item.uom,
-            quantity: item.quantity,
-            rate: item.rate || 0,
-            // standard_rate is omitted here as per user request (UI reference only)
-        })),
-    };
+    // Child-table rows for work_order_items — let Frappe auto-generate row names
+    const workOrderItems = groupedItems.map((item) => ({
+        item_name: item.description,
+        category: item.category,
+        uom: item.uom,
+        quantity: item.quantity || 0,
+        rate: item.rate || 0,
+    }));
 
     // Build service_category_list from unique categories in grouped order
     const uniqueCategories = Array.from(
@@ -181,11 +161,9 @@ export function transformFormValuesToSRPayload(values: SRFormValues): Record<str
     return {
         project: values.project.id,
         vendor: values.vendor?.id || null,
-        service_order_list: serviceOrderList,
+        work_order_items: workOrderItems,
         service_category_list: serviceCategoryList,
         project_gst: values.project_gst || null,
-        // Note: comments/notes handling depends on amendment API requirements
-        // The amendment may need to store the comment in a notes field
     };
 }
 

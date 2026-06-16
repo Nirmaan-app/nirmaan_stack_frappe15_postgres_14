@@ -346,6 +346,10 @@ export default function ItemsPage() {
       {/* You can add more summary cards here */}
       {/* </div> */}
 
+      {/* Item search here is server-side (Frappe API LIKE on ITEM_SEARCHABLE_FIELDS).
+          The Items master catalog is unbounded — do not migrate to client-side
+          rankByTokenScore. All other item-search inputs in the app use the
+          shared token-score algorithm; this one is the intentional exception. */}
       <DataTable<ItemsType>
         table={table}
         columns={columns}

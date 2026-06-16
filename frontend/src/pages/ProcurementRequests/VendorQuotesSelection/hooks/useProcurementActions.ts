@@ -92,6 +92,7 @@ export const useProcurementActions = ({ docId, docMutate, projectId }: UseProcur
                 status: docItem.status, // Keep original status unless RFQ logic changes it
                 tax: docItem.tax,
                 comment: docItem.comment,
+                billing_status: docItem.billing_status, // preserve — the full order_list save would otherwise wipe it (esp. on SB, which has no validate to restore it)
                 // Vendor, quote, make will be updated based on selections
             };
 
@@ -247,6 +248,7 @@ export const useProcurementActions = ({ docId, docMutate, projectId }: UseProcur
                                 item_name: charge.item_name,
                                 // ---
                                 category: 'Additional Charges',
+                                billing_status: 'Non-Billable', // Additional Charges are always Non-Billable (SB has no validate to set it)
                                 unit: 'NOS',
                                 quantity: 1,
                                 tax: charge.tax,

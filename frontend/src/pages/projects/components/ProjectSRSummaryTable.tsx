@@ -48,7 +48,6 @@ export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (
     "vendor",
     "service_category_list",
     "status",
-    "service_order_list",
     "gst",
     "total_amount",
     "amount_paid",
@@ -67,11 +66,11 @@ export const SR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." }, // If vendor is relevant here
   { value: "status", label: "Status", placeholder: "Search by Status..." },
   {
-    value: "service_order_list",
+    value: "work_order_items",
     label: "Item in WO",
     placeholder: "Search by Service Item...",
-    is_json: true,
     default: true,
+    is_json: true, // signals item-search routing (resolves via CHILD_TABLE_ITEM_SEARCH_MAP)
   },
 ];
 
@@ -181,7 +180,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
                 <ItemsHoverCard
                   parentDoc={sr}
                   parentDoctype="Service Requests"
-                  childTableName="service_order_list"
+                  childTableName="work_order_items"
                   isSR
                 />
               </div>

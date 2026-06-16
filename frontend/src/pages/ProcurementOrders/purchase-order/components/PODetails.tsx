@@ -142,7 +142,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const { role } = useUserData();
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
-  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(po?.project);
+  const { isCEOHold, showBlockedToast, ceoHoldBy } = useCEOHoldGuard(po?.project);
   const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(po?.vendor);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
@@ -570,7 +570,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   return (
     <div>
-      {isCEOHold && <CEOHoldBanner className="mb-4" />}
+      {isCEOHold && <CEOHoldBanner className="mb-4" heldBy={ceoHoldBy} />}
       {isVendorOnHold && (
         <VendorHoldBanner className="mb-4" />
       )}

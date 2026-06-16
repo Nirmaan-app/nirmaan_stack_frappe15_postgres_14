@@ -13,6 +13,7 @@ export interface ProcurementRequestItem {
   comment?: string;
   make?: string;     // Selected Make DocName for this item
   status: 'Pending' | 'Request' | 'Approved' | 'Rejected'; // Add other relevant statuses if needed
+  billing_status?: 'Billable' | 'Non-Billable'; // Set server-side from the Items master
 }
 
 // Represents a category selection derived from the procList

@@ -303,17 +303,14 @@ export const SRFormWizard = () => {
             // Group items by category to preserve package-wise order in backend
             const groupedItems = groupItemsByCategoryFlat(currentFormValues.items);
 
-            // Build service_order_list structure
-            const serviceOrderList = {
-                list: groupedItems.map((item) => ({
-                    id: item.id,
-                    category: item.category,
-                    description: item.description,
-                    uom: item.uom,
-                    quantity: item.quantity,
-                    rate: item.rate || 0,
-                })),
-            };
+            // Child-table rows for work_order_items — let Frappe auto-generate row names
+            const workOrderItems = groupedItems.map((item) => ({
+                item_name: item.description,
+                category: item.category,
+                uom: item.uom,
+                quantity: item.quantity || 0,
+                rate: item.rate || 0,
+            }));
 
             // Build service_category_list from unique categories in the grouped order
             const uniqueCategories = Array.from(new Set(groupedItems.map((item) => item.category)));
@@ -325,7 +322,7 @@ export const SRFormWizard = () => {
             const srDoc = await createDoc("Service Requests", {
                 project: currentFormValues.project.id,
                 vendor: currentFormValues.vendor?.id,
-                service_order_list: serviceOrderList,
+                work_order_items: workOrderItems,
                 service_category_list: serviceCategoryList,
                 status: "Vendor Selected",
                 project_gst: currentFormValues.project_gst || undefined,

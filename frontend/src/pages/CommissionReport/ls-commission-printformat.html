@@ -1,0 +1,360 @@
+<!--
+    PRINT FORMAT: LS Project Commission Report - Filled Task (LANDSCAPE)
+    Mirrors `commission-printformat.html` exactly — same CSS classes, header/footer
+    divs, macros, and per-template branches. The only difference is the `@page` rule
+    below (landscape) and the matching `Orientation = Landscape` setting on the
+    Frappe Print Format DocType record.
+
+    Used for templates whose `source_format` declares `"printOrientation": "landscape"`.
+    The wizard's print button routes to this format when the flag is set.
+
+    *** CRITICAL — set these on the Print Format DocType UI (NOT just CSS): ***
+        Orientation:   Landscape
+        Margin Top:    25mm
+        Margin Bottom: 22mm
+        Margin Left:   12mm
+        Margin Right:  12mm
+
+    URL param: task_row=<child_row_name>
+-->
+
+{%- set req_row = (frappe.form_dict.task_row or frappe.request.args.task_row) | string | trim -%}
+
+{%- set project_doc = frappe.get_cached_doc("Projects", doc.project) if (doc.get("project") and frappe.db.exists("Projects", doc.project)) else none -%}
+
+{%- set ns = namespace(target=none) -%}
+{%- for t in (doc.commission_report_task or []) -%}
+    {%- if t.name == req_row -%}{%- set ns.target = t -%}{%- endif -%}
+{%- endfor -%}
+{%- set target = ns.target -%}
+
+{# wkhtmltopdf reads these meta hints and forces landscape orientation even
+   when the Print Format DocType's `orientation` field is left at Portrait.
+   Keeping them inline so the file is self-contained. #}
+<meta name="pdfkit-orientation" content="Landscape"/>
+<meta name="pdfkit-load-error-handling" content="ignore"/>
+
+<style>
+* { box-sizing: border-box; -webkit-box-sizing: border-box; }
+body { font-family: "Inter", Helvetica, Arial, sans-serif; font-size: 10px; color: #1f2937; line-height: 1.35; margin: 0; padding: 0; }
+@media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    .page-break-before { page-break-before: always; }
+    .avoid-break { page-break-inside: avoid !important; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    thead { display: table-header-group; }
+}
+
+.cv-page-layout { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cv-content-cell { vertical-align: top; padding: 0; }
+.cv-bottom-cell  { vertical-align: top; padding: 0; }
+.cv-spacer-md { height: 10px; }
+
+.cv-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; }
+.cv-table td { border: 1px solid #000; padding: 5px 8px; vertical-align: top; font-size: 10px; word-wrap: break-word; }
+
+.cv-title { text-align: center; font-weight: 700; font-size: 12px; padding: 7px !important; text-decoration: underline; }
+.cv-label { font-weight: 700; width: 120px; }
+.cv-blank { color: #aaa; }
+
+.cv-chk { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
+.cv-chk th, .cv-chk td { border: 1px solid #000; padding: 4px 6px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-chk th { text-align: center; font-weight: 700; background: #fff; }
+.cv-chk .cv-num { width: 50px; text-align: center; }
+.cv-chk .cv-result { width: 80px; text-align: center; font-weight: 700; }
+.cv-chk .cv-remarks { width: 130px; }
+
+.cv-tr-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: auto; margin-top: -1px; }
+.cv-tr-table th, .cv-tr-table td { border: 1px solid #000; padding: 5px 8px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-tr-table th { text-align: center; font-weight: 700; background: #fff; }
+.cv-tr-table .cv-tr-row td { height: 26px; }
+.cv-tr-table .cv-tr-sig { width: 140px; }
+
+.cv-mm-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
+.cv-mm-table th, .cv-mm-table td { border: 1px solid #000; padding: 6px 8px; font-size: 10px; vertical-align: middle; text-align: center; word-wrap: break-word; }
+.cv-mm-table th { font-weight: 700; background: #fff; }
+.cv-mm-table .cv-mm-lbl { font-weight: 600; }
+.cv-mm-table .cv-mm-val { font-weight: 600; }
+
+.cv-cl-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
+.cv-cl-table td { border: 1px solid #000; padding: 6px 8px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-cl-head { font-weight: 700; background: #fff; }
+.cv-cl-proc { line-height: 1.5; }
+.cv-cl-item { white-space: pre-wrap; line-height: 1.5; }
+
+.cv-notes-head { font-weight: 700; padding: 5px 8px; border: 1px solid #000; border-bottom: none; }
+.cv-notes-body { min-height: 60px; padding: 8px; border: 1px solid #000; }
+
+.cv-section-head { font-weight: 700; padding: 5px 8px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
+.cv-sub-head { font-weight: 700; padding: 6px 0; font-size: 11px; text-decoration: underline; }
+
+.cv-proc-section-title { text-align: center; font-weight: 700; font-size: 13px; margin: 4px 0 12px 0; text-decoration: underline; }
+.cv-proc-subtitle { font-weight: 700; font-size: 11px; margin: 10px 0 4px 0; }
+.cv-proc-item { font-size: 10px; line-height: 1.5; padding: 2px 0 2px 4px; white-space: pre-wrap; }
+
+.cv-img-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
+.cv-img-grid td { border: 1px solid #000; padding: 6px; vertical-align: top; text-align: center; font-size: 10px; word-wrap: break-word; min-height: 90px; }
+.cv-img-grid .cv-img-label { font-size: 9px; font-weight: 700; color: #555; text-transform: uppercase; margin-bottom: 4px; }
+.cv-img-grid img { max-width: 100%; max-height: 200px; object-fit: contain; }
+.cv-img-grid .cv-img-empty { color: #bbb; padding: 14px 0; }
+
+.cv-meas { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
+.cv-meas td { border: 1px solid #000; padding: 5px 8px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-meas .cv-meas-lbl { font-weight: 700; width: 25%; }
+
+.cv-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 30px; page-break-inside: avoid; }
+.cv-sigs td { padding: 4px 8px; text-align: center; font-weight: 700; font-size: 10px; border: 0; vertical-align: bottom; }
+.cv-sigs .sig-line { height: 46px; border-bottom: 1px solid #000; margin-bottom: 4px; }
+.cv-sigs .sig-role { font-weight: 700; font-size: 10px; }
+.cv-sigs .sig-cap { font-weight: 400; font-size: 9px; color: #555; }
+
+.cv-error { padding: 12px; border: 1px solid #f00; background: #fee; color: #900; }
+
+tr { page-break-inside: avoid; }
+</style>
+
+{#
+  ===== render_signatures(template_id, project_id, disabled_keys, enabled_keys) =====
+  Dynamic signature row driven by Project TDS Setting + per-report overrides
+  from the wizard's Signatures step.
+
+    - demo-training-certificate → 4 roles:
+        PROJECT MANAGER (manager) · VENDOR (mep_contractor)
+        · CLIENT (client) · GC CONTRACTOR (gc_contractor)
+    - everything else → 5 roles:
+        PROJECT MANAGER · CONSULTANT · CLIENT · GC CONTRACTOR · NIRMAAN(MEP)
+
+  Final printed set per role:
+      include = (tds.enable_<key> = 1 OR key in enabled_keys)
+                AND (key not in disabled_keys)
+
+  - `disabled_keys` = roles the user unticked in the wizard (TDS-on overridden off)
+  - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
+  No TDS Setting → red error banner asking the admin to configure it.
+#}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[]) -%}
+    {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
+    {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
+    {%- if not tds -%}
+        <div class="cv-error">⚠ Please set up <strong>Project TDS Setting</strong> for signatures before printing. (Projects → TDS Repository)</div>
+    {%- else -%}
+        {%- set dk = disabled_keys or [] -%}
+        {%- set ek = enabled_keys  or [] -%}
+        {%- set ns_sigs = namespace(items=[]) -%}
+        {%- if template_id == "demo-training-certificate" -%}
+            {%- if (tds.enable_manager        or "manager"        in ek) and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("VENDOR")          -%}{%- endif -%}
+            {%- if (tds.enable_client         or "client"         in ek) and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
+            {%- if (tds.enable_gc_contractor  or "gc_contractor"  in ek) and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
+        {%- else -%}
+            {%- if (tds.enable_manager        or "manager"        in ek) and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if (tds.enable_consultant     or "consultant"     in ek) and "consultant"     not in dk -%}{%- set _ = ns_sigs.items.append("CONSULTANT")      -%}{%- endif -%}
+            {%- if (tds.enable_client         or "client"         in ek) and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
+            {%- if (tds.enable_gc_contractor  or "gc_contractor"  in ek) and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
+            {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
+        {%- endif -%}
+        {%- if ns_sigs.items | length > 0 -%}
+            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td><div class="sig-line">&nbsp;</div><div class="sig-role">{{ label }}</div></td>{%- endfor -%}</tr></table>
+        {%- endif -%}
+    {%- endif -%}
+{%- endmacro %}
+
+<div id="header-html">
+    <div style="text-align: center; border-bottom: 1.5px solid #000; background: #fff;font-family: 'Inter', Helvetica, Arial, sans-serif;  line-height: 22px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1056 1056"
+             preserveAspectRatio="xMidYMid meet"
+             width="40" height="40"
+             style="vertical-align: bottom; margin-right: 14px;">
+            <g transform="translate(0,1056) scale(0.1,-0.1)" fill="#DC2626" stroke="none">
+                <path d="M4534 8883 c-39 -48 -89 -113 -112 -143 -23 -30 -45 -59 -50 -65 -22 -29 -49 -65 -62 -85 -8 -12 -48 -66 -87 -120 -40 -55 -73 -101 -73 -104 0 -4 -8 -15 -17 -25 -28 -31 -40 -46 -52 -68 -6 -12 -17 -27 -23 -35 -7 -7 -29 -36 -47 -63 -19 -28 -37 -52 -40 -55 -4 -3 -10 -12 -16 -22 -16 -26 -168 -242 -174 -248 -3 -3 -20 -25 -36 -50 -17 -25 -34 -50 -40 -57 -11 -13 -11 -13 -181 -258 -68 -99 -131 -188 -139 -197 -8 -10 -11 -18 -7 -18 4 0 2 -4 -3 -8 -11 -8 -80 -102 -168 -232 -32 -47 -99 -143 -148 -215 -50 -71 -107 -155 -127 -185 -20 -30 -40 -57 -43 -60 -3 -3 -18 -25 -34 -49 -15 -25 -31 -49 -36 -55 -10 -12 -33 -45 -183 -266 -55 -80 -104 -148 -110 -152 -6 -4 -7 -8 -2 -8 5 0 0 -10 -11 -22 -11 -13 -60 -81 -109 -153 -48 -71 -111 -163 -139 -204 -27 -40 -54 -80 -60 -89 -5 -9 -18 -25 -27 -36 -10 -11 -20 -28 -24 -38 -3 -10 -9 -18 -14 -18 -4 0 -10 -8 -13 -17 -4 -10 -30 -52 -60 -93 -52 -73 -171 -246 -251 -365 -23 -33 -43 -62 -46 -65 -3 -3 -38 -54 -79 -115 -40 -60 -77 -111 -82 -113 -5 -2 -9 -8 -9 -14 0 -6 -23 -41 -50 -79 -28 -39 -56 -81 -62 -94 -6 -14 -15 -25 -19 -25 -4 0 -10 -8 -14 -19 -3 -10 -13 -28 -23 -39 -48 -57 -56 -67 -54 -70 2 -1 -5 -12 -14 -25 -25 -34 -285 -415 -398 -582 -55 -82 -104 -154 -109 -160 -18 -23 -157 -226 -157 -230 0 -8 -94 -140 -102 -143 -4 -2 -8 -8 -8 -13 0 -5 -29 -52 -65 -104 -36 -51 -65 -100 -65 -109 0 -25 66 -37 212 -40 57 -1 109 -5 116 -10 7 -4 12 -2 12 5 0 8 4 8 15 -1 8 -7 15 -9 15 -4 0 10 83 9 99 -1 6 -3 11 -3 11 2 0 10 111 10 127 0 5 -3 13 -4 17 0 5 6 246 11 758 16 98 1 178 6 178 10 0 4 6 4 14 0 8 -4 37 -6 65 -5 l50 4 66 99 c36 54 65 103 65 108 0 5 3 11 8 13 4 1 73 104 152 228 79 124 159 246 177 272 18 26 33 50 33 53 0 3 5 11 11 18 14 17 95 142 127 197 14 25 32 49 39 53 7 4 13 13 13 18 0 6 19 38 42 72 24 34 51 78 62 97 10 19 21 37 25 40 13 11 51 70 51 80 0 5 5 10 10 10 6 0 10 5 10 10 0 6 16 33 35 60 19 27 35 52 35 55 0 2 18 30 39 62 75 111 161 244 161 249 0 3 5 10 10 17 6 7 28 39 49 72 21 33 73 113 115 178 42 64 76 122 76 127 0 6 5 10 10 10 6 0 14 8 17 18 4 9 58 95 120 190 62 95 113 177 113 182 0 6 5 10 10 10 6 0 10 7 10 15 0 8 3 15 8 15 4 0 18 20 32 45 14 25 28 45 32 45 5 0 8 4 8 8 0 8 98 164 117 187 5 6 20 28 33 50 13 22 28 42 32 43 4 2 8 8 8 12 0 8 36 68 58 95 4 6 22 33 39 60 18 28 36 55 40 60 5 6 30 42 56 80 74 111 78 116 135 193 70 95 114 138 146 144 27 5 62 -26 136 -122 19 -25 37 -47 40 -50 3 -3 27 -34 53 -70 26 -36 54 -74 63 -85 39 -51 119 -166 253 -364 80 -119 149 -217 153 -219 4 -2 8 -8 8 -14 0 -8 77 -126 113 -173 4 -5 39 -55 77 -110 178 -258 258 -367 275 -377 12 -7 88 83 195 229 19 26 37 50 40 53 3 3 25 34 49 70 25 36 47 67 50 70 4 3 26 34 51 70 24 36 48 67 52 68 4 2 8 10 8 18 0 8 5 14 10 14 6 0 10 7 10 15 0 8 4 15 9 15 5 0 12 8 15 18 4 10 14 27 24 38 10 10 28 37 42 59 13 22 30 44 37 48 7 4 13 12 13 17 0 8 104 170 168 260 93 134 87 213 -31 398 -26 40 -47 77 -47 82 0 6 -4 10 -8 10 -4 0 -36 39 -70 88 -112 159 -185 257 -193 260 -5 2 -9 9 -9 14 0 6 -7 18 -15 27 -30 32 -95 121 -95 130 0 5 -4 11 -9 13 -12 4 -81 96 -81 107 0 5 -4 11 -9 13 -5 2 -52 62 -106 133 -124 166 -137 182 -155 205 -8 10 -22 28 -30 40 -8 12 -20 28 -25 34 -6 6 -40 49 -75 96 -36 46 -70 91 -77 100 -7 8 -26 33 -42 55 -17 22 -36 46 -43 54 -6 8 -42 55 -80 105 -79 105 -107 141 -128 165 -8 9 -28 35 -44 56 -17 22 -33 42 -36 45 -3 3 -17 21 -30 40 -13 19 -29 40 -35 46 -5 6 -23 28 -40 49 -16 21 -34 43 -40 49 -5 6 -32 40 -60 76 -27 36 -52 67 -55 70 -3 3 -37 44 -74 93 -38 48 -73 87 -78 87 -4 0 -8 6 -8 13 0 6 -22 34 -49 60 l-48 49 -69 -89z"/>
+                <path d="M8303 7062 c-39 -59 -107 -163 -151 -232 -45 -69 -85 -130 -90 -136 -5 -5 -15 -21 -22 -34 -7 -14 -19 -31 -27 -38 -7 -7 -13 -19 -13 -27 0 -7 -7 -15 -15 -19 -8 -3 -15 -12 -15 -21 0 -8 -4 -15 -9 -15 -5 0 -11 -8 -15 -17 -5 -18 -26 -53 -36 -63 -10 -10 -50 -69 -50 -74 0 -2 -22 -37 -49 -78 -26 -40 -70 -107 -96 -148 -26 -41 -74 -114 -107 -162 -32 -49 -58 -90 -58 -93 0 -2 -13 -24 -29 -47 -45 -65 -211 -320 -211 -323 0 -4 -108 -168 -120 -182 -5 -7 -10 -15 -10 -17 0 -3 -25 -42 -55 -87 -30 -45 -55 -83 -55 -84 0 -2 -31 -50 -68 -107 -38 -57 -124 -190 -193 -296 -125 -195 -139 -216 -173 -268 -10 -16 -48 -74 -84 -129 -36 -55 -87 -132 -114 -172 -26 -39 -48 -76 -48 -81 0 -6 -3 -12 -7 -14 -8 -3 -145 -203 -152 -222 -2 -6 -12 -19 -23 -30 -10 -11 -18 -26 -18 -33 0 -7 -4 -13 -10 -13 -5 0 -10 -6 -10 -14 0 -8 -3 -16 -7 -18 -5 -1 -26 -30 -48 -63 -22 -33 -43 -64 -48 -70 -4 -5 -32 -45 -63 -87 -64 -89 -88 -99 -144 -59 -71 50 -189 197 -366 456 -48 72 -92 132 -96 133 -4 2 -8 8 -8 14 0 8 -74 122 -90 138 -7 7 -29 42 -37 60 -4 8 -17 26 -30 40 -13 14 -23 28 -23 32 0 4 -15 28 -32 53 -18 26 -38 54 -43 63 -9 14 -68 102 -125 187 -8 12 -28 42 -45 66 -118 175 -199 273 -236 284 -24 8 -69 -12 -69 -31 0 -7 -4 -14 -8 -16 -5 -1 -56 -68 -115 -148 -59 -80 -115 -156 -124 -169 -99 -133 -361 -522 -408 -606 -16 -27 -34 -57 -40 -65 -17 -22 -68 -141 -68 -160 -1 -25 15 -70 24 -70 5 0 9 -5 9 -10 0 -14 120 -204 132 -208 4 -2 8 -10 8 -18 0 -8 5 -14 10 -14 6 0 10 -5 10 -10 0 -6 22 -41 50 -79 28 -38 50 -73 50 -79 0 -6 4 -12 8 -14 4 -1 75 -97 157 -213 82 -115 153 -214 158 -220 4 -5 26 -35 48 -65 21 -30 46 -64 55 -75 9 -11 39 -53 67 -92 28 -40 54 -73 59 -73 4 0 8 -7 8 -15 0 -8 5 -15 10 -15 6 0 10 -7 10 -15 0 -8 3 -15 8 -15 4 0 18 -17 32 -38 14 -20 27 -39 30 -42 3 -3 39 -50 80 -105 41 -55 79 -105 84 -111 6 -6 18 -22 26 -34 8 -12 35 -47 58 -78 24 -32 52 -68 63 -82 10 -14 47 -61 82 -106 34 -45 73 -96 87 -114 14 -18 71 -91 128 -163 56 -71 102 -134 102 -139 0 -5 5 -6 10 -3 6 3 10 2 10 -4 0 -24 296 -361 317 -361 15 0 101 99 176 201 54 74 129 176 140 189 7 8 30 42 52 75 22 33 45 65 50 70 6 6 26 34 45 62 19 29 38 53 43 53 4 0 7 5 7 10 0 8 64 103 97 145 9 11 81 117 98 143 6 9 20 27 33 41 12 14 22 31 22 38 0 6 4 13 8 15 4 2 48 61 96 132 49 71 100 146 115 167 14 20 33 47 41 59 8 12 27 39 41 59 53 76 134 193 144 209 6 10 13 19 16 22 3 3 19 25 35 49 68 104 175 258 226 328 21 29 38 55 38 58 0 4 19 32 43 63 24 31 52 72 62 90 11 17 23 32 28 32 4 0 6 4 3 9 -4 5 -3 11 2 13 4 1 23 27 42 56 18 28 37 52 42 52 4 0 8 5 8 10 0 6 12 28 28 49 15 21 33 47 40 57 6 11 46 68 87 127 41 59 75 112 75 118 0 5 3 9 8 9 4 0 27 32 51 70 24 39 48 70 53 70 4 0 8 5 8 10 0 12 33 61 64 98 11 12 16 22 13 22 -6 0 13 26 41 55 6 8 12 16 12 19 0 2 32 50 70 106 39 56 70 105 70 110 0 4 3 10 8 12 12 5 62 76 62 87 0 6 3 11 8 11 4 0 21 23 37 50 17 27 33 50 38 50 4 0 7 5 7 10 0 9 35 65 50 80 7 7 32 43 155 225 59 88 117 170 128 183 11 12 16 22 11 22 -5 0 -4 4 2 8 6 4 48 63 95 132 46 69 86 127 89 130 6 6 120 172 135 198 6 9 14 21 18 26 34 44 137 199 137 206 0 4 4 10 8 12 7 3 89 121 298 430 40 59 78 113 84 120 6 7 25 36 42 63 18 28 35 52 38 55 3 3 25 36 50 74 24 38 49 74 55 80 5 7 15 19 20 28 6 9 53 78 105 154 52 76 97 143 99 149 2 5 12 18 23 28 10 10 16 22 13 28 -4 5 -340 9 -853 9 l-848 -1 -71 -107z"/>
+            </g>
+        </svg>
+        <span style="font-size: 22px; font-weight: 200; letter-spacing: 0.4px;">
+            STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED
+        </span>
+    </div>
+</div>
+
+
+<div id="footer-html">
+    <div style="text-align: center; border-top: 1px solid #000;  background: #fff; font-family: 'Inter', Helvetica, Arial, sans-serif; line-height:1">
+        <span style="text-align: center; font-size: 9px; color: #333;">Registered Address: Flat 403, Fine Aura Co-operative Housing Society, Marol Military Road, Andheri East, Mumbai, Maharashtra - 400059</span></br>
+        <span style="text-align: center; font-size: 9px; color: #333;">Corporate Address: No.234, 1st Floor, 9th Main, 16th Cross, 6th Sector, HSR Layout, Bangalore, Karnataka, 560102</span></br>
+        <span style="text-align: center; font-size: 9px; font-weight: 700; color: #333;">CIN: U74999MH2021PTC358936</span>
+    </div>
+</div>
+
+
+{% if not target %}
+    <div class="cv-error">No task row found with id "{{ req_row }}".</div>
+{% elif not target.response_data or not target.response_snapshot_id %}
+    <div class="cv-error">This task has no filled response yet.</div>
+{% else %}
+    {%- set snapshot_doc = frappe.get_doc("Commission Report Template Snapshot", target.response_snapshot_id) if frappe.db.exists("Commission Report Template Snapshot", target.response_snapshot_id) else none -%}
+    {%- if not snapshot_doc -%}
+        <div class="cv-error">Snapshot not found.</div>
+    {%- else -%}
+        {%- set tpl = json.loads(snapshot_doc.payload) -%}
+        {%- set rd = json.loads(target.response_data) -%}
+
+        {%- set hdr_section   = (tpl.sections | selectattr("type", "equalto", "header") | list | first) -%}
+        {%- set chk_section   = (tpl.sections | selectattr("type", "equalto", "checklist") | list | first) -%}
+        {%- set tr_section    = (tpl.sections | selectattr("type", "equalto", "trainees_data_table") | list | first) -%}
+        {%- set mm_section    = (tpl.sections | selectattr("type", "equalto", "measurement_matrix") | list | first) -%}
+        {%- set notes_section = (tpl.sections | selectattr("type", "equalto", "fields") | list | first) -%}
+        {%- set proc_section  = (tpl.sections | selectattr("type", "equalto", "process") | list | first) -%}
+        {%- set img_section   = (tpl.sections | selectattr("type", "equalto", "image_attachments") | list | first) -%}
+        {%- set sig_section   = (tpl.sections | selectattr("type", "equalto", "signatures") | list | first) -%}
+        {# Per-report signature overrides written by the wizard's Signatures step.
+           `sig_disabled` = TDS-on roles the user unticked.
+           `sig_enabled`  = TDS-off roles the user ticked (manual override). #}
+        {%- set _sig_rd = ((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {} -%}
+        {%- set sig_disabled = _sig_rd.get("disabled") or [] -%}
+        {%- set sig_enabled  = _sig_rd.get("enabled")  or [] -%}
+
+        {# Landscape-only print format. Add `{% elif tpl.templateId == "…" %}`
+           branches here as more landscape reports are added. Portrait templates
+           are served by `commission-printformat.html`. #}
+        {% if tpl.templateId == "lt-cable-megger-test-report" %}
+
+            {# Layout matches the supplied reference image:
+                 - Top compact strip: VENDOR / PROJECT / LOCATION / DATE
+                 - 2-column band: INSULATION RESISTANCE title block (left)
+                   + borderless CABLE TYPE / CABLE MAKE / MEGGER MAKE+SERIAL NO (right)
+                 - Wide data table: SL NO + CABLE SIZE / FROM / TO + 10 phase cols
+                   under a "VALUES IN MΩ" super-header. Pass cells show value + ✓. #}
+            {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) if hdr_section else {} -%}
+
+            <table class="cv-page-layout">
+                <tr><td class="cv-content-cell">
+                    {% if hdr_section %}
+                        <table class="cv-table">
+                            {% for f in (hdr_section.fields or []) %}
+                                {% if f.key in ['vendor', 'project', 'location', 'date'] %}
+                                    <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% endif %}
+                            {% endfor %}
+                        </table>
+                        <div class="cv-spacer-md"></div>
+                        <table class="cv-table">
+                            <tr>
+                                <td style="width: 50%; vertical-align: top;">
+                                    <div style="font-weight: 700; font-size: 11px; text-decoration: underline;">INSULATION RESISTANCE</div>
+                                    <div style="margin-top: 4px;">{{ hdr_section.title or "INSULATION RESISTANCE TEST RESULTS OF VARIOUS CABLE" }}</div>
+                                    <div style="margin-top: 4px; font-style: italic;">({{ hvals.get('test_condition') or 'Test carried out with 500 Volt DC Megger' }})</div>
+                                </td>
+                                <td style="width: 50%; vertical-align: top; padding: 0;">
+                                    {# Borderless 3-line layout: CABLE TYPE / CABLE MAKE on own
+                                       lines, MEGGER MAKE + SERIAL NO combined on the third line. #}
+                                    {%- set ctype  = hvals.get('cable_type')  -%}
+                                    {%- set cmake  = hvals.get('cable_make')  -%}
+                                    {%- set mmake  = hvals.get('megger_make') -%}
+                                    {%- set serial = hvals.get('serial_no')   -%}
+                                    <div style="margin-bottom: 6px;">
+                                        <span style="font-weight: 700; text-decoration: underline;">CABLE TYPE:</span>
+                                        <span style="margin-left: 14px;">{%- if ctype is none or ctype == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ ctype }}{%- endif -%}</span>
+                                    </div>
+                                    <div style="margin-bottom: 6px;">
+                                        <span style="font-weight: 700;">CABLE MAKE:</span>
+                                        <span style="margin-left: 14px;">{%- if cmake is none or cmake == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ cmake }}{%- endif -%}</span>
+                                    </div>
+                                    <div>
+                                        <span style="font-weight: 700;">MEGGER MAKE</span>
+                                        <span style="margin: 0 28px 0 14px;">{%- if mmake is none or mmake == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ mmake }}{%- endif -%}</span>
+                                        <span style="font-weight: 700;">SERIAL NO :</span>
+                                        <span style="margin-left: 14px;">{%- if serial is none or serial == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ serial }}{%- endif -%}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    {% endif %}
+
+                    <div class="cv-spacer-md"></div>
+
+                    {% if tr_section %}
+                        {%- set rows_raw = (rd.responses or {}).get(tr_section.id, []) or [] -%}
+                        {%- set ns_rows = namespace(list=[]) -%}
+                        {%- for row in rows_raw -%}
+                            {%- set ns_row = namespace(any=false) -%}
+                            {%- for c in (tr_section.columns or []) -%}{%- if row is mapping and row.get(c.key) and row.get(c.key) != '' -%}{%- set ns_row.any = true -%}{%- endif -%}{%- endfor -%}
+                            {%- if ns_row.any -%}{%- set _ = ns_rows.list.append(row) -%}{%- endif -%}
+                        {%- endfor -%}
+                        {%- set meta_cols  = (tr_section.columns or []) | selectattr('key', 'in', ['cable_size', 'from', 'to']) | list -%}
+                        {%- set phase_cols = (tr_section.columns or []) | rejectattr('key', 'in', ['cable_size', 'from', 'to']) | list -%}
+                        {# Print-specific width overrides: cable_size gets more room
+                           (long names wrap to 1 line), phase cols get a smaller share
+                           with tighter padding. Wizard widths stay on the template for
+                           the on-screen view. #}
+                        {%- set print_widths = {'cable_size': '20%', 'from': '9%', 'to': '9%'} -%}
+                        <table class="cv-tr-table" style="font-size: 9px;">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2" style="width: 18px; padding: 4px 2px;">SL<br>NO</th>
+                                    {% for c in meta_cols %}
+                                        <th rowspan="2" style="width: {{ print_widths.get(c.key, c.width) }};">{{ c.label }}</th>
+                                    {% endfor %}
+                                    {% if phase_cols | length > 0 %}
+                                        <th colspan="{{ phase_cols | length }}">VALUES IN MΩ</th>
+                                    {% endif %}
+                                </tr>
+                                <tr>
+                                    {% for c in phase_cols %}
+                                        <th style="width: 5.5%; padding: 4px 2px;">{{ c.label }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in ns_rows.list %}
+                                    <tr class="cv-tr-row">
+                                        <td style="text-align: center; font-weight: 600;">{{ loop.index }}</td>
+                                        {% for c in meta_cols %}
+                                            {%- set v = row.get(c.key) if row is mapping else none -%}
+                                            <td>{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                        {% endfor %}
+                                        {% for c in phase_cols %}
+                                            {%- set v = row.get(c.key) if row is mapping else none -%}
+                                            {%- set is_pass = (c.default is defined) and v == c.default -%}
+                                            {# Drop the "MΩ" suffix on display — column-group
+                                               header says "VALUES IN MΩ" so the unit is
+                                               implied and the cell stays narrow. Uses plain
+                                               `replace` chain (regex_replace isn't in Frappe's
+                                               default Jinja env). #}
+                                            {%- set display_v = (v | string).replace(' MΩ', '').replace('MΩ', '').replace(' MOhm', '').replace('MOhm', '') | trim -%}
+                                            <td style="text-align: center; font-weight: 600; line-height: 1.1; padding: 3px 2px;">
+                                                {%- if v is none or v == '' -%}
+                                                    <span class="cv-blank">&nbsp;</span>
+                                                {%- else -%}
+                                                    {{ display_v }}
+                                                    {%- if is_pass -%}
+                                                        <br><span style="color: #16a34a; font-weight: 700; font-size: 10px;">✓</span>
+                                                    {%- endif -%}
+                                                {%- endif -%}
+                                            </td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+
+                </td></tr>
+                <tr><td class="cv-bottom-cell">
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                </td></tr>
+            </table>
+
+        {% else %}
+
+            <div class="cv-error">
+                ⚠ Template <strong>{{ tpl.templateId }}</strong> is not configured for the
+                landscape print format. If this template should print landscape, add a
+                branch in <code>ls-commission-printformat.html</code> and declare
+                <code>"printOrientation": "landscape"</code> in its source format. Otherwise
+                print it via the portrait <em>Project Commission Report - Filled Task</em>.
+            </div>
+
+        {% endif %}
+
+    {%- endif -%}
+{% endif %}

@@ -115,6 +115,10 @@ nirmaan_stack.patches.v3_0.backfill_cashflow_gap_limited #v4
 nirmaan_stack.patches.v3_0.backfill_tds_repository_status #v2
 nirmaan_stack.patches.v3_0.backfill_asset_category_type
 nirmaan_stack.patches.v3_0.backfill_blank_item_id
-
 nirmaan_stack.patches.v3_0.rename_cashflow_gap_limited #1
 nirmaan_stack.patches.v3_0.backfill_tendering_status_for_old_projects
+nirmaan_stack.patches.v3_0.backfill_work_order_items #2
+nirmaan_stack.patches.v3_0.purge_document_ai_credentials
+nirmaan_stack.patches.v3_0.sync_commission_master_changes
+nirmaan_stack.patches.v3_0.backfill_commission_report_type
+nirmaan_stack.patches.v3_0.backfill_billing_status

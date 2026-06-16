@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { PRCriticalTagsList } from "./components/PRCriticalTagsList";
 import { PRCriticalTagsTable } from "./components/PRCriticalTagsTable";
 import { PRCriticalTagsSummary } from "./components/PRCriticalTagsSummary";
@@ -106,6 +107,11 @@ const PRTrackerDetail: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* CEO Hold guard banner */}
+            {project.status === "CEO Hold" && (
+                <CEOHoldBanner heldBy={project.ceo_hold_by} />
+            )}
 
             {/* Common Summary Section */}
             <PRCriticalTagsSummary tags={tags || []} project={project} />

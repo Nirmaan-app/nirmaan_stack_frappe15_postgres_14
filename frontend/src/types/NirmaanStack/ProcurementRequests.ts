@@ -70,6 +70,7 @@ export interface ProcurementRequestItemDetail {
 	comment?: string;
 	vendor?: string;
 	quote?: number;
+	billing_status?: "Billable" | "Non-Billable";
 	parent?: string;
 	parentfield?: string;
 	parenttype?: string;

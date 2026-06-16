@@ -56,6 +56,78 @@ def _get_ceo_user():
     )
 
 
+def _notify_accountants_payment_ready(doc):
+    """Notify project accountants that a payment is Approved and ready to fulfil.
+
+    Shared by the CEO-approval transition (on_update) AND the small-payment
+    auto-approval path (after_insert). Project-scoped via get_allowed_accountants,
+    so it works for both Procurement Orders and Service Requests payments.
+    """
+    accountants = get_allowed_accountants(doc)
+    if not accountants:
+        print("No accountants found with push notifications enabled.")
+        return
+
+    project = frappe.get_doc("Projects", doc.project)
+    for user in accountants:
+        if user.get("push_notification") == "true":
+            notification_title = f"Payment Ready to Fulfil — {project.project_name}"
+            notification_body = (
+                f"Hi {user.get('full_name')}, a payment for {doc.document_name} is approved. "
+                "Please review and fulfil the payment."
+            )
+            click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=New%20Payments"
+            PrNotification(user, notification_title, notification_body, click_action_url)
+
+        message = {
+            "title": _("Payment Ready to Fulfil"),
+            "description": _(f"Payment for {doc.document_name} is approved and ready to fulfil."),
+            "project": doc.project, "sender": frappe.session.user, "docname": doc.name
+        }
+        new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+        new_notification_doc.update({
+            "recipient": user.get('name'), "recipient_role": user.get('role_profile'),
+            "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
+            "title": message["title"], "description": message["description"],
+            "document": 'Project Payments', "docname": doc.name, "project": doc.project,
+            "seen": "false", "type": "info", "event_id": "payment:ceo_approved",
+            "action_url": "project-payments?tab=New%20Payments"
+        })
+        new_notification_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        message["notificationId"] = new_notification_doc.name
+        frappe.publish_realtime(event="payment:ceo_approved", message=message, user=user.get('name'))
+
+
+def _notify_admins_auto_approved(doc):
+    """Informational 'record' note to admins that a small payment auto-approved.
+
+    In-app Nirmaan Notification + realtime only (no FCM push) — admins have no
+    action to take, this is purely for visibility/audit.
+    """
+    for user in get_admin_users() or []:
+        message = {
+            "title": _("Payment Auto-Approved"),
+            "description": _(f"Payment {doc.name} ({doc.document_name}) was auto-approved (amount below threshold)."),
+            "project": doc.project, "sender": frappe.session.user, "docname": doc.name
+        }
+        new_notification_doc = frappe.new_doc('Nirmaan Notifications')
+        new_notification_doc.update({
+            "recipient": user.get('name'), "recipient_role": user.get('role_profile'),
+            "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
+            "title": message["title"], "description": message["description"],
+            "document": 'Project Payments', "docname": doc.name, "project": doc.project,
+            "seen": "false", "type": "info", "event_id": "payment:auto_approved",
+            "action_url": "project-payments?tab=Approve%20Payments"
+        })
+        new_notification_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        message["notificationId"] = new_notification_doc.name
+        frappe.publish_realtime(event="payment:auto_approved", message=message, user=user.get('name'))
+
+
 # --- HOOK IMPLEMENTATIONS ---
 
 def validate(doc, method):
@@ -77,6 +149,15 @@ def after_insert(doc, method):
     # Skip notifications entirely during PO Revision — these hooks call frappe.db.commit()
     # which permanently commits the payment and destroys the ability to rollback on failure.
     if doc.flags.from_adjustment:
+        return
+
+    # Auto-approved small payment: it was inserted already in "Approved", so the
+    # CEO Pending → Approved transition that normally alerts accountants never
+    # fires. Emit that note here + an admin record note, and skip the misleading
+    # "new request → approve" admin notification (there is nothing to approve).
+    if doc.status == "Approved":
+        _notify_accountants_payment_ready(doc)
+        _notify_admins_auto_approved(doc)
         return
 
     admin_users = get_admin_users()
@@ -192,40 +273,7 @@ def on_update(doc, method):
         if doc.flags.get("bulk_approval"):
             # Bulk endpoint emits one summary notification per accountant per project.
             return
-        accountants = get_allowed_accountants(doc)
-        project = frappe.get_doc("Projects", doc.project)
-        if accountants:
-            for user in accountants:
-                if user.get("push_notification") == "true":
-                    notification_title = f"Payment Ready to Fulfil — {project.project_name}"
-                    notification_body = (
-                        f"Hi {user.get('full_name')}, the CEO has approved a payment for PO:{doc.document_name}. "
-                        "Please review and fulfil the payment."
-                    )
-                    click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=New%20Payments"
-                    PrNotification(user, notification_title, notification_body, click_action_url)
-
-                message = {
-                    "title": _("Payment Ready to Fulfil"),
-                    "description": _(f"CEO has approved the payment for PO: {doc.document_name}."),
-                    "project": doc.project, "sender": frappe.session.user, "docname": doc.name
-                }
-                new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-                new_notification_doc.update({
-                    "recipient": user.get('name'), "recipient_role": user.get('role_profile'),
-                    "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
-                    "title": message["title"], "description": message["description"],
-                    "document": 'Project Payments', "docname": doc.name, "project": doc.project,
-                    "seen": "false", "type": "info", "event_id": "payment:ceo_approved",
-                    "action_url": "project-payments?tab=New%20Payments"
-                })
-                new_notification_doc.insert(ignore_permissions=True)
-                frappe.db.commit()
-
-                message["notificationId"] = new_notification_doc.name
-                frappe.publish_realtime(event="payment:ceo_approved", message=message, user=user.get('name'))
-        else:
-            print("No accountants found with push notifications enabled.")
+        _notify_accountants_payment_ready(doc)
 
     elif old_doc.status == 'Approved' and doc.status == 'Paid':
         # Vendor credit recalculation on payment fulfillment

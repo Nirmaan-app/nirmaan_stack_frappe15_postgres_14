@@ -8,42 +8,34 @@ import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 
-export const getSRTotal = memoize(
-  (order: any) => {
-    let orderData: ServiceItemType[] = [];
-    if (typeof order?.service_order_list === "string") {
-      orderData = JSON.parse(order.service_order_list)?.list || [];
-    } else {
-      orderData = order?.service_order_list?.list || [];
-    }
+// Backend keeps `sr.total_amount` always fresh (computed in validate, includes
+// GST when sr.gst === "true"). Frontend should derive both totals from there
+// — no client-side reduce over child rows needed.
+//
+// Item-level functions (standard_rate, est-for-std) still iterate child rows
+// because that data isn't denormalized on the parent.
 
-    return orderData.reduce((acc, item) => {
-      const price = parseNumber(item?.rate);
-      const quantity = parseNumber(item?.quantity) || 1;
-      return acc + price * quantity;
-    }, 0);
-  }, (order: any) => JSON.stringify(order));
+export const getSRTotal = (order: any): number => {
+  const totalWithGst = parseNumber(order?.total_amount);
+  if (totalWithGst === 0) return 0;
+  return order?.gst === "true" ? totalWithGst / 1.18 : totalWithGst;
+};
 
 // Sum of standard_rate * qty across SR items. Falls back to rate-card lookup
 // (item_name -> rate) when standard_rate is missing on older SR documents.
+// Caller must supply work_order_items via `order.work_order_items`.
 export const getSRStandardTotal = (
   order: any,
   rateCardByName?: Record<string, number>
 ): number => {
-  let orderData: any[] = [];
-  if (typeof order?.service_order_list === "string") {
-    orderData = JSON.parse(order.service_order_list)?.list || [];
-  } else {
-    orderData = order?.service_order_list?.list || [];
-  }
-
-  return orderData.reduce((acc, item) => {
-    let stdRate = parseNumber(item?.standard_rate);
+  const rows: any[] = Array.isArray(order?.work_order_items) ? order.work_order_items : [];
+  return rows.reduce((acc, row) => {
+    let stdRate = parseNumber(row?.standard_rate);
     if (stdRate <= 0 && rateCardByName) {
-      stdRate = parseNumber(rateCardByName[item?.description]);
+      stdRate = parseNumber(rateCardByName[row?.item_name as string]);
     }
     if (stdRate <= 0) return acc;
-    const quantity = parseNumber(item?.quantity) || 1;
+    const quantity = parseNumber(row?.quantity) || 1;
     return acc + stdRate * quantity;
   }, 0);
 };
@@ -54,21 +46,15 @@ export const getSREstForStdItems = (
   order: any,
   rateCardByName?: Record<string, number>
 ): number => {
-  let orderData: any[] = [];
-  if (typeof order?.service_order_list === "string") {
-    orderData = JSON.parse(order.service_order_list)?.list || [];
-  } else {
-    orderData = order?.service_order_list?.list || [];
-  }
-
-  return orderData.reduce((acc, item) => {
-    let stdRate = parseNumber(item?.standard_rate);
+  const rows: any[] = Array.isArray(order?.work_order_items) ? order.work_order_items : [];
+  return rows.reduce((acc, row) => {
+    let stdRate = parseNumber(row?.standard_rate);
     if (stdRate <= 0 && rateCardByName) {
-      stdRate = parseNumber(rateCardByName[item?.description]);
+      stdRate = parseNumber(rateCardByName[row?.item_name as string]);
     }
     if (stdRate <= 0) return acc;
-    const price = parseNumber(item?.rate);
-    const quantity = parseNumber(item?.quantity) || 1;
+    const price = parseNumber(row?.rate);
+    const quantity = parseNumber(row?.quantity) || 1;
     return acc + price * quantity;
   }, 0);
 };
@@ -80,36 +66,25 @@ interface SRTotalResult {
   withoutGST: number;
 }
 
+// Sums the pre-computed `total_amount` from each SR. `total_amount` already
+// includes GST when sr.gst === "true", so withoutGST is derived by removing
+// the 18% from those rows only.
 export const getAllSRsTotal = memoize(
   (orders: ServiceRequests[]): SRTotalResult => {
     if (!orders?.length) return { withGST: 0, withoutGST: 0 };
 
     return orders.reduce(
-      (totals: SRTotalResult, item: ServiceRequests) => {
-        const gstMultiplier = item?.gst === "true" ? 1.18 : 1;
-
-        const itemTotal = item?.service_order_list?.list?.reduce(
-          (srTotal, i) => {
-            const srAmount = parseNumber(i.rate) * parseNumber(i.quantity);
-            return srTotal + srAmount;
-          },
-          0
-        ) || 0; // Ensure itemTotal is a number, default to 0 if undefined
-
-        totals.withoutGST += itemTotal;
-
-        if (item?.gst === "true") {
-          totals.withGST += (itemTotal * gstMultiplier);
-        } else {
-          totals.withGST += itemTotal;
-        }
-
+      (totals: SRTotalResult, sr: ServiceRequests) => {
+        const totalWithGst = parseNumber(sr?.total_amount);
+        const totalWithoutGst = sr?.gst === "true" ? totalWithGst / 1.18 : totalWithGst;
+        totals.withGST += totalWithGst;
+        totals.withoutGST += totalWithoutGst;
         return totals;
       },
       { withGST: 0, withoutGST: 0 }
     );
   },
-  (orders: ServiceRequests[]) => JSON.stringify(orders)
+  (orders: ServiceRequests[]) => JSON.stringify(orders?.map(s => [s.name, s.total_amount, s.gst]))
 );
 
 

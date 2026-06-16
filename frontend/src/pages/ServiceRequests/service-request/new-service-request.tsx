@@ -132,9 +132,17 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 // --- 1. PROJECT GST LOGIC (Frontend Implementation) ---
                 const projectGstToSet = project?.project_gst;
                 // --- END PROJECT GST LOGIC ---
+                const workOrderItems = orderList.list.map((item) => ({
+                    item_name: item.description,
+                    category: item.category,
+                    uom: item.uom,
+                    quantity: item.quantity || 0,
+                    rate: 0,
+                }));
                 const res = await createDoc('Service Requests', {
                     project: project?.name,
-                    service_order_list: orderList,
+                   
+                    work_order_items: workOrderItems,
                     service_category_list: categories,
                     status: "Created",
                     project_gst:projectGstToSet? projectGstToSet : undefined,

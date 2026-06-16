@@ -58,7 +58,7 @@ export const BulkStatusDialog: React.FC<BulkStatusDialogProps> = ({
 
     const isClarification = statusValue === 'Clarification Awaiting';
     const isRevision = statusValue === 'Revision Pending';
-    const isSubmitted = statusValue === 'Submitted';
+    const isSubmitted = statusValue === 'Submitted' || statusValue === 'Revision Submitted';
     const isApproved = statusValue === 'Approved';
     const isNotApplicable = statusValue === 'Not Applicable';
 

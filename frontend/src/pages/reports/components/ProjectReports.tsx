@@ -537,10 +537,10 @@ function CashSheetReport() {
                     </dd>
                   </div>
 
-                  {/* 5. Total Outflow */}
+                  {/* 5. Total Project Outflow */}
                   <div className="bg-gradient-to-br from-red-50 to-rose-50/50 dark:from-red-950/40 dark:to-rose-950/30 rounded-lg p-3 border border-red-100 dark:border-red-900/50">
                     <dt className="text-[10px] font-medium text-red-600/80 dark:text-red-400/80 uppercase tracking-wide mb-1">
-                      Total Outflow
+                      Total Project Outflow
                     </dt>
                     <dd className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums">
                       {formatValueToLakhsString(financialSummary.totalOutflow)}

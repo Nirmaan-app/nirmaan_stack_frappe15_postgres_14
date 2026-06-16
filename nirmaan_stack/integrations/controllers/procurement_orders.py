@@ -89,11 +89,31 @@ def validate(doc, method):
     # Guard only NEW docs so edits to legacy/operational POs are unaffected.
     if doc.is_new():
         validate_won(doc.project, "Procurement Order")
+    _set_po_billing_status(doc)
 
     old_doc = doc.get_doc_before_save()
     if old_doc and old_doc.status in ("Partially Dispatched", "Dispatched") and doc.status == "PO Approved":
         if frappe.db.exists("Delivery Notes", {"procurement_order": doc.name}):
             frappe.throw("Cannot revert PO with existing Delivery Notes")
+
+
+def _set_po_billing_status(doc):
+    """Roll up the PO-level billing status from its items (in-memory, no query).
+
+    Item-level billing_status is set explicitly wherever a PO item is created or
+    its item changes (approve_vendor_quotes, sent-back, merge, revision), so this
+    only aggregates: Billable if ANY item is Billable; Non-Billable only if items
+    exist and ALL are Non-Billable; empty otherwise (e.g. no items).
+    """
+    items = doc.get("items") or []
+    statuses = [(item.get("billing_status") or "") for item in items]
+
+    if "Billable" in statuses:
+        doc.billing_status = "Billable"
+    elif statuses and all(s == "Non-Billable" for s in statuses):
+        doc.billing_status = "Non-Billable"
+    else:
+        doc.billing_status = ""
 
 
 def on_update(doc, method):

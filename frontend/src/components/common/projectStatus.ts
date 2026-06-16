@@ -39,7 +39,7 @@ export const MANUAL_EXECUTION_STATUS_OPTIONS: ExecutionStatus[] = [
   "CEO Hold",
 ];
 
-export const DEFAULT_PROJECT_STATUS_FILTER: ExecutionStatus[] = ["WIP", "Handover"];
+export const DEFAULT_PROJECT_STATUS_FILTER: ExecutionStatus[] = ["WIP", "Handover", "CEO Hold"];
 
 // ---- Bid dimension (the `tendering_status` field) -------------------------
 

@@ -4,7 +4,7 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PROJECT_STATUS_BADGE_CLASSES } from "@/components/common/projectStatus";
+import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 // --- Phase Status Section (compact, left-border accent) ---
 interface ProjectWiseCardProps {
@@ -23,7 +23,9 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
     const statusCounts = useMemo(() => {
         let notApplicable = 0;
         let pending = 0;
-        let inProgress = 0;
+        let pendingApproval = 0;
+        let approved = 0;
+        let rejected = 0;
         let completed = 0;
 
         tasks.forEach((task: any) => {
@@ -32,8 +34,12 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                 notApplicable++;
             } else if (status === 'Pending') {
                 pending++;
-            } else if (status === 'In Progress') {
-                inProgress++;
+            } else if (status === 'Pending Approval') {
+                pendingApproval++;
+            } else if (status === 'Approved') {
+                approved++;
+            } else if (status === 'Rejected') {
+                rejected++;
             } else if (status === 'Completed') {
                 completed++;
             } else {
@@ -42,7 +48,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
             }
         });
 
-        return { notApplicable, pending, inProgress, completed };
+        return { notApplicable, pending, pendingApproval, approved, rejected, completed };
     }, [tasks]);
 
     const activeTasks = tasks.length - statusCounts.notApplicable;
@@ -62,11 +68,15 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
         <Card
             className={`
                 group flex flex-col justify-between
-                border border-gray-200 bg-white rounded-xl
+                border rounded-xl
                 transition-all duration-300 ease-in-out
                 hover:shadow-md hover:border-blue-400
                 cursor-pointer h-full min-h-[220px]
-                ${isHidden && showHiddenBadge ? 'border-orange-300 bg-orange-50/30' : 'border-gray-200'}
+                ${tracker.status_of_project === 'CEO Hold'
+                    ? 'border-red-300 bg-red-50 hover:bg-red-100'
+                    : isHidden && showHiddenBadge
+                        ? 'border-orange-300 bg-orange-50/30'
+                        : 'border-gray-200 bg-white'}
             `}
             onClick={onClick}
         >
@@ -88,15 +98,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                             <h3 className="font-semibold text-gray-900 text-lg leading-tight line-clamp-2">
                                 {tracker.project_name}
                             </h3>
-                            {tracker.status_of_project && (
-                                <Badge
-                                    variant="outline"
-                                    className={`text-[10px] px-1.5 py-0 shrink-0 font-medium ${PROJECT_STATUS_BADGE_CLASSES[tracker.status_of_project] || 'bg-gray-100 text-gray-700 border-gray-300'}`}
-                                    title="Project status"
-                                >
-                                    {tracker.status_of_project}
-                                </Badge>
-                            )}
+                            <ProjectStatusBadge status={tracker.status_of_project} />
                         </div>
                     </div>
                     {tracker.has_tracker ? (
@@ -143,10 +145,20 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                     <span className="text-amber-700">Pending</span>
                                     <span className="font-semibold text-amber-900">{statusCounts.pending}</span>
                                 </div>
-                                {/* In Progress */}
-                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-blue-50/80 rounded-md border border-blue-100">
-                                    <span className="text-blue-700">In Progress</span>
-                                    <span className="font-semibold text-blue-900">{statusCounts.inProgress}</span>
+                                {/* Pending Approval */}
+                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-indigo-50/80 rounded-md border border-indigo-100">
+                                    <span className="text-indigo-700">Pending Approval</span>
+                                    <span className="font-semibold text-indigo-900">{statusCounts.pendingApproval}</span>
+                                </div>
+                                {/* Approved */}
+                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-teal-50/80 rounded-md border border-teal-100">
+                                    <span className="text-teal-700">Approved</span>
+                                    <span className="font-semibold text-teal-900">{statusCounts.approved}</span>
+                                </div>
+                                {/* Rejected */}
+                                <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-red-50/80 rounded-md border border-red-100">
+                                    <span className="text-red-700">Rejected</span>
+                                    <span className="font-semibold text-red-900">{statusCounts.rejected}</span>
                                 </div>
                                 {/* Completed */}
                                 <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-green-50/80 rounded-md border border-green-100">

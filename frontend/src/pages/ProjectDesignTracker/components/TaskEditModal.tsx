@@ -121,6 +121,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 task_sub_status: task.task_sub_status,
                 file_link: task.file_link,
                 comments: task.comments,
+                last_submitted: task.last_submitted,
             });
 
             setExistingApprovalUrl(task.approval_proof || undefined);
@@ -187,11 +188,11 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
 
         // --- New Validations ---
 
-        // 1. File link required for "Submitted"
-        if (editState.task_status === "Submitted" && !editState.file_link?.trim()) {
+        // 1. File link required for "Submitted" / "Revision Submitted"
+        if ((editState.task_status === "Submitted" || editState.task_status === "Revision Submitted") && !editState.file_link?.trim()) {
             toast({
                 title: "File Link Required",
-                description: "A design file link is required before setting status to Submitted.",
+                description: `A design file link is required before setting status to ${editState.task_status}.`,
                 variant: "destructive"
             });
             return;
@@ -274,7 +275,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         }
     };
 
-    const isStatusSubmitted = editState.task_status === "Submitted";
+    const isStatusSubmitted = editState.task_status === "Submitted" || editState.task_status === "Revision Submitted";
     const isStatusApproved = editState.task_status === "Approved";
 
     return (
@@ -350,6 +351,13 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                                     if (!isStatusMapped && updated.task_sub_status) {
                                         updated.task_sub_status = "";
                                     }
+                                    const SUBMISSION = ["Submitted", "Revision Submitted"];
+                                    const wasSubmission = SUBMISSION.includes(prev.task_status || "");
+                                    const isSubmission = SUBMISSION.includes(newStatus);
+                                    if (isSubmission && !wasSubmission) {
+                                        const now = new Date();
+                                        updated.last_submitted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                                    }
                                     return updated;
                                 });
                             }}
@@ -398,6 +406,19 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                             disabled={isRestrictedMode}
                         />
                     </div>
+
+                    {/* Last Submitted — editable; defaults to today on fresh entry into Submitted / Revision Submitted */}
+                    {isStatusSubmitted && (
+                        <div className="space-y-1">
+                            <Label htmlFor="last_submitted">Last Submitted Date</Label>
+                            <Input
+                                id="last_submitted"
+                                type="date"
+                                value={editState.last_submitted || ''}
+                                onChange={(e) => setEditState(prev => ({ ...prev, last_submitted: e.target.value || undefined }))}
+                            />
+                        </div>
+                    )}
 
                     {/* File Link */}
                     <div className="space-y-1.5">

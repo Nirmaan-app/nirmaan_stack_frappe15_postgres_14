@@ -19,9 +19,13 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 			"category_counts": Dict mapping category to number of POs containing it
 		}
 	"""
-	# Build filters for Procurement Orders
+	# Build filters for Procurement Orders.
+	# Only Billable POs are eligible for DC / MIR — Non-Billable POs are excluded
+	# entirely (not shown). The parent rollup is Billable when the PO has at least
+	# one Billable item.
 	filters = {
 		"status": ["in", ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]],
+		"billing_status": "Billable",
 		# "total_amount": [">=", 5000]
 	}
 
@@ -38,6 +42,7 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 			"vendor",
 			"vendor_name",
 			"status",
+			"billing_status",
 			"dispatch_date",
 			"latest_delivery_date",
 			"procurement_request",
@@ -91,7 +96,8 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 					"amount": flt(item.amount) if item.amount else 0,
 					"procurement_package": item.procurement_package,
 					"comment": item.comment,
-				"is_dispatched": item.is_dispatched
+				"is_dispatched": item.is_dispatched,
+					"billing_status": item.billing_status
 				})
 
 			# Increment category counts for this PO
@@ -105,6 +111,7 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 				"vendor": po.vendor,
 				"vendor_name": po.vendor_name,
 				"status": po.status,
+				"billing_status": po.billing_status,
 				"dispatch_date": po.dispatch_date,
 				"latest_delivery_date": po.latest_delivery_date,
 				"procurement_request": po.procurement_request,

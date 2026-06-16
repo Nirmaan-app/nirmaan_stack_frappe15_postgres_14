@@ -5,6 +5,7 @@ import { ColumnDef, Row } from "@tanstack/react-table";
 import {
   FrappeConfig,
   FrappeContext,
+  useFrappeGetCall,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
   useFrappePostCall,
@@ -188,7 +189,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   } = useFrappeGetDocList<ServiceRequests>(
     DOC_TYPES.SERVICE_REQUESTS,
     {
-      fields: ["name", "status", "service_order_list", "gst"],
+      fields: ["name", "status", "gst", "total_amount"],
       filters: [["status", "in", ["Approved", "Amendment"]]],
       limit: 10000,
     },
@@ -290,14 +291,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           return order?.total_amount || 0;
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
           const order = serviceOrders?.find((sr) => sr.name === docName);
-          if (!order || !order.service_order_list?.list) return 0;
-
-          const srTotal = order.service_order_list.list.reduce(
-            (acc, item) =>
-              acc + parseNumber(item.rate) * parseNumber(item.quantity),
-            0
-          );
-          return order.gst === "true" ? srTotal * 1.18 : srTotal;
+          // `total_amount` is fresh on every save (validate) and already
+          // includes GST when sr.gst === "true". No need to recompute.
+          return parseNumber(order?.total_amount);
         }
         return 0;
       }),
@@ -652,7 +648,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           <DataTableColumnHeader column={column} title="Req. Amt" />
         ),
         cell: ({ row }) => (
-          <div className="font-medium pr-2">
+          <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">
             {formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}
           </div>
         ),
