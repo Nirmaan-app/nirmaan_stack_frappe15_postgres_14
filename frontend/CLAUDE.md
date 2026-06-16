@@ -317,6 +317,13 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Minimal touch (2026-06-16 -- Phase 5 Slice 2.5, BACKEND ONLY, feat 49b77635):** The committed BOQ Nodes tier
+is now CAPTURE-ONLY -- removed all write-chain money compute (parent `_compute_amounts` +
+`_recompute_parent_rates_from_areas`; child `_apply_rate_fallback` + `_compute_child_amounts`) so reviewed values
+persist verbatim; `is_rate_only` no longer auto-set (carried from the review row by Slice 3); `read_only` dropped on
+the amount fields + is_rate_only; all structural invariants kept; test_boq_nodes 71/71 green (now certifies
+capture-only). NO FRONTEND CHANGE. Full detail in root `CLAUDE.md` + `boq-upload-plan.md` "Phase 5 Slice 2.5".
+
 **Minimal touch (2026-06-16 -- Phase 5 Slice 2, BACKEND ONLY, feat b93ec41c):** Added the commit GATE --
 `api/boq/wizard/commit_gate.py` with `get_committable_sheets(boq_name)` (READ-ONLY eligibility: general-specs
 pointer + Finalized -> committable, separate from parse-eligibility). NO FRONTEND CHANGE this slice; the hub
