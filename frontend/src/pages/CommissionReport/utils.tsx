@@ -3,19 +3,19 @@ import { Badge } from "@/components/ui/badge";
 
 
 // Status color mapping for Commission Report
-// - Completed        -> Green
-// - Approved         -> Teal
+// - Client Accepted  -> Green
+// - Submitted        -> Teal
 // - Pending Approval -> Indigo
 // - Pending          -> Amber
 // - Not Applicable   -> Gray
 export const getUnifiedStatusStyle = (status: string) => {
     if (!status) return 'bg-gray-50 text-gray-700 border border-gray-200';
 
-    if (status === 'Completed') {
+    if (status === 'Client Accepted') {
         return 'bg-green-50 text-green-700 border border-green-200';
     }
 
-    if (status === 'Approved') {
+    if (status === 'Submitted') {
         return 'bg-teal-50 text-teal-700 border border-teal-200';
     }
 

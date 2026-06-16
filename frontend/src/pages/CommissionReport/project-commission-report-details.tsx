@@ -888,7 +888,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     // Note: Exclude "Not Applicable" tasks from metrics to match backend calculation
     const applicableTasks = phaseTasks.filter(t => t.task_status !== 'Not Applicable');
     const totalTasks = applicableTasks.length;
-    const completedTasks = applicableTasks.filter(t => t.task_status === 'Completed').length;
+    const completedTasks = applicableTasks.filter(t => t.task_status === 'Client Accepted').length;
     const completionPercentage = totalTasks > 0
         ? Math.round((completedTasks / totalTasks) * 100)
         : 0;
@@ -1336,7 +1336,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                             <div>
                                                 <div className="flex items-center gap-1 mb-0.5">
                                                     <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                                    <span className="text-[10px] text-gray-500">Completed</span>
+                                                    <span className="text-[10px] text-gray-500">Client Accepted</span>
                                                 </div>
                                                 <span className={`text-lg font-bold ${progressColor}`}>
                                                     {completedTasks}/{totalTasks}
@@ -1347,7 +1347,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                         {/* Compact status breakdown */}
                                         <div className="flex flex-wrap gap-1.5 mt-2">
                                             {Object.entries(statusCounts)
-                                                .filter(([s]) => s !== 'Completed' && s !== 'Not Applicable')
+                                                .filter(([s]) => s !== 'Client Accepted' && s !== 'Not Applicable')
                                                 .filter(([, c]) => c > 0)
                                                 .slice(0, 4) // Limit on mobile
                                                 .map(([status, count]) => (
@@ -1475,7 +1475,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                 <div>
                                     <div className="flex items-center gap-1.5 mb-1">
                                         <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                        <span className="text-sm text-gray-500">Report Completed</span>
+                                        <span className="text-sm text-gray-500">Report Client Accepted</span>
                                     </div>
                                     <div className="flex items-baseline gap-1">
                                         <span className={`text-3xl font-bold tabular-nums ${progressColor}`}>
@@ -1492,7 +1492,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                             {/* Status Breakdown */}
                             <div className="flex-1 flex flex-wrap gap-2 justify-end">
                                 {Object.entries(statusCounts)
-                                    .filter(([status]) => status !== 'Completed' && status !== 'Not Applicable')
+                                    .filter(([status]) => status !== 'Client Accepted' && status !== 'Not Applicable')
                                     .filter(([, count]) => count > 0)
                                     .map(([status, count]) => (
                                         <div

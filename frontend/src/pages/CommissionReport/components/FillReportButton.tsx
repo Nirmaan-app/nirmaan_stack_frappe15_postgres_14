@@ -5,8 +5,8 @@
 // for rare/secondary actions like view/print/replace).
 //
 //   Field : Pending --[Fill]--> (filled) --[Send]--> Pending Approval
-//           --(admin Approve)--> Approved --[Upload Signed]--> Completed
-//   Vendor: Pending --[Upload]--> Completed
+//           --(admin Approve)--> Submitted --[Upload Signed]--> Client Accepted
+//   Vendor: Pending --[Upload]--> Client Accepted
 // Read-only roles only ever see a small View icon.
 
 import React, { useRef, useState } from 'react';
@@ -86,7 +86,7 @@ export const FillReportButton: React.FC<Props> = ({ parentName, task, masterMap,
         navigate(`/commission-tracker/${parentName}/task/${task.name}/fill?mode=${mode}`);
 
     // Download is only permitted once the report is approved/completed.
-    const canDownloadPreview = status === 'Approved' || status === 'Completed';
+    const canDownloadPreview = status === 'Submitted' || status === 'Client Accepted';
 
     const sendForApproval = async () => {
         setBusy(true);
@@ -117,7 +117,7 @@ export const FillReportButton: React.FC<Props> = ({ parentName, task, masterMap,
             });
             await updateTaskChild(task.name, {
                 approval_proof: uploaded.file_url,
-                task_status: 'Completed',
+                task_status: 'Client Accepted',
                 last_submitted: todayDate(),
             });
             toast({ title: 'Report completed', variant: 'success' });
@@ -191,8 +191,8 @@ export const FillReportButton: React.FC<Props> = ({ parentName, task, masterMap,
     // Field task with no report template — nothing to fill/generate.
     if (!isVendor && !hasTemplate) return note('No Template');
 
-    // COMPLETED → View report (preview; download available inside the dialog) + Replace.
-    if (status === 'Completed') {
+    // CLIENT ACCEPTED → View report (preview; download available inside the dialog) + Replace.
+    if (status === 'Client Accepted') {
         const out: React.ReactNode[] = [];
         if (hasTemplate && hasResponse) {
             out.push(
@@ -239,8 +239,8 @@ export const FillReportButton: React.FC<Props> = ({ parentName, task, masterMap,
         );
     }
 
-    // APPROVED → primary action is uploading the client-signed PDF.
-    if (status === 'Approved') {
+    // SUBMITTED → primary action is uploading the client-signed PDF.
+    if (status === 'Submitted') {
         if (!canEdit) return note('Awaiting signature', 'text-teal-600');
         return wrap(
             <>

@@ -8,9 +8,9 @@ TASK_STATUSES = [
     "Not Applicable",
     "Pending",
     "Pending Approval",
-    "Approved",
+    "Submitted",
     "Rejected",
-    "Completed"
+    "Client Accepted"
 ]
 
 UNASSIGNED_SENTINEL = "__unassigned__"

@@ -39,13 +39,13 @@ class ProjectCommissionReport(Document):
         import frappe
         old_tasks_map = self._get_old_tasks_map()
         for task in self.get("commission_report_task", []):
-            # Only enforce when a task is newly moved to Completed.
-            if task.task_status != "Completed":
+            # Only enforce when a task is newly moved to Client Accepted.
+            if task.task_status != "Client Accepted":
                 continue
 
             old_task = old_tasks_map.get(task.name)
             old_status = old_task.task_status if old_task else None
-            if old_status == "Completed":
+            if old_status == "Client Accepted":
                 continue
 
             has_file_link = bool((task.file_link or "").strip())
@@ -54,7 +54,7 @@ class ProjectCommissionReport(Document):
 
             if not (has_file_link or has_attachment or has_response):
                 frappe.throw(
-                    f"Task '{task.task_name}' requires a report link, an attachment, or a filled wizard response before setting status to Completed.",
+                    f"Task '{task.task_name}' requires a report link, an attachment, or a filled wizard response before setting status to Client Accepted.",
                     title="Report Evidence Required"
                 )
 
@@ -76,6 +76,6 @@ class ProjectCommissionReport(Document):
             old_status = old_task.task_status if old_task else None
             new_status = task.task_status
 
-            # Stamp the date when status newly changes to Completed.
-            if new_status == "Completed" and old_status != "Completed":
+            # Stamp the date when status newly changes to Client Accepted.
+            if new_status == "Client Accepted" and old_status != "Client Accepted":
                 task.last_submitted = nowdate()

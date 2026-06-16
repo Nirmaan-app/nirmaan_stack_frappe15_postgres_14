@@ -7,8 +7,8 @@
 //   Pending  (Field, draft)  -> Submit for Approval   (More: Edit)
 //   Pending  (Vendor)        -> Upload Report
 //   Pending Approval         -> View Submission        (+ "awaiting approval")
-//   Approved                 -> Download Report + Upload Signed (helper text)
-//   Completed                -> View Signed Report      (More: Replace)
+//   Submitted                -> Download Report + Upload Signed (helper text)
+//   Client Accepted          -> View Signed Report      (More: Replace)
 //   Not Applicable           -> (muted) + Re-activate in More
 
 import React, { useRef, useState } from 'react';
@@ -82,7 +82,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     const info = masterMap.get(masterMapKey(task.commission_category, task.task_name));
     const hasTemplate = !!info?.hasTemplate;
     const isLandscape = !!info?.isLandscape;
-    const canDownload = status === 'Approved' || status === 'Completed';
+    const canDownload = status === 'Submitted' || status === 'Client Accepted';
 
     // Generated print-format PDF (from the wizard answers) vs the uploaded file.
     const genUrl = buildPdfUrl(parentName, task.name, isLandscape);
@@ -122,7 +122,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
             });
             await updateTaskChild(task.name, {
                 approval_proof: uploaded.file_url,
-                task_status: 'Completed',
+                task_status: 'Client Accepted',
                 last_submitted: todayDate(),
             });
             toast({ title: 'Report completed', variant: 'success' });
@@ -159,10 +159,10 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     if (canEdit && status === 'Pending' && !isVendor && hasResponse) {
         moreItems.push({ icon: FileEdit, label: 'Edit submission', onClick: () => goWizard('edit') });
     }
-    if (canEdit && status === 'Approved') {
+    if (canEdit && status === 'Submitted') {
         moreItems.push({ icon: Upload, label: 'Upload Signed Copy', onClick: triggerUpload });
     }
-    if (canEdit && status === 'Completed' && hasFile) {
+    if (canEdit && status === 'Client Accepted' && hasFile) {
         moreItems.push({ icon: ReplaceIcon, label: 'Replace Signed Copy', onClick: triggerUpload });
     }
     if (canDownload && hasTemplate) {
@@ -175,7 +175,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
         moreItems.push({ icon: RotateCcw, label: 'Re-activate (Pending)', onClick: () => setStatus('Pending') });
     }
     // Admin-only: reopen a submitted/approved/completed Field report back to Pending.
-    if (isAdmin && !isVendor && (status === 'Pending Approval' || status === 'Approved' || status === 'Completed')) {
+    if (isAdmin && !isVendor && (status === 'Pending Approval' || status === 'Submitted' || status === 'Client Accepted')) {
         moreItems.push({ icon: RotateCcw, label: 'Send back to Pending', onClick: () => setStatus('Pending'), danger: true });
     }
     if (canEdit && onConfigure) {
@@ -244,7 +244,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
         return shell(<span className="text-[11px] text-gray-400">No Template</span>);
     }
 
-    if (status === 'Completed') {
+    if (status === 'Client Accepted') {
         // The uploaded PDF is the final artifact (vendor's report or the client-signed copy).
         const label = isVendor ? 'View Vendor Report' : 'View Signed Report';
         if (uploadedHref) {
@@ -253,11 +253,11 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
         return shell(
             hasTemplate
                 ? primaryBtn(Eye, 'View report', () => openPreview(genUrl, true, task.task_name))
-                : <span className="text-[11px] text-green-600">Completed</span>,
+                : <span className="text-[11px] text-green-600">Client Accepted</span>,
         );
     }
 
-    if (status === 'Approved') {
+    if (status === 'Submitted') {
         if (!canEdit) {
             return shell(
                 hasTemplate ? primaryBtn(Eye, 'View report', () => openPreview(genUrl, true, task.task_name)) : <span className="text-[11px] text-teal-600">Awaiting signature</span>,

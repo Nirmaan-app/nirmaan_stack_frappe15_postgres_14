@@ -1,5 +1,5 @@
 // Approve / Reject confirmation dialog for the commission approval queue.
-//   Approve: confirm → status Approved (team handles download → sign → upload later).
+//   Approve: confirm → status Submitted (team handles download → sign → upload later).
 //   Reject:  confirm → status Rejected (team Resolves + resubmits).
 
 import React, { useEffect, useState } from 'react';
@@ -42,12 +42,12 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
     const doApprove = async () => {
         setBusy(true);
         try {
-            await updateTaskChild(task.name, { task_status: 'Approved' });
-            toast({ title: 'Approved', variant: 'success' });
+            await updateTaskChild(task.name, { task_status: 'Submitted' });
+            toast({ title: 'Submitted', variant: 'success' });
             refresh?.();
             close();
         } catch {
-            toast({ title: 'Approval failed', variant: 'destructive' });
+            toast({ title: 'Submit failed', variant: 'destructive' });
         } finally {
             setBusy(false);
         }
@@ -105,11 +105,11 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-base">
-                        <Check className="h-4 w-4 text-green-600" /> Approve report?
+                        <Check className="h-4 w-4 text-green-600" /> Submit report?
                     </DialogTitle>
                     <DialogDescription className="text-sm">
-                        Approve <span className="font-medium text-gray-700">{task.task_name}</span>? The team can
-                        then download the report, get the client signature, and upload the signed copy to complete it.
+                        Submit <span className="font-medium text-gray-700">{task.task_name}</span>? The team can
+                        then download the report, get the client signature, and upload the signed copy to mark it Client Accepted.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter className="gap-2 sm:gap-2">
@@ -121,7 +121,7 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
                         disabled={busy}
                     >
                         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                        Approve
+                        Submit
                     </Button>
                 </DialogFooter>
             </DialogContent>

@@ -1,5 +1,5 @@
 // Global approvals queue on the Commission Report list page (Admin / PMO).
-// Same DataTable UX as the Task Wise tab, filtered to "Pending Approval" + "Approved",
+// Same DataTable UX as the Task Wise tab, filtered to "Pending Approval" + "Submitted",
 // with Approve / Reject + the report actions per row. Reuses get_task_wise_list.
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -185,7 +185,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8 text-green-600 hover:bg-green-50"
-                            title="Approve"
+                            title="Submit"
                             onClick={() => openApproval(task, 'approve')}
                         >
                             <Check className="h-4 w-4" />

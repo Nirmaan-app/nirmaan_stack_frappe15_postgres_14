@@ -20,7 +20,7 @@ export const FilesCell: React.FC<FilesCellProps> = ({ file_link, approval_proof,
     // Show exactly one source in table:
     // 1) Uploaded attachment (approval_proof) has priority
     // 2) Otherwise show external link
-    const isCompleted = task_status === 'Completed';
+    const isCompleted = task_status === 'Client Accepted';
     const activeFile = isCompleted
         ? (approval_proof
             ? {

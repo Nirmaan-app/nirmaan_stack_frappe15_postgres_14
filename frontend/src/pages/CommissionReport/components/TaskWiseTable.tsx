@@ -188,9 +188,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
             options: [
                 { label: "Pending", value: "Pending" },
                 { label: "Pending Approval", value: "Pending Approval" },
-                { label: "Approved", value: "Approved" },
+                { label: "Submitted", value: "Submitted" },
                 { label: "Rejected", value: "Rejected" },
-                { label: "Completed", value: "Completed" },
+                { label: "Client Accepted", value: "Client Accepted" },
             ],
         },
         report_type: {

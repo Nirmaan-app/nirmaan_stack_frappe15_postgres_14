@@ -8,9 +8,9 @@ export const TASK_STATUS_OPTIONS = [
     { label: "Not Applicable", value: "Not Applicable" },
     { label: "Pending", value: "Pending" },
     { label: "Pending Approval", value: "Pending Approval" },
-    { label: "Approved", value: "Approved" },
+    { label: "Submitted", value: "Submitted" },
     { label: "Rejected", value: "Rejected" },
-    { label: "Completed", value: "Completed" },
+    { label: "Client Accepted", value: "Client Accepted" },
 ];
 
 // Who fills the report. Default 'Field'.

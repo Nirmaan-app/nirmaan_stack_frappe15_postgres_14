@@ -34,7 +34,7 @@ export interface CommissionReportTask {
     report_type?: 'Field' | 'Vendor';
 
     // Status & Tracking (Server Names)
-    task_status: 'Not Applicable' | 'Pending' | 'Pending Approval' | 'Approved' | 'Rejected' | 'Completed';
+    task_status: 'Not Applicable' | 'Pending' | 'Pending Approval' | 'Submitted' | 'Rejected' | 'Client Accepted';
     task_sub_status?: string;
     file_link?: string;
     approval_proof?: string;
