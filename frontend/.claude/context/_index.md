@@ -4,6 +4,14 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 ---
 
+## Active Plans
+
+| Plan | Feature | Status |
+|------|---------|--------|
+| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phase 0 complete — design approved |
+
+---
+
 ## Available Context Files
 
 | File | Domain | When to Load |

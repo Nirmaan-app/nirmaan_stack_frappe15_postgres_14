@@ -15,8 +15,10 @@ interface ProjectMilestoneSelectProps {
 
 export default function ProjectMilestoneSelect({ onChange, universal = true }: ProjectMilestoneSelectProps) {
 
-    // Filters for projects: must have milestone tracking enabled and not be in Completed status
+    // Only Won projects can be selected for operational milestone work. The
+    // legacy "Cancelled" filter is preserved for any historical rows.
     const projectMilestoneFilters: any[] = [
+        ["tendering_status", "=", "Won"],
         ["status", "!=", "Cancelled"],
         ["enable_project_milestone_tracking", "=", 1] // Projects must have milestone tracking enabled
     ];

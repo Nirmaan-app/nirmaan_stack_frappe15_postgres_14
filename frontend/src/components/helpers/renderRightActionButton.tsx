@@ -52,8 +52,14 @@ export const RenderRightActionButton = ({
   const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
-     if (locationPath === "/projects" && role === "Nirmaan Project Manager Profile") {
-      return null;
+    // "Add New Project" is gated to Nirmaan Admin + PMO Executive (and the
+    // Administrator user). Same set as canManageTendering — only roles that
+    // can also manage Tendering / Lost / Convert flows.
+    if (locationPath === "/projects") {
+      const canCreateProject =
+        user_id === "Administrator" ||
+        ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
+      if (!canCreateProject) return null;
     }
     const routeInfo = newButtonRoutes[locationPath];
     return (

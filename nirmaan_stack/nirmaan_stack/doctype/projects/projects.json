@@ -33,6 +33,7 @@
   "estimates_exec",
   "accountant",
   "project_work_details_section",
+  "tendering_status",
   "status",
   "ceo_hold_by",
   "project_work_packages",
@@ -163,6 +164,12 @@
    "fieldname": "subdivision_list",
    "fieldtype": "JSON",
    "label": "Subdivision List"
+  },
+  {
+   "fieldname": "tendering_status",
+   "fieldtype": "Select",
+   "label": "Tendering Status",
+   "options": "\nTendering\nWon\nLost"
   },
   {
    "fieldname": "status",
